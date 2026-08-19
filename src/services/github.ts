@@ -6,6 +6,11 @@ export type RepositoryRef = {
   url: string;
 };
 
+export type RepositoryOwner = {
+  login: string;
+  type: string;
+};
+
 const GITHUB_EVENTS = [
   "push",
   "pull_request",
@@ -44,16 +49,20 @@ export class GitHubWebhookService {
     this.octokit = new Octokit({ auth: token });
   }
 
-  async assertRepositoryExists(repository: RepositoryRef): Promise<void> {
-    await this.octokit.rest.repos.get({ owner: repository.owner, repo: repository.repo });
-  }
+  async getRepositoryOwner(repository: RepositoryRef): Promise<RepositoryOwner> {
+    const { data } = await this.octokit.rest.repos.get({
+      owner: repository.owner,
+      repo: repository.repo,
+    });
 
-  async assertOrganization(org: string): Promise<void> {
-    try {
-      await this.octokit.rest.orgs.get({ org });
-    } catch {
-      throw new Error(`GitHub owner "${org}"를 Organization으로 확인할 수 없습니다.`);
+    if (!data.owner?.login || !data.owner.type) {
+      throw new Error(`GitHub 저장소 owner 정보를 확인할 수 없습니다: ${repository.url}`);
     }
+
+    return {
+      login: data.owner.login,
+      type: data.owner.type,
+    };
   }
 
   async createDiscordWebhook(repository: RepositoryRef, discordWebhookUrl: string): Promise<number> {
