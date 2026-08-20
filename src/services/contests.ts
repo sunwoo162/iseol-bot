@@ -38,7 +38,6 @@ type SourceDefinition = {
   buildListUrl: (page: number) => string;
   detailUrlPattern: RegExp;
   trustItCategory?: boolean;
-  titlePrefilter?: boolean;
 };
 
 const SOURCES: SourceDefinition[] = [
@@ -63,7 +62,6 @@ const SOURCES: SourceDefinition[] = [
     maxPages: 30,
     buildListUrl: (page) => `https://www.contestkorea.com/sub/list.php?Txt_bcode=030310001&int_gbn=1&page=${page}`,
     detailUrlPattern: /\/sub\/view\.php\?.*str_no=/i,
-    trustItCategory: true,
   },
   {
     source: "올콘",
@@ -78,7 +76,6 @@ const SOURCES: SourceDefinition[] = [
     maxPages: 50,
     buildListUrl: (page) => `https://linkareer.com/list/contest?page=${page}`,
     detailUrlPattern: /\/activity\/\d+(?:[/?#]|$)/i,
-    titlePrefilter: true,
   },
   {
     source: "대티즌",
@@ -86,7 +83,6 @@ const SOURCES: SourceDefinition[] = [
     maxPages: 1,
     buildListUrl: () => "https://www.detizen.com/",
     detailUrlPattern: /\/contests\/[^/?#]+(?:[/?#]|$)/i,
-    titlePrefilter: true,
   },
   {
     source: "스펙토리",
@@ -98,15 +94,11 @@ const SOURCES: SourceDefinition[] = [
   },
 ];
 
-const IT_KEYWORDS = [
-  "it",
-  "ict",
-  "ai",
+const KOREAN_IT_KEYWORDS = [
   "인공지능",
   "데이터",
   "빅데이터",
   "소프트웨어",
-  "sw",
   "웹",
   "앱",
   "모바일",
@@ -117,16 +109,20 @@ const IT_KEYWORDS = [
   "디지털",
   "클라우드",
   "오픈소스",
-  "iot",
   "보안",
   "정보통신",
-  "api",
   "알고리즘",
   "반도체",
   "로봇",
   "핀테크",
   "블록체인",
+  "컴퓨터",
+  "전산",
+  "공학",
+  "기술",
 ];
+
+const ASCII_IT_PATTERN = /(?:^|[^a-z0-9])(?:it|ict|ai|sw|iot|api)(?=$|[^a-z0-9])/i;
 
 function decodeHtml(value: string): string {
   const named: Record<string, string> = {
@@ -184,9 +180,10 @@ function normalizeTitle(value: string): string {
     .trim();
 }
 
-function isItRelated(value: string): boolean {
+function isItCategory(value: string): boolean {
   const normalized = value.normalize("NFKC").toLowerCase();
-  return IT_KEYWORDS.some((keyword) => normalized.includes(keyword));
+  return KOREAN_IT_KEYWORDS.some((keyword) => normalized.includes(keyword))
+    || ASCII_IT_PATTERN.test(normalized);
 }
 
 function extractCandidates(html: string, source: SourceDefinition): Candidate[] {
@@ -203,7 +200,6 @@ function extractCandidates(html: string, source: SourceDefinition): Candidate[] 
 
     const title = stripTags(body);
     if (!title || title.length < 2) continue;
-    if (source.titlePrefilter && !isItRelated(title)) continue;
 
     candidates.push({
       title,
@@ -285,6 +281,35 @@ function findValueNear(lines: string[], labels: string[], take = 3): string | un
     const values = lines.slice(index + 1, index + 1 + take).filter(Boolean);
     if (values.length > 0) return values.join(" ");
   }
+  return undefined;
+}
+
+function extractField(lines: string[]): string | undefined {
+  const labels = ["공모분야", "응모분야", "모집분야", "분야", "카테고리", "분류"];
+  const stopLabels = /^(?:추가혜택|활동혜택|접수기간|공모기간|응모기간|모집기간|참여대상|응모대상|참가대상|참가자격|지원자격|공모자격|시상규모|총\s*상금|홈페이지|주최|주관|후원|협찬|공유하기|첨부파일|상태|진행상태)$/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line) continue;
+
+    for (const label of labels) {
+      const inlinePattern = new RegExp(`^${escapeRegex(label)}\\s*[.:：|·-]+\\s*(.+)$`, "i");
+      const inline = line.match(inlinePattern)?.[1]?.trim();
+      if (inline) return inline;
+
+      if (line.toLowerCase() !== label.toLowerCase()) continue;
+
+      const values: string[] = [];
+      for (let offset = 1; offset <= 4; offset += 1) {
+        const value = lines[index + offset]?.trim();
+        if (!value || stopLabels.test(value)) break;
+        values.push(value);
+      }
+
+      if (values.length > 0) return values.join(" · ");
+    }
+  }
+
   return undefined;
 }
 
@@ -388,7 +413,12 @@ function parseDetail(candidate: Candidate, html: string): Contest | null {
     .replace(/\s*-\s*(?:링커리어|대티즌|스펙토리).*$/i, "")
     .trim();
 
-  if (!candidate.trustItCategory && !isItRelated(`${title}\n${text}`)) return null;
+  const field = extractField(lines);
+  if (field) {
+    if (!isItCategory(field)) return null;
+  } else if (!candidate.trustItCategory) {
+    return null;
+  }
 
   const hostCombined = findValue(lines, ["주최 . 주관", "주최·주관", "주최/주관", "주최기관"]);
   const organizers = [
@@ -416,7 +446,7 @@ function parseDetail(candidate: Candidate, html: string): Contest | null {
     title,
     url: candidate.url,
     sources: [candidate.source],
-    field: "웹/모바일/IT",
+    field: field ?? "웹/모바일/IT",
     target,
     host,
     sponsor,
@@ -483,6 +513,7 @@ function mergeContest(current: Contest, incoming: Contest): Contest {
     ...current,
     title: richerValue(current.title, incoming.title) ?? current.title,
     sources: [...new Set([...current.sources, ...incoming.sources])],
+    field: richerValue(current.field, incoming.field) ?? current.field,
     target: richerValue(current.target, incoming.target),
     host: richerValue(current.host, incoming.host),
     sponsor: richerValue(current.sponsor, incoming.sponsor),
