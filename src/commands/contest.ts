@@ -257,11 +257,24 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
       return;
     }
 
-    const eligibleHumans = await getEligibleHumans(channel);
-    const majority = majorityOf(eligibleHumans.size);
+    let eligibleVoterIds = vote.eligibleVoterIds;
+    let majority = vote.majority;
+
+    if (!eligibleVoterIds || majority === undefined) {
+      const eligibleHumans = await getEligibleHumans(channel);
+      eligibleVoterIds = [...eligibleHumans.keys()];
+      majority = majorityOf(eligibleVoterIds.length);
+
+      const migrated = await updateContestVote(vote.id, {
+        eligibleVoterIds,
+        majority,
+      });
+      if (!migrated) throw new Error("기존 투표의 참여 기준을 저장하지 못했습니다.");
+    }
+
     const contestLink = vote.homepage || vote.url;
 
-    if (!eligibleHumans.has(interaction.user.id)) {
+    if (!eligibleVoterIds.includes(interaction.user.id)) {
       await interaction.followUp({ content: "이 투표의 참여 대상이 아닙니다.", ephemeral: true });
       return;
     }
@@ -288,10 +301,12 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
     let prepRoom: Awaited<ReturnType<typeof createPrepRoom>> | null = null;
 
     if (reachedMajority) {
-      prepRoom = await createPrepRoom(channel, { ...vote, voterIds });
+      prepRoom = await createPrepRoom(channel, { ...vote, eligibleVoterIds, majority, voterIds });
     }
 
     const updated = await updateContestVote(vote.id, {
+      eligibleVoterIds,
+      majority,
       voterIds,
       finalized: reachedMajority,
       prepCategoryId: prepRoom?.categoryId,
@@ -313,7 +328,7 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
     await channel.send({
       embeds: [new EmbedBuilder()
         .setTitle("✅ 공모전 참여 확정")
-        .setDescription(`**${updated.title}** 공모전이 과반수 투표로 확정되었습니다.\n\n투표한 사람: ${voterMentions(voterIds)}\n투표 결과: **${voterIds.length}/${eligibleHumans.size}명**`)
+        .setDescription(`**${updated.title}** 공모전이 과반수 투표로 확정되었습니다.\n\n투표한 사람: ${voterMentions(voterIds)}\n투표 결과: **${voterIds.length}/${eligibleVoterIds.length}명**`)
         .addFields(
           { name: "공모전 정보", value: `<#${prepRoom.infoChannelId}>`, inline: true },
           { name: "아이디어", value: `<#${prepRoom.ideaChannelId}>`, inline: true },
