@@ -177,30 +177,35 @@ async function handleFigmaConnect(interaction: ChatInputCommandInteraction): Pro
       }
     }
 
-    const figmaWebhookId = await figmaWebhook.createVersionWebhook(
-      figmaFile.key,
-      `${projectName} named version notifications`,
-    );
+    const [figmaWebhookId, existingComments] = await Promise.all([
+      figmaWebhook.createVersionWebhook(
+        figmaFile.key,
+        `${projectName} named version notifications`,
+      ),
+      figmaWebhook.listComments(figmaFile.key),
+    ]);
 
     await updateProject(project.id, {
       figmaUrl: figmaFile.url,
       figmaFileKey: figmaFile.key,
       figmaChannelId: figmaChannel.id,
       figmaWebhookId,
+      figmaLastVersionId: figmaWebhookId,
+      figmaKnownCommentIds: existingComments.map((comment) => comment.id),
     });
 
     await figmaChannel.send({
       embeds: [new EmbedBuilder()
-        .setTitle("✅ Figma 버전 알림 연결 완료")
-        .setDescription("이제 Figma에서 이름 있는 버전을 생성하면 이 채널에 변경 알림이 기록됩니다.")
+        .setTitle("✅ Figma 알림 연결 완료")
+        .setDescription("이제 Figma에서 이름 있는 버전을 생성하거나 새 댓글/답글을 작성하면 이 채널에 알림이 기록됩니다.")
         .setURL(figmaFile.url)],
       components: [linkButton("Figma 열기", figmaFile.url)],
     });
 
-    await interaction.editReply(`✅ **${projectName}** 프로젝트에 Figma 이름 있는 버전 알림을 연결했습니다.`);
+    await interaction.editReply(`✅ **${projectName}** 프로젝트에 Figma 버전/댓글 알림을 연결했습니다.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
-    await interaction.editReply(`❌ Figma 버전 알림 연결에 실패했습니다.\n\`${message}\``);
+    await interaction.editReply(`❌ Figma 알림 연결에 실패했습니다.\n\`${message}\``);
   }
 }
 
@@ -337,14 +342,19 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
       const figmaMessage = await figma.send({
         embeds: [new EmbedBuilder()
           .setTitle("🎨 Figma")
-          .setDescription("프로젝트 UI/UX 디자인을 확인합니다.\n\nFigma에서 이름 있는 버전을 생성하면 이 채널에 변경 알림이 기록됩니다.")
+          .setDescription("프로젝트 UI/UX 디자인을 확인합니다.\n\nFigma에서 이름 있는 버전을 생성하거나 새 댓글/답글을 작성하면 이 채널에 알림이 기록됩니다.")
           .setURL(figmaFile.url)],
         components: [linkButton("Figma 열기", figmaFile.url)],
       });
       await figmaMessage.pin();
 
+      const existingComments = await figmaWebhook.listComments(figmaFile.key);
       figmaWebhookId = await figmaWebhook.createVersionWebhook(figmaFile.key, `${name} named version notifications`);
-      await updateProject(storedProject.id, { figmaWebhookId });
+      await updateProject(storedProject.id, {
+        figmaWebhookId,
+        figmaLastVersionId: figmaWebhookId,
+        figmaKnownCommentIds: existingComments.map((comment) => comment.id),
+      });
 
       const frontDiscordWebhook = await frontendLog.createWebhook({ name: `${name} Frontend Log`, reason: `${name} frontend GitHub integration` });
       const backDiscordWebhook = await backendLog.createWebhook({ name: `${name} Backend Log`, reason: `${name} backend GitHub integration` });
@@ -358,7 +368,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
 
       await frontendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Frontend GitHub 연결 완료").setDescription(frontendRepo.url).setURL(frontendRepo.url)] });
       await backendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Backend GitHub 연결 완료").setDescription(backendRepo.url).setURL(backendRepo.url)] });
-      await interaction.editReply(`✅ **${name}** 프로젝트 생성 + Notion/Figma 검증 + Figma 버전 알림 + GitHub 로그 + Organization 참여 버튼까지 완료했습니다.`);
+      await interaction.editReply(`✅ **${name}** 프로젝트 생성 + Notion/Figma 검증 + Figma 버전/댓글 알림 + GitHub 로그 + Organization 참여 버튼까지 완료했습니다.`);
     } catch (error) {
       for (const hook of githubHooks.reverse()) {
         try { await github.deleteWebhook(hook.repository, hook.id); } catch {}
