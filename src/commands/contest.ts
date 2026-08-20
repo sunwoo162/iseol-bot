@@ -19,6 +19,7 @@ import {
 } from "../services/contest-feed.js";
 import {
   findContestVote,
+  listContestVotesByUser,
   updateContestVote,
   type ContestVote,
 } from "../services/contest-votes.js";
@@ -35,13 +36,67 @@ export const contestCommand = new SlashCommandBuilder()
     .addStringOption((option) => option
       .setName("name")
       .setDescription("다시 올릴 공모전 이름 또는 이름 일부")
-      .setRequired(true)));
+      .setRequired(true)))
+  .addSubcommand((subcommand) => subcommand
+    .setName("my-votes")
+    .setDescription("내가 투표한 공모전 목록을 확인합니다."));
 
 const processingVotes = new Set<string>();
 
 function voterMentions(voterIds: string[]): string {
   if (voterIds.length === 0) return "아직 투표한 사람이 없습니다.";
   return voterIds.map((id) => `<@${id}>`).join(" ");
+}
+
+function normalizeContestTitle(title: string): string {
+  return title
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/제\s*\d+\s*회/g, "")
+    .replace(/[\[\](){}<>「」『』【】'"“”‘’·•,:.!?~_\-–—/\\|]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function uniqueUserVotes(votes: ContestVote[]): ContestVote[] {
+  const unique = new Map<string, ContestVote>();
+
+  for (const vote of votes) {
+    const key = normalizeContestTitle(vote.title) || vote.homepage || vote.url;
+    const current = unique.get(key);
+    if (!current || (!current.finalized && vote.finalized)) {
+      unique.set(key, vote);
+    }
+  }
+
+  return [...unique.values()];
+}
+
+function myVotesEmbeds(votes: ContestVote[]): EmbedBuilder[] {
+  const lines = votes.map((vote, index) => {
+    const link = vote.homepage || vote.url;
+    const state = vote.finalized ? "✅ 참여 확정" : "🗳️ 투표 중";
+    const period = vote.period ? ` · ${vote.period}` : "";
+    return `**${index + 1}. [${vote.title}](${link})**\n${state}${period}`;
+  });
+
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const line of lines) {
+    const next = current ? `${current}\n\n${line}` : line;
+    if (next.length > 3800) {
+      if (current) chunks.push(current);
+      current = line;
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+
+  return chunks.slice(0, 10).map((description, index) => new EmbedBuilder()
+    .setTitle(index === 0 ? "🗳️ 내가 투표한 공모전" : `🗳️ 내가 투표한 공모전 (${index + 1})`)
+    .setDescription(description));
 }
 
 function prepCategoryName(title: string): string {
@@ -119,6 +174,27 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
   }
 
   const subcommand = interaction.options.getSubcommand();
+
+  if (subcommand === "my-votes") {
+    await interaction.deferReply({ ephemeral: true });
+    try {
+      const votes = uniqueUserVotes(await listContestVotesByUser(interaction.guild.id, interaction.user.id));
+      if (votes.length === 0) {
+        await interaction.editReply("아직 투표한 공모전이 없습니다.");
+        return;
+      }
+
+      const embeds = myVotesEmbeds(votes);
+      await interaction.editReply({
+        content: `내가 투표한 공모전은 **${votes.length}개**입니다.`,
+        embeds,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      await interaction.editReply(`❌ 투표한 공모전 조회 실패\n\`${message}\``);
+    }
+    return;
+  }
 
   if (subcommand === "repost") {
     await interaction.deferReply({ ephemeral: true });
