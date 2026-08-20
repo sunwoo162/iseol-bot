@@ -48,6 +48,10 @@ function voterMentions(voterIds: string[]): string {
   return voterIds.map((id) => `<@${id}>`).join(" ");
 }
 
+function escapeMarkdownLinkText(value: string): string {
+  return value.replace(/([\\[\]])/g, "\\$1");
+}
+
 function normalizeContestTitle(title: string): string {
   return title
     .normalize("NFKC")
@@ -318,8 +322,9 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
       components: contestVoteComponents(updated.id, updated.homepage || updated.url, reachedMajority),
     });
 
+    const voteMessageUrl = `https://discord.com/channels/${updated.guildId}/${updated.channelId}/${updated.messageId}`;
     await channel.send({
-      content: `<@${interaction.user.id}> 님이 **${updated.title}** 공모전에 투표했습니다.`,
+      content: `<@${interaction.user.id}> 님이 **[${escapeMarkdownLinkText(updated.title)}](${voteMessageUrl})** 공모전에 투표했습니다.`,
       allowedMentions: { users: [interaction.user.id] },
     });
 
