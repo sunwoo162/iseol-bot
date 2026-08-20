@@ -46,7 +46,7 @@ const SOURCES: SourceDefinition[] = [
     baseUrl: "https://www.wevity.com",
     maxPages: 50,
     buildListUrl: (page) => `https://www.wevity.com/?c=find&cidx=20&gub=1&mode=ing&gp=${page}`,
-    detailUrlPattern: /(?:[?&](?:ix|gbn)=|\/view\/)/i,
+    detailUrlPattern: /[?&]ix=\d+/i,
     trustItCategory: true,
   },
   {
@@ -148,7 +148,6 @@ function normalizeTitle(value: string): string {
   return value
     .normalize("NFKC")
     .toLowerCase()
-    .replace(/\b20\d{2}\b/g, "")
     .replace(/제\s*\d+\s*회/g, "")
     .replace(/[\[\](){}<>「」『』【】'"“”‘’·•,:.!?~_\-–—/\\|]/g, "")
     .replace(/\s+/g, "")
@@ -197,10 +196,7 @@ async function fetchHtml(url: string): Promise<string> {
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.text();
 }
 
@@ -227,31 +223,23 @@ async function collectSourceCandidates(source: SourceDefinition): Promise<Candid
   return [...all.values()];
 }
 
-function findValue(lines: string[], labels: string[]): string | undefined {
-  const normalizedLabels = labels.map((label) => label.replace(/\s+/g, "").toLowerCase());
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
+function findValue(lines: string[], labels: string[]): string | undefined {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     if (!line) continue;
-    const compact = line.replace(/\s+/g, "").toLowerCase();
 
-    for (const label of normalizedLabels) {
-      if (compact === label) {
+    for (const label of labels) {
+      if (line.toLowerCase() === label.toLowerCase()) {
         return lines[index + 1]?.trim() || undefined;
       }
 
-      if (compact.startsWith(label)) {
-        const rawLabelLength = lines[index]?.toLowerCase().indexOf(label) ?? -1;
-        const match = line.match(/^[^:：|]*[:：|]?\s*(.+)$/);
-        const value = match?.[1]?.trim();
-        if (rawLabelLength >= 0 && value && value !== line.trim()) return value;
-
-        const spacedLabel = labels.find((candidate) => candidate.replace(/\s+/g, "").toLowerCase() === label);
-        if (spacedLabel && line.toLowerCase().startsWith(spacedLabel.toLowerCase())) {
-          const remainder = line.slice(spacedLabel.length).replace(/^[\s.:：|·-]+/, "").trim();
-          if (remainder) return remainder;
-        }
-      }
+      const pattern = new RegExp(`^${escapeRegex(label)}\\s*[.:：|·-]*\\s*(.+)$`, "i");
+      const value = line.match(pattern)?.[1]?.trim();
+      if (value) return value;
     }
   }
 
@@ -287,8 +275,7 @@ function extractAttachments(html: string, baseUrl: string): ContestAttachment[] 
     if (!looksLikeFile) continue;
 
     const url = normalizeUrl(decodedHref, baseUrl) ?? undefined;
-    const key = `${name}|${url ?? ""}`;
-    attachments.set(key, {
+    attachments.set(`${name}|${url ?? ""}`, {
       name: name || "첨부파일",
       url,
     });
@@ -300,16 +287,16 @@ function extractAttachments(html: string, baseUrl: string): ContestAttachment[] 
 
 function extractPrize(text: string, type: "total" | "first"): string | undefined {
   if (type === "total") {
-    return text.match(/총\s*상금\s*[:：]?\s*([^\n]{1,40})/i)?.[1]?.trim()
-      ?? text.match(/총상금\s*[:：]?\s*([^\n]{1,40})/i)?.[1]?.trim();
+    return text.match(/총\s*상금\s*[:：]?\s*([^/|\n]{1,40})/i)?.[1]?.trim()
+      ?? text.match(/총상금\s*[:：]?\s*([^/|\n]{1,40})/i)?.[1]?.trim();
   }
 
-  return text.match(/(?:1등\s*상금|1등|1위|대상|최우수상)\s*[:：-]?\s*([^\n]{1,50})/i)?.[1]?.trim();
+  return text.match(/(?:1등\s*상금|1등|1위|대상|최우수상)\s*[:：-]?\s*([^|\n]{1,50})/i)?.[1]?.trim();
 }
 
 function formatPeriodWithDday(period?: string): string | undefined {
   if (!period) return undefined;
-  if (/\bD-\d+\b|D-DAY|마감/i.test(period)) return period;
+  if (/\bD-\d+\b|D-DAY/i.test(period)) return period;
 
   const matches = [...period.matchAll(/(?:(20)?(\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2}))/g)];
   const last = matches.at(-1);
@@ -339,28 +326,25 @@ function formatPeriodWithDday(period?: string): string | undefined {
 function isOpenContest(period?: string, status?: string): boolean {
   if (status && /마감|종료/i.test(status) && !/마감임박/i.test(status)) return false;
   if (!period) return true;
-
-  const formatted = formatPeriodWithDday(period);
-  return formatted ? !formatted.includes("**마감**") : true;
+  return !formatPeriodWithDday(period)?.includes("**마감**");
 }
 
 function parseDetail(candidate: Candidate, html: string): Contest | null {
   const lines = htmlToLines(html);
   const text = lines.join("\n");
 
-  const pageTitle = stripTags(html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? "")
-    || stripTags(html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "")
-    || candidate.title;
-  const title = pageTitle.replace(/\s*[|｜].*$/, "").trim() || candidate.title;
+  const h1 = stripTags(html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? "");
+  const pageTitle = stripTags(html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "");
+  const title = (h1 || pageTitle || candidate.title).replace(/\s*[|｜].*$/, "").trim();
 
   if (!candidate.trustItCategory && !isItRelated(`${title}\n${text}`)) return null;
 
   const hostCombined = findValue(lines, ["주최 . 주관", "주최·주관", "주최/주관"]);
-  const host = hostCombined
-    ?? [findValue(lines, ["주최", "주최기관"]), findValue(lines, ["주관", "주관기관"])]
-      .filter((value, index, values) => value && values.indexOf(value) === index)
-      .join(" / ")
-    || undefined;
+  const organizers = [
+    findValue(lines, ["주최", "주최기관"]),
+    findValue(lines, ["주관", "주관기관"]),
+  ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
+  const host = hostCombined ?? (organizers.length > 0 ? organizers.join(" / ") : undefined);
 
   const target = findValue(lines, ["응모대상", "참가대상", "참가자격", "지원자격"]);
   const sponsor = findValue(lines, ["후원/협찬", "후원·협찬", "후원", "협찬"]);
@@ -392,8 +376,12 @@ function parseDetail(candidate: Candidate, html: string): Contest | null {
   };
 }
 
-async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
   let cursor = 0;
 
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
