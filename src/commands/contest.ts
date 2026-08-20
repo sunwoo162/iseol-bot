@@ -58,7 +58,7 @@ function contestEmbed(
   return embed;
 }
 
-function voteComponents(voteId: string, finalized: boolean) {
+function voteComponents(voteId: string, contestUrl: string, finalized: boolean) {
   return [
     new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
@@ -70,7 +70,7 @@ function voteComponents(voteId: string, finalized: boolean) {
       new ButtonBuilder()
         .setLabel("공모전 보기")
         .setStyle(ButtonStyle.Link)
-        .setURL("https://www.wevity.com/"),
+        .setURL(contestUrl),
     ),
   ];
 }
@@ -141,7 +141,8 @@ async function createPrepRoom(source: TextChannel, vote: ContestVote) {
 }
 
 export async function handleContestCommand(interaction: ChatInputCommandInteraction): Promise<void> {
-  if (!interaction.inGuild() || !interaction.guild || !(interaction.channel instanceof TextChannel)) {
+  const channel = interaction.channel;
+  if (!interaction.inGuild() || !interaction.guild || !(channel instanceof TextChannel)) {
     await interaction.reply({ content: "서버의 텍스트 채널에서만 사용할 수 있습니다.", ephemeral: true });
     return;
   }
@@ -151,7 +152,7 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
   try {
     const [contests, eligibleHumans] = await Promise.all([
       listActiveItContests(),
-      getEligibleHumans(interaction.channel),
+      getEligibleHumans(channel),
     ]);
 
     if (contests.length === 0) {
@@ -164,21 +165,15 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
 
     for (const contest of contests) {
       const voteId = createContestVoteId();
-      const message = await interaction.channel.send({
+      const message = await channel.send({
         embeds: [contestEmbed(contest, [], majority, false)],
-        components: voteComponents(voteId, false).map((row, index) => {
-          if (index !== 0) return row;
-          const components = row.components;
-          const link = components[1];
-          if (link instanceof ButtonBuilder) link.setURL(contest.url);
-          return row;
-        }),
+        components: voteComponents(voteId, contest.url, false),
       });
 
       await saveContestVote({
         id: voteId,
         guildId: interaction.guild.id,
-        channelId: interaction.channel.id,
+        channelId: channel.id,
         messageId: message.id,
         title: contest.title,
         url: contest.url,
@@ -231,12 +226,7 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
     if (vote.finalized) {
       await interaction.message.edit({
         embeds: [contestEmbed(vote, vote.voterIds, majority, true)],
-        components: voteComponents(vote.id, true).map((row, index) => {
-          if (index !== 0) return row;
-          const link = row.components[1];
-          if (link instanceof ButtonBuilder) link.setURL(vote.url);
-          return row;
-        }),
+        components: voteComponents(vote.id, vote.url, true),
       });
       await interaction.followUp({ content: "이미 참여가 확정된 공모전입니다.", ephemeral: true });
       return;
@@ -267,12 +257,7 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
 
     await interaction.message.edit({
       embeds: [contestEmbed(updated, voterIds, majority, reachedMajority)],
-      components: voteComponents(updated.id, reachedMajority).map((row, index) => {
-        if (index !== 0) return row;
-        const link = row.components[1];
-        if (link instanceof ButtonBuilder) link.setURL(updated.url);
-        return row;
-      }),
+      components: voteComponents(updated.id, updated.url, reachedMajority),
     });
 
     if (!reachedMajority || !prepRoom) return;
