@@ -11,17 +11,23 @@ import {
   PermissionFlagsBits,
   TextChannel,
 } from "discord.js";
-import { createContestVoteId, saveContestVote } from "./contest-votes.js";
+import {
+  createContestVoteId,
+  findLatestContestVote,
+  saveContestVote,
+} from "./contest-votes.js";
 import { listActiveItContests, type Contest, type ContestAttachment } from "./contests.js";
 
 const DATA_FILE = resolve(process.cwd(), "data", "contest-feed.json");
 export const CONTEST_POLL_INTERVAL_MS = 60 * 60 * 1000;
+const DEADLINE_REMINDER_DAYS = 10;
 
 export type ContestFeedState = {
   guildId: string;
   categoryId: string;
   channelId: string;
   postedKeys: string[];
+  remindedKeys?: string[];
   createdAt: string;
   lastSyncedAt?: string;
 };
@@ -80,6 +86,40 @@ function normalizeTitle(value: string): string {
 
 function contestKey(contest: ContestCardData): string {
   return normalizeTitle(contest.title) || contest.url;
+}
+
+function getDeadlineDaysLeft(period?: string): number | null {
+  if (!period) return null;
+  if (/마감/i.test(period) && !/마감임박/i.test(period)) return -1;
+  if (/D-DAY/i.test(period)) return 0;
+
+  const dDay = period.match(/\bD-(\d+)\b/i)?.[1];
+  if (dDay) return Number(dDay);
+
+  const matches = [...period.matchAll(/(?:(20)?(\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2}))/g)];
+  const last = matches.at(-1);
+  if (!last) return null;
+
+  const year = Number(last[1] ? `${last[1]}${last[2]}` : `20${last[2]}`);
+  const month = Number(last[3]);
+  const day = Number(last[4]);
+  if (!year || !month || !day) return null;
+
+  const todayParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date()).split("-").map(Number);
+
+  const today = Date.UTC(todayParts[0] ?? year, (todayParts[1] ?? 1) - 1, todayParts[2] ?? 1);
+  const deadline = Date.UTC(year, month - 1, day);
+  return Math.ceil((deadline - today) / 86_400_000);
+}
+
+function shouldSendDeadlineReminder(contest: ContestCardData): boolean {
+  const daysLeft = getDeadlineDaysLeft(contest.period);
+  return daysLeft !== null && daysLeft >= 0 && daysLeft <= DEADLINE_REMINDER_DAYS;
 }
 
 export function majorityOf(total: number): number {
@@ -196,6 +236,7 @@ export async function createContestFeed(guild: Guild): Promise<ContestFeedState>
       categoryId: category.id,
       channelId: channel.id,
       postedKeys: [],
+      remindedKeys: [],
       createdAt: new Date().toISOString(),
     };
     await saveContestFeed(state);
@@ -203,7 +244,7 @@ export async function createContestFeed(guild: Guild): Promise<ContestFeedState>
     await channel.send({
       embeds: [new EmbedBuilder()
         .setTitle("🏆 IT 공모전 자동 수집")
-        .setDescription("이설이가 여러 공모전 사이트를 주기적으로 확인하고, 새 웹/모바일/IT 공모전만 이 채널에 올립니다.\n\n같은 공모전은 중복 제거하며 과반수 투표가 모이면 별도 준비 공간을 자동으로 생성합니다.")],
+        .setDescription("이설이가 여러 공모전 사이트를 주기적으로 확인하고, 새 웹/모바일/IT 공모전만 이 채널에 올립니다.\n\n같은 공모전은 중복 제거하며 과반수 투표가 모이면 별도 준비 공간을 자동으로 생성합니다. 제출 마감이 D-10 이하가 되면 해당 공모전을 한 번 더 알려드립니다.")],
     });
 
     return state;
@@ -244,6 +285,29 @@ async function publishContest(channel: TextChannel, contest: Contest, majority: 
   });
 }
 
+async function publishDeadlineReminder(channel: TextChannel, contest: Contest, majority: number): Promise<void> {
+  const vote = await findLatestContestVote(channel.guild.id, channel.id, contest.title, contest.url);
+  const daysLeft = getDeadlineDaysLeft(contest.period);
+  const label = daysLeft === 0 ? "D-DAY" : `D-${daysLeft}`;
+
+  if (!vote) {
+    await publishContest(channel, contest, majority);
+    return;
+  }
+
+  const contestLink = vote.homepage || vote.url;
+  const embed = contestVoteEmbed(vote, vote.voterIds.length, majority, vote.finalized)
+    .setTitle(`⏰ ${label} · ${vote.title}`)
+    .setDescription(vote.finalized
+      ? `제출 마감이 **${label}**로 임박했습니다. 참여 확정된 공모전입니다.`
+      : `제출 마감이 **${label}**로 임박했습니다. 참여할 사람은 아래 투표 버튼을 눌러주세요.`);
+
+  await channel.send({
+    embeds: [embed],
+    components: contestVoteComponents(vote.id, contestLink, vote.finalized),
+  });
+}
+
 export async function repostContest(client: Client, guildId: string, query: string): Promise<Contest> {
   const state = await findContestFeed(guildId);
   if (!state) throw new Error("먼저 /contest setup으로 공모전 공간을 만들어주세요.");
@@ -281,21 +345,39 @@ export async function syncContestFeed(client: Client, state: ContestFeedState): 
   ]);
   const majority = majorityOf(eligibleHumans.size);
   const posted = new Set(state.postedKeys);
+  const reminded = new Set(state.remindedKeys ?? []);
   let count = 0;
 
   for (const contest of contests) {
     const key = contestKey(contest);
-    if (posted.has(key)) continue;
 
-    await publishContest(fetched, contest, majority);
-    posted.add(key);
-    count += 1;
+    if (!posted.has(key)) {
+      await publishContest(fetched, contest, majority);
+      posted.add(key);
+      count += 1;
 
-    state.postedKeys = [...posted];
-    state.lastSyncedAt = new Date().toISOString();
-    await saveContestFeed(state);
+      if (shouldSendDeadlineReminder(contest)) {
+        reminded.add(key);
+      }
+
+      state.postedKeys = [...posted];
+      state.remindedKeys = [...reminded];
+      state.lastSyncedAt = new Date().toISOString();
+      await saveContestFeed(state);
+      continue;
+    }
+
+    if (!reminded.has(key) && shouldSendDeadlineReminder(contest)) {
+      await publishDeadlineReminder(fetched, contest, majority);
+      reminded.add(key);
+      state.remindedKeys = [...reminded];
+      state.lastSyncedAt = new Date().toISOString();
+      await saveContestFeed(state);
+    }
   }
 
+  state.postedKeys = [...posted];
+  state.remindedKeys = [...reminded];
   state.lastSyncedAt = new Date().toISOString();
   await saveContestFeed(state);
   return count;
