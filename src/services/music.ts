@@ -103,7 +103,7 @@ async function resolveTrack(query: string, userId: string): Promise<MusicTrack> 
   if (validation === "yt_video") {
     const info = await play.video_basic_info(input);
     return {
-      title: info.video_details.title,
+      title: info.video_details.title ?? input,
       url: info.video_details.url,
       addedBy: userId,
     };
