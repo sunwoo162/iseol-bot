@@ -1,5 +1,6 @@
 import {
   ActionRowBuilder,
+  AutocompleteInteraction,
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
@@ -12,11 +13,11 @@ import {
 } from "discord.js";
 import { config } from "../config.js";
 import { GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
-import { saveProject } from "../services/projects.js";
+import { deleteProject, saveProject, updateProject } from "../services/projects.js";
 
 export const projectCommand = new SlashCommandBuilder()
   .setName("project")
-  .setDescription("프로젝트용 Discord 채널과 연동을 자동 생성합니다.")
+  .setDescription("프로젝트용 Discord 채널과 연동을 자동 관리합니다.")
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
   .addSubcommand((subcommand) =>
     subcommand
@@ -27,6 +28,16 @@ export const projectCommand = new SlashCommandBuilder()
       .addStringOption((option) => option.setName("figma").setDescription("실제 Figma 파일 URL (figma.com/design/...)").setRequired(true))
       .addStringOption((option) => option.setName("frontend").setDescription("https://github.com/ORG/frontend 형식").setRequired(true))
       .addStringOption((option) => option.setName("backend").setDescription("https://github.com/ORG/backend 형식").setRequired(true)),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName("delete")
+      .setDescription("생성된 프로젝트 방을 삭제합니다.")
+      .addStringOption((option) => option
+        .setName("name")
+        .setDescription("삭제할 프로젝트 방 선택")
+        .setRequired(true)
+        .setAutocomplete(true)),
   );
 
 type GitHubHook = { repository: RepositoryRef; id: number };
@@ -67,14 +78,88 @@ function linkButton(label: string, url: string) {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel(label).setStyle(ButtonStyle.Link).setURL(url));
 }
 
-export async function handleProjectCommand(interaction: ChatInputCommandInteraction): Promise<void> {
-  if (!interaction.inGuild() || !interaction.guild) {
-    await interaction.reply({ content: "서버 안에서만 사용할 수 있습니다.", ephemeral: true });
+function projectNameFromCategory(name: string): string {
+  return name.replace(/^📁\s*/, "").trim();
+}
+
+export async function handleProjectAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
+  if (!interaction.inGuild() || !interaction.guild || interaction.commandName !== "project") return;
+
+  let subcommand: string;
+  try {
+    subcommand = interaction.options.getSubcommand();
+  } catch {
     return;
   }
-  if (interaction.options.getSubcommand() !== "create") return;
 
-  await interaction.deferReply({ ephemeral: true });
+  if (subcommand !== "delete") return;
+
+  const focused = interaction.options.getFocused().toString().trim().toLowerCase();
+  const channels = await interaction.guild.channels.fetch();
+  const choices = channels
+    .filter((channel) => channel?.type === ChannelType.GuildCategory)
+    .map((channel) => ({
+      name: projectNameFromCategory(channel!.name),
+      value: channel!.id,
+    }))
+    .filter((choice) => !focused || choice.name.toLowerCase().includes(focused))
+    .slice(0, 25);
+
+  await interaction.respond(choices);
+}
+
+async function handleDeleteProject(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!interaction.guild) return;
+
+  await interaction.deferReply();
+  const target = interaction.options.getString("name", true).trim();
+
+  try {
+    const channels = await interaction.guild.channels.fetch();
+    const selectedById = channels.get(target);
+    const category = selectedById?.type === ChannelType.GuildCategory
+      ? selectedById
+      : channels.find((channel) =>
+          channel?.type === ChannelType.GuildCategory
+          && projectNameFromCategory(channel.name).toLowerCase() === target.toLowerCase(),
+        );
+
+    if (!category) {
+      await interaction.editReply("❌ 선택한 프로젝트 방을 찾을 수 없습니다.");
+      return;
+    }
+
+    const projectName = projectNameFromCategory(category.name);
+    const children = channels.filter((channel) => channel?.parentId === category.id);
+
+    for (const channel of children.values()) {
+      if (channel) {
+        await channel.delete(`${projectName} 프로젝트 방 삭제`);
+      }
+    }
+
+    await category.delete(`${projectName} 프로젝트 방 삭제`);
+    await interaction.editReply(`✅ **${projectName}** 프로젝트 방을 삭제했습니다.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    await interaction.editReply(`❌ 프로젝트 방 삭제에 실패했습니다.\n\`${message}\``);
+  }
+}
+
+export async function handleProjectCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!interaction.inGuild() || !interaction.guild) {
+    await interaction.reply({ content: "서버 안에서만 사용할 수 있습니다." });
+    return;
+  }
+
+  const subcommand = interaction.options.getSubcommand();
+  if (subcommand === "delete") {
+    await handleDeleteProject(interaction);
+    return;
+  }
+  if (subcommand !== "create") return;
+
+  await interaction.deferReply();
   const name = interaction.options.getString("name", true).trim();
 
   try {
@@ -102,10 +187,10 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     }
 
     const organization = frontendOwner.login;
-
     const category = await interaction.guild.channels.create({ name: `📁 ${name}`, type: ChannelType.GuildCategory });
     const createdChannelIds: string[] = [];
     const githubHooks: GitHubHook[] = [];
+    let storedProjectId: string | null = null;
 
     try {
       const overview = await createTextChannel(interaction.guild, category.id, "📌・프로젝트");
@@ -123,12 +208,15 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
         frontend: frontendRepo,
         backend: backendRepo,
       });
+      storedProjectId = storedProject.id;
 
       const joinRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId(`project_join:${storedProject.id}`).setLabel("GitHub Organization 참여").setEmoji("🚀").setStyle(ButtonStyle.Primary),
       );
 
       const overviewMessage = await overview.send({
+        content: "@everyone",
+        allowedMentions: { parse: ["everyone"] },
         embeds: [new EmbedBuilder().setTitle(name).setDescription("프로젝트 문서와 개발 저장소를 한곳에서 관리합니다.\n\n팀원은 아래 버튼으로 GitHub Organization 초대를 요청할 수 있습니다.").addFields(
           { name: "기능명세서", value: notionUrl },
           { name: "Figma", value: figmaUrl },
@@ -153,12 +241,17 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
       const backHookId = await github.createDiscordWebhook(backendRepo, backDiscordWebhook.url);
       githubHooks.push({ repository: backendRepo, id: backHookId });
 
+      await updateProject(storedProject.id, { frontendHookId: frontHookId, backendHookId: backHookId });
+
       await frontendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Frontend GitHub 연결 완료").setDescription(frontendRepo.url).setURL(frontendRepo.url)] });
       await backendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Backend GitHub 연결 완료").setDescription(backendRepo.url).setURL(backendRepo.url)] });
       await interaction.editReply(`✅ **${name}** 프로젝트 생성 + Notion/Figma 검증 + GitHub 로그 + Organization 참여 버튼까지 완료했습니다.`);
     } catch (error) {
       for (const hook of githubHooks.reverse()) {
         try { await github.deleteWebhook(hook.repository, hook.id); } catch {}
+      }
+      if (storedProjectId) {
+        try { await deleteProject(storedProjectId); } catch {}
       }
       for (const id of createdChannelIds) {
         try { await interaction.guild.channels.delete(id, "프로젝트 생성 실패 롤백"); } catch {}

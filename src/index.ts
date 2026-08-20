@@ -8,7 +8,7 @@ import {
   TextInputStyle,
 } from "discord.js";
 import { config } from "./config.js";
-import { handleProjectCommand } from "./commands/project.js";
+import { handleProjectAutocomplete, handleProjectCommand } from "./commands/project.js";
 import { GitHubWebhookService } from "./services/github.js";
 import { findProject } from "./services/projects.js";
 
@@ -19,6 +19,11 @@ client.once(Events.ClientReady, (readyClient) => console.log(`${readyClient.user
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    if (interaction.isAutocomplete()) {
+      if (interaction.commandName === "project") await handleProjectAutocomplete(interaction);
+      return;
+    }
+
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "project") await handleProjectCommand(interaction);
       return;
@@ -56,14 +61,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.deferReply({ ephemeral: true });
       try {
         await github.inviteOrganizationMember(project.organization, username);
-        await interaction.editReply(`✅ **@${username}** 계정으로 **${project.organization}** Organization 초대를 보냈습니다.
-GitHub 알림 또는 이메일에서 초대를 수락하면 합류가 완료됩니다.`);
+        await interaction.editReply(`✅ **@${username}** 계정으로 **${project.organization}** Organization 초대를 보냈습니다.\nGitHub 알림 또는 이메일에서 초대를 수락하면 합류가 완료됩니다.`);
       } catch (error) {
         const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
-        await interaction.editReply(`❌ GitHub Organization 초대에 실패했습니다.
-\`${message}\`
-
-이미 멤버/초대 대기 중인지, 또는 토큰에 Organization Members 쓰기 권한이 있는지 확인해주세요.`);
+        await interaction.editReply(`❌ GitHub Organization 초대에 실패했습니다.\n\`${message}\`\n\n이미 멤버/초대 대기 중인지, 또는 토큰에 Organization Members 쓰기 권한이 있는지 확인해주세요.`);
       }
     }
   } catch (error) {
