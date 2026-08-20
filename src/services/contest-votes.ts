@@ -8,6 +8,7 @@ export type ContestVote = {
   guildId: string;
   channelId: string;
   messageId: string;
+  deadlineReminderMessageId?: string;
   title: string;
   url: string;
   sources?: ContestSource[];
