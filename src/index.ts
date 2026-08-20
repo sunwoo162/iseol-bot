@@ -10,6 +10,7 @@ import {
 import { handleContestCommand, handleContestVoteButton } from "./commands/contest.js";
 import { config } from "./config.js";
 import { handleProjectAutocomplete, handleProjectCommand } from "./commands/project.js";
+import { startContestFeedPolling } from "./services/contest-feed.js";
 import { GitHubWebhookService } from "./services/github.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
 import { findProject } from "./services/projects.js";
@@ -21,6 +22,7 @@ const github = new GitHubWebhookService(config.githubToken);
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`${readyClient.user.tag} 로그인 완료`);
   startWebhookServer(client);
+  startContestFeedPolling(client);
   await ensureProjectDiscussionChannels(client);
 });
 
