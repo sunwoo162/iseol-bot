@@ -12,7 +12,7 @@ import {
 } from "discord.js";
 import { config } from "../config.js";
 import { GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
-import { deleteProject, findProjectByName, saveProject, updateProject } from "../services/projects.js";
+import { deleteProject, saveProject, updateProject } from "../services/projects.js";
 
 export const projectCommand = new SlashCommandBuilder()
   .setName("project")
@@ -31,8 +31,8 @@ export const projectCommand = new SlashCommandBuilder()
   .addSubcommand((subcommand) =>
     subcommand
       .setName("delete")
-      .setDescription("생성된 프로젝트 공간과 GitHub 연동을 삭제합니다.")
-      .addStringOption((option) => option.setName("name").setDescription("삭제할 프로젝트 이름").setMinLength(2).setMaxLength(50).setRequired(true)),
+      .setDescription("생성된 프로젝트 방을 삭제합니다.")
+      .addStringOption((option) => option.setName("name").setDescription("삭제할 프로젝트 방 이름").setMinLength(2).setMaxLength(100).setRequired(true)),
   );
 
 type GitHubHook = { repository: RepositoryRef; id: number };
@@ -73,61 +73,45 @@ function linkButton(label: string, url: string) {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel(label).setStyle(ButtonStyle.Link).setURL(url));
 }
 
+function projectNameFromCategory(name: string): string {
+  return name.replace(/^📁\s*/, "").trim();
+}
+
 async function handleDeleteProject(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.guild) return;
 
   await interaction.deferReply({ ephemeral: true });
-  const name = interaction.options.getString("name", true).trim();
-  const project = await findProjectByName(interaction.guild.id, name);
-
-  if (!project) {
-    await interaction.editReply(`❌ **${name}** 프로젝트 기록을 찾을 수 없습니다.`);
-    return;
-  }
-
-  const github = new GitHubWebhookService(config.githubToken);
-  const warnings: string[] = [];
+  const target = interaction.options.getString("name", true).trim();
 
   try {
-    try {
-      if (project.frontendHookId) {
-        await github.deleteWebhook(project.frontend, project.frontendHookId);
-      } else {
-        await github.deleteDiscordWebhooks(project.frontend);
-      }
-    } catch {
-      warnings.push("Frontend GitHub Webhook 정리 실패");
-    }
-
-    try {
-      if (project.backendHookId) {
-        await github.deleteWebhook(project.backend, project.backendHookId);
-      } else {
-        await github.deleteDiscordWebhooks(project.backend);
-      }
-    } catch {
-      warnings.push("Backend GitHub Webhook 정리 실패");
-    }
-
     const channels = await interaction.guild.channels.fetch();
-    for (const channel of channels.values()) {
-      if (channel && channel.parentId === project.categoryId) {
-        await channel.delete(`${project.name} 프로젝트 삭제`);
+    const selectedById = channels.get(target);
+    const category = selectedById?.type === ChannelType.GuildCategory
+      ? selectedById
+      : channels.find((channel) =>
+          channel?.type === ChannelType.GuildCategory
+          && projectNameFromCategory(channel.name).toLowerCase() === target.toLowerCase(),
+        );
+
+    if (!category) {
+      await interaction.editReply(`❌ **${target}** 프로젝트 방을 찾을 수 없습니다.`);
+      return;
+    }
+
+    const projectName = projectNameFromCategory(category.name);
+    const children = channels.filter((channel) => channel?.parentId === category.id);
+
+    for (const channel of children.values()) {
+      if (channel) {
+        await channel.delete(`${projectName} 프로젝트 방 삭제`);
       }
     }
 
-    const category = await interaction.guild.channels.fetch(project.categoryId).catch(() => null);
-    if (category) {
-      await category.delete(`${project.name} 프로젝트 삭제`);
-    }
-
-    await deleteProject(project.id);
-
-    const warningText = warnings.length > 0 ? `\n⚠️ ${warnings.join(" / ")}` : "";
-    await interaction.editReply(`✅ **${project.name}** 프로젝트를 삭제했습니다.${warningText}`);
+    await category.delete(`${projectName} 프로젝트 방 삭제`);
+    await interaction.editReply(`✅ **${projectName}** 프로젝트 방을 삭제했습니다.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
-    await interaction.editReply(`❌ 프로젝트 삭제에 실패했습니다.\n\`${message}\``);
+    await interaction.editReply(`❌ 프로젝트 방 삭제에 실패했습니다.\n\`${message}\``);
   }
 }
 
