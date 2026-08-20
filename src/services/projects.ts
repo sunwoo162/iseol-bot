@@ -13,6 +13,10 @@ export type StoredProject = {
   backend: RepositoryRef;
   frontendHookId?: number;
   backendHookId?: number;
+  figmaUrl?: string;
+  figmaFileKey?: string;
+  figmaChannelId?: string;
+  figmaWebhookId?: string;
 };
 
 const DATA_FILE = resolve(process.cwd(), "data", "projects.json");
@@ -62,6 +66,14 @@ export async function findProjectByName(guildId: string, name: string): Promise<
   const normalized = name.trim().toLowerCase();
   const projects = await readProjects();
   return projects.find((project) => project.guildId === guildId && project.name.trim().toLowerCase() === normalized) ?? null;
+}
+
+export async function findProjectByFigmaWebhook(webhookId: string, fileKey: string): Promise<StoredProject | null> {
+  const projects = await readProjects();
+  return projects.find((project) =>
+    project.figmaWebhookId === webhookId
+    || (!!project.figmaFileKey && project.figmaFileKey === fileKey),
+  ) ?? null;
 }
 
 export async function deleteProject(id: string): Promise<boolean> {
