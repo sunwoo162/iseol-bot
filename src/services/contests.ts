@@ -1,13 +1,103 @@
-const WEVITY_BASE_URL = "https://www.wevity.com";
-const WEVITY_IT_LIST_URL = `${WEVITY_BASE_URL}/?c=find&cidx=20&gub=1&mode=ing`;
-const MAX_PAGES = 50;
+const REQUEST_TIMEOUT_MS = 15_000;
+const DETAIL_CONCURRENCY = 6;
+
+export type ContestSource = "위비티" | "씽굿" | "콘테스트코리아" | "올콘";
+
+export type ContestAttachment = {
+  name: string;
+  url?: string;
+};
 
 export type Contest = {
   title: string;
   url: string;
+  sources: ContestSource[];
+  field: string;
+  target?: string;
+  host?: string;
+  sponsor?: string;
+  period?: string;
+  totalPrize?: string;
+  firstPrize?: string;
+  homepage?: string;
+  attachments: ContestAttachment[];
   status?: string;
-  source: "WEVITY";
 };
+
+type Candidate = {
+  title: string;
+  url: string;
+  source: ContestSource;
+  trustItCategory?: boolean;
+};
+
+type SourceDefinition = {
+  source: ContestSource;
+  baseUrl: string;
+  maxPages: number;
+  buildListUrl: (page: number) => string;
+  detailUrlPattern: RegExp;
+  trustItCategory?: boolean;
+};
+
+const SOURCES: SourceDefinition[] = [
+  {
+    source: "위비티",
+    baseUrl: "https://www.wevity.com",
+    maxPages: 50,
+    buildListUrl: (page) => `https://www.wevity.com/?c=find&cidx=20&gub=1&mode=ing&gp=${page}`,
+    detailUrlPattern: /(?:[?&](?:ix|gbn)=|\/view\/)/i,
+    trustItCategory: true,
+  },
+  {
+    source: "씽굿",
+    baseUrl: "https://www.thinkcontest.com",
+    maxPages: 30,
+    buildListUrl: (page) => `https://www.thinkcontest.com/thinkgood/user/contest/index.do?pageIndex=${page}`,
+    detailUrlPattern: /\/thinkgood\/user\/contest\/view\.do\?/i,
+  },
+  {
+    source: "콘테스트코리아",
+    baseUrl: "https://www.contestkorea.com",
+    maxPages: 30,
+    buildListUrl: (page) => `https://www.contestkorea.com/sub/list.php?Txt_bcode=030310001&int_gbn=1&page=${page}`,
+    detailUrlPattern: /\/sub\/view\.php\?.*str_no=/i,
+    trustItCategory: true,
+  },
+  {
+    source: "올콘",
+    baseUrl: "https://www.all-con.co.kr",
+    maxPages: 50,
+    buildListUrl: (page) => `https://www.all-con.co.kr/list/contest/1/${page}?device=pc&sc=2`,
+    detailUrlPattern: /\/view\/contest\/\d+/i,
+  },
+];
+
+const IT_KEYWORDS = [
+  "it",
+  "ict",
+  "ai",
+  "인공지능",
+  "데이터",
+  "빅데이터",
+  "소프트웨어",
+  "sw",
+  "웹",
+  "앱",
+  "모바일",
+  "개발",
+  "코딩",
+  "프로그래밍",
+  "해커톤",
+  "디지털",
+  "클라우드",
+  "오픈소스",
+  "iot",
+  "보안",
+  "정보통신",
+  "api",
+  "알고리즘",
+];
 
 function decodeHtml(value: string): string {
   const named: Record<string, string> = {
@@ -31,68 +121,357 @@ function stripTags(value: string): string {
     .trim();
 }
 
-function normalizeUrl(href: string): string | null {
+function htmlToLines(html: string): string[] {
+  const text = html
+    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+    .replace(/<(?:br|\/p|\/li|\/tr|\/td|\/th|\/dd|\/dt|\/div|\/section|\/h\d)\b[^>]*>/gi, "\n")
+    .replace(/<[^>]*>/g, " ");
+
+  return decodeHtml(text)
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function normalizeUrl(href: string, baseUrl: string): string | null {
   try {
-    const url = new URL(decodeHtml(href), WEVITY_BASE_URL);
-    if (url.protocol !== "https:" || url.hostname !== "www.wevity.com") return null;
+    const url = new URL(decodeHtml(href), baseUrl);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
     return url.toString();
   } catch {
     return null;
   }
 }
 
-function parseContestList(html: string): Contest[] {
-  const contests: Contest[] = [];
-  const titlePattern = /<[^>]+class=["'][^"']*\btit\b[^"']*["'][^>]*>[\s\S]*?<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-
-  for (const match of html.matchAll(titlePattern)) {
-    const href = match[1];
-    const anchorHtml = match[2];
-    if (!href || !anchorHtml) continue;
-
-    const url = normalizeUrl(href);
-    if (!url || !/[?&](?:ix|gbn)=/.test(url)) continue;
-
-    const status = [...anchorHtml.matchAll(/<span\b[^>]*>([\s\S]*?)<\/span>/gi)]
-      .map((span) => stripTags(span[1] ?? ""))
-      .filter(Boolean)
-      .join(" ");
-    const title = stripTags(anchorHtml.replace(/<span\b[^>]*>[\s\S]*?<\/span>/gi, " "));
-
-    if (!title) continue;
-    contests.push({ title, url, status: status || undefined, source: "WEVITY" });
-  }
-
-  return contests;
+function normalizeTitle(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\b20\d{2}\b/g, "")
+    .replace(/제\s*\d+\s*회/g, "")
+    .replace(/[\[\](){}<>「」『』【】'"“”‘’·•,:.!?~_\-–—/\\|]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
 }
 
-async function fetchPage(page: number): Promise<Contest[]> {
-  const response = await fetch(`${WEVITY_IT_LIST_URL}&gp=${page}`, {
+function isItRelated(value: string): boolean {
+  const normalized = value.normalize("NFKC").toLowerCase();
+  return IT_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+function extractCandidates(html: string, source: SourceDefinition): Candidate[] {
+  const candidates: Candidate[] = [];
+  const anchorPattern = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+  for (const match of html.matchAll(anchorPattern)) {
+    const href = match[1];
+    const body = match[2];
+    if (!href || !body) continue;
+
+    const url = normalizeUrl(href, source.baseUrl);
+    if (!url || !source.detailUrlPattern.test(url)) continue;
+
+    const title = stripTags(body);
+    if (!title || title.length < 2) continue;
+
+    candidates.push({
+      title,
+      url,
+      source: source.source,
+      trustItCategory: source.trustItCategory,
+    });
+  }
+
+  return candidates;
+}
+
+async function fetchHtml(url: string): Promise<string> {
+  const response = await fetch(url, {
     headers: {
       Accept: "text/html,application/xhtml+xml",
-      "User-Agent": "IseolBot/1.0 contest-list (+Discord project bot)",
+      "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.7",
+      "User-Agent": "Mozilla/5.0 (compatible; IseolBot/1.0; +Discord contest aggregator)",
     },
-    signal: AbortSignal.timeout(15_000),
+    redirect: "follow",
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 
   if (!response.ok) {
-    throw new Error(`공모전 목록 요청 실패 (${response.status})`);
+    throw new Error(`HTTP ${response.status}`);
   }
 
-  return parseContestList(await response.text());
+  return response.text();
 }
 
-export async function listActiveItContests(): Promise<Contest[]> {
-  const all = new Map<string, Contest>();
+async function collectSourceCandidates(source: SourceDefinition): Promise<Candidate[]> {
+  const all = new Map<string, Candidate>();
 
-  for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const contests = await fetchPage(page);
-    if (contests.length === 0) break;
+  for (let page = 1; page <= source.maxPages; page += 1) {
+    let html: string;
+    try {
+      html = await fetchHtml(source.buildListUrl(page));
+    } catch (error) {
+      if (page === 1) throw error;
+      break;
+    }
+
+    const candidates = extractCandidates(html, source);
+    if (candidates.length === 0) break;
 
     const before = all.size;
-    for (const contest of contests) all.set(contest.url, contest);
+    for (const candidate of candidates) all.set(candidate.url, candidate);
     if (all.size === before) break;
   }
 
   return [...all.values()];
+}
+
+function findValue(lines: string[], labels: string[]): string | undefined {
+  const normalizedLabels = labels.map((label) => label.replace(/\s+/g, "").toLowerCase());
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line) continue;
+    const compact = line.replace(/\s+/g, "").toLowerCase();
+
+    for (const label of normalizedLabels) {
+      if (compact === label) {
+        return lines[index + 1]?.trim() || undefined;
+      }
+
+      if (compact.startsWith(label)) {
+        const rawLabelLength = lines[index]?.toLowerCase().indexOf(label) ?? -1;
+        const match = line.match(/^[^:：|]*[:：|]?\s*(.+)$/);
+        const value = match?.[1]?.trim();
+        if (rawLabelLength >= 0 && value && value !== line.trim()) return value;
+
+        const spacedLabel = labels.find((candidate) => candidate.replace(/\s+/g, "").toLowerCase() === label);
+        if (spacedLabel && line.toLowerCase().startsWith(spacedLabel.toLowerCase())) {
+          const remainder = line.slice(spacedLabel.length).replace(/^[\s.:：|·-]+/, "").trim();
+          if (remainder) return remainder;
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function findLabeledLink(html: string, labels: string[], baseUrl: string): string | undefined {
+  for (const label of labels) {
+    const index = html.indexOf(label);
+    if (index < 0) continue;
+    const segment = html.slice(index, index + 3000);
+    const href = segment.match(/<a\b[^>]*href=["']([^"']+)["']/i)?.[1];
+    if (!href) continue;
+    const url = normalizeUrl(href, baseUrl);
+    if (url) return url;
+  }
+  return undefined;
+}
+
+function extractAttachments(html: string, baseUrl: string): ContestAttachment[] {
+  const attachments = new Map<string, ContestAttachment>();
+  const anchorPattern = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+  for (const match of html.matchAll(anchorPattern)) {
+    const href = match[1];
+    const body = match[2];
+    if (!href || !body) continue;
+
+    const name = stripTags(body);
+    const decodedHref = decodeHtml(href);
+    const looksLikeFile = /\.(?:pdf|hwp|hwpx|docx?|xlsx?|pptx?|zip|jpg|jpeg|png)(?:$|[?#])/i.test(decodedHref)
+      || /첨부|다운로드|파일/i.test(name);
+    if (!looksLikeFile) continue;
+
+    const url = normalizeUrl(decodedHref, baseUrl) ?? undefined;
+    const key = `${name}|${url ?? ""}`;
+    attachments.set(key, {
+      name: name || "첨부파일",
+      url,
+    });
+    if (attachments.size >= 5) break;
+  }
+
+  return [...attachments.values()];
+}
+
+function extractPrize(text: string, type: "total" | "first"): string | undefined {
+  if (type === "total") {
+    return text.match(/총\s*상금\s*[:：]?\s*([^\n]{1,40})/i)?.[1]?.trim()
+      ?? text.match(/총상금\s*[:：]?\s*([^\n]{1,40})/i)?.[1]?.trim();
+  }
+
+  return text.match(/(?:1등\s*상금|1등|1위|대상|최우수상)\s*[:：-]?\s*([^\n]{1,50})/i)?.[1]?.trim();
+}
+
+function formatPeriodWithDday(period?: string): string | undefined {
+  if (!period) return undefined;
+  if (/\bD-\d+\b|D-DAY|마감/i.test(period)) return period;
+
+  const matches = [...period.matchAll(/(?:(20)?(\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2}))/g)];
+  const last = matches.at(-1);
+  if (!last) return period;
+
+  const year = Number(last[1] ? `${last[1]}${last[2]}` : `20${last[2]}`);
+  const month = Number(last[3]);
+  const day = Number(last[4]);
+  if (!year || !month || !day) return period;
+
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const todayParts = formatter.format(new Date()).split("-").map(Number);
+  const today = Date.UTC(todayParts[0] ?? year, (todayParts[1] ?? 1) - 1, todayParts[2] ?? 1);
+  const end = Date.UTC(year, month - 1, day);
+  const diff = Math.ceil((end - today) / 86_400_000);
+
+  if (diff < 0) return `${period} **마감**`;
+  if (diff === 0) return `${period} **D-DAY**`;
+  return `${period} **D-${diff}**`;
+}
+
+function isOpenContest(period?: string, status?: string): boolean {
+  if (status && /마감|종료/i.test(status) && !/마감임박/i.test(status)) return false;
+  if (!period) return true;
+
+  const formatted = formatPeriodWithDday(period);
+  return formatted ? !formatted.includes("**마감**") : true;
+}
+
+function parseDetail(candidate: Candidate, html: string): Contest | null {
+  const lines = htmlToLines(html);
+  const text = lines.join("\n");
+
+  const pageTitle = stripTags(html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? "")
+    || stripTags(html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "")
+    || candidate.title;
+  const title = pageTitle.replace(/\s*[|｜].*$/, "").trim() || candidate.title;
+
+  if (!candidate.trustItCategory && !isItRelated(`${title}\n${text}`)) return null;
+
+  const hostCombined = findValue(lines, ["주최 . 주관", "주최·주관", "주최/주관"]);
+  const host = hostCombined
+    ?? [findValue(lines, ["주최", "주최기관"]), findValue(lines, ["주관", "주관기관"])]
+      .filter((value, index, values) => value && values.indexOf(value) === index)
+      .join(" / ")
+    || undefined;
+
+  const target = findValue(lines, ["응모대상", "참가대상", "참가자격", "지원자격"]);
+  const sponsor = findValue(lines, ["후원/협찬", "후원·협찬", "후원", "협찬"]);
+  const periodRaw = findValue(lines, ["접수기간", "공모기간", "응모기간", "모집기간"]);
+  const period = formatPeriodWithDday(periodRaw);
+  const status = findValue(lines, ["진행상황", "진행사항", "상태"]);
+
+  if (!isOpenContest(periodRaw, status)) return null;
+
+  const totalPrize = findValue(lines, ["총 상금", "총상금"]) ?? extractPrize(text, "total");
+  const firstPrize = findValue(lines, ["1등 상금", "시상금(1등)", "1위 상금"]) ?? extractPrize(text, "first");
+  const homepage = findLabeledLink(html, ["홈페이지", "주최사 홈페이지", "공식 홈페이지", "접수처"], candidate.url);
+  const attachments = extractAttachments(html, candidate.url);
+
+  return {
+    title,
+    url: candidate.url,
+    sources: [candidate.source],
+    field: "웹/모바일/IT",
+    target,
+    host,
+    sponsor,
+    period,
+    totalPrize,
+    firstPrize,
+    homepage,
+    attachments,
+    status,
+  };
+}
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      const item = items[index];
+      if (item === undefined) continue;
+      results[index] = await mapper(item);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
+async function loadSource(source: SourceDefinition): Promise<Contest[]> {
+  const candidates = await collectSourceCandidates(source);
+  const unique = [...new Map(candidates.map((candidate) => [candidate.url, candidate])).values()];
+
+  const details = await mapWithConcurrency(unique, DETAIL_CONCURRENCY, async (candidate) => {
+    try {
+      return parseDetail(candidate, await fetchHtml(candidate.url));
+    } catch (error) {
+      console.warn(`공모전 상세 조회 실패 (${candidate.source} - ${candidate.title})`, error);
+      return null;
+    }
+  });
+
+  return details.filter((contest): contest is Contest => contest !== null);
+}
+
+function richerValue(current?: string, incoming?: string): string | undefined {
+  if (!current) return incoming;
+  if (!incoming) return current;
+  return incoming.length > current.length ? incoming : current;
+}
+
+function mergeContest(current: Contest, incoming: Contest): Contest {
+  const attachmentMap = new Map<string, ContestAttachment>();
+  for (const attachment of [...current.attachments, ...incoming.attachments]) {
+    attachmentMap.set(`${attachment.name}|${attachment.url ?? ""}`, attachment);
+  }
+
+  return {
+    ...current,
+    title: richerValue(current.title, incoming.title) ?? current.title,
+    sources: [...new Set([...current.sources, ...incoming.sources])],
+    target: richerValue(current.target, incoming.target),
+    host: richerValue(current.host, incoming.host),
+    sponsor: richerValue(current.sponsor, incoming.sponsor),
+    period: richerValue(current.period, incoming.period),
+    totalPrize: richerValue(current.totalPrize, incoming.totalPrize),
+    firstPrize: richerValue(current.firstPrize, incoming.firstPrize),
+    homepage: current.homepage ?? incoming.homepage,
+    attachments: [...attachmentMap.values()].slice(0, 5),
+    status: richerValue(current.status, incoming.status),
+  };
+}
+
+export async function listActiveItContests(): Promise<Contest[]> {
+  const settled = await Promise.allSettled(SOURCES.map((source) => loadSource(source)));
+  const merged = new Map<string, Contest>();
+
+  settled.forEach((result, index) => {
+    const source = SOURCES[index];
+    if (result.status === "rejected") {
+      console.warn(`공모전 출처 조회 실패 (${source?.source ?? "알 수 없음"})`, result.reason);
+      return;
+    }
+
+    for (const contest of result.value) {
+      const key = normalizeTitle(contest.title);
+      if (!key) continue;
+      const current = merged.get(key);
+      merged.set(key, current ? mergeContest(current, contest) : contest);
+    }
+  });
+
+  return [...merged.values()].sort((a, b) => a.title.localeCompare(b.title, "ko"));
 }
