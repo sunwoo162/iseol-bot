@@ -14,6 +14,7 @@ import {
   findContestFeed,
   getEligibleHumans,
   majorityOf,
+  repostContest,
   syncContestFeed,
 } from "../services/contest-feed.js";
 import {
@@ -27,7 +28,14 @@ export const contestCommand = new SlashCommandBuilder()
   .setDescription("IT 공모전 자동 수집 공간을 관리합니다.")
   .addSubcommand((subcommand) => subcommand
     .setName("setup")
-    .setDescription("공모전 카테고리와 자동 수집 채널을 생성합니다."));
+    .setDescription("공모전 카테고리와 자동 수집 채널을 생성합니다."))
+  .addSubcommand((subcommand) => subcommand
+    .setName("repost")
+    .setDescription("테스트용으로 이미 게시한 공모전을 다시 올립니다.")
+    .addStringOption((option) => option
+      .setName("name")
+      .setDescription("다시 올릴 공모전 이름 또는 이름 일부")
+      .setRequired(true)));
 
 const processingVotes = new Set<string>();
 
@@ -110,7 +118,22 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
     return;
   }
 
-  if (interaction.options.getSubcommand() !== "setup") return;
+  const subcommand = interaction.options.getSubcommand();
+
+  if (subcommand === "repost") {
+    await interaction.deferReply({ ephemeral: true });
+    try {
+      const name = interaction.options.getString("name", true).trim();
+      const contest = await repostContest(interaction.client, interaction.guild.id, name);
+      await interaction.editReply(`✅ **${contest.title}** 공모전을 중복 기록과 상관없이 다시 게시했습니다.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      await interaction.editReply(`❌ 공모전 재게시 실패\n\`${message}\``);
+    }
+    return;
+  }
+
+  if (subcommand !== "setup") return;
 
   await interaction.deferReply();
 
