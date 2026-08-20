@@ -1,32 +1,21 @@
 const FIGMA_API_BASE = "https://api.figma.com";
 
+export const NO_FIGMA_VERSION = "__none__";
+
 export type FigmaFileRef = {
   key: string;
   url: string;
 };
 
-export type FigmaVersionWebhookPayload = {
-  event_type: "FILE_VERSION_UPDATE";
-  webhook_id: string | number;
-  file_key: string;
-  file_name: string;
-  version_id: string;
-  label: string;
-  description?: string;
+export type FigmaVersion = {
+  id: string;
   created_at: string;
-  timestamp: string;
-  passcode: string;
-  triggered_by?: {
+  label: string;
+  description: string;
+  user?: {
     id?: string;
     handle?: string;
   };
-};
-
-export type FigmaPingPayload = {
-  event_type: "PING";
-  webhook_id: string | number;
-  passcode: string;
-  timestamp: string;
 };
 
 export function parseFigmaFile(input: string): FigmaFileRef {
@@ -51,18 +40,13 @@ export function parseFigmaFile(input: string): FigmaFileRef {
 }
 
 export class FigmaWebhookService {
-  private readonly endpoint: string;
-
   constructor(
     private readonly token: string,
-    publicBaseUrl: string,
-    private readonly passcode: string,
-  ) {
-    const base = publicBaseUrl.endsWith("/") ? publicBaseUrl : `${publicBaseUrl}/`;
-    this.endpoint = new URL("webhooks/figma", base).toString();
-  }
+    _publicBaseUrl?: string,
+    _passcode?: string,
+  ) {}
 
-  private async request(path: string, init: RequestInit): Promise<Response> {
+  private async request(path: string, init: RequestInit = {}): Promise<Response> {
     const response = await fetch(`${FIGMA_API_BASE}${path}`, {
       ...init,
       headers: {
@@ -80,30 +64,30 @@ export class FigmaWebhookService {
     return response;
   }
 
-  async createVersionWebhook(fileKey: string, description: string): Promise<string> {
-    const response = await this.request("/v2/webhooks", {
-      method: "POST",
-      body: JSON.stringify({
-        event_type: "FILE_VERSION_UPDATE",
-        context: "file",
-        context_id: fileKey,
-        endpoint: this.endpoint,
-        passcode: this.passcode,
-        description,
-      }),
-    });
+  async listNamedVersions(fileKey: string): Promise<FigmaVersion[]> {
+    const response = await this.request(`/v1/files/${encodeURIComponent(fileKey)}/versions`);
+    const data = await response.json() as { versions?: FigmaVersion[] };
 
-    const data = await response.json() as { id?: string | number };
-    if (data.id === undefined || data.id === null) {
-      throw new Error("Figma Webhook ID를 확인할 수 없습니다.");
-    }
-
-    return String(data.id);
+    return (data.versions ?? [])
+      .filter((version) => version.label?.trim())
+      .sort((a, b) => {
+        const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        return timeDiff !== 0 ? timeDiff : a.id.localeCompare(b.id);
+      });
   }
 
-  async deleteWebhook(webhookId: string): Promise<void> {
-    await this.request(`/v2/webhooks/${encodeURIComponent(webhookId)}`, {
-      method: "DELETE",
-    });
+  async getLatestNamedVersion(fileKey: string): Promise<FigmaVersion | null> {
+    const versions = await this.listNamedVersions(fileKey);
+    return versions.at(-1) ?? null;
   }
+
+  // 기존 project command와의 호환을 위해 메서드 이름은 유지합니다.
+  // Webhook을 생성하는 대신 현재 최신 named version을 polling 기준점으로 저장합니다.
+  async createVersionWebhook(fileKey: string, _description: string): Promise<string> {
+    const latest = await this.getLatestNamedVersion(fileKey);
+    return latest?.id ?? NO_FIGMA_VERSION;
+  }
+
+  // Starter 플랜 polling 방식에서는 외부 Webhook 리소스가 없으므로 정리할 작업이 없습니다.
+  async deleteWebhook(_webhookId: string): Promise<void> {}
 }
