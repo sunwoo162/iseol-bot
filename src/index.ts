@@ -1,3 +1,4 @@
+import "./services/fetch-fallback.js";
 import {
   ActionRowBuilder,
   Client,
@@ -7,18 +8,42 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
+import { handleContestCommand, handleContestVoteButton } from "./commands/contest.js";
 import { config } from "./config.js";
+import { handleMusicCommand } from "./commands/music.js";
 import { handleProjectAutocomplete, handleProjectCommand } from "./commands/project.js";
+import { handleVoiceCommand } from "./commands/voice.js";
+import { startContestFeedPolling } from "./services/contest-feed.js";
 import { GitHubWebhookService } from "./services/github.js";
+import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
 import { findProject } from "./services/projects.js";
+import {
+  recoverInterruptedStudySessions,
+  startVoiceStudyHeartbeat,
+} from "./services/voice-time.js";
 import { startWebhookServer } from "./services/webhook-server.js";
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildVoiceStates,
+  ],
+});
 const github = new GitHubWebhookService(config.githubToken);
 
-client.once(Events.ClientReady, (readyClient) => {
+client.once(Events.ClientReady, async (readyClient) => {
   console.log(`${readyClient.user.tag} 로그인 완료`);
   startWebhookServer(client);
+  startContestFeedPolling(client);
+  startVoiceStudyHeartbeat();
+
+  const interruptedSessions = await recoverInterruptedStudySessions();
+  if (interruptedSessions > 0) {
+    console.log(`이전 실행에서 종료되지 않은 음성 공부 세션 정리: ${interruptedSessions}개`);
+  }
+
+  await ensureProjectDiscussionChannels(client);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -29,7 +54,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === "project") await handleProjectCommand(interaction);
+      if (interaction.commandName === "project") {
+        await handleProjectCommand(interaction);
+        await ensureProjectDiscussionChannels(client);
+      }
+      if (interaction.commandName === "contest") await handleContestCommand(interaction);
+      if (interaction.commandName === "voice") await handleVoiceCommand(interaction);
+      if (interaction.commandName === "music") await handleMusicCommand(interaction);
+      return;
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith("contest_vote:")) {
+      await handleContestVoteButton(interaction);
       return;
     }
 
