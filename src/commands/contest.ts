@@ -7,6 +7,7 @@ import {
   TextChannel,
 } from "discord.js";
 import {
+  contestAudienceFilterLabel,
   contestInfoEmbed,
   contestVoteComponents,
   contestVoteEmbed,
@@ -15,7 +16,9 @@ import {
   getEligibleHumans,
   majorityOf,
   repostContest,
+  setContestAudienceFilter,
   syncContestFeed,
+  type ContestAudienceFilter,
 } from "../services/contest-feed.js";
 import {
   findContestVote,
@@ -30,6 +33,18 @@ export const contestCommand = new SlashCommandBuilder()
   .addSubcommand((subcommand) => subcommand
     .setName("setup")
     .setDescription("공모전 카테고리와 자동 수집 채널을 생성합니다."))
+  .addSubcommand((subcommand) => subcommand
+    .setName("filter")
+    .setDescription("참가대상 기준으로 새 공모전을 필터링합니다.")
+    .addStringOption((option) => option
+      .setName("target")
+      .setDescription("공모전에 참가할 사람의 대상")
+      .setRequired(true)
+      .addChoices(
+        { name: "전체 (필터 없음)", value: "all" },
+        { name: "고등학생", value: "high-school" },
+        { name: "대학생", value: "university" },
+      )))
   .addSubcommand((subcommand) => subcommand
     .setName("repost")
     .setDescription("테스트용으로 이미 게시한 공모전을 다시 올립니다.")
@@ -50,6 +65,11 @@ function voterMentions(voterIds: string[]): string {
 
 function escapeMarkdownLinkText(value: string): string {
   return value.replace(/([\\[\]])/g, "\\$1");
+}
+
+function parseAudienceFilter(value: string): ContestAudienceFilter {
+  if (value === "all" || value === "high-school" || value === "university") return value;
+  throw new Error("지원하지 않는 참가대상 필터입니다.");
 }
 
 function normalizeContestTitle(title: string): string {
@@ -219,6 +239,26 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
 
   const subcommand = interaction.options.getSubcommand();
 
+  if (subcommand === "filter") {
+    await interaction.deferReply();
+    try {
+      const filter = parseAudienceFilter(interaction.options.getString("target", true));
+      const state = await setContestAudienceFilter(interaction.guild.id, filter);
+      const added = await syncContestFeed(interaction.client, state);
+      const label = contestAudienceFilterLabel(filter);
+
+      await interaction.editReply(
+        `✅ 공모전 참가대상 필터를 **${label}** 기준으로 설정했습니다.\n` +
+        "**일반인 / 누구나 / 제한없음** 대상 공모전은 모든 필터에서 포함됩니다.\n" +
+        `기존에 올라온 공모전은 삭제하지 않고, 앞으로 새로 수집되는 공모전에 적용됩니다.${added > 0 ? `\n조건에 맞는 미게시 공모전 **${added}개**를 바로 추가했습니다.` : ""}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      await interaction.editReply(`❌ 공모전 참가대상 필터 설정 실패\n\`${message}\``);
+    }
+    return;
+  }
+
   if (subcommand === "my-votes") {
     await interaction.deferReply({ ephemeral: true });
     try {
@@ -260,14 +300,15 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
   try {
     const existing = await findContestFeed(interaction.guild.id);
     if (existing) {
-      await interaction.editReply(`🏆 공모전 자동 수집 공간이 이미 설정되어 있습니다.\n<#${existing.channelId}>에서 새 공모전을 계속 확인합니다.`);
+      const filter = contestAudienceFilterLabel(existing.audienceFilter ?? "all");
+      await interaction.editReply(`🏆 공모전 자동 수집 공간이 이미 설정되어 있습니다.\n<#${existing.channelId}>에서 새 공모전을 계속 확인합니다.\n현재 참가대상 필터: **${filter}**`);
       return;
     }
 
     const state = await createContestFeed(interaction.guild);
     const added = await syncContestFeed(interaction.client, state);
 
-    await interaction.editReply(`✅ 공모전 자동 수집 공간을 만들었습니다.\n<#${state.channelId}>에 현재 진행 중인 IT 공모전 **${added}개**를 게시했고, 이후 **1시간마다** 새 공모전을 확인합니다.`);
+    await interaction.editReply(`✅ 공모전 자동 수집 공간을 만들었습니다.\n<#${state.channelId}>에 현재 진행 중인 IT 공모전 **${added}개**를 게시했고, 이후 **1시간마다** 새 공모전을 확인합니다.\n기본 참가대상 필터는 **전체**입니다.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
     await interaction.editReply(`❌ 공모전 자동 수집 설정에 실패했습니다.\n\`${message}\``);
