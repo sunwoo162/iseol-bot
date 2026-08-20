@@ -10,7 +10,15 @@ const GRID_Y = 54;
 const WIDTH = 1260;
 const HEIGHT = 270;
 
-const LEVEL_COLORS = ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353", "#7ee787"];
+const LEVEL_COLORS = [
+  "#161b22",
+  "#0d321f",
+  "#0e4429",
+  "#006d32",
+  "#26a641",
+  "#39d353",
+  "#7ee787",
+];
 
 function escapeXml(value: string): string {
   return value
@@ -32,7 +40,8 @@ function intensity(seconds: number): number {
   if (hours < 4) return 2;
   if (hours < 6) return 3;
   if (hours < 8) return 4;
-  return 5;
+  if (hours < 10) return 5;
+  return 6;
 }
 
 function startOfCurrentWeekUtc(): number {
@@ -51,12 +60,14 @@ export async function renderVoiceGrass(
   const rects: string[] = [];
   const monthLabels: string[] = [];
   let lastMonth = -1;
+  let displayedSeconds = 0;
 
   for (let week = 0; week < WEEKS; week += 1) {
     for (let day = 0; day < 7; day += 1) {
       const ms = start + (week * 7 + day) * DAY_MS;
       const key = dateKeyFromUtc(ms);
       const seconds = dailySeconds[key] ?? 0;
+      displayedSeconds += seconds;
       const level = intensity(seconds);
       const x = GRID_X + week * (CELL + GAP);
       const y = GRID_Y + day * (CELL + GAP);
@@ -76,12 +87,11 @@ export async function renderVoiceGrass(
     }
   }
 
-  const totalSeconds = Object.values(dailySeconds).reduce((sum, value) => sum + value, 0);
-  const totalHours = (totalSeconds / 3600).toFixed(1);
-  const legendX = WIDTH - 410;
-  const legend = ["0h", "2h", "4h", "6h", "8h", "10h+"]
+  const totalHours = (displayedSeconds / 3600).toFixed(1);
+  const legendX = WIDTH - 455;
+  const legend = ["0h", "<2h", "2h", "4h", "6h", "8h", "10h+"]
     .map((label, index) => {
-      const x = legendX + index * 58;
+      const x = legendX + index * 62;
       return `<g><rect x="${x}" y="226" width="16" height="16" rx="3" fill="${LEVEL_COLORS[index]}"/><text x="${x + 21}" y="240" fill="#8b949e" font-size="13">${label}</text></g>`;
     })
     .join("");
