@@ -1,7 +1,7 @@
 const REQUEST_TIMEOUT_MS = 15_000;
 const DETAIL_CONCURRENCY = 6;
 
-export type ContestSource = "위비티" | "씽굿" | "콘테스트코리아" | "올콘";
+export type ContestSource = "위비티" | "씽굿" | "콘테스트코리아" | "올콘" | "링커리어";
 
 export type ContestAttachment = {
   name: string;
@@ -38,6 +38,7 @@ type SourceDefinition = {
   buildListUrl: (page: number) => string;
   detailUrlPattern: RegExp;
   trustItCategory?: boolean;
+  titlePrefilter?: boolean;
 };
 
 const SOURCES: SourceDefinition[] = [
@@ -71,6 +72,14 @@ const SOURCES: SourceDefinition[] = [
     buildListUrl: (page) => `https://www.all-con.co.kr/list/contest/1/${page}?device=pc&sc=2`,
     detailUrlPattern: /\/view\/contest\/\d+/i,
   },
+  {
+    source: "링커리어",
+    baseUrl: "https://linkareer.com",
+    maxPages: 50,
+    buildListUrl: (page) => `https://linkareer.com/list/contest?page=${page}`,
+    detailUrlPattern: /\/activity\/\d+(?:[/?#]|$)/i,
+    titlePrefilter: true,
+  },
 ];
 
 const IT_KEYWORDS = [
@@ -97,6 +106,10 @@ const IT_KEYWORDS = [
   "정보통신",
   "api",
   "알고리즘",
+  "반도체",
+  "로봇",
+  "핀테크",
+  "블록체인",
 ];
 
 function decodeHtml(value: string): string {
@@ -149,6 +162,7 @@ function normalizeTitle(value: string): string {
     .normalize("NFKC")
     .toLowerCase()
     .replace(/제\s*\d+\s*회/g, "")
+    .replace(/\b20\d{2}\b/g, "")
     .replace(/[\[\](){}<>「」『』【】'"“”‘’·•,:.!?~_\-–—/\\|]/g, "")
     .replace(/\s+/g, "")
     .trim();
@@ -173,6 +187,7 @@ function extractCandidates(html: string, source: SourceDefinition): Candidate[] 
 
     const title = stripTags(body);
     if (!title || title.length < 2) continue;
+    if (source.titlePrefilter && !isItRelated(title)) continue;
 
     candidates.push({
       title,
@@ -246,6 +261,17 @@ function findValue(lines: string[], labels: string[]): string | undefined {
   return undefined;
 }
 
+function findValueNear(lines: string[], labels: string[], take = 3): string | undefined {
+  const normalized = labels.map((label) => label.toLowerCase());
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.toLowerCase();
+    if (!line || !normalized.some((label) => line === label || line.startsWith(label))) continue;
+    const values = lines.slice(index + 1, index + 1 + take).filter(Boolean);
+    if (values.length > 0) return values.join(" ");
+  }
+  return undefined;
+}
+
 function findLabeledLink(html: string, labels: string[], baseUrl: string): string | undefined {
   for (const label of labels) {
     const index = html.indexOf(label);
@@ -287,11 +313,10 @@ function extractAttachments(html: string, baseUrl: string): ContestAttachment[] 
 
 function extractPrize(text: string, type: "total" | "first"): string | undefined {
   if (type === "total") {
-    return text.match(/총\s*상금\s*[:：]?\s*([^/|\n]{1,40})/i)?.[1]?.trim()
-      ?? text.match(/총상금\s*[:：]?\s*([^/|\n]{1,40})/i)?.[1]?.trim();
+    return text.match(/(?:총\s*상금|시상규모)\s*[:：]?\s*([^/|\n]{1,60})/i)?.[1]?.trim();
   }
 
-  return text.match(/(?:1등\s*상금|1등|1위|대상|최우수상)\s*[:：-]?\s*([^|\n]{1,50})/i)?.[1]?.trim();
+  return text.match(/(?:1등\s*상금|1등시상금|1등|1위|대상|최우수상)\s*[:：-]?\s*([^|\n]{1,60})/i)?.[1]?.trim();
 }
 
 function formatPeriodWithDday(period?: string): string | undefined {
@@ -324,9 +349,16 @@ function formatPeriodWithDday(period?: string): string | undefined {
 }
 
 function isOpenContest(period?: string, status?: string): boolean {
-  if (status && /마감|종료/i.test(status) && !/마감임박/i.test(status)) return false;
+  if (status && /마감|종료|D\+\d+/i.test(status) && !/마감임박/i.test(status)) return false;
   if (!period) return true;
   return !formatPeriodWithDday(period)?.includes("**마감**");
+}
+
+function extractPeriod(lines: string[]): string | undefined {
+  const direct = findValue(lines, ["접수기간", "공모기간", "응모기간", "모집기간"]);
+  const near = findValueNear(lines, ["접수기간", "공모기간", "응모기간", "모집기간"], 4);
+  const candidate = near && /시작일|마감일/.test(near) ? near : direct;
+  return candidate?.replace(/\s+/g, " ").trim();
 }
 
 function parseDetail(candidate: Candidate, html: string): Contest | null {
@@ -335,28 +367,33 @@ function parseDetail(candidate: Candidate, html: string): Contest | null {
 
   const h1 = stripTags(html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ?? "");
   const pageTitle = stripTags(html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "");
-  const title = (h1 || pageTitle || candidate.title).replace(/\s*[|｜].*$/, "").trim();
+  const title = (h1 || pageTitle || candidate.title)
+    .replace(/\s*[|｜].*$/, "")
+    .replace(/\s*-\s*(?:링커리어|대티즌|스펙토리).*$/i, "")
+    .trim();
 
   if (!candidate.trustItCategory && !isItRelated(`${title}\n${text}`)) return null;
 
-  const hostCombined = findValue(lines, ["주최 . 주관", "주최·주관", "주최/주관"]);
+  const hostCombined = findValue(lines, ["주최 . 주관", "주최·주관", "주최/주관", "주최기관"]);
   const organizers = [
     findValue(lines, ["주최", "주최기관"]),
     findValue(lines, ["주관", "주관기관"]),
   ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
   const host = hostCombined ?? (organizers.length > 0 ? organizers.join(" / ") : undefined);
 
-  const target = findValue(lines, ["응모대상", "참가대상", "참가자격", "지원자격"]);
-  const sponsor = findValue(lines, ["후원/협찬", "후원·협찬", "후원", "협찬"]);
-  const periodRaw = findValue(lines, ["접수기간", "공모기간", "응모기간", "모집기간"]);
+  const target = findValue(lines, ["응모대상", "참가대상", "참가자격", "지원자격", "참여대상", "공모자격"]);
+  const sponsor = findValue(lines, ["후원/협찬", "후원·협찬", "주관/후원", "후원", "협찬"]);
+  const periodRaw = extractPeriod(lines);
   const period = formatPeriodWithDday(periodRaw);
-  const status = findValue(lines, ["진행상황", "진행사항", "상태"]);
+  const status = findValue(lines, ["진행상황", "진행사항", "진행상태", "상태"]);
 
   if (!isOpenContest(periodRaw, status)) return null;
 
-  const totalPrize = findValue(lines, ["총 상금", "총상금"]) ?? extractPrize(text, "total");
-  const firstPrize = findValue(lines, ["1등 상금", "시상금(1등)", "1위 상금"]) ?? extractPrize(text, "first");
-  const homepage = findLabeledLink(html, ["홈페이지", "주최사 홈페이지", "공식 홈페이지", "접수처"], candidate.url);
+  const totalPrize = findValue(lines, ["총 상금", "총상금", "시상규모"])
+    ?? extractPrize(text, "total");
+  const firstPrize = findValue(lines, ["1등 상금", "시상금(1등)", "1위 상금", "1등시상금"])
+    ?? extractPrize(text, "first");
+  const homepage = findLabeledLink(html, ["홈페이지", "주최사 홈페이지", "공식 홈페이지", "접수처", "홈페이지 지원"], candidate.url);
   const attachments = extractAttachments(html, candidate.url);
 
   return {
