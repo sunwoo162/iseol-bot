@@ -14,6 +14,7 @@ import {
 import { config } from "../config.js";
 import { FigmaWebhookService, parseFigmaFile } from "../services/figma.js";
 import { GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
+import { NotionService, parseNotionPage } from "../services/notion.js";
 import { deleteProject, findProjectByName, saveProject, updateProject } from "../services/projects.js";
 
 export const projectCommand = new SlashCommandBuilder()
@@ -25,10 +26,24 @@ export const projectCommand = new SlashCommandBuilder()
       .setName("create")
       .setDescription("새 프로젝트 공간을 생성합니다.")
       .addStringOption((option) => option.setName("name").setDescription("프로젝트 이름 (2~50자)").setMinLength(2).setMaxLength(50).setRequired(true))
-      .addStringOption((option) => option.setName("notion").setDescription("실제 Notion 페이지 URL (notion.so / notion.site)").setRequired(true))
+      .addStringOption((option) => option.setName("notion").setDescription("실제 Notion 기능명세서 페이지 URL").setRequired(true))
       .addStringOption((option) => option.setName("figma").setDescription("실제 Figma 파일 URL (figma.com/design/...)").setRequired(true))
       .addStringOption((option) => option.setName("frontend").setDescription("https://github.com/ORG/frontend 형식").setRequired(true))
       .addStringOption((option) => option.setName("backend").setDescription("https://github.com/ORG/backend 형식").setRequired(true)),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName("notion-connect")
+      .setDescription("기존 프로젝트에 Notion 기능명세서 수정 알림을 연결합니다.")
+      .addStringOption((option) => option
+        .setName("name")
+        .setDescription("연결할 프로젝트 방 선택")
+        .setRequired(true)
+        .setAutocomplete(true))
+      .addStringOption((option) => option
+        .setName("notion")
+        .setDescription("연결할 실제 Notion 기능명세서 페이지 URL")
+        .setRequired(true)),
   )
   .addSubcommand((subcommand) =>
     subcommand
@@ -57,22 +72,6 @@ export const projectCommand = new SlashCommandBuilder()
 
 type GitHubHook = { repository: RepositoryRef; id: number };
 
-function parseHttpsUrl(value: string, label: string): URL {
-  let url: URL;
-  try { url = new URL(value.trim()); } catch { throw new Error(`${label} 링크 형식이 올바르지 않습니다.`); }
-  if (url.protocol !== "https:") throw new Error(`${label} 링크는 https:// 로 시작해야 합니다.`);
-  return url;
-}
-
-function validateNotionUrl(value: string): string {
-  const url = parseHttpsUrl(value, "Notion");
-  const host = url.hostname.toLowerCase();
-  const valid = host === "notion.so" || host === "www.notion.so" || host === "notion.site" || host.endsWith(".notion.site");
-  if (!valid) throw new Error("Notion 링크는 https://www.notion.so/... 또는 https://xxxx.notion.site/... 형식만 사용할 수 있습니다.");
-  if (url.pathname === "/" || url.pathname.length < 5) throw new Error("Notion 메인 주소가 아니라 실제 기능명세서 페이지 링크를 입력해주세요.");
-  return url.toString();
-}
-
 async function createTextChannel(guild: Guild, parentId: string, name: string): Promise<TextChannel> {
   const channel = await guild.channels.create({ name, type: ChannelType.GuildText, parent: parentId });
   if (!(channel instanceof TextChannel)) throw new Error(`${name} 채널을 생성하지 못했습니다.`);
@@ -97,7 +96,7 @@ export async function handleProjectAutocomplete(interaction: AutocompleteInterac
     return;
   }
 
-  if (subcommand !== "delete" && subcommand !== "figma-connect") return;
+  if (subcommand !== "delete" && subcommand !== "figma-connect" && subcommand !== "notion-connect") return;
 
   const focused = interaction.options.getFocused().toString().trim().toLowerCase();
   const channels = await interaction.guild.channels.fetch();
@@ -126,6 +125,66 @@ async function resolveProjectCategory(interaction: ChatInputCommandInteraction, 
       );
 
   return { channels, category };
+}
+
+async function handleNotionConnect(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!interaction.guild) return;
+
+  await interaction.deferReply();
+  const target = interaction.options.getString("name", true).trim();
+
+  try {
+    const resolved = await resolveProjectCategory(interaction, target);
+    const category = resolved?.category;
+    const channels = resolved?.channels;
+
+    if (!category || !channels) {
+      await interaction.editReply("❌ 선택한 프로젝트 방을 찾을 수 없습니다.");
+      return;
+    }
+
+    const projectName = projectNameFromCategory(category.name);
+    const project = await findProjectByName(interaction.guild.id, projectName);
+    if (!project) {
+      await interaction.editReply("❌ 저장된 프로젝트 정보를 찾을 수 없습니다. 이설로 생성한 프로젝트인지 확인해주세요.");
+      return;
+    }
+
+    const notionChannel = channels.find((channel) =>
+      channel?.parentId === category.id
+      && channel.type === ChannelType.GuildText
+      && channel.name === "📄・기능명세서",
+    );
+
+    if (!(notionChannel instanceof TextChannel)) {
+      await interaction.editReply("❌ 프로젝트의 📄・기능명세서 채널을 찾을 수 없습니다.");
+      return;
+    }
+
+    const notionPage = parseNotionPage(interaction.options.getString("notion", true));
+    const notion = new NotionService(config.notionToken);
+    const page = await notion.getPage(notionPage.id);
+
+    await updateProject(project.id, {
+      notionUrl: notionPage.url,
+      notionPageId: notionPage.id,
+      notionChannelId: notionChannel.id,
+      notionLastEditedTime: page.last_edited_time,
+    });
+
+    await notionChannel.send({
+      embeds: [new EmbedBuilder()
+        .setTitle("✅ Notion 수정 알림 연결 완료")
+        .setDescription("이제 기능명세서 페이지가 수정되면 이 채널에 변경 알림이 기록됩니다.")
+        .setURL(notionPage.url)],
+      components: [linkButton("Notion 열기", notionPage.url)],
+    });
+
+    await interaction.editReply(`✅ **${projectName}** 프로젝트에 Notion 기능명세서 수정 알림을 연결했습니다.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    await interaction.editReply(`❌ Notion 알림 연결에 실패했습니다.\n\`${message}\``);
+  }
 }
 
 async function handleFigmaConnect(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -253,6 +312,10 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     await handleDeleteProject(interaction);
     return;
   }
+  if (subcommand === "notion-connect") {
+    await handleNotionConnect(interaction);
+    return;
+  }
   if (subcommand === "figma-connect") {
     await handleFigmaConnect(interaction);
     return;
@@ -263,7 +326,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
   const name = interaction.options.getString("name", true).trim();
 
   try {
-    const notionUrl = validateNotionUrl(interaction.options.getString("notion", true));
+    const notionPage = parseNotionPage(interaction.options.getString("notion", true));
     const figmaFile = parseFigmaFile(interaction.options.getString("figma", true));
     const frontendRepo = parseGitHubRepository(interaction.options.getString("frontend", true));
     const backendRepo = parseGitHubRepository(interaction.options.getString("backend", true));
@@ -273,14 +336,16 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     }
 
     const github = new GitHubWebhookService(config.githubToken);
+    const notion = new NotionService(config.notionToken);
     const figmaWebhook = new FigmaWebhookService(
       config.figmaToken,
       config.publicBaseUrl,
       config.figmaWebhookPasscode,
     );
-    const [frontendOwner, backendOwner] = await Promise.all([
+    const [frontendOwner, backendOwner, notionSnapshot] = await Promise.all([
       github.getRepositoryOwner(frontendRepo),
       github.getRepositoryOwner(backendRepo),
+      notion.getPage(notionPage.id),
     ]);
 
     if (frontendOwner.login.toLowerCase() !== backendOwner.login.toLowerCase()) {
@@ -316,6 +381,10 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
         figmaUrl: figmaFile.url,
         figmaFileKey: figmaFile.key,
         figmaChannelId: figma.id,
+        notionUrl: notionPage.url,
+        notionPageId: notionPage.id,
+        notionChannelId: spec.id,
+        notionLastEditedTime: notionSnapshot.last_edited_time,
       });
       storedProjectId = storedProject.id;
 
@@ -327,7 +396,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
         content: "@everyone",
         allowedMentions: { parse: ["everyone"] },
         embeds: [new EmbedBuilder().setTitle(name).setDescription("프로젝트 문서와 개발 저장소를 한곳에서 관리합니다.\n\n팀원은 아래 버튼으로 GitHub Organization 초대를 요청할 수 있습니다.").addFields(
-          { name: "기능명세서", value: notionUrl },
+          { name: "기능명세서", value: notionPage.url },
           { name: "Figma", value: figmaFile.url },
           { name: "GitHub Organization", value: `https://github.com/${organization}` },
           { name: "Frontend", value: frontendRepo.url },
@@ -337,7 +406,13 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
       });
       await overviewMessage.pin();
 
-      const specMessage = await spec.send({ embeds: [new EmbedBuilder().setTitle("📄 기능명세서").setDescription("Notion에서 프로젝트 기능명세서를 확인합니다.").setURL(notionUrl)], components: [linkButton("Notion 열기", notionUrl)] });
+      const specMessage = await spec.send({
+        embeds: [new EmbedBuilder()
+          .setTitle("📄 기능명세서")
+          .setDescription("Notion에서 프로젝트 기능명세서를 확인합니다.\n\n페이지가 수정되면 이 채널에 변경 알림이 기록됩니다.")
+          .setURL(notionPage.url)],
+        components: [linkButton("Notion 열기", notionPage.url)],
+      });
       await specMessage.pin();
       const figmaMessage = await figma.send({
         embeds: [new EmbedBuilder()
@@ -368,7 +443,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
 
       await frontendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Frontend GitHub 연결 완료").setDescription(frontendRepo.url).setURL(frontendRepo.url)] });
       await backendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Backend GitHub 연결 완료").setDescription(backendRepo.url).setURL(backendRepo.url)] });
-      await interaction.editReply(`✅ **${name}** 프로젝트 생성 + Notion/Figma 검증 + Figma 버전/댓글 알림 + GitHub 로그 + Organization 참여 버튼까지 완료했습니다.`);
+      await interaction.editReply(`✅ **${name}** 프로젝트 생성 + Notion 수정 알림 + Figma 버전/댓글 알림 + GitHub 로그 + Organization 참여 버튼까지 완료했습니다.`);
     } catch (error) {
       for (const hook of githubHooks.reverse()) {
         try { await github.deleteWebhook(hook.repository, hook.id); } catch {}
