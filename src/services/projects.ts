@@ -70,10 +70,10 @@ export async function findProjectByName(guildId: string, name: string): Promise<
 
 export async function findProjectByFigmaWebhook(webhookId: string, fileKey: string): Promise<StoredProject | null> {
   const projects = await readProjects();
-  return projects.find((project) =>
-    project.figmaWebhookId === webhookId
-    || (!!project.figmaFileKey && project.figmaFileKey === fileKey),
-  ) ?? null;
+  const exact = projects.find((project) => project.figmaWebhookId === webhookId);
+  if (exact) return exact;
+
+  return projects.find((project) => project.figmaFileKey === fileKey && !!project.figmaChannelId) ?? null;
 }
 
 export async function deleteProject(id: string): Promise<boolean> {
