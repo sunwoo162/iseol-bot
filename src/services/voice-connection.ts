@@ -20,7 +20,9 @@ export async function joinUserVoiceChannel(guild: Guild, userId: string): Promis
   const current = getVoiceConnection(guild.id);
 
   if (current && current.joinConfig.channelId === channel.id) return current;
-  if (current) current.destroy();
+  if (current?.joinConfig.channelId) {
+    throw new Error(`이설이가 이미 <#${current.joinConfig.channelId}> 음성 채널에 있습니다. 먼저 /voice leave를 사용해주세요.`);
+  }
 
   const connection = joinVoiceChannel({
     channelId: channel.id,
