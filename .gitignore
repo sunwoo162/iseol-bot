@@ -2,6 +2,7 @@ node_modules
 dist
 .env
 data/projects.json
+data/contest-votes.json
 .env
 node_modules/
 dist/
