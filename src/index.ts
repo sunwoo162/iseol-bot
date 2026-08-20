@@ -7,18 +7,21 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
+import { handleContestCommand, handleContestVoteButton } from "./commands/contest.js";
 import { config } from "./config.js";
 import { handleProjectAutocomplete, handleProjectCommand } from "./commands/project.js";
 import { GitHubWebhookService } from "./services/github.js";
+import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
 import { findProject } from "./services/projects.js";
 import { startWebhookServer } from "./services/webhook-server.js";
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 const github = new GitHubWebhookService(config.githubToken);
 
-client.once(Events.ClientReady, (readyClient) => {
+client.once(Events.ClientReady, async (readyClient) => {
   console.log(`${readyClient.user.tag} 로그인 완료`);
   startWebhookServer(client);
+  await ensureProjectDiscussionChannels(client);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -29,7 +32,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === "project") await handleProjectCommand(interaction);
+      if (interaction.commandName === "project") {
+        await handleProjectCommand(interaction);
+        await ensureProjectDiscussionChannels(client);
+      }
+      if (interaction.commandName === "contest") await handleContestCommand(interaction);
+      return;
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith("contest_vote:")) {
+      await handleContestVoteButton(interaction);
       return;
     }
 
