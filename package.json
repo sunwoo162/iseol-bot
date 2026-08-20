@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch --import tsx src/index.ts",
+    "dev": "node --use-system-ca --watch --import tsx src/index.ts",
     "register": "tsx src/register-commands.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js"
+    "start": "node --use-system-ca dist/index.js"
   },
   "dependencies": {
     "@octokit/rest": "^22.0.1",
