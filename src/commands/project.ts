@@ -87,11 +87,21 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
       throw new Error("Frontend와 Backend 저장소는 같은 GitHub Organization 아래에 있어야 합니다.");
     }
 
-    const organization = frontendRepo.owner;
     const github = new GitHubWebhookService(config.githubToken);
-    await github.assertOrganization(organization);
-    await github.assertRepositoryExists(frontendRepo);
-    await github.assertRepositoryExists(backendRepo);
+    const [frontendOwner, backendOwner] = await Promise.all([
+      github.getRepositoryOwner(frontendRepo),
+      github.getRepositoryOwner(backendRepo),
+    ]);
+
+    if (frontendOwner.login.toLowerCase() !== backendOwner.login.toLowerCase()) {
+      throw new Error("Frontend와 Backend 저장소는 같은 GitHub Organization 아래에 있어야 합니다.");
+    }
+
+    if (frontendOwner.type !== "Organization" || backendOwner.type !== "Organization") {
+      throw new Error(`GitHub owner "${frontendOwner.login}"가 Organization이 아닙니다.`);
+    }
+
+    const organization = frontendOwner.login;
 
     const category = await interaction.guild.channels.create({ name: `📁 ${name}`, type: ChannelType.GuildCategory });
     const createdChannelIds: string[] = [];
@@ -158,7 +168,6 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
-    await interaction.editReply(`❌ 프로젝트 생성에 실패했습니다.
-\`${message}\``);
+    await interaction.editReply(`❌ 프로젝트 생성에 실패했습니다.\n\`${message}\``);
   }
 }
