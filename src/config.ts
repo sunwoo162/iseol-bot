@@ -10,16 +10,8 @@ function required(name: string): string {
   return value;
 }
 
-function port(name: string, fallback: number): number {
-  const raw = process.env[name]?.trim();
-  if (!raw) return fallback;
-
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 1 || value > 65535) {
-    throw new Error(`${name} 환경변수는 1~65535 사이의 포트 번호여야 합니다.`);
-  }
-
-  return value;
+function optional(name: string): string {
+  return process.env[name]?.trim() ?? "";
 }
 
 export const config = {
@@ -28,7 +20,6 @@ export const config = {
   discordGuildId: required("DISCORD_GUILD_ID"),
   githubToken: required("GITHUB_TOKEN"),
   figmaToken: required("FIGMA_TOKEN"),
-  figmaWebhookPasscode: required("FIGMA_WEBHOOK_PASSCODE"),
-  publicBaseUrl: required("PUBLIC_BASE_URL"),
-  webhookPort: port("PORT", 3000),
+  figmaWebhookPasscode: optional("FIGMA_WEBHOOK_PASSCODE"),
+  publicBaseUrl: optional("PUBLIC_BASE_URL"),
 };
