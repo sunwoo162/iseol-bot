@@ -3,6 +3,7 @@ import {
   ChatInputCommandInteraction,
   SlashCommandBuilder,
 } from "discord.js";
+import { clearMusicRuntime } from "../services/music.js";
 import { renderVoiceGrass } from "../services/voice-grass.js";
 import {
   assertUserInBotVoiceChannel,
@@ -92,6 +93,7 @@ export async function handleVoiceCommand(interaction: ChatInputCommandInteractio
     if (subcommand === "leave") {
       await assertUserInBotVoiceChannel(interaction.guild, interaction.user.id);
       const stopped = await stopStudySessionsForGuild(interaction.guild.id);
+      clearMusicRuntime(interaction.guild.id);
       const left = leaveGuildVoiceChannel(interaction.guild.id);
       if (!left) throw new Error("이설이가 들어가 있는 음성 채널이 없습니다.");
 
