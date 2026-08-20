@@ -21,6 +21,8 @@ export type ContestVote = {
   homepage?: string;
   attachments?: ContestAttachment[];
   status?: string;
+  eligibleVoterIds?: string[];
+  majority?: number;
   voterIds: string[];
   finalized: boolean;
   prepCategoryId?: string;
