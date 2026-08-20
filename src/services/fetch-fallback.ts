@@ -66,9 +66,7 @@ async function fetchAllconWithCurl(
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
   });
-  const body = typeof result.stdout === "string"
-    ? result.stdout
-    : result.stdout.toString("utf8");
+  const body = result.stdout;
 
   return new Response(body, {
     status: 200,
