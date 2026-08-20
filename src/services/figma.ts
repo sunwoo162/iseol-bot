@@ -18,6 +18,18 @@ export type FigmaVersion = {
   };
 };
 
+export type FigmaComment = {
+  id: string;
+  message?: string;
+  created_at: string;
+  parent_id?: string;
+  resolved_at?: string;
+  user?: {
+    id?: string;
+    handle?: string;
+  };
+};
+
 export function parseFigmaFile(input: string): FigmaFileRef {
   const url = new URL(input.trim());
   const host = url.hostname.toLowerCase();
@@ -74,6 +86,16 @@ export class FigmaWebhookService {
         const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
         return timeDiff !== 0 ? timeDiff : a.id.localeCompare(b.id);
       });
+  }
+
+  async listComments(fileKey: string): Promise<FigmaComment[]> {
+    const response = await this.request(`/v1/files/${encodeURIComponent(fileKey)}/comments?as_md=true`);
+    const data = await response.json() as { comments?: FigmaComment[] };
+
+    return (data.comments ?? []).sort((a, b) => {
+      const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      return timeDiff !== 0 ? timeDiff : a.id.localeCompare(b.id);
+    });
   }
 
   async getLatestNamedVersion(fileKey: string): Promise<FigmaVersion | null> {
