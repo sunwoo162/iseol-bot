@@ -371,6 +371,25 @@ export function contestVoteComponents(voteId: string, contestUrl: string, finali
   ];
 }
 
+function deadlineReminderEmbed(vote: ContestVote, majority: number): EmbedBuilder {
+  const daysLeft = getDeadlineDaysLeft(vote);
+  const label = daysLeft === null
+    ? "마감 임박"
+    : daysLeft < 0
+      ? "마감"
+      : daysLeft === 0
+        ? "D-DAY"
+        : `D-${daysLeft}`;
+
+  return contestVoteEmbed(vote, vote.voterIds.length, majority, vote.finalized)
+    .setTitle(`⏰ ${label} · ${vote.title}`)
+    .setDescription(daysLeft !== null && daysLeft < 0
+      ? "제출 기간이 마감된 공모전입니다."
+      : vote.finalized
+        ? `제출 마감이 **${label}**로 임박했습니다. 참여 확정된 공모전입니다.`
+        : `제출 마감이 **${label}**로 임박했습니다. 참여할 사람은 아래 투표 버튼을 눌러주세요.`);
+}
+
 export async function createContestFeed(guild: Guild): Promise<ContestFeedState> {
   const existing = await findContestFeed(guild.id);
   if (existing) return existing;
@@ -468,20 +487,65 @@ async function ensureDeadlineSnapshot(vote: ContestVote): Promise<ContestVote> {
   return updated ?? vote;
 }
 
-async function refreshDeadlineCard(channel: TextChannel, vote: ContestVote): Promise<ContestVote> {
+async function findLegacyDeadlineReminderMessageId(channel: TextChannel, vote: ContestVote): Promise<string | undefined> {
+  const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+  if (!messages) return undefined;
+
+  const expectedTitle = normalizeTitle(vote.title);
+  const reminder = messages.find((message) => {
+    if (message.author.id !== channel.client.user?.id) return false;
+
+    return message.embeds.some((embed) => {
+      const title = embed.title ?? "";
+      if (!title.startsWith("⏰")) return false;
+
+      const contestTitle = title.replace(/^⏰\s*(?:D-DAY|D-\d+|마감|마감 임박)\s*·\s*/i, "");
+      return normalizeTitle(contestTitle) === expectedTitle;
+    });
+  });
+
+  return reminder?.id;
+}
+
+async function refreshDeadlineCard(
+  channel: TextChannel,
+  vote: ContestVote,
+  hasDeadlineReminder: boolean,
+): Promise<ContestVote> {
   let current = await ensureDeadlineSnapshot(vote);
+
+  if (hasDeadlineReminder && !current.deadlineReminderMessageId) {
+    const legacyReminderMessageId = await findLegacyDeadlineReminderMessageId(channel, current);
+    if (legacyReminderMessageId) {
+      const migrated = await updateContestVote(current.id, {
+        deadlineReminderMessageId: legacyReminderMessageId,
+      });
+      current = migrated ?? current;
+    }
+  }
+
   if (!current.deadlineDate) return current;
 
   const today = seoulDateKey();
   if (current.deadlineLastRenderedDate === today) return current;
 
+  const majority = current.majority ?? majorityOf(current.eligibleVoterIds?.length ?? 0);
   const message = await channel.messages.fetch(current.messageId).catch(() => null);
   if (message) {
-    const majority = current.majority ?? majorityOf(current.eligibleVoterIds?.length ?? 0);
     await message.edit({
       embeds: [contestVoteEmbed(current, current.voterIds.length, majority, current.finalized)],
       components: contestVoteComponents(current.id, current.homepage || current.url, current.finalized),
     });
+  }
+
+  if (current.deadlineReminderMessageId) {
+    const reminderMessage = await channel.messages.fetch(current.deadlineReminderMessageId).catch(() => null);
+    if (reminderMessage) {
+      await reminderMessage.edit({
+        embeds: [deadlineReminderEmbed(current, majority)],
+        components: contestVoteComponents(current.id, current.homepage || current.url, current.finalized),
+      });
+    }
   }
 
   const updated = await updateContestVote(current.id, { deadlineLastRenderedDate: today });
@@ -496,8 +560,6 @@ async function publishDeadlineReminder(
   existingVote?: ContestVote,
 ): Promise<void> {
   const vote = existingVote ? await ensureDeadlineSnapshot(existingVote) : null;
-  const daysLeft = getDeadlineDaysLeft(vote ?? contest);
-  const label = daysLeft === 0 ? "D-DAY" : `D-${daysLeft}`;
   const fallbackMajority = majorityOf(eligibleVoterIds.length);
 
   if (!vote) {
@@ -506,15 +568,14 @@ async function publishDeadlineReminder(
   }
 
   const contestLink = vote.homepage || vote.url;
-  const embed = contestVoteEmbed(vote, vote.voterIds.length, vote.majority ?? fallbackMajority, vote.finalized)
-    .setTitle(`⏰ ${label} · ${vote.title}`)
-    .setDescription(vote.finalized
-      ? `제출 마감이 **${label}**로 임박했습니다. 참여 확정된 공모전입니다.`
-      : `제출 마감이 **${label}**로 임박했습니다. 참여할 사람은 아래 투표 버튼을 눌러주세요.`);
-
-  await channel.send({
-    embeds: [embed],
+  const reminderMessage = await channel.send({
+    embeds: [deadlineReminderEmbed(vote, vote.majority ?? fallbackMajority)],
     components: contestVoteComponents(vote.id, contestLink, vote.finalized),
+  });
+
+  await updateContestVote(vote.id, {
+    deadlineReminderMessageId: reminderMessage.id,
+    deadlineLastRenderedDate: seoulDateKey(),
   });
 }
 
@@ -596,7 +657,7 @@ export async function syncContestFeed(client: Client, state: ContestFeedState): 
     const contestVotes = votesByContest.get(key) ?? [];
     const refreshedVotes: ContestVote[] = [];
     for (const vote of contestVotes) {
-      refreshedVotes.push(await refreshDeadlineCard(fetched, vote));
+      refreshedVotes.push(await refreshDeadlineCard(fetched, vote, reminded.has(key)));
     }
     if (refreshedVotes.length > 0) votesByContest.set(key, refreshedVotes);
 
