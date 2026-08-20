@@ -83,8 +83,8 @@ const SOURCES: SourceDefinition[] = [
   {
     source: "대티즌",
     baseUrl: "https://www.detizen.com",
-    maxPages: 30,
-    buildListUrl: (page) => `https://www.detizen.com/contests?page=${page}`,
+    maxPages: 1,
+    buildListUrl: () => "https://www.detizen.com/",
     detailUrlPattern: /\/contests\/[^/?#]+(?:[/?#]|$)/i,
     titlePrefilter: true,
   },
