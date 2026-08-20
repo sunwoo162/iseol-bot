@@ -29,6 +29,16 @@ export type ContestVote = {
 
 const DATA_FILE = resolve(process.cwd(), "data", "contest-votes.json");
 
+function normalizeTitle(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/제\s*\d+\s*회/g, "")
+    .replace(/[\[\](){}<>「」『』【】'"“”‘’·•,:.!?~_\-–—/\\|]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
 async function readVotes(): Promise<ContestVote[]> {
   try {
     const content = await readFile(DATA_FILE, "utf8");
@@ -61,6 +71,24 @@ export async function saveContestVote(vote: Omit<ContestVote, "createdAt">): Pro
 export async function findContestVote(id: string): Promise<ContestVote | null> {
   const votes = await readVotes();
   return votes.find((vote) => vote.id === id) ?? null;
+}
+
+export async function findLatestContestVote(
+  guildId: string,
+  channelId: string,
+  title: string,
+  url: string,
+): Promise<ContestVote | null> {
+  const normalizedTitle = normalizeTitle(title);
+  const votes = await readVotes();
+
+  return votes
+    .filter((vote) =>
+      vote.guildId === guildId
+      && vote.channelId === channelId
+      && (vote.url === url || normalizeTitle(vote.title) === normalizedTitle),
+    )
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
 }
 
 export async function listContestVotesByUser(guildId: string, userId: string): Promise<ContestVote[]> {
