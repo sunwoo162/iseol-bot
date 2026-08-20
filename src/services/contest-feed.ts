@@ -356,10 +356,6 @@ export async function syncContestFeed(client: Client, state: ContestFeedState): 
       posted.add(key);
       count += 1;
 
-      if (shouldSendDeadlineReminder(contest)) {
-        reminded.add(key);
-      }
-
       state.postedKeys = [...posted];
       state.remindedKeys = [...reminded];
       state.lastSyncedAt = new Date().toISOString();
