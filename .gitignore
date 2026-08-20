@@ -4,6 +4,8 @@ dist
 data/projects.json
 data/contest-votes.json
 data/contest-feed.json
+data/voice-study-time.json
+data/music-playlists.json
 .env
 node_modules/
 dist/
