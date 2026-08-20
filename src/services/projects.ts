@@ -17,6 +17,7 @@ export type StoredProject = {
   figmaFileKey?: string;
   figmaChannelId?: string;
   figmaWebhookId?: string;
+  figmaLastVersionId?: string;
 };
 
 const DATA_FILE = resolve(process.cwd(), "data", "projects.json");
@@ -33,6 +34,10 @@ async function readProjects(): Promise<StoredProject[]> {
 async function writeProjects(projects: StoredProject[]): Promise<void> {
   await mkdir(dirname(DATA_FILE), { recursive: true });
   await writeFile(DATA_FILE, JSON.stringify(projects, null, 2), "utf8");
+}
+
+export async function listProjects(): Promise<StoredProject[]> {
+  return readProjects();
 }
 
 export async function saveProject(project: Omit<StoredProject, "id">): Promise<StoredProject> {
