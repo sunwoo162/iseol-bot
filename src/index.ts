@@ -1,3 +1,4 @@
+import "./services/fetch-fallback.js";
 import {
   ActionRowBuilder,
   Client,
