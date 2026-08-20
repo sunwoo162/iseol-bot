@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import type { ContestAttachment, ContestSource } from "./contests.js";
 
 export type ContestVote = {
   id: string;
@@ -9,6 +10,16 @@ export type ContestVote = {
   messageId: string;
   title: string;
   url: string;
+  sources?: ContestSource[];
+  field?: string;
+  target?: string;
+  host?: string;
+  sponsor?: string;
+  period?: string;
+  totalPrize?: string;
+  firstPrize?: string;
+  homepage?: string;
+  attachments?: ContestAttachment[];
   status?: string;
   voterIds: string[];
   finalized: boolean;
