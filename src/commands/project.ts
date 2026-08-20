@@ -12,6 +12,7 @@ import {
   TextChannel,
 } from "discord.js";
 import { config } from "../config.js";
+import { FigmaWebhookService, parseFigmaFile } from "../services/figma.js";
 import { GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
 import { deleteProject, saveProject, updateProject } from "../services/projects.js";
 
@@ -55,16 +56,6 @@ function validateNotionUrl(value: string): string {
   const valid = host === "notion.so" || host === "www.notion.so" || host === "notion.site" || host.endsWith(".notion.site");
   if (!valid) throw new Error("Notion 링크는 https://www.notion.so/... 또는 https://xxxx.notion.site/... 형식만 사용할 수 있습니다.");
   if (url.pathname === "/" || url.pathname.length < 5) throw new Error("Notion 메인 주소가 아니라 실제 기능명세서 페이지 링크를 입력해주세요.");
-  return url.toString();
-}
-
-function validateFigmaUrl(value: string): string {
-  const url = parseHttpsUrl(value, "Figma");
-  const host = url.hostname.toLowerCase();
-  if (host !== "figma.com" && host !== "www.figma.com") throw new Error("Figma 링크는 https://www.figma.com/... 형식만 사용할 수 있습니다.");
-  if (!["/design/", "/file/", "/board/", "/proto/"].some((prefix) => url.pathname.startsWith(prefix))) {
-    throw new Error("Figma 메인 주소가 아니라 실제 디자인 파일 링크를 입력해주세요. 예: https://www.figma.com/design/...");
-  }
   return url.toString();
 }
 
@@ -164,7 +155,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
 
   try {
     const notionUrl = validateNotionUrl(interaction.options.getString("notion", true));
-    const figmaUrl = validateFigmaUrl(interaction.options.getString("figma", true));
+    const figmaFile = parseFigmaFile(interaction.options.getString("figma", true));
     const frontendRepo = parseGitHubRepository(interaction.options.getString("frontend", true));
     const backendRepo = parseGitHubRepository(interaction.options.getString("backend", true));
 
@@ -173,6 +164,11 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     }
 
     const github = new GitHubWebhookService(config.githubToken);
+    const figmaWebhook = new FigmaWebhookService(
+      config.figmaToken,
+      config.publicBaseUrl,
+      config.figmaWebhookPasscode,
+    );
     const [frontendOwner, backendOwner] = await Promise.all([
       github.getRepositoryOwner(frontendRepo),
       github.getRepositoryOwner(backendRepo),
@@ -190,6 +186,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     const category = await interaction.guild.channels.create({ name: `📁 ${name}`, type: ChannelType.GuildCategory });
     const createdChannelIds: string[] = [];
     const githubHooks: GitHubHook[] = [];
+    let figmaWebhookId: string | null = null;
     let storedProjectId: string | null = null;
 
     try {
@@ -207,6 +204,9 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
         organization,
         frontend: frontendRepo,
         backend: backendRepo,
+        figmaUrl: figmaFile.url,
+        figmaFileKey: figmaFile.key,
+        figmaChannelId: figma.id,
       });
       storedProjectId = storedProject.id;
 
@@ -219,7 +219,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
         allowedMentions: { parse: ["everyone"] },
         embeds: [new EmbedBuilder().setTitle(name).setDescription("프로젝트 문서와 개발 저장소를 한곳에서 관리합니다.\n\n팀원은 아래 버튼으로 GitHub Organization 초대를 요청할 수 있습니다.").addFields(
           { name: "기능명세서", value: notionUrl },
-          { name: "Figma", value: figmaUrl },
+          { name: "Figma", value: figmaFile.url },
           { name: "GitHub Organization", value: `https://github.com/${organization}` },
           { name: "Frontend", value: frontendRepo.url },
           { name: "Backend", value: backendRepo.url },
@@ -230,8 +230,17 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
 
       const specMessage = await spec.send({ embeds: [new EmbedBuilder().setTitle("📄 기능명세서").setDescription("Notion에서 프로젝트 기능명세서를 확인합니다.").setURL(notionUrl)], components: [linkButton("Notion 열기", notionUrl)] });
       await specMessage.pin();
-      const figmaMessage = await figma.send({ embeds: [new EmbedBuilder().setTitle("🎨 Figma").setDescription("프로젝트 UI/UX 디자인을 확인합니다.").setURL(figmaUrl)], components: [linkButton("Figma 열기", figmaUrl)] });
+      const figmaMessage = await figma.send({
+        embeds: [new EmbedBuilder()
+          .setTitle("🎨 Figma")
+          .setDescription("프로젝트 UI/UX 디자인을 확인합니다.\n\nFigma에서 이름 있는 버전을 생성하면 이 채널에 변경 알림이 기록됩니다.")
+          .setURL(figmaFile.url)],
+        components: [linkButton("Figma 열기", figmaFile.url)],
+      });
       await figmaMessage.pin();
+
+      figmaWebhookId = await figmaWebhook.createVersionWebhook(figmaFile.key, `${name} named version notifications`);
+      await updateProject(storedProject.id, { figmaWebhookId });
 
       const frontDiscordWebhook = await frontendLog.createWebhook({ name: `${name} Frontend Log`, reason: `${name} frontend GitHub integration` });
       const backDiscordWebhook = await backendLog.createWebhook({ name: `${name} Backend Log`, reason: `${name} backend GitHub integration` });
@@ -245,10 +254,13 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
 
       await frontendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Frontend GitHub 연결 완료").setDescription(frontendRepo.url).setURL(frontendRepo.url)] });
       await backendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Backend GitHub 연결 완료").setDescription(backendRepo.url).setURL(backendRepo.url)] });
-      await interaction.editReply(`✅ **${name}** 프로젝트 생성 + Notion/Figma 검증 + GitHub 로그 + Organization 참여 버튼까지 완료했습니다.`);
+      await interaction.editReply(`✅ **${name}** 프로젝트 생성 + Notion/Figma 검증 + Figma 버전 알림 + GitHub 로그 + Organization 참여 버튼까지 완료했습니다.`);
     } catch (error) {
       for (const hook of githubHooks.reverse()) {
         try { await github.deleteWebhook(hook.repository, hook.id); } catch {}
+      }
+      if (figmaWebhookId) {
+        try { await figmaWebhook.deleteWebhook(figmaWebhookId); } catch {}
       }
       if (storedProjectId) {
         try { await deleteProject(storedProjectId); } catch {}
