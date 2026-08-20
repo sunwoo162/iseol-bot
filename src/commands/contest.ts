@@ -260,7 +260,17 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
       components: voteComponents(updated.id, updated.url, reachedMajority),
     });
 
-    if (!reachedMajority || !prepRoom) return;
+    if (!reachedMajority) {
+      await channel.send({
+        embeds: [new EmbedBuilder()
+          .setTitle("🗳️ 공모전 투표 현황")
+          .setDescription(`**${updated.title}**\n\n투표한 사람: ${voterMentions(voterIds)}\n현재 **${voterIds.length}/${majority}명**`)
+          .setURL(updated.url)],
+      });
+      return;
+    }
+
+    if (!prepRoom) return;
 
     await channel.send({
       embeds: [new EmbedBuilder()
