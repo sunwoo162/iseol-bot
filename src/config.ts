@@ -20,6 +20,7 @@ export const config = {
   discordGuildId: required("DISCORD_GUILD_ID"),
   githubToken: required("GITHUB_TOKEN"),
   figmaToken: required("FIGMA_TOKEN"),
+  notionToken: required("NOTION_TOKEN"),
   figmaWebhookPasscode: optional("FIGMA_WEBHOOK_PASSCODE"),
   publicBaseUrl: optional("PUBLIC_BASE_URL"),
 };
