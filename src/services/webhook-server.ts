@@ -1,18 +1,25 @@
 import { Client, EmbedBuilder, TextChannel } from "discord.js";
 import { config } from "../config.js";
-import { FigmaWebhookService, NO_FIGMA_VERSION, type FigmaVersion } from "./figma.js";
+import { FigmaWebhookService, NO_FIGMA_VERSION, type FigmaComment, type FigmaVersion } from "./figma.js";
 import { listProjects, updateProject, type StoredProject } from "./projects.js";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
-async function notifyVersion(client: Client, project: StoredProject, version: FigmaVersion): Promise<void> {
-  if (!project.figmaChannelId) return;
+async function getFigmaChannel(client: Client, project: StoredProject): Promise<TextChannel | null> {
+  if (!project.figmaChannelId) return null;
 
   const channel = await client.channels.fetch(project.figmaChannelId).catch(() => null);
   if (!(channel instanceof TextChannel)) {
     console.warn(`Figma 알림 채널을 찾지 못했습니다: ${project.figmaChannelId}`);
-    return;
+    return null;
   }
+
+  return channel;
+}
+
+async function notifyVersion(client: Client, project: StoredProject, version: FigmaVersion): Promise<void> {
+  const channel = await getFigmaChannel(client, project);
+  if (!channel) return;
 
   const fields = [
     { name: "버전", value: version.label || "이름 없음", inline: true },
@@ -40,7 +47,32 @@ async function notifyVersion(client: Client, project: StoredProject, version: Fi
   await channel.send({ embeds: [embed] });
 }
 
-async function pollProject(client: Client, figma: FigmaWebhookService, project: StoredProject): Promise<void> {
+async function notifyComment(client: Client, project: StoredProject, comment: FigmaComment): Promise<void> {
+  const channel = await getFigmaChannel(client, project);
+  if (!channel) return;
+
+  const message = comment.message?.trim() || "댓글 내용을 불러올 수 없습니다.";
+  const embed = new EmbedBuilder()
+    .setTitle(comment.parent_id ? "↩️ Figma 새 답글" : "💬 Figma 새 댓글")
+    .setDescription(message.slice(0, 4096))
+    .addFields(
+      { name: "작성자", value: comment.user?.handle || "알 수 없음", inline: true },
+      { name: "프로젝트", value: project.name, inline: true },
+    );
+
+  if (project.figmaUrl) {
+    embed.setURL(project.figmaUrl);
+  }
+
+  const createdAt = new Date(comment.created_at);
+  if (!Number.isNaN(createdAt.getTime())) {
+    embed.setTimestamp(createdAt);
+  }
+
+  await channel.send({ embeds: [embed] });
+}
+
+async function pollProjectVersions(client: Client, figma: FigmaWebhookService, project: StoredProject): Promise<void> {
   if (!project.figmaFileKey || !project.figmaChannelId) return;
 
   const versions = await figma.listNamedVersions(project.figmaFileKey);
@@ -84,15 +116,44 @@ async function pollProject(client: Client, figma: FigmaWebhookService, project: 
   }
 }
 
+async function pollProjectComments(client: Client, figma: FigmaWebhookService, project: StoredProject): Promise<void> {
+  if (!project.figmaFileKey || !project.figmaChannelId) return;
+
+  const comments = await figma.listComments(project.figmaFileKey);
+  const currentIds = comments.map((comment) => comment.id);
+
+  if (!project.figmaKnownCommentIds) {
+    await updateProject(project.id, { figmaKnownCommentIds: currentIds });
+    return;
+  }
+
+  const knownIds = new Set(project.figmaKnownCommentIds);
+  const newComments = comments.filter((comment) => !knownIds.has(comment.id));
+
+  for (const comment of newComments) {
+    await notifyComment(client, project, comment);
+    knownIds.add(comment.id);
+    await updateProject(project.id, { figmaKnownCommentIds: [...knownIds] });
+  }
+
+  await updateProject(project.id, { figmaKnownCommentIds: currentIds });
+}
+
 async function pollAllProjects(client: Client): Promise<void> {
   const figma = new FigmaWebhookService(config.figmaToken);
   const projects = await listProjects();
 
   for (const project of projects) {
     try {
-      await pollProject(client, figma, project);
+      await pollProjectVersions(client, figma, project);
     } catch (error) {
       console.error(`Figma 버전 확인 실패 (${project.name})`, error);
+    }
+
+    try {
+      await pollProjectComments(client, figma, project);
+    } catch (error) {
+      console.error(`Figma 댓글 확인 실패 (${project.name})`, error);
     }
   }
 }
@@ -113,6 +174,6 @@ export function startWebhookServer(client: Client): NodeJS.Timeout {
 
   void run();
   const timer = setInterval(() => void run(), POLL_INTERVAL_MS);
-  console.log("Figma 이름 있는 버전 감시 시작: 5분 간격");
+  console.log("Figma 이름 있는 버전/댓글 감시 시작: 5분 간격");
   return timer;
 }
