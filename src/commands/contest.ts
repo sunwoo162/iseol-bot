@@ -17,13 +17,29 @@ import {
   updateContestVote,
   type ContestVote,
 } from "../services/contest-votes.js";
-import { listActiveItContests, type Contest } from "../services/contests.js";
+import { listActiveItContests, type Contest, type ContestAttachment } from "../services/contests.js";
 
 export const contestCommand = new SlashCommandBuilder()
   .setName("contest")
-  .setDescription("진행 중인 IT 공모전을 불러와 투표를 시작합니다.");
+  .setDescription("여러 공모전 사이트의 진행 중 IT 공모전을 모아 투표를 시작합니다.");
 
 const processingVotes = new Set<string>();
+
+type ContestCardData = {
+  title: string;
+  url: string;
+  sources?: string[];
+  field?: string;
+  target?: string;
+  host?: string;
+  sponsor?: string;
+  period?: string;
+  totalPrize?: string;
+  firstPrize?: string;
+  homepage?: string;
+  attachments?: ContestAttachment[];
+  status?: string;
+};
 
 function majorityOf(total: number): number {
   return Math.floor(total / 2) + 1;
@@ -34,19 +50,50 @@ function voterMentions(voterIds: string[]): string {
   return voterIds.map((id) => `<@${id}>`).join(" ");
 }
 
+function safeValue(value?: string, fallback = "정보없음"): string {
+  const text = value?.trim() || fallback;
+  return text.slice(0, 1024);
+}
+
+function homepageValue(contest: ContestCardData): string {
+  const url = contest.homepage || contest.url;
+  return `[바로가기](${url})`;
+}
+
+function attachmentValue(attachments?: ContestAttachment[]): string {
+  if (!attachments || attachments.length === 0) return "파일없음";
+
+  return attachments
+    .slice(0, 5)
+    .map((attachment) => attachment.url
+      ? `[${attachment.name.slice(0, 80)}](${attachment.url})`
+      : attachment.name.slice(0, 100))
+    .join("\n")
+    .slice(0, 1024);
+}
+
 function contestEmbed(
-  contest: Pick<Contest, "title" | "url" | "status">,
+  contest: ContestCardData,
   voterIds: string[],
   majority: number,
   finalized: boolean,
 ): EmbedBuilder {
+  const sources = contest.sources?.length ? contest.sources.join(" · ") : "출처 확인 필요";
   const embed = new EmbedBuilder()
     .setTitle(`${finalized ? "✅ " : "🏆 "}${contest.title}`)
-    .setURL(contest.url)
+    .setURL(contest.homepage || contest.url)
     .setDescription(finalized ? "과반수 투표로 준비가 확정된 공모전입니다." : "참여하고 싶은 사람은 아래 **투표** 버튼을 눌러주세요.")
     .addFields(
-      { name: "분야", value: "웹/모바일/IT", inline: true },
-      { name: "출처", value: "WEVITY", inline: true },
+      { name: "분야", value: safeValue(contest.field, "웹/모바일/IT"), inline: true },
+      { name: "응모대상", value: safeValue(contest.target), inline: true },
+      { name: "주최/주관", value: safeValue(contest.host), inline: false },
+      { name: "후원/협찬", value: safeValue(contest.sponsor, "없음"), inline: false },
+      { name: "접수기간", value: safeValue(contest.period), inline: false },
+      { name: "총 상금", value: safeValue(contest.totalPrize), inline: true },
+      { name: "1등 상금", value: safeValue(contest.firstPrize), inline: true },
+      { name: "홈페이지", value: homepageValue(contest), inline: false },
+      { name: "첨부파일", value: attachmentValue(contest.attachments), inline: false },
+      { name: "출처", value: sources.slice(0, 1024), inline: false },
       { name: "투표", value: `${voterIds.length} / ${majority}명 이상`, inline: true },
       { name: "투표한 사람", value: voterMentions(voterIds), inline: false },
     );
@@ -161,13 +208,15 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
     }
 
     const majority = majorityOf(eligibleHumans.size);
-    await interaction.editReply(`🏆 진행 중인 IT 공모전 **${contests.length}개**를 불러왔습니다.\n이 채널을 볼 수 있는 사람 중 봇을 제외한 **${eligibleHumans.size}명**을 기준으로, 각 공모전마다 **${majority}명** 이상 투표하면 참여가 확정됩니다.`);
+    const sourceNames = [...new Set(contests.flatMap((contest) => contest.sources))].join(" · ");
+    await interaction.editReply(`🏆 **${sourceNames}**에서 진행 중인 IT 공모전을 모았습니다.\n중복 제거 후 **${contests.length}개**입니다.\n이 채널을 볼 수 있는 사람 중 봇을 제외한 **${eligibleHumans.size}명** 기준으로 **${majority}명** 이상 투표하면 참여가 확정됩니다.`);
 
     for (const contest of contests) {
       const voteId = createContestVoteId();
+      const contestLink = contest.homepage || contest.url;
       const message = await channel.send({
         embeds: [contestEmbed(contest, [], majority, false)],
-        components: voteComponents(voteId, contest.url, false),
+        components: voteComponents(voteId, contestLink, false),
       });
 
       await saveContestVote({
@@ -177,6 +226,16 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
         messageId: message.id,
         title: contest.title,
         url: contest.url,
+        sources: contest.sources,
+        field: contest.field,
+        target: contest.target,
+        host: contest.host,
+        sponsor: contest.sponsor,
+        period: contest.period,
+        totalPrize: contest.totalPrize,
+        firstPrize: contest.firstPrize,
+        homepage: contest.homepage,
+        attachments: contest.attachments,
         status: contest.status,
         voterIds: [],
         finalized: false,
@@ -217,6 +276,7 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
 
     const eligibleHumans = await getEligibleHumans(channel);
     const majority = majorityOf(eligibleHumans.size);
+    const contestLink = vote.homepage || vote.url;
 
     if (!eligibleHumans.has(interaction.user.id)) {
       await interaction.followUp({ content: "이 투표의 참여 대상이 아닙니다.", ephemeral: true });
@@ -226,7 +286,7 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
     if (vote.finalized) {
       await interaction.message.edit({
         embeds: [contestEmbed(vote, vote.voterIds, majority, true)],
-        components: voteComponents(vote.id, vote.url, true),
+        components: voteComponents(vote.id, contestLink, true),
       });
       await interaction.followUp({ content: "이미 참여가 확정된 공모전입니다.", ephemeral: true });
       return;
@@ -257,7 +317,7 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
 
     await interaction.message.edit({
       embeds: [contestEmbed(updated, voterIds, majority, reachedMajority)],
-      components: voteComponents(updated.id, updated.url, reachedMajority),
+      components: voteComponents(updated.id, updated.homepage || updated.url, reachedMajority),
     });
 
     if (!reachedMajority) {
@@ -265,7 +325,7 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
         embeds: [new EmbedBuilder()
           .setTitle("🗳️ 공모전 투표 현황")
           .setDescription(`**${updated.title}**\n\n투표한 사람: ${voterMentions(voterIds)}\n현재 **${voterIds.length}/${majority}명**`)
-          .setURL(updated.url)],
+          .setURL(updated.homepage || updated.url)],
       });
       return;
     }
@@ -281,7 +341,7 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
           { name: "토론", value: `<#${prepRoom.discussionChannelId}>`, inline: true },
           { name: "개인정보", value: `<#${prepRoom.personalChannelId}>`, inline: true },
         )
-        .setURL(updated.url)],
+        .setURL(updated.homepage || updated.url)],
     });
   } catch (error) {
     console.error(`공모전 투표 처리 실패 (${voteId})`, error);
