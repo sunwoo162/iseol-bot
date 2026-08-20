@@ -16,6 +16,9 @@ export type ContestVote = {
   host?: string;
   sponsor?: string;
   period?: string;
+  initialDeadlineDays?: number;
+  deadlineDate?: string;
+  deadlineLastRenderedDate?: string;
   totalPrize?: string;
   firstPrize?: string;
   homepage?: string;
@@ -91,6 +94,11 @@ export async function findLatestContestVote(
       && (vote.url === url || normalizeTitle(vote.title) === normalizedTitle),
     )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+}
+
+export async function listContestVotesForChannel(guildId: string, channelId: string): Promise<ContestVote[]> {
+  const votes = await readVotes();
+  return votes.filter((vote) => vote.guildId === guildId && vote.channelId === channelId);
 }
 
 export async function listContestVotesByUser(guildId: string, userId: string): Promise<ContestVote[]> {
