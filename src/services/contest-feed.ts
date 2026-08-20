@@ -25,12 +25,15 @@ export const CONTEST_POLL_INTERVAL_MS = 60 * 60 * 1000;
 const DEADLINE_REMINDER_DAYS = 10;
 const DAY_MS = 86_400_000;
 
+export type ContestAudienceFilter = "all" | "high-school" | "university";
+
 export type ContestFeedState = {
   guildId: string;
   categoryId: string;
   channelId: string;
   postedKeys: string[];
   remindedKeys?: string[];
+  audienceFilter?: ContestAudienceFilter;
   createdAt: string;
   lastSyncedAt?: string;
 };
@@ -83,6 +86,63 @@ async function saveContestFeed(state: ContestFeedState): Promise<void> {
   if (index >= 0) states[index] = state;
   else states.push(state);
   await writeStates(states);
+}
+
+export function contestAudienceFilterLabel(filter: ContestAudienceFilter): string {
+  if (filter === "high-school") return "고등학생";
+  if (filter === "university") return "대학생";
+  return "전체";
+}
+
+export async function setContestAudienceFilter(
+  guildId: string,
+  audienceFilter: ContestAudienceFilter,
+): Promise<ContestFeedState> {
+  const state = await findContestFeed(guildId);
+  if (!state) throw new Error("먼저 /contest setup으로 공모전 공간을 만들어주세요.");
+
+  const updated: ContestFeedState = {
+    ...state,
+    audienceFilter,
+  };
+  await saveContestFeed(updated);
+  return updated;
+}
+
+function normalizeAudienceText(value?: string): string {
+  return value?.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim() ?? "";
+}
+
+export function matchesContestAudience(
+  contest: Pick<ContestCardData, "target">,
+  filter: ContestAudienceFilter,
+): boolean {
+  if (filter === "all") return true;
+
+  const target = normalizeAudienceText(contest.target);
+  if (!target || target === "정보없음") return true;
+
+  const universal = /일반인|누구나|누구든|제한\s*없|전\s*국민|모든\s*사람|모든\s*국민|전\s*연령|전체\s*대상/.test(target);
+  if (universal) return true;
+
+  const highSchool = /고등학생|고교생|중\s*[·,/및]*\s*고등학생|중고등학생|청소년|초중고/.test(target);
+  const university = /대학생|대학원생|대학\s*\(?원\)?생|대학\s*재학생/.test(target);
+  const elementaryOnly = /초등학생|초등생/.test(target) && !highSchool;
+  const middleOnly = /중학생|중등학생/.test(target) && !highSchool;
+  const adultOnly = /성인|직장인|만\s*(?:19|20)\s*세\s*이상/.test(target);
+  const genericStudent = /학생/.test(target);
+
+  if (filter === "high-school") {
+    if (highSchool) return true;
+    if (university || elementaryOnly || middleOnly || adultOnly) return false;
+    if (genericStudent) return true;
+    return true;
+  }
+
+  if (university) return true;
+  if (highSchool || elementaryOnly || middleOnly) return false;
+  if (genericStudent) return true;
+  return true;
 }
 
 function normalizeTitle(value: string): string {
@@ -335,6 +395,7 @@ export async function createContestFeed(guild: Guild): Promise<ContestFeedState>
       channelId: channel.id,
       postedKeys: [],
       remindedKeys: [],
+      audienceFilter: "all",
       createdAt: new Date().toISOString(),
     };
     await saveContestFeed(state);
@@ -342,7 +403,7 @@ export async function createContestFeed(guild: Guild): Promise<ContestFeedState>
     await channel.send({
       embeds: [new EmbedBuilder()
         .setTitle("🏆 IT 공모전 자동 수집")
-        .setDescription("이설이가 여러 공모전 사이트를 주기적으로 확인하고, 새 웹/모바일/IT 공모전만 이 채널에 올립니다.\n\n같은 공모전은 중복 제거하며 과반수 투표가 모이면 별도 준비 공간을 자동으로 생성합니다. 제출 마감이 D-10 이하가 되면 해당 공모전을 한 번 더 알려드립니다.")],
+        .setDescription("이설이가 여러 공모전 사이트를 주기적으로 확인하고, 새 웹/모바일/IT 공모전만 이 채널에 올립니다.\n\n같은 공모전은 중복 제거하며 과반수 투표가 모이면 별도 준비 공간을 자동으로 생성합니다. 제출 마감이 D-10 이하가 되면 해당 공모전을 한 번 더 알려드립니다. `/contest filter`로 참가대상 필터를 설정할 수 있습니다.")],
     });
 
     return state;
@@ -511,12 +572,15 @@ export async function syncContestFeed(client: Client, state: ContestFeedState): 
   const posted = new Set(state.postedKeys);
   const reminded = new Set(state.remindedKeys ?? []);
   const votesByContest = groupVotesByContest(storedVotes);
+  const audienceFilter = state.audienceFilter ?? "all";
   let count = 0;
 
   for (const contest of contests) {
     const key = contestKey(contest);
 
     if (!posted.has(key)) {
+      if (!matchesContestAudience(contest, audienceFilter)) continue;
+
       const vote = await publishContest(fetched, contest, eligibleVoterIds);
       votesByContest.set(key, [vote]);
       posted.add(key);
@@ -549,6 +613,7 @@ export async function syncContestFeed(client: Client, state: ContestFeedState): 
 
   state.postedKeys = [...posted];
   state.remindedKeys = [...reminded];
+  state.audienceFilter = audienceFilter;
   state.lastSyncedAt = new Date().toISOString();
   await saveContestFeed(state);
   return count;
