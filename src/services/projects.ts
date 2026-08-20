@@ -18,6 +18,7 @@ export type StoredProject = {
   figmaChannelId?: string;
   figmaWebhookId?: string;
   figmaLastVersionId?: string;
+  figmaKnownCommentIds?: string[];
 };
 
 const DATA_FILE = resolve(process.cwd(), "data", "projects.json");
