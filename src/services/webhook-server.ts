@@ -1,6 +1,7 @@
 import { Client, EmbedBuilder, TextChannel } from "discord.js";
 import { config } from "../config.js";
 import { FigmaWebhookService, NO_FIGMA_VERSION, type FigmaComment, type FigmaVersion } from "./figma.js";
+import { NotionService, type NotionPageSnapshot } from "./notion.js";
 import { listProjects, updateProject, type StoredProject } from "./projects.js";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
@@ -11,6 +12,18 @@ async function getFigmaChannel(client: Client, project: StoredProject): Promise<
   const channel = await client.channels.fetch(project.figmaChannelId).catch(() => null);
   if (!(channel instanceof TextChannel)) {
     console.warn(`Figma 알림 채널을 찾지 못했습니다: ${project.figmaChannelId}`);
+    return null;
+  }
+
+  return channel;
+}
+
+async function getNotionChannel(client: Client, project: StoredProject): Promise<TextChannel | null> {
+  if (!project.notionChannelId) return null;
+
+  const channel = await client.channels.fetch(project.notionChannelId).catch(() => null);
+  if (!(channel instanceof TextChannel)) {
+    console.warn(`Notion 알림 채널을 찾지 못했습니다: ${project.notionChannelId}`);
     return null;
   }
 
@@ -67,6 +80,26 @@ async function notifyComment(client: Client, project: StoredProject, comment: Fi
   const createdAt = new Date(comment.created_at);
   if (!Number.isNaN(createdAt.getTime())) {
     embed.setTimestamp(createdAt);
+  }
+
+  await channel.send({ embeds: [embed] });
+}
+
+async function notifyNotionUpdate(client: Client, project: StoredProject, page: NotionPageSnapshot): Promise<void> {
+  const channel = await getNotionChannel(client, project);
+  if (!channel) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle("📝 Notion 기능명세서 업데이트")
+    .setDescription(`**${project.name}** 프로젝트의 기능명세서가 수정되었습니다.`);
+
+  if (project.notionUrl) {
+    embed.setURL(project.notionUrl);
+  }
+
+  const editedAt = new Date(page.last_edited_time);
+  if (!Number.isNaN(editedAt.getTime())) {
+    embed.setTimestamp(editedAt);
   }
 
   await channel.send({ embeds: [embed] });
@@ -139,8 +172,34 @@ async function pollProjectComments(client: Client, figma: FigmaWebhookService, p
   await updateProject(project.id, { figmaKnownCommentIds: currentIds });
 }
 
+async function pollProjectNotion(client: Client, notion: NotionService, project: StoredProject): Promise<void> {
+  if (!project.notionPageId || !project.notionChannelId) return;
+
+  const page = await notion.getPage(project.notionPageId);
+  const previous = project.notionLastEditedTime;
+
+  if (!previous) {
+    await updateProject(project.id, { notionLastEditedTime: page.last_edited_time });
+    return;
+  }
+
+  if (page.last_edited_time === previous) return;
+
+  const previousTime = new Date(previous).getTime();
+  const currentTime = new Date(page.last_edited_time).getTime();
+
+  if (!Number.isNaN(previousTime) && !Number.isNaN(currentTime) && currentTime <= previousTime) {
+    await updateProject(project.id, { notionLastEditedTime: page.last_edited_time });
+    return;
+  }
+
+  await notifyNotionUpdate(client, project, page);
+  await updateProject(project.id, { notionLastEditedTime: page.last_edited_time });
+}
+
 async function pollAllProjects(client: Client): Promise<void> {
   const figma = new FigmaWebhookService(config.figmaToken);
+  const notion = new NotionService(config.notionToken);
   const projects = await listProjects();
 
   for (const project of projects) {
@@ -154,6 +213,12 @@ async function pollAllProjects(client: Client): Promise<void> {
       await pollProjectComments(client, figma, project);
     } catch (error) {
       console.error(`Figma 댓글 확인 실패 (${project.name})`, error);
+    }
+
+    try {
+      await pollProjectNotion(client, notion, project);
+    } catch (error) {
+      console.error(`Notion 수정 확인 실패 (${project.name})`, error);
     }
   }
 }
@@ -174,6 +239,6 @@ export function startWebhookServer(client: Client): NodeJS.Timeout {
 
   void run();
   const timer = setInterval(() => void run(), POLL_INTERVAL_MS);
-  console.log("Figma 이름 있는 버전/댓글 감시 시작: 5분 간격");
+  console.log("Figma 버전/댓글 + Notion 수정 감시 시작: 5분 간격");
   return timer;
 }

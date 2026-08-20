@@ -19,6 +19,10 @@ export type StoredProject = {
   figmaWebhookId?: string;
   figmaLastVersionId?: string;
   figmaKnownCommentIds?: string[];
+  notionUrl?: string;
+  notionPageId?: string;
+  notionChannelId?: string;
+  notionLastEditedTime?: string;
 };
 
 const DATA_FILE = resolve(process.cwd(), "data", "projects.json");
