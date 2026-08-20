@@ -1,5 +1,6 @@
 import {
   ActionRowBuilder,
+  AutocompleteInteraction,
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
@@ -32,7 +33,11 @@ export const projectCommand = new SlashCommandBuilder()
     subcommand
       .setName("delete")
       .setDescription("생성된 프로젝트 방을 삭제합니다.")
-      .addStringOption((option) => option.setName("name").setDescription("삭제할 프로젝트 방 이름").setMinLength(2).setMaxLength(100).setRequired(true)),
+      .addStringOption((option) => option
+        .setName("name")
+        .setDescription("삭제할 프로젝트 방 선택")
+        .setRequired(true)
+        .setAutocomplete(true)),
   );
 
 type GitHubHook = { repository: RepositoryRef; id: number };
@@ -77,6 +82,32 @@ function projectNameFromCategory(name: string): string {
   return name.replace(/^📁\s*/, "").trim();
 }
 
+export async function handleProjectAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
+  if (!interaction.inGuild() || !interaction.guild || interaction.commandName !== "project") return;
+
+  let subcommand: string;
+  try {
+    subcommand = interaction.options.getSubcommand();
+  } catch {
+    return;
+  }
+
+  if (subcommand !== "delete") return;
+
+  const focused = interaction.options.getFocused().toString().trim().toLowerCase();
+  const channels = await interaction.guild.channels.fetch();
+  const choices = channels
+    .filter((channel) => channel?.type === ChannelType.GuildCategory)
+    .map((channel) => ({
+      name: projectNameFromCategory(channel!.name),
+      value: channel!.id,
+    }))
+    .filter((choice) => !focused || choice.name.toLowerCase().includes(focused))
+    .slice(0, 25);
+
+  await interaction.respond(choices);
+}
+
 async function handleDeleteProject(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.guild) return;
 
@@ -94,7 +125,7 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
         );
 
     if (!category) {
-      await interaction.editReply(`❌ **${target}** 프로젝트 방을 찾을 수 없습니다.`);
+      await interaction.editReply("❌ 선택한 프로젝트 방을 찾을 수 없습니다.");
       return;
     }
 
