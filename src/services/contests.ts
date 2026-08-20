@@ -1,7 +1,7 @@
 const REQUEST_TIMEOUT_MS = 15_000;
 const DETAIL_CONCURRENCY = 6;
 
-export type ContestSource = "위비티" | "씽굿" | "콘테스트코리아" | "올콘" | "링커리어" | "대티즌";
+export type ContestSource = "위비티" | "씽굿" | "콘테스트코리아" | "올콘" | "링커리어" | "대티즌" | "스펙토리";
 
 export type ContestAttachment = {
   name: string;
@@ -87,6 +87,14 @@ const SOURCES: SourceDefinition[] = [
     buildListUrl: (page) => `https://www.detizen.com/contests?page=${page}`,
     detailUrlPattern: /\/contests\/[^/?#]+(?:[/?#]|$)/i,
     titlePrefilter: true,
+  },
+  {
+    source: "스펙토리",
+    baseUrl: "https://www.spectory.net",
+    maxPages: 50,
+    buildListUrl: (page) => `https://www.spectory.net/contest/lists?filter=all&cat=${encodeURIComponent("IT/웹/모바일/게임")}&prefix=info-category&page=${page}&searchDate=all`,
+    detailUrlPattern: /\/contest\/(?:share|detail)\?.*(?:uid|pid)=\d+/i,
+    trustItCategory: true,
   },
 ];
 
