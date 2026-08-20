@@ -161,47 +161,12 @@ async function createPrepRoom(source: TextChannel, vote: ContestVote) {
     });
     createdChannelIds.push(idea.id);
 
-    const project = await source.guild.channels.create({
-      name: "📌・프로젝트",
-      type: ChannelType.GuildText,
-      parent: category.id,
-    });
-    createdChannelIds.push(project.id);
-
-    const specification = await source.guild.channels.create({
-      name: "📄・기능명세서",
-      type: ChannelType.GuildText,
-      parent: category.id,
-    });
-    createdChannelIds.push(specification.id);
-
-    const figma = await source.guild.channels.create({
-      name: "🎨・figma",
-      type: ChannelType.GuildText,
-      parent: category.id,
-    });
-    createdChannelIds.push(figma.id);
-
     const discussion = await source.guild.channels.create({
       name: "💬・토론",
       type: ChannelType.GuildText,
       parent: category.id,
     });
     createdChannelIds.push(discussion.id);
-
-    const frontendLog = await source.guild.channels.create({
-      name: "💻・frontend-log",
-      type: ChannelType.GuildText,
-      parent: category.id,
-    });
-    createdChannelIds.push(frontendLog.id);
-
-    const backendLog = await source.guild.channels.create({
-      name: "🛠・backend-log",
-      type: ChannelType.GuildText,
-      parent: category.id,
-    });
-    createdChannelIds.push(backendLog.id);
 
     const personal = await source.guild.channels.create({
       name: "🔒・개인정보",
@@ -214,12 +179,7 @@ async function createPrepRoom(source: TextChannel, vote: ContestVote) {
       categoryId: category.id,
       infoChannelId: info.id,
       ideaChannelId: idea.id,
-      projectChannelId: project.id,
-      specificationChannelId: specification.id,
-      figmaChannelId: figma.id,
       discussionChannelId: discussion.id,
-      frontendLogChannelId: frontendLog.id,
-      backendLogChannelId: backendLog.id,
       personalChannelId: personal.id,
     };
   } catch (error) {
@@ -418,12 +378,7 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
         .addFields(
           { name: "공모전 정보", value: `<#${prepRoom.infoChannelId}>`, inline: true },
           { name: "아이디어", value: `<#${prepRoom.ideaChannelId}>`, inline: true },
-          { name: "프로젝트", value: `<#${prepRoom.projectChannelId}>`, inline: true },
-          { name: "기능명세서", value: `<#${prepRoom.specificationChannelId}>`, inline: true },
-          { name: "Figma", value: `<#${prepRoom.figmaChannelId}>`, inline: true },
           { name: "토론", value: `<#${prepRoom.discussionChannelId}>`, inline: true },
-          { name: "Frontend Log", value: `<#${prepRoom.frontendLogChannelId}>`, inline: true },
-          { name: "Backend Log", value: `<#${prepRoom.backendLogChannelId}>`, inline: true },
           { name: "개인정보", value: `<#${prepRoom.personalChannelId}>`, inline: true },
         )
         .setURL(updated.homepage || updated.url)],
