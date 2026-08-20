@@ -244,6 +244,29 @@ async function publishContest(channel: TextChannel, contest: Contest, majority: 
   });
 }
 
+export async function repostContest(client: Client, guildId: string, query: string): Promise<Contest> {
+  const state = await findContestFeed(guildId);
+  if (!state) throw new Error("먼저 /contest setup으로 공모전 공간을 만들어주세요.");
+
+  const guild = client.guilds.cache.get(guildId)
+    ?? await client.guilds.fetch(guildId).catch(() => null);
+  if (!guild) throw new Error("Discord 서버를 찾을 수 없습니다.");
+
+  const fetched = await guild.channels.fetch(state.channelId).catch(() => null);
+  if (!(fetched instanceof TextChannel)) throw new Error("공모전 채널을 찾을 수 없습니다.");
+
+  const contests = await listActiveItContests();
+  const normalizedQuery = normalizeTitle(query);
+  const exact = contests.find((contest) => normalizeTitle(contest.title) === normalizedQuery);
+  const partial = contests.find((contest) => normalizeTitle(contest.title).includes(normalizedQuery));
+  const contest = exact ?? partial;
+  if (!contest) throw new Error(`"${query}"에 해당하는 진행 중 공모전을 찾지 못했습니다.`);
+
+  const eligibleHumans = await getEligibleHumans(fetched);
+  await publishContest(fetched, contest, majorityOf(eligibleHumans.size));
+  return contest;
+}
+
 export async function syncContestFeed(client: Client, state: ContestFeedState): Promise<number> {
   const guild = client.guilds.cache.get(state.guildId)
     ?? await client.guilds.fetch(state.guildId).catch(() => null);
