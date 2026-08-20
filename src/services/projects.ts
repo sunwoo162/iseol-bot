@@ -11,6 +11,8 @@ export type StoredProject = {
   organization: string;
   frontend: RepositoryRef;
   backend: RepositoryRef;
+  frontendHookId?: number;
+  backendHookId?: number;
 };
 
 const DATA_FILE = resolve(process.cwd(), "data", "projects.json");
@@ -37,7 +39,33 @@ export async function saveProject(project: Omit<StoredProject, "id">): Promise<S
   return stored;
 }
 
+export async function updateProject(id: string, updates: Partial<Omit<StoredProject, "id">>): Promise<StoredProject | null> {
+  const projects = await readProjects();
+  const index = projects.findIndex((project) => project.id === id);
+  if (index < 0) return null;
+
+  const updated: StoredProject = { ...projects[index], ...updates, id };
+  projects[index] = updated;
+  await writeProjects(projects);
+  return updated;
+}
+
 export async function findProject(id: string): Promise<StoredProject | null> {
   const projects = await readProjects();
   return projects.find((project) => project.id === id) ?? null;
+}
+
+export async function findProjectByName(guildId: string, name: string): Promise<StoredProject | null> {
+  const normalized = name.trim().toLowerCase();
+  const projects = await readProjects();
+  return projects.find((project) => project.guildId === guildId && project.name.trim().toLowerCase() === normalized) ?? null;
+}
+
+export async function deleteProject(id: string): Promise<boolean> {
+  const projects = await readProjects();
+  const next = projects.filter((project) => project.id !== id);
+  if (next.length === projects.length) return false;
+
+  await writeProjects(next);
+  return true;
 }
