@@ -254,8 +254,9 @@ export async function createContestFeed(guild: Guild): Promise<ContestFeedState>
   }
 }
 
-async function publishContest(channel: TextChannel, contest: Contest, majority: number) {
+async function publishContest(channel: TextChannel, contest: Contest, eligibleVoterIds: string[]) {
   const voteId = createContestVoteId();
+  const majority = majorityOf(eligibleVoterIds.length);
   const contestLink = contest.homepage || contest.url;
   const message = await channel.send({
     embeds: [contestVoteEmbed(contest, 0, majority, false)],
@@ -280,23 +281,26 @@ async function publishContest(channel: TextChannel, contest: Contest, majority: 
     homepage: contest.homepage,
     attachments: contest.attachments,
     status: contest.status,
+    eligibleVoterIds,
+    majority,
     voterIds: [],
     finalized: false,
   });
 }
 
-async function publishDeadlineReminder(channel: TextChannel, contest: Contest, majority: number): Promise<void> {
+async function publishDeadlineReminder(channel: TextChannel, contest: Contest, eligibleVoterIds: string[]): Promise<void> {
   const vote = await findLatestContestVote(channel.guild.id, channel.id, contest.title, contest.url);
   const daysLeft = getDeadlineDaysLeft(contest.period);
   const label = daysLeft === 0 ? "D-DAY" : `D-${daysLeft}`;
+  const fallbackMajority = majorityOf(eligibleVoterIds.length);
 
   if (!vote) {
-    await publishContest(channel, contest, majority);
+    await publishContest(channel, contest, eligibleVoterIds);
     return;
   }
 
   const contestLink = vote.homepage || vote.url;
-  const embed = contestVoteEmbed(vote, vote.voterIds.length, majority, vote.finalized)
+  const embed = contestVoteEmbed(vote, vote.voterIds.length, vote.majority ?? fallbackMajority, vote.finalized)
     .setTitle(`⏰ ${label} · ${vote.title}`)
     .setDescription(vote.finalized
       ? `제출 마감이 **${label}**로 임박했습니다. 참여 확정된 공모전입니다.`
@@ -327,7 +331,7 @@ export async function repostContest(client: Client, guildId: string, query: stri
   if (!contest) throw new Error(`"${query}"에 해당하는 진행 중 공모전을 찾지 못했습니다.`);
 
   const eligibleHumans = await getEligibleHumans(fetched);
-  await publishContest(fetched, contest, majorityOf(eligibleHumans.size));
+  await publishContest(fetched, contest, [...eligibleHumans.keys()]);
   return contest;
 }
 
@@ -343,7 +347,7 @@ export async function syncContestFeed(client: Client, state: ContestFeedState): 
     listActiveItContests(),
     getEligibleHumans(fetched),
   ]);
-  const majority = majorityOf(eligibleHumans.size);
+  const eligibleVoterIds = [...eligibleHumans.keys()];
   const posted = new Set(state.postedKeys);
   const reminded = new Set(state.remindedKeys ?? []);
   let count = 0;
@@ -352,7 +356,7 @@ export async function syncContestFeed(client: Client, state: ContestFeedState): 
     const key = contestKey(contest);
 
     if (!posted.has(key)) {
-      await publishContest(fetched, contest, majority);
+      await publishContest(fetched, contest, eligibleVoterIds);
       posted.add(key);
       count += 1;
 
@@ -364,7 +368,7 @@ export async function syncContestFeed(client: Client, state: ContestFeedState): 
     }
 
     if (!reminded.has(key) && shouldSendDeadlineReminder(contest)) {
-      await publishDeadlineReminder(fetched, contest, majority);
+      await publishDeadlineReminder(fetched, contest, eligibleVoterIds);
       reminded.add(key);
       state.remindedKeys = [...reminded];
       state.lastSyncedAt = new Date().toISOString();
