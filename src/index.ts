@@ -11,11 +11,15 @@ import { config } from "./config.js";
 import { handleProjectAutocomplete, handleProjectCommand } from "./commands/project.js";
 import { GitHubWebhookService } from "./services/github.js";
 import { findProject } from "./services/projects.js";
+import { startWebhookServer } from "./services/webhook-server.js";
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const github = new GitHubWebhookService(config.githubToken);
 
-client.once(Events.ClientReady, (readyClient) => console.log(`${readyClient.user.tag} 로그인 완료`));
+client.once(Events.ClientReady, (readyClient) => {
+  console.log(`${readyClient.user.tag} 로그인 완료`);
+  startWebhookServer(client);
+});
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {

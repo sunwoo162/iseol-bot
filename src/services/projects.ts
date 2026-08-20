@@ -13,6 +13,12 @@ export type StoredProject = {
   backend: RepositoryRef;
   frontendHookId?: number;
   backendHookId?: number;
+  figmaUrl?: string;
+  figmaFileKey?: string;
+  figmaChannelId?: string;
+  figmaWebhookId?: string;
+  figmaLastVersionId?: string;
+  figmaKnownCommentIds?: string[];
 };
 
 const DATA_FILE = resolve(process.cwd(), "data", "projects.json");
@@ -29,6 +35,10 @@ async function readProjects(): Promise<StoredProject[]> {
 async function writeProjects(projects: StoredProject[]): Promise<void> {
   await mkdir(dirname(DATA_FILE), { recursive: true });
   await writeFile(DATA_FILE, JSON.stringify(projects, null, 2), "utf8");
+}
+
+export async function listProjects(): Promise<StoredProject[]> {
+  return readProjects();
 }
 
 export async function saveProject(project: Omit<StoredProject, "id">): Promise<StoredProject> {
@@ -62,6 +72,14 @@ export async function findProjectByName(guildId: string, name: string): Promise<
   const normalized = name.trim().toLowerCase();
   const projects = await readProjects();
   return projects.find((project) => project.guildId === guildId && project.name.trim().toLowerCase() === normalized) ?? null;
+}
+
+export async function findProjectByFigmaWebhook(webhookId: string, fileKey: string): Promise<StoredProject | null> {
+  const projects = await readProjects();
+  const exact = projects.find((project) => project.figmaWebhookId === webhookId);
+  if (exact) return exact;
+
+  return projects.find((project) => project.figmaFileKey === fileKey && !!project.figmaChannelId) ?? null;
 }
 
 export async function deleteProject(id: string): Promise<boolean> {

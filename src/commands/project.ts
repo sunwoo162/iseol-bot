@@ -12,8 +12,9 @@ import {
   TextChannel,
 } from "discord.js";
 import { config } from "../config.js";
+import { FigmaWebhookService, parseFigmaFile } from "../services/figma.js";
 import { GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
-import { deleteProject, saveProject, updateProject } from "../services/projects.js";
+import { deleteProject, findProjectByName, saveProject, updateProject } from "../services/projects.js";
 
 export const projectCommand = new SlashCommandBuilder()
   .setName("project")
@@ -28,6 +29,20 @@ export const projectCommand = new SlashCommandBuilder()
       .addStringOption((option) => option.setName("figma").setDescription("실제 Figma 파일 URL (figma.com/design/...)").setRequired(true))
       .addStringOption((option) => option.setName("frontend").setDescription("https://github.com/ORG/frontend 형식").setRequired(true))
       .addStringOption((option) => option.setName("backend").setDescription("https://github.com/ORG/backend 형식").setRequired(true)),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName("figma-connect")
+      .setDescription("기존 프로젝트에 Figma 이름 있는 버전 알림을 연결합니다.")
+      .addStringOption((option) => option
+        .setName("name")
+        .setDescription("연결할 프로젝트 방 선택")
+        .setRequired(true)
+        .setAutocomplete(true))
+      .addStringOption((option) => option
+        .setName("figma")
+        .setDescription("연결할 실제 Figma 파일 URL")
+        .setRequired(true)),
   )
   .addSubcommand((subcommand) =>
     subcommand
@@ -58,16 +73,6 @@ function validateNotionUrl(value: string): string {
   return url.toString();
 }
 
-function validateFigmaUrl(value: string): string {
-  const url = parseHttpsUrl(value, "Figma");
-  const host = url.hostname.toLowerCase();
-  if (host !== "figma.com" && host !== "www.figma.com") throw new Error("Figma 링크는 https://www.figma.com/... 형식만 사용할 수 있습니다.");
-  if (!["/design/", "/file/", "/board/", "/proto/"].some((prefix) => url.pathname.startsWith(prefix))) {
-    throw new Error("Figma 메인 주소가 아니라 실제 디자인 파일 링크를 입력해주세요. 예: https://www.figma.com/design/...");
-  }
-  return url.toString();
-}
-
 async function createTextChannel(guild: Guild, parentId: string, name: string): Promise<TextChannel> {
   const channel = await guild.channels.create({ name, type: ChannelType.GuildText, parent: parentId });
   if (!(channel instanceof TextChannel)) throw new Error(`${name} 채널을 생성하지 못했습니다.`);
@@ -92,7 +97,7 @@ export async function handleProjectAutocomplete(interaction: AutocompleteInterac
     return;
   }
 
-  if (subcommand !== "delete") return;
+  if (subcommand !== "delete" && subcommand !== "figma-connect") return;
 
   const focused = interaction.options.getFocused().toString().trim().toLowerCase();
   const channels = await interaction.guild.channels.fetch();
@@ -108,6 +113,102 @@ export async function handleProjectAutocomplete(interaction: AutocompleteInterac
   await interaction.respond(choices);
 }
 
+async function resolveProjectCategory(interaction: ChatInputCommandInteraction, target: string) {
+  if (!interaction.guild) return null;
+
+  const channels = await interaction.guild.channels.fetch();
+  const selectedById = channels.get(target);
+  const category = selectedById?.type === ChannelType.GuildCategory
+    ? selectedById
+    : channels.find((channel) =>
+        channel?.type === ChannelType.GuildCategory
+        && projectNameFromCategory(channel.name).toLowerCase() === target.toLowerCase(),
+      );
+
+  return { channels, category };
+}
+
+async function handleFigmaConnect(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!interaction.guild) return;
+
+  await interaction.deferReply();
+  const target = interaction.options.getString("name", true).trim();
+
+  try {
+    const resolved = await resolveProjectCategory(interaction, target);
+    const category = resolved?.category;
+    const channels = resolved?.channels;
+
+    if (!category || !channels) {
+      await interaction.editReply("❌ 선택한 프로젝트 방을 찾을 수 없습니다.");
+      return;
+    }
+
+    const projectName = projectNameFromCategory(category.name);
+    const project = await findProjectByName(interaction.guild.id, projectName);
+    if (!project) {
+      await interaction.editReply("❌ 저장된 프로젝트 정보를 찾을 수 없습니다. 이설로 생성한 프로젝트인지 확인해주세요.");
+      return;
+    }
+
+    const figmaChannel = channels.find((channel) =>
+      channel?.parentId === category.id
+      && channel.type === ChannelType.GuildText
+      && channel.name === "🎨・figma",
+    );
+
+    if (!(figmaChannel instanceof TextChannel)) {
+      await interaction.editReply("❌ 프로젝트의 🎨・figma 채널을 찾을 수 없습니다.");
+      return;
+    }
+
+    const figmaFile = parseFigmaFile(interaction.options.getString("figma", true));
+    const figmaWebhook = new FigmaWebhookService(
+      config.figmaToken,
+      config.publicBaseUrl,
+      config.figmaWebhookPasscode,
+    );
+
+    if (project.figmaWebhookId) {
+      try {
+        await figmaWebhook.deleteWebhook(project.figmaWebhookId);
+      } catch (error) {
+        console.warn(`기존 Figma Webhook 삭제 실패 (${project.name}):`, error);
+      }
+    }
+
+    const [figmaWebhookId, existingComments] = await Promise.all([
+      figmaWebhook.createVersionWebhook(
+        figmaFile.key,
+        `${projectName} named version notifications`,
+      ),
+      figmaWebhook.listComments(figmaFile.key),
+    ]);
+
+    await updateProject(project.id, {
+      figmaUrl: figmaFile.url,
+      figmaFileKey: figmaFile.key,
+      figmaChannelId: figmaChannel.id,
+      figmaWebhookId,
+      figmaLastVersionId: figmaWebhookId,
+      figmaKnownCommentIds: existingComments.map((comment) => comment.id),
+    });
+
+    await figmaChannel.send({
+      embeds: [new EmbedBuilder()
+        .setTitle("✅ Figma 알림 연결 완료")
+        .setDescription("이제 Figma에서 이름 있는 버전을 생성하거나 새 댓글/답글을 작성하면 이 채널에 알림이 기록됩니다.")
+        .setURL(figmaFile.url)],
+      components: [linkButton("Figma 열기", figmaFile.url)],
+    });
+
+    await interaction.editReply(`✅ **${projectName}** 프로젝트에 Figma 버전/댓글 알림을 연결했습니다.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    await interaction.editReply(`❌ Figma 알림 연결에 실패했습니다.\n\`${message}\``);
+  }
+}
+
 async function handleDeleteProject(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.guild) return;
 
@@ -115,16 +216,11 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
   const target = interaction.options.getString("name", true).trim();
 
   try {
-    const channels = await interaction.guild.channels.fetch();
-    const selectedById = channels.get(target);
-    const category = selectedById?.type === ChannelType.GuildCategory
-      ? selectedById
-      : channels.find((channel) =>
-          channel?.type === ChannelType.GuildCategory
-          && projectNameFromCategory(channel.name).toLowerCase() === target.toLowerCase(),
-        );
+    const resolved = await resolveProjectCategory(interaction, target);
+    const category = resolved?.category;
+    const channels = resolved?.channels;
 
-    if (!category) {
+    if (!category || !channels) {
       await interaction.editReply("❌ 선택한 프로젝트 방을 찾을 수 없습니다.");
       return;
     }
@@ -157,6 +253,10 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     await handleDeleteProject(interaction);
     return;
   }
+  if (subcommand === "figma-connect") {
+    await handleFigmaConnect(interaction);
+    return;
+  }
   if (subcommand !== "create") return;
 
   await interaction.deferReply();
@@ -164,7 +264,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
 
   try {
     const notionUrl = validateNotionUrl(interaction.options.getString("notion", true));
-    const figmaUrl = validateFigmaUrl(interaction.options.getString("figma", true));
+    const figmaFile = parseFigmaFile(interaction.options.getString("figma", true));
     const frontendRepo = parseGitHubRepository(interaction.options.getString("frontend", true));
     const backendRepo = parseGitHubRepository(interaction.options.getString("backend", true));
 
@@ -173,6 +273,11 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     }
 
     const github = new GitHubWebhookService(config.githubToken);
+    const figmaWebhook = new FigmaWebhookService(
+      config.figmaToken,
+      config.publicBaseUrl,
+      config.figmaWebhookPasscode,
+    );
     const [frontendOwner, backendOwner] = await Promise.all([
       github.getRepositoryOwner(frontendRepo),
       github.getRepositoryOwner(backendRepo),
@@ -190,6 +295,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     const category = await interaction.guild.channels.create({ name: `📁 ${name}`, type: ChannelType.GuildCategory });
     const createdChannelIds: string[] = [];
     const githubHooks: GitHubHook[] = [];
+    let figmaWebhookId: string | null = null;
     let storedProjectId: string | null = null;
 
     try {
@@ -207,6 +313,9 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
         organization,
         frontend: frontendRepo,
         backend: backendRepo,
+        figmaUrl: figmaFile.url,
+        figmaFileKey: figmaFile.key,
+        figmaChannelId: figma.id,
       });
       storedProjectId = storedProject.id;
 
@@ -219,7 +328,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
         allowedMentions: { parse: ["everyone"] },
         embeds: [new EmbedBuilder().setTitle(name).setDescription("프로젝트 문서와 개발 저장소를 한곳에서 관리합니다.\n\n팀원은 아래 버튼으로 GitHub Organization 초대를 요청할 수 있습니다.").addFields(
           { name: "기능명세서", value: notionUrl },
-          { name: "Figma", value: figmaUrl },
+          { name: "Figma", value: figmaFile.url },
           { name: "GitHub Organization", value: `https://github.com/${organization}` },
           { name: "Frontend", value: frontendRepo.url },
           { name: "Backend", value: backendRepo.url },
@@ -230,8 +339,22 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
 
       const specMessage = await spec.send({ embeds: [new EmbedBuilder().setTitle("📄 기능명세서").setDescription("Notion에서 프로젝트 기능명세서를 확인합니다.").setURL(notionUrl)], components: [linkButton("Notion 열기", notionUrl)] });
       await specMessage.pin();
-      const figmaMessage = await figma.send({ embeds: [new EmbedBuilder().setTitle("🎨 Figma").setDescription("프로젝트 UI/UX 디자인을 확인합니다.").setURL(figmaUrl)], components: [linkButton("Figma 열기", figmaUrl)] });
+      const figmaMessage = await figma.send({
+        embeds: [new EmbedBuilder()
+          .setTitle("🎨 Figma")
+          .setDescription("프로젝트 UI/UX 디자인을 확인합니다.\n\nFigma에서 이름 있는 버전을 생성하거나 새 댓글/답글을 작성하면 이 채널에 알림이 기록됩니다.")
+          .setURL(figmaFile.url)],
+        components: [linkButton("Figma 열기", figmaFile.url)],
+      });
       await figmaMessage.pin();
+
+      const existingComments = await figmaWebhook.listComments(figmaFile.key);
+      figmaWebhookId = await figmaWebhook.createVersionWebhook(figmaFile.key, `${name} named version notifications`);
+      await updateProject(storedProject.id, {
+        figmaWebhookId,
+        figmaLastVersionId: figmaWebhookId,
+        figmaKnownCommentIds: existingComments.map((comment) => comment.id),
+      });
 
       const frontDiscordWebhook = await frontendLog.createWebhook({ name: `${name} Frontend Log`, reason: `${name} frontend GitHub integration` });
       const backDiscordWebhook = await backendLog.createWebhook({ name: `${name} Backend Log`, reason: `${name} backend GitHub integration` });
@@ -245,10 +368,13 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
 
       await frontendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Frontend GitHub 연결 완료").setDescription(frontendRepo.url).setURL(frontendRepo.url)] });
       await backendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Backend GitHub 연결 완료").setDescription(backendRepo.url).setURL(backendRepo.url)] });
-      await interaction.editReply(`✅ **${name}** 프로젝트 생성 + Notion/Figma 검증 + GitHub 로그 + Organization 참여 버튼까지 완료했습니다.`);
+      await interaction.editReply(`✅ **${name}** 프로젝트 생성 + Notion/Figma 검증 + Figma 버전/댓글 알림 + GitHub 로그 + Organization 참여 버튼까지 완료했습니다.`);
     } catch (error) {
       for (const hook of githubHooks.reverse()) {
         try { await github.deleteWebhook(hook.repository, hook.id); } catch {}
+      }
+      if (figmaWebhookId) {
+        try { await figmaWebhook.deleteWebhook(figmaWebhookId); } catch {}
       }
       if (storedProjectId) {
         try { await deleteProject(storedProjectId); } catch {}
