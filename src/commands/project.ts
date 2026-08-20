@@ -111,7 +111,7 @@ export async function handleProjectAutocomplete(interaction: AutocompleteInterac
 async function handleDeleteProject(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.guild) return;
 
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply();
   const target = interaction.options.getString("name", true).trim();
 
   try {
@@ -148,7 +148,7 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
 
 export async function handleProjectCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.inGuild() || !interaction.guild) {
-    await interaction.reply({ content: "서버 안에서만 사용할 수 있습니다.", ephemeral: true });
+    await interaction.reply({ content: "서버 안에서만 사용할 수 있습니다." });
     return;
   }
 
@@ -159,7 +159,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
   }
   if (subcommand !== "create") return;
 
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply();
   const name = interaction.options.getString("name", true).trim();
 
   try {
