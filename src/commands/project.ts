@@ -215,6 +215,8 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
       );
 
       const overviewMessage = await overview.send({
+        content: "@everyone",
+        allowedMentions: { parse: ["everyone"] },
         embeds: [new EmbedBuilder().setTitle(name).setDescription("프로젝트 문서와 개발 저장소를 한곳에서 관리합니다.\n\n팀원은 아래 버튼으로 GitHub Organization 초대를 요청할 수 있습니다.").addFields(
           { name: "기능명세서", value: notionUrl },
           { name: "Figma", value: figmaUrl },
