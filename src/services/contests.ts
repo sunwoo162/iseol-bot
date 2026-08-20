@@ -1,7 +1,7 @@
 const REQUEST_TIMEOUT_MS = 15_000;
 const DETAIL_CONCURRENCY = 6;
 
-export type ContestSource = "위비티" | "씽굿" | "콘테스트코리아" | "올콘" | "링커리어";
+export type ContestSource = "위비티" | "씽굿" | "콘테스트코리아" | "올콘" | "링커리어" | "대티즌";
 
 export type ContestAttachment = {
   name: string;
@@ -78,6 +78,14 @@ const SOURCES: SourceDefinition[] = [
     maxPages: 50,
     buildListUrl: (page) => `https://linkareer.com/list/contest?page=${page}`,
     detailUrlPattern: /\/activity\/\d+(?:[/?#]|$)/i,
+    titlePrefilter: true,
+  },
+  {
+    source: "대티즌",
+    baseUrl: "https://www.detizen.com",
+    maxPages: 30,
+    buildListUrl: (page) => `https://www.detizen.com/contests?page=${page}`,
+    detailUrlPattern: /\/contests\/[^/?#]+(?:[/?#]|$)/i,
     titlePrefilter: true,
   },
 ];
