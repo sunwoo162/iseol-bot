@@ -74,7 +74,7 @@ function attachmentValue(attachments?: ContestAttachment[]): string {
 
 function contestEmbed(
   contest: ContestCardData,
-  voterIds: string[],
+  voteCount: number,
   majority: number,
   finalized: boolean,
 ): EmbedBuilder {
@@ -94,8 +94,7 @@ function contestEmbed(
       { name: "홈페이지", value: homepageValue(contest), inline: false },
       { name: "첨부파일", value: attachmentValue(contest.attachments), inline: false },
       { name: "출처", value: sources.slice(0, 1024), inline: false },
-      { name: "투표", value: `${voterIds.length} / ${majority}명 이상`, inline: true },
-      { name: "투표한 사람", value: voterMentions(voterIds), inline: false },
+      { name: "투표", value: `${voteCount} / ${majority}명 이상`, inline: true },
     );
 
   if (contest.status?.trim()) {
@@ -215,7 +214,7 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
       const voteId = createContestVoteId();
       const contestLink = contest.homepage || contest.url;
       const message = await channel.send({
-        embeds: [contestEmbed(contest, [], majority, false)],
+        embeds: [contestEmbed(contest, 0, majority, false)],
         components: voteComponents(voteId, contestLink, false),
       });
 
@@ -285,7 +284,7 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
 
     if (vote.finalized) {
       await interaction.message.edit({
-        embeds: [contestEmbed(vote, vote.voterIds, majority, true)],
+        embeds: [contestEmbed(vote, vote.voterIds.length, majority, true)],
         components: voteComponents(vote.id, contestLink, true),
       });
       await interaction.followUp({ content: "이미 참여가 확정된 공모전입니다.", ephemeral: true });
@@ -316,21 +315,16 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
     if (!updated) throw new Error("투표 상태를 저장하지 못했습니다.");
 
     await interaction.message.edit({
-      embeds: [contestEmbed(updated, voterIds, majority, reachedMajority)],
+      embeds: [contestEmbed(updated, voterIds.length, majority, reachedMajority)],
       components: voteComponents(updated.id, updated.homepage || updated.url, reachedMajority),
     });
 
-    if (!reachedMajority) {
-      await channel.send({
-        embeds: [new EmbedBuilder()
-          .setTitle("🗳️ 공모전 투표 현황")
-          .setDescription(`**${updated.title}**\n\n투표한 사람: ${voterMentions(voterIds)}\n현재 **${voterIds.length}/${majority}명**`)
-          .setURL(updated.homepage || updated.url)],
-      });
-      return;
-    }
+    await channel.send({
+      content: `<@${interaction.user.id}> 님이 **${updated.title}** 공모전에 투표했습니다.`,
+      allowedMentions: { users: [interaction.user.id] },
+    });
 
-    if (!prepRoom) return;
+    if (!reachedMajority || !prepRoom) return;
 
     await channel.send({
       embeds: [new EmbedBuilder()
