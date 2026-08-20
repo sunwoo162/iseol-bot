@@ -63,6 +63,13 @@ export async function findContestVote(id: string): Promise<ContestVote | null> {
   return votes.find((vote) => vote.id === id) ?? null;
 }
 
+export async function listContestVotesByUser(guildId: string, userId: string): Promise<ContestVote[]> {
+  const votes = await readVotes();
+  return votes
+    .filter((vote) => vote.guildId === guildId && vote.voterIds.includes(userId))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 export async function updateContestVote(
   id: string,
   updates: Partial<Omit<ContestVote, "id" | "createdAt">>,
