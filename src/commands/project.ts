@@ -12,11 +12,11 @@ import {
 } from "discord.js";
 import { config } from "../config.js";
 import { GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
-import { saveProject } from "../services/projects.js";
+import { deleteProject, findProjectByName, saveProject, updateProject } from "../services/projects.js";
 
 export const projectCommand = new SlashCommandBuilder()
   .setName("project")
-  .setDescription("프로젝트용 Discord 채널과 연동을 자동 생성합니다.")
+  .setDescription("프로젝트용 Discord 채널과 연동을 자동 관리합니다.")
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
   .addSubcommand((subcommand) =>
     subcommand
@@ -27,6 +27,12 @@ export const projectCommand = new SlashCommandBuilder()
       .addStringOption((option) => option.setName("figma").setDescription("실제 Figma 파일 URL (figma.com/design/...)").setRequired(true))
       .addStringOption((option) => option.setName("frontend").setDescription("https://github.com/ORG/frontend 형식").setRequired(true))
       .addStringOption((option) => option.setName("backend").setDescription("https://github.com/ORG/backend 형식").setRequired(true)),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName("delete")
+      .setDescription("생성된 프로젝트 공간과 GitHub 연동을 삭제합니다.")
+      .addStringOption((option) => option.setName("name").setDescription("삭제할 프로젝트 이름").setMinLength(2).setMaxLength(50).setRequired(true)),
   );
 
 type GitHubHook = { repository: RepositoryRef; id: number };
@@ -67,12 +73,76 @@ function linkButton(label: string, url: string) {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel(label).setStyle(ButtonStyle.Link).setURL(url));
 }
 
+async function handleDeleteProject(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!interaction.guild) return;
+
+  await interaction.deferReply({ ephemeral: true });
+  const name = interaction.options.getString("name", true).trim();
+  const project = await findProjectByName(interaction.guild.id, name);
+
+  if (!project) {
+    await interaction.editReply(`❌ **${name}** 프로젝트 기록을 찾을 수 없습니다.`);
+    return;
+  }
+
+  const github = new GitHubWebhookService(config.githubToken);
+  const warnings: string[] = [];
+
+  try {
+    try {
+      if (project.frontendHookId) {
+        await github.deleteWebhook(project.frontend, project.frontendHookId);
+      } else {
+        await github.deleteDiscordWebhooks(project.frontend);
+      }
+    } catch {
+      warnings.push("Frontend GitHub Webhook 정리 실패");
+    }
+
+    try {
+      if (project.backendHookId) {
+        await github.deleteWebhook(project.backend, project.backendHookId);
+      } else {
+        await github.deleteDiscordWebhooks(project.backend);
+      }
+    } catch {
+      warnings.push("Backend GitHub Webhook 정리 실패");
+    }
+
+    const channels = await interaction.guild.channels.fetch();
+    for (const channel of channels.values()) {
+      if (channel && channel.parentId === project.categoryId) {
+        await channel.delete(`${project.name} 프로젝트 삭제`);
+      }
+    }
+
+    const category = await interaction.guild.channels.fetch(project.categoryId).catch(() => null);
+    if (category) {
+      await category.delete(`${project.name} 프로젝트 삭제`);
+    }
+
+    await deleteProject(project.id);
+
+    const warningText = warnings.length > 0 ? `\n⚠️ ${warnings.join(" / ")}` : "";
+    await interaction.editReply(`✅ **${project.name}** 프로젝트를 삭제했습니다.${warningText}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    await interaction.editReply(`❌ 프로젝트 삭제에 실패했습니다.\n\`${message}\``);
+  }
+}
+
 export async function handleProjectCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.inGuild() || !interaction.guild) {
     await interaction.reply({ content: "서버 안에서만 사용할 수 있습니다.", ephemeral: true });
     return;
   }
-  if (interaction.options.getSubcommand() !== "create") return;
+
+  const subcommand = interaction.options.getSubcommand();
+  if (subcommand === "delete") {
+    await handleDeleteProject(interaction);
+    return;
+  }
+  if (subcommand !== "create") return;
 
   await interaction.deferReply({ ephemeral: true });
   const name = interaction.options.getString("name", true).trim();
@@ -102,10 +172,10 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     }
 
     const organization = frontendOwner.login;
-
     const category = await interaction.guild.channels.create({ name: `📁 ${name}`, type: ChannelType.GuildCategory });
     const createdChannelIds: string[] = [];
     const githubHooks: GitHubHook[] = [];
+    let storedProjectId: string | null = null;
 
     try {
       const overview = await createTextChannel(interaction.guild, category.id, "📌・프로젝트");
@@ -123,6 +193,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
         frontend: frontendRepo,
         backend: backendRepo,
       });
+      storedProjectId = storedProject.id;
 
       const joinRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId(`project_join:${storedProject.id}`).setLabel("GitHub Organization 참여").setEmoji("🚀").setStyle(ButtonStyle.Primary),
@@ -153,12 +224,17 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
       const backHookId = await github.createDiscordWebhook(backendRepo, backDiscordWebhook.url);
       githubHooks.push({ repository: backendRepo, id: backHookId });
 
+      await updateProject(storedProject.id, { frontendHookId: frontHookId, backendHookId: backHookId });
+
       await frontendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Frontend GitHub 연결 완료").setDescription(frontendRepo.url).setURL(frontendRepo.url)] });
       await backendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Backend GitHub 연결 완료").setDescription(backendRepo.url).setURL(backendRepo.url)] });
       await interaction.editReply(`✅ **${name}** 프로젝트 생성 + Notion/Figma 검증 + GitHub 로그 + Organization 참여 버튼까지 완료했습니다.`);
     } catch (error) {
       for (const hook of githubHooks.reverse()) {
         try { await github.deleteWebhook(hook.repository, hook.id); } catch {}
+      }
+      if (storedProjectId) {
+        try { await deleteProject(storedProjectId); } catch {}
       }
       for (const id of createdChannelIds) {
         try { await interaction.guild.channels.delete(id, "프로젝트 생성 실패 롤백"); } catch {}
