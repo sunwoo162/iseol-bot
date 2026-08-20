@@ -14,7 +14,7 @@ import {
 import { config } from "../config.js";
 import { FigmaWebhookService, parseFigmaFile } from "../services/figma.js";
 import { GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
-import { deleteProject, saveProject, updateProject } from "../services/projects.js";
+import { deleteProject, findProjectByName, saveProject, updateProject } from "../services/projects.js";
 
 export const projectCommand = new SlashCommandBuilder()
   .setName("project")
@@ -29,6 +29,20 @@ export const projectCommand = new SlashCommandBuilder()
       .addStringOption((option) => option.setName("figma").setDescription("실제 Figma 파일 URL (figma.com/design/...)").setRequired(true))
       .addStringOption((option) => option.setName("frontend").setDescription("https://github.com/ORG/frontend 형식").setRequired(true))
       .addStringOption((option) => option.setName("backend").setDescription("https://github.com/ORG/backend 형식").setRequired(true)),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName("figma-connect")
+      .setDescription("기존 프로젝트에 Figma 이름 있는 버전 알림을 연결합니다.")
+      .addStringOption((option) => option
+        .setName("name")
+        .setDescription("연결할 프로젝트 방 선택")
+        .setRequired(true)
+        .setAutocomplete(true))
+      .addStringOption((option) => option
+        .setName("figma")
+        .setDescription("연결할 실제 Figma 파일 URL")
+        .setRequired(true)),
   )
   .addSubcommand((subcommand) =>
     subcommand
@@ -83,7 +97,7 @@ export async function handleProjectAutocomplete(interaction: AutocompleteInterac
     return;
   }
 
-  if (subcommand !== "delete") return;
+  if (subcommand !== "delete" && subcommand !== "figma-connect") return;
 
   const focused = interaction.options.getFocused().toString().trim().toLowerCase();
   const channels = await interaction.guild.channels.fetch();
@@ -99,6 +113,97 @@ export async function handleProjectAutocomplete(interaction: AutocompleteInterac
   await interaction.respond(choices);
 }
 
+async function resolveProjectCategory(interaction: ChatInputCommandInteraction, target: string) {
+  if (!interaction.guild) return null;
+
+  const channels = await interaction.guild.channels.fetch();
+  const selectedById = channels.get(target);
+  const category = selectedById?.type === ChannelType.GuildCategory
+    ? selectedById
+    : channels.find((channel) =>
+        channel?.type === ChannelType.GuildCategory
+        && projectNameFromCategory(channel.name).toLowerCase() === target.toLowerCase(),
+      );
+
+  return { channels, category };
+}
+
+async function handleFigmaConnect(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!interaction.guild) return;
+
+  await interaction.deferReply();
+  const target = interaction.options.getString("name", true).trim();
+
+  try {
+    const resolved = await resolveProjectCategory(interaction, target);
+    const category = resolved?.category;
+    const channels = resolved?.channels;
+
+    if (!category || !channels) {
+      await interaction.editReply("❌ 선택한 프로젝트 방을 찾을 수 없습니다.");
+      return;
+    }
+
+    const projectName = projectNameFromCategory(category.name);
+    const project = await findProjectByName(interaction.guild.id, projectName);
+    if (!project) {
+      await interaction.editReply("❌ 저장된 프로젝트 정보를 찾을 수 없습니다. 이설로 생성한 프로젝트인지 확인해주세요.");
+      return;
+    }
+
+    const figmaChannel = channels.find((channel) =>
+      channel?.parentId === category.id
+      && channel.type === ChannelType.GuildText
+      && channel.name === "🎨・figma",
+    );
+
+    if (!(figmaChannel instanceof TextChannel)) {
+      await interaction.editReply("❌ 프로젝트의 🎨・figma 채널을 찾을 수 없습니다.");
+      return;
+    }
+
+    const figmaFile = parseFigmaFile(interaction.options.getString("figma", true));
+    const figmaWebhook = new FigmaWebhookService(
+      config.figmaToken,
+      config.publicBaseUrl,
+      config.figmaWebhookPasscode,
+    );
+
+    if (project.figmaWebhookId) {
+      try {
+        await figmaWebhook.deleteWebhook(project.figmaWebhookId);
+      } catch (error) {
+        console.warn(`기존 Figma Webhook 삭제 실패 (${project.name}):`, error);
+      }
+    }
+
+    const figmaWebhookId = await figmaWebhook.createVersionWebhook(
+      figmaFile.key,
+      `${projectName} named version notifications`,
+    );
+
+    await updateProject(project.id, {
+      figmaUrl: figmaFile.url,
+      figmaFileKey: figmaFile.key,
+      figmaChannelId: figmaChannel.id,
+      figmaWebhookId,
+    });
+
+    await figmaChannel.send({
+      embeds: [new EmbedBuilder()
+        .setTitle("✅ Figma 버전 알림 연결 완료")
+        .setDescription("이제 Figma에서 이름 있는 버전을 생성하면 이 채널에 변경 알림이 기록됩니다.")
+        .setURL(figmaFile.url)],
+      components: [linkButton("Figma 열기", figmaFile.url)],
+    });
+
+    await interaction.editReply(`✅ **${projectName}** 프로젝트에 Figma 이름 있는 버전 알림을 연결했습니다.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    await interaction.editReply(`❌ Figma 버전 알림 연결에 실패했습니다.\n\`${message}\``);
+  }
+}
+
 async function handleDeleteProject(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.guild) return;
 
@@ -106,16 +211,11 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
   const target = interaction.options.getString("name", true).trim();
 
   try {
-    const channels = await interaction.guild.channels.fetch();
-    const selectedById = channels.get(target);
-    const category = selectedById?.type === ChannelType.GuildCategory
-      ? selectedById
-      : channels.find((channel) =>
-          channel?.type === ChannelType.GuildCategory
-          && projectNameFromCategory(channel.name).toLowerCase() === target.toLowerCase(),
-        );
+    const resolved = await resolveProjectCategory(interaction, target);
+    const category = resolved?.category;
+    const channels = resolved?.channels;
 
-    if (!category) {
+    if (!category || !channels) {
       await interaction.editReply("❌ 선택한 프로젝트 방을 찾을 수 없습니다.");
       return;
     }
@@ -146,6 +246,10 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
   const subcommand = interaction.options.getSubcommand();
   if (subcommand === "delete") {
     await handleDeleteProject(interaction);
+    return;
+  }
+  if (subcommand === "figma-connect") {
+    await handleFigmaConnect(interaction);
     return;
   }
   if (subcommand !== "create") return;
