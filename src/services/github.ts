@@ -81,6 +81,37 @@ export class GitHubWebhookService {
     await this.octokit.rest.repos.deleteWebhook({ owner: repository.owner, repo: repository.repo, hook_id: hookId });
   }
 
+  async deleteDiscordWebhooks(repository: RepositoryRef): Promise<number> {
+    const { data: hooks } = await this.octokit.rest.repos.listWebhooks({
+      owner: repository.owner,
+      repo: repository.repo,
+      per_page: 100,
+    });
+
+    let deleted = 0;
+    for (const hook of hooks) {
+      const target = typeof hook.config.url === "string" ? hook.config.url : "";
+      if (!target) continue;
+
+      let url: URL;
+      try {
+        url = new URL(target);
+      } catch {
+        continue;
+      }
+
+      const host = url.hostname.toLowerCase();
+      const isDiscord = host === "discord.com" || host === "www.discord.com" || host === "discordapp.com" || host === "www.discordapp.com";
+      const isProjectWebhook = url.pathname.includes("/api/webhooks/") && url.pathname.endsWith("/github");
+      if (!isDiscord || !isProjectWebhook) continue;
+
+      await this.deleteWebhook(repository, hook.id);
+      deleted += 1;
+    }
+
+    return deleted;
+  }
+
   async inviteOrganizationMember(org: string, username: string): Promise<void> {
     const { data: user } = await this.octokit.rest.users.getByUsername({ username });
     await this.octokit.rest.orgs.createInvitation({ org, invitee_id: user.id, role: "direct_member" });
