@@ -11,6 +11,7 @@ import {
   playMusicPlaylist,
   skipMusic,
   stopMusic,
+  type MusicTrack,
 } from "../services/music.js";
 import { assertUserInBotVoiceChannel } from "../services/voice-connection.js";
 
@@ -55,7 +56,7 @@ export const musicCommand = new SlashCommandBuilder()
     .setName("stop")
     .setDescription("음악 재생과 대기열을 정지합니다."));
 
-function playlistEmbed(name: string, tracks: Awaited<ReturnType<typeof getPlaylist>> extends infer T ? NonNullable<T>["tracks"] : never): EmbedBuilder {
+function playlistEmbed(name: string, tracks: MusicTrack[]): EmbedBuilder {
   const lines = tracks.slice(0, 30).map((track, index) => `${index + 1}. [${track.title}](${track.url})`);
   const hidden = Math.max(0, tracks.length - lines.length);
 
