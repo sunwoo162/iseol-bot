@@ -13,14 +13,17 @@ import {
 } from "discord.js";
 import {
   createContestVoteId,
-  findLatestContestVote,
+  listContestVotesForChannel,
   saveContestVote,
+  updateContestVote,
+  type ContestVote,
 } from "./contest-votes.js";
 import { listActiveItContests, type Contest, type ContestAttachment } from "./contests.js";
 
 const DATA_FILE = resolve(process.cwd(), "data", "contest-feed.json");
 export const CONTEST_POLL_INTERVAL_MS = 60 * 60 * 1000;
 const DEADLINE_REMINDER_DAYS = 10;
+const DAY_MS = 86_400_000;
 
 export type ContestFeedState = {
   guildId: string;
@@ -41,11 +44,19 @@ export type ContestCardData = {
   host?: string;
   sponsor?: string;
   period?: string;
+  initialDeadlineDays?: number;
+  deadlineDate?: string;
+  deadlineLastRenderedDate?: string;
   totalPrize?: string;
   firstPrize?: string;
   homepage?: string;
   attachments?: ContestAttachment[];
   status?: string;
+};
+
+type DeadlineSnapshot = {
+  initialDeadlineDays?: number;
+  deadlineDate?: string;
 };
 
 async function readStates(): Promise<ContestFeedState[]> {
@@ -88,37 +99,124 @@ function contestKey(contest: ContestCardData): string {
   return normalizeTitle(contest.title) || contest.url;
 }
 
-function getDeadlineDaysLeft(period?: string): number | null {
-  if (!period) return null;
-  if (/마감/i.test(period) && !/마감임박/i.test(period)) return -1;
-  if (/D-DAY/i.test(period)) return 0;
-
-  const dDay = period.match(/\bD-(\d+)\b/i)?.[1];
-  if (dDay) return Number(dDay);
-
-  const matches = [...period.matchAll(/(?:(20)?(\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2}))/g)];
-  const last = matches.at(-1);
-  if (!last) return null;
-
-  const year = Number(last[1] ? `${last[1]}${last[2]}` : `20${last[2]}`);
-  const month = Number(last[3]);
-  const day = Number(last[4]);
-  if (!year || !month || !day) return null;
-
-  const todayParts = new Intl.DateTimeFormat("en-CA", {
+function seoulDateKey(date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date()).split("-").map(Number);
+  }).format(date);
+}
 
-  const today = Date.UTC(todayParts[0] ?? year, (todayParts[1] ?? 1) - 1, todayParts[2] ?? 1);
-  const deadline = Date.UTC(year, month - 1, day);
-  return Math.ceil((deadline - today) / 86_400_000);
+function dateKeyToUtc(dateKey: string): number | null {
+  const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!year || !month || !day) return null;
+  return Date.UTC(year, month - 1, day);
+}
+
+function addDaysToDateKey(dateKey: string, days: number): string | undefined {
+  const base = dateKeyToUtc(dateKey);
+  if (base === null) return undefined;
+  return new Date(base + days * DAY_MS).toISOString().slice(0, 10);
+}
+
+function parseDeadlineDateFromPeriod(period?: string): string | undefined {
+  if (!period) return undefined;
+
+  const matches = [...period.matchAll(/(?:(20)?(\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2}))/g)];
+  const last = matches.at(-1);
+  if (!last) return undefined;
+
+  const year = Number(last[1] ? `${last[1]}${last[2]}` : `20${last[2]}`);
+  const month = Number(last[3]);
+  const day = Number(last[4]);
+  if (!year || !month || !day) return undefined;
+
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function daysBetweenDateKeys(fromDateKey: string, toDateKey: string): number | null {
+  const from = dateKeyToUtc(fromDateKey);
+  const to = dateKeyToUtc(toDateKey);
+  if (from === null || to === null) return null;
+  return Math.ceil((to - from) / DAY_MS);
+}
+
+function createDeadlineSnapshot(period?: string, baseDate = new Date()): DeadlineSnapshot {
+  if (!period) return {};
+
+  const baseDateKey = seoulDateKey(baseDate);
+  const explicitDeadline = parseDeadlineDateFromPeriod(period);
+  if (explicitDeadline) {
+    const initialDeadlineDays = daysBetweenDateKeys(baseDateKey, explicitDeadline);
+    return {
+      deadlineDate: explicitDeadline,
+      initialDeadlineDays: initialDeadlineDays ?? undefined,
+    };
+  }
+
+  if (/D-DAY/i.test(period)) {
+    return { deadlineDate: baseDateKey, initialDeadlineDays: 0 };
+  }
+
+  const dDayText = period.match(/\bD-(\d+)\b/i)?.[1];
+  if (dDayText) {
+    const initialDeadlineDays = Number(dDayText);
+    return {
+      initialDeadlineDays,
+      deadlineDate: addDaysToDateKey(baseDateKey, initialDeadlineDays),
+    };
+  }
+
+  return {};
+}
+
+function getDeadlineDaysLeft(contest: ContestCardData, now = new Date()): number | null {
+  if (contest.deadlineDate) {
+    return daysBetweenDateKeys(seoulDateKey(now), contest.deadlineDate);
+  }
+
+  const snapshot = createDeadlineSnapshot(contest.period, now);
+  if (snapshot.deadlineDate) {
+    return daysBetweenDateKeys(seoulDateKey(now), snapshot.deadlineDate);
+  }
+
+  if (contest.period && /마감/i.test(contest.period) && !/마감임박/i.test(contest.period)) return -1;
+  return null;
+}
+
+function stripDeadlineLabel(period?: string): string {
+  if (!period) return "";
+
+  return period
+    .replace(/\s*\*{0,2}D-(?:\d+)\*{0,2}/gi, "")
+    .replace(/\s*\*{0,2}D-DAY\*{0,2}/gi, "")
+    .replace(/\s*\*{0,2}마감\*{0,2}\s*$/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function formatContestPeriod(contest: ContestCardData): string | undefined {
+  const base = stripDeadlineLabel(contest.period) || contest.deadlineDate || "";
+  const daysLeft = getDeadlineDaysLeft(contest);
+  if (daysLeft === null) return base || undefined;
+
+  const label = daysLeft < 0
+    ? "**마감**"
+    : daysLeft === 0
+      ? "**D-DAY**"
+      : `**D-${daysLeft}**`;
+
+  return `${base}${base ? " " : ""}${label}`;
 }
 
 function shouldSendDeadlineReminder(contest: ContestCardData): boolean {
-  const daysLeft = getDeadlineDaysLeft(contest.period);
+  const daysLeft = getDeadlineDaysLeft(contest);
   return daysLeft !== null && daysLeft >= 0 && daysLeft <= DEADLINE_REMINDER_DAYS;
 }
 
@@ -167,7 +265,7 @@ export function contestInfoEmbed(contest: ContestCardData): EmbedBuilder {
       { name: "응모대상", value: safeValue(contest.target), inline: true },
       { name: "주최/주관", value: safeValue(contest.host), inline: false },
       { name: "후원/협찬", value: safeValue(contest.sponsor, "없음"), inline: false },
-      { name: "접수기간", value: safeValue(contest.period), inline: false },
+      { name: "접수기간", value: safeValue(formatContestPeriod(contest)), inline: false },
       { name: "총 상금", value: safeValue(contest.totalPrize), inline: true },
       { name: "1등 상금", value: safeValue(contest.firstPrize), inline: true },
       { name: "홈페이지", value: homepageValue(contest), inline: false },
@@ -254,16 +352,24 @@ export async function createContestFeed(guild: Guild): Promise<ContestFeedState>
   }
 }
 
-async function publishContest(channel: TextChannel, contest: Contest, eligibleVoterIds: string[]) {
+async function publishContest(channel: TextChannel, contest: Contest, eligibleVoterIds: string[]): Promise<ContestVote> {
   const voteId = createContestVoteId();
   const majority = majorityOf(eligibleVoterIds.length);
   const contestLink = contest.homepage || contest.url;
+  const deadlineSnapshot = createDeadlineSnapshot(contest.period);
+  const renderedDate = seoulDateKey();
+  const contestWithDeadline: ContestCardData = {
+    ...contest,
+    ...deadlineSnapshot,
+    deadlineLastRenderedDate: renderedDate,
+  };
+
   const message = await channel.send({
-    embeds: [contestVoteEmbed(contest, 0, majority, false)],
+    embeds: [contestVoteEmbed(contestWithDeadline, 0, majority, false)],
     components: contestVoteComponents(voteId, contestLink, false),
   });
 
-  await saveContestVote({
+  return saveContestVote({
     id: voteId,
     guildId: channel.guild.id,
     channelId: channel.id,
@@ -276,6 +382,9 @@ async function publishContest(channel: TextChannel, contest: Contest, eligibleVo
     host: contest.host,
     sponsor: contest.sponsor,
     period: contest.period,
+    initialDeadlineDays: deadlineSnapshot.initialDeadlineDays,
+    deadlineDate: deadlineSnapshot.deadlineDate,
+    deadlineLastRenderedDate: renderedDate,
     totalPrize: contest.totalPrize,
     firstPrize: contest.firstPrize,
     homepage: contest.homepage,
@@ -288,9 +397,45 @@ async function publishContest(channel: TextChannel, contest: Contest, eligibleVo
   });
 }
 
-async function publishDeadlineReminder(channel: TextChannel, contest: Contest, eligibleVoterIds: string[]): Promise<void> {
-  const vote = await findLatestContestVote(channel.guild.id, channel.id, contest.title, contest.url);
-  const daysLeft = getDeadlineDaysLeft(contest.period);
+async function ensureDeadlineSnapshot(vote: ContestVote): Promise<ContestVote> {
+  if (vote.deadlineDate || vote.initialDeadlineDays !== undefined) return vote;
+
+  const snapshot = createDeadlineSnapshot(vote.period, new Date(vote.createdAt));
+  if (!snapshot.deadlineDate && snapshot.initialDeadlineDays === undefined) return vote;
+
+  const updated = await updateContestVote(vote.id, snapshot);
+  return updated ?? vote;
+}
+
+async function refreshDeadlineCard(channel: TextChannel, vote: ContestVote): Promise<ContestVote> {
+  let current = await ensureDeadlineSnapshot(vote);
+  if (!current.deadlineDate) return current;
+
+  const today = seoulDateKey();
+  if (current.deadlineLastRenderedDate === today) return current;
+
+  const message = await channel.messages.fetch(current.messageId).catch(() => null);
+  if (message) {
+    const majority = current.majority ?? majorityOf(current.eligibleVoterIds?.length ?? 0);
+    await message.edit({
+      embeds: [contestVoteEmbed(current, current.voterIds.length, majority, current.finalized)],
+      components: contestVoteComponents(current.id, current.homepage || current.url, current.finalized),
+    });
+  }
+
+  const updated = await updateContestVote(current.id, { deadlineLastRenderedDate: today });
+  current = updated ?? current;
+  return current;
+}
+
+async function publishDeadlineReminder(
+  channel: TextChannel,
+  contest: Contest,
+  eligibleVoterIds: string[],
+  existingVote?: ContestVote,
+): Promise<void> {
+  const vote = existingVote ? await ensureDeadlineSnapshot(existingVote) : null;
+  const daysLeft = getDeadlineDaysLeft(vote ?? contest);
   const label = daysLeft === 0 ? "D-DAY" : `D-${daysLeft}`;
   const fallbackMajority = majorityOf(eligibleVoterIds.length);
 
@@ -310,6 +455,20 @@ async function publishDeadlineReminder(channel: TextChannel, contest: Contest, e
     embeds: [embed],
     components: contestVoteComponents(vote.id, contestLink, vote.finalized),
   });
+}
+
+function groupVotesByContest(votes: ContestVote[]): Map<string, ContestVote[]> {
+  const grouped = new Map<string, ContestVote[]>();
+
+  for (const vote of votes) {
+    const key = contestKey(vote);
+    const current = grouped.get(key) ?? [];
+    current.push(vote);
+    current.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    grouped.set(key, current);
+  }
+
+  return grouped;
 }
 
 export async function repostContest(client: Client, guildId: string, query: string): Promise<Contest> {
@@ -343,20 +502,23 @@ export async function syncContestFeed(client: Client, state: ContestFeedState): 
   const fetched = await guild.channels.fetch(state.channelId).catch(() => null);
   if (!(fetched instanceof TextChannel)) return 0;
 
-  const [contests, eligibleHumans] = await Promise.all([
+  const [contests, eligibleHumans, storedVotes] = await Promise.all([
     listActiveItContests(),
     getEligibleHumans(fetched),
+    listContestVotesForChannel(state.guildId, state.channelId),
   ]);
   const eligibleVoterIds = [...eligibleHumans.keys()];
   const posted = new Set(state.postedKeys);
   const reminded = new Set(state.remindedKeys ?? []);
+  const votesByContest = groupVotesByContest(storedVotes);
   let count = 0;
 
   for (const contest of contests) {
     const key = contestKey(contest);
 
     if (!posted.has(key)) {
-      await publishContest(fetched, contest, eligibleVoterIds);
+      const vote = await publishContest(fetched, contest, eligibleVoterIds);
+      votesByContest.set(key, [vote]);
       posted.add(key);
       count += 1;
 
@@ -367,8 +529,17 @@ export async function syncContestFeed(client: Client, state: ContestFeedState): 
       continue;
     }
 
-    if (!reminded.has(key) && shouldSendDeadlineReminder(contest)) {
-      await publishDeadlineReminder(fetched, contest, eligibleVoterIds);
+    const contestVotes = votesByContest.get(key) ?? [];
+    const refreshedVotes: ContestVote[] = [];
+    for (const vote of contestVotes) {
+      refreshedVotes.push(await refreshDeadlineCard(fetched, vote));
+    }
+    if (refreshedVotes.length > 0) votesByContest.set(key, refreshedVotes);
+
+    const latestVote = refreshedVotes[0] ?? contestVotes[0];
+    const deadlineSource: ContestCardData = latestVote ?? contest;
+    if (!reminded.has(key) && shouldSendDeadlineReminder(deadlineSource)) {
+      await publishDeadlineReminder(fetched, contest, eligibleVoterIds, latestVote);
       reminded.add(key);
       state.remindedKeys = [...reminded];
       state.lastSyncedAt = new Date().toISOString();
