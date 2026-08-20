@@ -44,7 +44,10 @@ export async function updateProject(id: string, updates: Partial<Omit<StoredProj
   const index = projects.findIndex((project) => project.id === id);
   if (index < 0) return null;
 
-  const updated: StoredProject = { ...projects[index], ...updates, id };
+  const current = projects[index];
+  if (!current) return null;
+
+  const updated: StoredProject = { ...current, ...updates, id };
   projects[index] = updated;
   await writeProjects(projects);
   return updated;
