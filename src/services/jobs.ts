@@ -15,7 +15,7 @@ export type JobField =
   | "security"
   | "embedded";
 
-export type JobSource = "사람인" | "고용24";
+export type JobSource = "사람인" | "고용24" | "잡코리아";
 
 export type JobPosting = {
   id: string;
@@ -35,6 +35,7 @@ type JobFieldDefinition = {
   channelName: string;
   saraminJobCodes: string[];
   work24Keyword: string;
+  jobkoreaMatchers: RegExp[];
 };
 
 export const JOB_FIELD_DEFINITIONS: Record<JobField, JobFieldDefinition> = {
@@ -43,48 +44,56 @@ export const JOB_FIELD_DEFINITIONS: Record<JobField, JobFieldDefinition> = {
     channelName: "🖥・프론트엔드",
     saraminJobCodes: ["92"],
     work24Keyword: "프론트엔드",
+    jobkoreaMatchers: [/프론트\s*엔드/i, /frontend/i, /react(?:\.js)?/i, /vue(?:\.js)?/i, /angular/i, /next(?:\.js)?/i],
   },
   backend: {
     label: "백엔드/서버",
     channelName: "⚙️・백엔드",
     saraminJobCodes: ["84"],
     work24Keyword: "백엔드",
+    jobkoreaMatchers: [/백\s*엔드/i, /서버\s*개발/i, /backend/i, /spring/i, /nest(?:js)?/i, /django/i, /fastapi/i],
   },
   fullstack: {
     label: "풀스택",
     channelName: "🧩・풀스택",
     saraminJobCodes: ["2232"],
     work24Keyword: "풀스택",
+    jobkoreaMatchers: [/풀\s*스택/i, /full\s*stack/i],
   },
   mobile: {
     label: "앱/모바일",
     channelName: "📱・앱-모바일",
     saraminJobCodes: ["86", "195", "220", "234", "243", "278", "298"],
     work24Keyword: "앱개발",
+    jobkoreaMatchers: [/앱\s*개발/i, /모바일\s*개발/i, /android/i, /ios/i, /flutter/i, /react\s*native/i, /kotlin/i, /swift/i],
   },
   "data-ai": {
     label: "AI/데이터",
     channelName: "🤖・ai-데이터",
     saraminJobCodes: ["82", "83", "108", "109", "116", "160", "181", "2248"],
     work24Keyword: "인공지능",
+    jobkoreaMatchers: [/인공\s*지능/i, /머신\s*러닝/i, /딥\s*러닝/i, /데이터\s*(?:사이언|엔지니어)/i, /machine\s*learning/i, /data\s*(?:scientist|engineer)/i, /(?:^|[^a-z])ai(?:[^a-z]|$)/i, /(?:^|[^a-z])ml(?:[^a-z]|$)/i],
   },
   "devops-cloud": {
     label: "DevOps/클라우드",
     channelName: "☁️・devops-클라우드",
     saraminJobCodes: ["127", "136", "146", "201", "202", "214", "221", "237", "244"],
     work24Keyword: "DevOps",
+    jobkoreaMatchers: [/devops/i, /클라우드/i, /(?:^|[^a-z])sre(?:[^a-z]|$)/i, /kubernetes/i, /docker/i, /(?:^|[^a-z])aws(?:[^a-z]|$)/i, /(?:^|[^a-z])gcp(?:[^a-z]|$)/i, /azure/i, /인프라/i],
   },
   security: {
     label: "정보보안",
     channelName: "🔐・정보보안",
     saraminJobCodes: ["85", "90", "111", "121", "132", "147", "157", "173", "177", "190", "2239"],
     work24Keyword: "정보보안",
+    jobkoreaMatchers: [/정보\s*보안/i, /보안\s*(?:개발|엔지니어|관제)/i, /security/i, /secops/i, /침해\s*대응/i, /취약점/i, /pentest/i],
   },
   embedded: {
     label: "임베디드",
     channelName: "🔧・임베디드",
     saraminJobCodes: ["128", "139", "151", "158", "166", "186", "308", "319", "320"],
     work24Keyword: "임베디드",
+    jobkoreaMatchers: [/임베디드/i, /embedded/i, /펌웨어/i, /firmware/i, /(?:^|[^a-z])mcu(?:[^a-z]|$)/i],
   },
 };
 
@@ -98,10 +107,15 @@ export function isJobField(value: string): value is JobField {
   return value in JOB_FIELD_DEFINITIONS;
 }
 
+function hasJobKoreaConfig(): boolean {
+  return Boolean(config.jobkoreaApiUrl && config.jobkoreaApiKey);
+}
+
 export function getConfiguredJobSources(): JobSource[] {
   const sources: JobSource[] = [];
   if (config.saraminApiKey) sources.push("사람인");
   if (config.work24ApiKey) sources.push("고용24");
+  if (hasJobKoreaConfig()) sources.push("잡코리아");
   return sources;
 }
 
@@ -340,6 +354,97 @@ async function fetchWork24Jobs(field: JobField): Promise<JobPosting[]> {
   return parseWork24List(xml, field);
 }
 
+function normalizeJobKoreaUrl(value: string): string {
+  if (value.startsWith("http://www.jobkorea.co.kr/")) return `https://${value.slice("http://".length)}`;
+  return value;
+}
+
+function formatJobKoreaDate(value?: string): string | undefined {
+  const raw = clean(value)?.replace(/[^0-9]/g, "");
+  if (!raw || raw.length !== 8) return clean(value);
+  return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+}
+
+function matchesJobKoreaField(field: JobField, title: string, keyword?: string): boolean {
+  const text = `${title} ${keyword ?? ""}`.normalize("NFKC");
+  return JOB_FIELD_DEFINITIONS[field].jobkoreaMatchers.some((matcher) => matcher.test(text));
+}
+
+function parseJobKoreaList(xml: string, field: JobField): JobPosting[] {
+  const jobs: JobPosting[] = [];
+
+  for (const match of xml.matchAll(/<Items>([\s\S]*?)<\/Items>/gi)) {
+    const block = match[1];
+    if (!block) continue;
+
+    const rawId = xmlValue(block, "GI_No");
+    const title = xmlValue(block, "GI_Subject");
+    const company = xmlValue(block, "C_Name");
+    const rawUrl = xmlValue(block, "JK_URL");
+    const keyword = xmlValue(block, "GI_Keyword");
+    if (!rawId || !title || !company || !rawUrl) continue;
+    if (!matchesJobKoreaField(field, title, keyword)) continue;
+
+    const sourceId = `jobkorea:${rawId}`;
+    const posting: JobPosting = {
+      id: postingKey(company, title, sourceId),
+      sourceIds: [sourceId],
+      title,
+      company,
+      field,
+      url: normalizeJobKoreaUrl(rawUrl),
+      condition: undefined,
+      sector: compact([keyword, xmlValue(block, "GI_Part_No")]),
+      deadline: formatJobKoreaDate(xmlValue(block, "GI_End_Date") ?? xmlValue(block, "GI_E_Date")),
+      sources: ["잡코리아"],
+    };
+
+    if (!isTrainingPosting(posting)) jobs.push(posting);
+  }
+
+  return jobs;
+}
+
+function buildJobKoreaApiUrl(): string {
+  const endpoint = config.jobkoreaApiUrl.trim();
+  const apiKey = config.jobkoreaApiKey.trim();
+  if (endpoint.includes("{API_KEY}")) {
+    return endpoint.replaceAll("{API_KEY}", encodeURIComponent(apiKey));
+  }
+
+  const url = new URL(endpoint);
+  if (!url.searchParams.has("api")) url.searchParams.set("api", apiKey);
+  return url.toString();
+}
+
+async function decodeJobKoreaResponse(response: Response): Promise<string> {
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const header = new TextDecoder("ascii").decode(bytes.slice(0, 256));
+  const declaredEncoding = header.match(/encoding=["']([^"']+)["']/i)?.[1]?.toLowerCase() ?? "";
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+  const useEucKr = /euc-?kr|ks_c_5601|cp949/.test(`${declaredEncoding} ${contentType}`);
+
+  try {
+    return new TextDecoder(useEucKr ? "euc-kr" : "utf-8").decode(bytes);
+  } catch {
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+}
+
+async function fetchJobKoreaJobs(field: JobField): Promise<JobPosting[]> {
+  if (!hasJobKoreaConfig()) return [];
+
+  const response = await fetch(buildJobKoreaApiUrl(), {
+    headers: { Accept: "application/xml,text/xml" },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+
+  if (!response.ok) throw new Error(`잡코리아 API HTTP ${response.status}`);
+  const xml = await decodeJobKoreaResponse(response);
+  if (!/<DataList[\s>]/i.test(xml)) throw new Error("잡코리아 API 응답 형식을 확인할 수 없습니다.");
+  return parseJobKoreaList(xml, field);
+}
+
 function richer(current?: string, incoming?: string): string | undefined {
   if (!current) return incoming;
   if (!incoming) return current;
@@ -363,10 +468,11 @@ export async function listActiveDeveloperJobs(field: JobField): Promise<JobPosti
   const loaders: Array<{ source: JobSource; load: () => Promise<JobPosting[]> }> = [];
   if (config.saraminApiKey) loaders.push({ source: "사람인", load: () => fetchSaraminJobs(field) });
   if (config.work24ApiKey) loaders.push({ source: "고용24", load: () => fetchWork24Jobs(field) });
+  if (hasJobKoreaConfig()) loaders.push({ source: "잡코리아", load: () => fetchJobKoreaJobs(field) });
 
   if (loaders.length === 0) {
     if (!warnedMissingSources) {
-      console.warn("취업 공고 API 키가 없습니다. SARAMIN_API_KEY 또는 WORK24_API_KEY를 설정해주세요.");
+      console.warn("취업 공고 API 설정이 없습니다. SARAMIN_API_KEY, WORK24_API_KEY 또는 JOBKOREA_API_URL/JOBKOREA_API_KEY를 설정해주세요.");
       warnedMissingSources = true;
     }
     return [];
