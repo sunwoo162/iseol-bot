@@ -6,6 +6,7 @@ import {
 } from "../services/job-feed.js";
 import {
   JOB_FIELDS,
+  getConfiguredJobSources,
   isJobField,
   jobFieldLabel,
   type JobField,
@@ -52,6 +53,11 @@ export async function handleJobCommand(interaction: ChatInputCommandInteraction)
   await interaction.deferReply();
 
   try {
+    const sources = getConfiguredJobSources();
+    if (sources.length === 0) {
+      throw new Error("취업 공고 API 키가 설정되지 않았습니다. SARAMIN_API_KEY 또는 WORK24_API_KEY를 먼저 설정해주세요.");
+    }
+
     const value = interaction.options.getString("field", true);
 
     if (value === "all") {
@@ -64,7 +70,7 @@ export async function handleJobCommand(interaction: ChatInputCommandInteraction)
       }
 
       await interaction.editReply(
-        `💼 개발/IT 취업 공고 채널을 분야별로 준비했습니다.\n이후 **1시간마다** 새 공고를 확인합니다.\n\n${lines.join("\n")}`,
+        `💼 개발/IT 취업 공고 채널을 분야별로 준비했습니다.\n출처: **${sources.join(" + ")} 공식 API**\n이후 **1시간마다** 새 공고를 확인합니다.\n\n${lines.join("\n")}`,
       );
       return;
     }
@@ -73,7 +79,7 @@ export async function handleJobCommand(interaction: ChatInputCommandInteraction)
     const result = await setupOneField(interaction, value);
 
     await interaction.editReply(
-      `💼 개발/IT 취업 공고 자동 수집을 설정했습니다.\n${result}\n이후 **1시간마다** 새 공고를 확인합니다.`,
+      `💼 개발/IT 취업 공고 자동 수집을 설정했습니다.\n출처: **${sources.join(" + ")} 공식 API**\n${result}\n이후 **1시간마다** 새 공고를 확인합니다.`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
