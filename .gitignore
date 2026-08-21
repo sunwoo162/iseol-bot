@@ -4,6 +4,7 @@ dist
 data/projects.json
 data/contest-votes.json
 data/contest-feed.json
+data/contest-audience-feeds.json
 data/job-feed.json
 data/voice-study-time.json
 data/music-playlists.json
