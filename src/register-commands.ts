@@ -1,5 +1,6 @@
 import { REST, Routes } from "discord.js";
-import { contestCommand } from "./commands/contest.js";
+import { contestCommandV2 } from "./commands/contest-v2.js";
+import { jobCommand } from "./commands/job.js";
 import { config } from "./config.js";
 import { musicCommand } from "./commands/music.js";
 import { projectCommand } from "./commands/project.js";
@@ -12,7 +13,8 @@ await rest.put(
   {
     body: [
       projectCommand.toJSON(),
-      contestCommand.toJSON(),
+      contestCommandV2.toJSON(),
+      jobCommand.toJSON(),
       voiceCommand.toJSON(),
       musicCommand.toJSON(),
     ],

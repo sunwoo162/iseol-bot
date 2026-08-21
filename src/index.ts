@@ -8,13 +8,17 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
-import { handleContestCommand, handleContestVoteButton } from "./commands/contest.js";
+import { handleContestCommandV2 } from "./commands/contest-v2.js";
+import { handleContestVoteButton } from "./commands/contest.js";
+import { handleJobCommand } from "./commands/job.js";
 import { config } from "./config.js";
 import { handleMusicCommand } from "./commands/music.js";
 import { handleProjectAutocomplete, handleProjectCommand } from "./commands/project.js";
 import { handleVoiceCommand } from "./commands/voice.js";
+import { startContestAudienceFeedPolling } from "./services/contest-audience-feed.js";
 import { startContestFeedPolling } from "./services/contest-feed.js";
 import { GitHubWebhookService } from "./services/github.js";
+import { startJobFeedPolling } from "./services/job-feed.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
 import { findProject } from "./services/projects.js";
 import {
@@ -36,6 +40,8 @@ client.once(Events.ClientReady, async (readyClient) => {
   console.log(`${readyClient.user.tag} 로그인 완료`);
   startWebhookServer(client);
   startContestFeedPolling(client);
+  startContestAudienceFeedPolling(client);
+  startJobFeedPolling(client);
   startVoiceStudyHeartbeat();
 
   const interruptedSessions = await recoverInterruptedStudySessions();
@@ -58,7 +64,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await handleProjectCommand(interaction);
         await ensureProjectDiscussionChannels(client);
       }
-      if (interaction.commandName === "contest") await handleContestCommand(interaction);
+      if (interaction.commandName === "contest") await handleContestCommandV2(interaction);
+      if (interaction.commandName === "job") await handleJobCommand(interaction);
       if (interaction.commandName === "voice") await handleVoiceCommand(interaction);
       if (interaction.commandName === "music") await handleMusicCommand(interaction);
       return;
