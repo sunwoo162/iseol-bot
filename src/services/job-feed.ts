@@ -10,6 +10,7 @@ import {
 import {
   JOB_FIELD_DEFINITIONS,
   JOB_FIELDS,
+  getConfiguredJobSources,
   jobFieldLabel,
   listActiveDeveloperJobs,
   type JobField,
@@ -26,6 +27,7 @@ export type JobFeedState = {
   channelId: string;
   field: JobField;
   postedIds: string[];
+  postedKeys?: string[];
   createdAt: string;
   lastSyncedAt?: string;
 };
@@ -99,14 +101,17 @@ export async function createJobFeed(guild: Guild, field: JobField): Promise<{ st
     channelId: channel.id,
     field,
     postedIds: [],
+    postedKeys: [],
     createdAt: new Date().toISOString(),
   };
   await saveState(state);
 
+  const sources = getConfiguredJobSources();
+  const sourceText = sources.length > 0 ? sources.join(" + ") : "공식 채용정보 API";
   await channel.send({
     embeds: [new EmbedBuilder()
       .setTitle(`💼 ${definition.label} 취업 공고`)
-      .setDescription(`이설이가 **개발/IT 분야** 중 **${definition.label}** 관련 채용 공고만 주기적으로 확인합니다.\n현재는 사람인의 공개 채용 목록을 기준으로 가져오며, 교육생 모집/국비 교육 과정은 제외합니다. 같은 공고는 중복 게시하지 않습니다.`)],
+      .setDescription(`이설이가 **개발/IT 분야** 중 **${definition.label}** 관련 채용 공고만 주기적으로 확인합니다.\n**${sourceText}**에서 공식 API로 가져오며, 교육생 모집/국비 교육 과정은 제외합니다. 같은 회사의 같은 공고는 출처가 여러 개여도 한 번만 게시합니다.`)],
   });
 
   return { state, created: true };
@@ -126,7 +131,7 @@ function jobEmbed(posting: JobPosting): EmbedBuilder {
       { name: "근무/지원 조건", value: safe(posting.condition), inline: false },
       { name: "직무 태그", value: safe(posting.sector), inline: false },
       { name: "마감", value: safe(posting.deadline), inline: true },
-      { name: "출처", value: posting.source, inline: true },
+      { name: "출처", value: posting.sources.join(" · "), inline: true },
     );
 }
 
@@ -139,22 +144,31 @@ export async function syncJobFeed(client: Client, state: JobFeedState): Promise<
   if (!(fetched instanceof TextChannel)) return 0;
 
   const postings = await listActiveDeveloperJobs(state.field);
-  const posted = new Set(state.postedIds);
-  const unseen = postings.filter((posting) => !posted.has(posting.id));
-  const toPublish = state.postedIds.length === 0 ? unseen.slice(0, INITIAL_POST_LIMIT) : unseen;
+  const postedIds = new Set(state.postedIds);
+  const postedKeys = new Set(state.postedKeys ?? []);
+  const unseen = postings.filter((posting) =>
+    !postedKeys.has(posting.id)
+    && !posting.sourceIds.some((sourceId) => postedIds.has(sourceId)),
+  );
+  const toPublish = state.postedIds.length === 0 && postedKeys.size === 0
+    ? unseen.slice(0, INITIAL_POST_LIMIT)
+    : unseen;
   let count = 0;
 
   for (const posting of toPublish) {
     await fetched.send({ embeds: [jobEmbed(posting)] });
-    posted.add(posting.id);
+    postedKeys.add(posting.id);
+    for (const sourceId of posting.sourceIds) postedIds.add(sourceId);
     count += 1;
 
-    state.postedIds = [...posted];
+    state.postedIds = [...postedIds];
+    state.postedKeys = [...postedKeys];
     state.lastSyncedAt = new Date().toISOString();
     await saveState(state);
   }
 
-  state.postedIds = [...posted];
+  state.postedIds = [...postedIds];
+  state.postedKeys = [...postedKeys];
   state.lastSyncedAt = new Date().toISOString();
   await saveState(state);
   return count;
@@ -175,7 +189,8 @@ export async function syncAllJobFeeds(client: Client): Promise<void> {
 export function startJobFeedPolling(client: Client): void {
   void syncAllJobFeeds(client);
   setInterval(() => void syncAllJobFeeds(client), JOB_POLL_INTERVAL_MS);
-  console.log("개발/IT 취업 공고 자동 수집 시작: 1시간 간격");
+  const sources = getConfiguredJobSources();
+  console.log(`개발/IT 취업 공고 자동 수집 시작: 1시간 간격${sources.length > 0 ? ` (${sources.join(" + ")})` : " (API 키 미설정)"}`);
 }
 
 export async function createAllJobFeeds(guild: Guild): Promise<Array<{ state: JobFeedState; created: boolean }>> {
