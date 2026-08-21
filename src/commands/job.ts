@@ -55,7 +55,7 @@ export async function handleJobCommand(interaction: ChatInputCommandInteraction)
   try {
     const sources = getConfiguredJobSources();
     if (sources.length === 0) {
-      throw new Error("취업 공고 API 키가 설정되지 않았습니다. SARAMIN_API_KEY 또는 WORK24_API_KEY를 먼저 설정해주세요.");
+      throw new Error("취업 공고 API 설정이 없습니다. 사람인, 고용24 또는 잡코리아 API 정보를 먼저 설정해주세요.");
     }
 
     const value = interaction.options.getString("field", true);
