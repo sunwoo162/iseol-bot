@@ -21,6 +21,8 @@ export const config = {
   githubToken: required("GITHUB_TOKEN"),
   figmaToken: required("FIGMA_TOKEN"),
   notionToken: required("NOTION_TOKEN"),
+  saraminApiKey: optional("SARAMIN_API_KEY"),
+  work24ApiKey: optional("WORK24_API_KEY"),
   figmaWebhookPasscode: optional("FIGMA_WEBHOOK_PASSCODE"),
   publicBaseUrl: optional("PUBLIC_BASE_URL"),
 };
