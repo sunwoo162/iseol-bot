@@ -23,6 +23,8 @@ export const config = {
   notionToken: required("NOTION_TOKEN"),
   saraminApiKey: optional("SARAMIN_API_KEY"),
   work24ApiKey: optional("WORK24_API_KEY"),
+  jobkoreaApiUrl: optional("JOBKOREA_API_URL"),
+  jobkoreaApiKey: optional("JOBKOREA_API_KEY"),
   figmaWebhookPasscode: optional("FIGMA_WEBHOOK_PASSCODE"),
   publicBaseUrl: optional("PUBLIC_BASE_URL"),
 };
