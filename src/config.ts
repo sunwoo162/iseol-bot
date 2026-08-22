@@ -17,7 +17,7 @@ function optional(name: string): string {
 export const config = {
   discordToken: required("DISCORD_TOKEN"),
   discordClientId: required("DISCORD_CLIENT_ID"),
-  discordGuildId: required("DISCORD_GUILD_ID"),
+  discordGuildId: optional("DISCORD_GUILD_ID"),
   githubToken: required("GITHUB_TOKEN"),
   figmaToken: required("FIGMA_TOKEN"),
   notionToken: required("NOTION_TOKEN"),
