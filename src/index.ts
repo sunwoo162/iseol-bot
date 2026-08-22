@@ -15,6 +15,7 @@ import { config } from "./config.js";
 import { handleMusicAutocomplete, handleMusicCommand } from "./commands/music.js";
 import { handleProjectAutocomplete, handleProjectCommand } from "./commands/project.js";
 import { handleVoiceCommand } from "./commands/voice.js";
+import { commandHelpEmbed } from "./services/command-help.js";
 import { startContestAudienceFeedPolling } from "./services/contest-audience-feed.js";
 import { startContestFeedPolling } from "./services/contest-feed.js";
 import { ensureContestPrepAnnouncementChannels } from "./services/contest-prep-announcement.js";
@@ -32,6 +33,8 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
   ],
 });
@@ -60,6 +63,16 @@ client.on(Events.GuildCreate, (guild) => {
 
 client.on(Events.GuildDelete, (guild) => {
   console.log(`Discord 서버 연결 해제: ${guild.name} (${guild.id}) · 총 ${client.guilds.cache.size}개`);
+});
+
+client.on(Events.MessageCreate, async (message) => {
+  if (message.author.bot || !message.inGuild()) return;
+  if (message.content.trim() !== "!명령어") return;
+
+  await message.reply({
+    embeds: [commandHelpEmbed()],
+    allowedMentions: { repliedUser: false },
+  });
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
