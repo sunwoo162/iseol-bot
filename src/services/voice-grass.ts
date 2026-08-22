@@ -82,7 +82,7 @@ export async function renderVoiceGrass(
       if (day === 0 && month !== lastMonth && date.getUTCDate() <= 7) {
         lastMonth = month;
         const label = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(date);
-        monthLabels.push(`<text x="${x}" y="38" fill="#c9d1d9" font-size="17">${label}</text>`);
+        monthLabels.push(`<text x="${x}" y="38" fill="#c9d1d9" font-size="17">${escapeXml(label)}</text>`);
       }
     }
   }
@@ -92,7 +92,7 @@ export async function renderVoiceGrass(
   const legend = ["0h", "<2h", "2h", "4h", "6h", "8h", "10h+"]
     .map((label, index) => {
       const x = legendX + index * 62;
-      return `<g><rect x="${x}" y="226" width="16" height="16" rx="3" fill="${LEVEL_COLORS[index]}"/><text x="${x + 21}" y="240" fill="#8b949e" font-size="13">${label}</text></g>`;
+      return `<g><rect x="${x}" y="226" width="16" height="16" rx="3" fill="${LEVEL_COLORS[index]}"/><text x="${x + 21}" y="240" fill="#8b949e" font-size="13">${escapeXml(label)}</text></g>`;
     })
     .join("");
 
