@@ -365,8 +365,8 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
 
     const voteMessageUrl = `https://discord.com/channels/${updated.guildId}/${updated.channelId}/${updated.messageId}`;
     await channel.send({
-      content: `<@${interaction.user.id}> 님이 **[${escapeMarkdownLinkText(updated.title)}](${voteMessageUrl})** 공모전에 투표했습니다.`,
-      allowedMentions: { users: [interaction.user.id] },
+      content: `@everyone\n<@${interaction.user.id}> 님이 **[${escapeMarkdownLinkText(updated.title)}](${voteMessageUrl})** 공모전에 투표했습니다.`,
+      allowedMentions: { parse: ["everyone"], users: [interaction.user.id] },
     });
 
     if (!reachedMajority || !prepRoom) return;
