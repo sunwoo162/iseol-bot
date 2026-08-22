@@ -1,4 +1,4 @@
-import { EmbedBuilder, type SlashCommandBuilder } from "discord.js";
+import { EmbedBuilder } from "discord.js";
 import { contestCommandV2 } from "../commands/contest-v2.js";
 import { jobCommand } from "../commands/job.js";
 import { musicCommand } from "../commands/music.js";
@@ -12,7 +12,15 @@ type HelpOption = {
   options?: HelpOption[];
 };
 
-const commands: SlashCommandBuilder[] = [
+type HelpCommand = {
+  toJSON(): {
+    name: string;
+    description: string;
+    options?: readonly unknown[];
+  };
+};
+
+const commands: HelpCommand[] = [
   projectCommand,
   contestCommandV2,
   jobCommand,
@@ -20,7 +28,7 @@ const commands: SlashCommandBuilder[] = [
   musicCommand,
 ];
 
-function commandUsageLines(command: SlashCommandBuilder): string[] {
+function commandUsageLines(command: HelpCommand): string[] {
   const data = command.toJSON();
   const options = (data.options ?? []) as HelpOption[];
   const subcommands = options.filter((option) => option.type === 1 || option.type === 2);
