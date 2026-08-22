@@ -12,7 +12,7 @@ import { handleContestCommandV2 } from "./commands/contest-v2.js";
 import { handleContestVoteButton } from "./commands/contest.js";
 import { handleJobCommand } from "./commands/job.js";
 import { config } from "./config.js";
-import { handleMusicCommand } from "./commands/music.js";
+import { handleMusicAutocomplete, handleMusicCommand } from "./commands/music.js";
 import { handleProjectAutocomplete, handleProjectCommand } from "./commands/project.js";
 import { handleVoiceCommand } from "./commands/voice.js";
 import { startContestAudienceFeedPolling } from "./services/contest-audience-feed.js";
@@ -66,6 +66,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isAutocomplete()) {
       if (interaction.commandName === "project") await handleProjectAutocomplete(interaction);
+      if (interaction.commandName === "music") await handleMusicAutocomplete(interaction);
       return;
     }
 
