@@ -74,6 +74,10 @@ export async function saveContestVote(vote: Omit<ContestVote, "createdAt">): Pro
   return stored;
 }
 
+export async function listContestVotes(): Promise<ContestVote[]> {
+  return readVotes();
+}
+
 export async function findContestVote(id: string): Promise<ContestVote | null> {
   const votes = await readVotes();
   return votes.find((vote) => vote.id === id) ?? null;

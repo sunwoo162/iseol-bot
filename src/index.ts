@@ -17,6 +17,7 @@ import { handleProjectAutocomplete, handleProjectCommand } from "./commands/proj
 import { handleVoiceCommand } from "./commands/voice.js";
 import { startContestAudienceFeedPolling } from "./services/contest-audience-feed.js";
 import { startContestFeedPolling } from "./services/contest-feed.js";
+import { ensureContestPrepAnnouncementChannels } from "./services/contest-prep-announcement.js";
 import { GitHubWebhookService } from "./services/github.js";
 import { startJobFeedPolling } from "./services/job-feed.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
@@ -50,6 +51,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 
   await ensureProjectDiscussionChannels(client);
+  await ensureContestPrepAnnouncementChannels(client);
 });
 
 client.on(Events.GuildCreate, (guild) => {
@@ -81,6 +83,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (interaction.isButton() && interaction.customId.startsWith("contest_vote:")) {
       await handleContestVoteButton(interaction);
+      await ensureContestPrepAnnouncementChannels(client);
       return;
     }
 
