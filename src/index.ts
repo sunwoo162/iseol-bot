@@ -37,7 +37,7 @@ const client = new Client({
 const github = new GitHubWebhookService(config.githubToken);
 
 client.once(Events.ClientReady, async (readyClient) => {
-  console.log(`${readyClient.user.tag} 로그인 완료`);
+  console.log(`${readyClient.user.tag} 로그인 완료 · 연결 서버 ${readyClient.guilds.cache.size}개`);
   startWebhookServer(client);
   startContestFeedPolling(client);
   startContestAudienceFeedPolling(client);
@@ -50,6 +50,14 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 
   await ensureProjectDiscussionChannels(client);
+});
+
+client.on(Events.GuildCreate, (guild) => {
+  console.log(`Discord 서버 연결: ${guild.name} (${guild.id}) · 총 ${client.guilds.cache.size}개`);
+});
+
+client.on(Events.GuildDelete, (guild) => {
+  console.log(`Discord 서버 연결 해제: ${guild.name} (${guild.id}) · 총 ${client.guilds.cache.size}개`);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
