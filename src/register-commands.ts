@@ -23,9 +23,13 @@ await rest.put(
 console.log(`Global slash command 등록 완료: ${commands.length}개`);
 
 if (config.discordGuildId) {
-  await rest.put(
-    Routes.applicationGuildCommands(config.discordClientId, config.discordGuildId),
-    { body: [] },
-  );
-  console.log(`기존 Guild slash command 정리 완료: ${config.discordGuildId}`);
+  try {
+    await rest.put(
+      Routes.applicationGuildCommands(config.discordClientId, config.discordGuildId),
+      { body: [] },
+    );
+    console.log(`기존 Guild slash command 정리 완료: ${config.discordGuildId}`);
+  } catch (error) {
+    console.warn(`기존 Guild slash command 정리 실패 (${config.discordGuildId})`, error);
+  }
 }
