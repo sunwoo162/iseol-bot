@@ -1,4 +1,5 @@
 import {
+  AutocompleteInteraction,
   ChatInputCommandInteraction,
   EmbedBuilder,
   SlashCommandBuilder,
@@ -9,6 +10,7 @@ import {
   getPlaylist,
   listPlaylists,
   playMusicPlaylist,
+  removeTrackFromPlaylist,
   skipMusic,
   stopMusic,
   type MusicTrack,
@@ -27,37 +29,56 @@ export const musicCommand = new SlashCommandBuilder()
       .setRequired(true)))
   .addSubcommand((subcommand) => subcommand
     .setName("playlist-add")
-    .setDescription("플레이리스트에 노래를 추가합니다.")
+    .setDescription("플레이리스트에 YouTube/Spotify 노래 링크를 추가합니다.")
     .addStringOption((option) => option
       .setName("playlist")
-      .setDescription("플레이리스트 이름")
-      .setRequired(true))
+      .setDescription("노래를 추가할 플레이리스트")
+      .setRequired(true)
+      .setAutocomplete(true))
     .addStringOption((option) => option
       .setName("song")
-      .setDescription("노래 제목 또는 YouTube 링크")
+      .setDescription("YouTube 또는 Spotify 개별 노래 링크")
+      .setRequired(true)))
+  .addSubcommand((subcommand) => subcommand
+    .setName("playlist-remove")
+    .setDescription("플레이리스트에서 노래를 삭제합니다.")
+    .addStringOption((option) => option
+      .setName("playlist")
+      .setDescription("노래를 삭제할 플레이리스트")
+      .setRequired(true)
+      .setAutocomplete(true))
+    .addIntegerOption((option) => option
+      .setName("number")
+      .setDescription("/music playlist-show에 표시되는 노래 번호")
+      .setMinValue(1)
       .setRequired(true)))
   .addSubcommand((subcommand) => subcommand
     .setName("playlist-show")
     .setDescription("플레이리스트 목록 또는 수록곡을 확인합니다.")
     .addStringOption((option) => option
       .setName("playlist")
-      .setDescription("확인할 플레이리스트 이름 (비우면 전체 목록)")))
+      .setDescription("확인할 플레이리스트 이름 (비우면 전체 목록)")
+      .setAutocomplete(true)))
   .addSubcommand((subcommand) => subcommand
     .setName("play")
-    .setDescription("플레이리스트를 현재 음성 채널에서 재생합니다.")
+    .setDescription("저장한 플레이리스트를 반복 재생합니다.")
     .addStringOption((option) => option
       .setName("playlist")
-      .setDescription("재생할 플레이리스트 이름")
-      .setRequired(true)))
+      .setDescription("재생할 플레이리스트")
+      .setRequired(true)
+      .setAutocomplete(true)))
   .addSubcommand((subcommand) => subcommand
     .setName("skip")
     .setDescription("현재 재생 중인 노래를 넘깁니다."))
   .addSubcommand((subcommand) => subcommand
     .setName("stop")
-    .setDescription("음악 재생과 대기열을 정지합니다."));
+    .setDescription("음악 반복 재생을 정지합니다."));
 
 function playlistEmbed(name: string, tracks: MusicTrack[]): EmbedBuilder {
-  const lines = tracks.slice(0, 30).map((track, index) => `${index + 1}. [${track.title}](${track.url})`);
+  const lines = tracks.slice(0, 30).map((track, index) => {
+    const source = track.source === "spotify" ? " · Spotify" : track.source === "youtube" ? " · YouTube" : "";
+    return `${index + 1}. [${track.title}](${track.url})${source}`;
+  });
   const hidden = Math.max(0, tracks.length - lines.length);
 
   return new EmbedBuilder()
@@ -65,7 +86,26 @@ function playlistEmbed(name: string, tracks: MusicTrack[]): EmbedBuilder {
     .setDescription(lines.length > 0
       ? `${lines.join("\n")}${hidden > 0 ? `\n\n외 ${hidden}곡` : ""}`
       : "아직 추가된 노래가 없습니다.")
-    .setFooter({ text: `총 ${tracks.length}곡` });
+    .setFooter({ text: `총 ${tracks.length}곡 · 마지막 곡 이후 처음부터 반복 재생` });
+}
+
+export async function handleMusicAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
+  if (!interaction.inGuild() || !interaction.guildId || interaction.commandName !== "music") return;
+
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== "playlist") return;
+
+  const query = focused.value.toString().trim().toLowerCase();
+  const playlists = await listPlaylists(interaction.guildId);
+  const choices = playlists
+    .filter((playlist) => !query || playlist.name.toLowerCase().includes(query))
+    .slice(0, 25)
+    .map((playlist) => ({
+      name: `${playlist.name} · ${playlist.tracks.length}곡`.slice(0, 100),
+      value: playlist.name,
+    }));
+
+  await interaction.respond(choices);
 }
 
 export async function handleMusicCommand(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -95,8 +135,26 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
         interaction.user.id,
       );
 
+      const source = track.source === "spotify" ? "Spotify" : "YouTube";
       await interaction.editReply(
-        `➕ **${playlist.name}**에 [${track.title}](${track.url})을 추가했습니다.\n현재 **${playlist.tracks.length}곡**입니다.`,
+        `➕ **${playlist.name}**에 [${track.title}](${track.url})을 추가했습니다.\n` +
+        `출처: **${source}** · 현재 **${playlist.tracks.length}곡**`,
+      );
+      return;
+    }
+
+    if (subcommand === "playlist-remove") {
+      const playlistName = interaction.options.getString("playlist", true);
+      const number = interaction.options.getInteger("number", true);
+      const { playlist, removed } = await removeTrackFromPlaylist(
+        interaction.guild.id,
+        playlistName,
+        number,
+      );
+
+      await interaction.editReply(
+        `🗑️ **${playlist.name}**에서 [${removed.title}](${removed.url})을 삭제했습니다.\n` +
+        `현재 **${playlist.tracks.length}곡**입니다.`,
       );
       return;
     }
@@ -128,9 +186,10 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
       const playlistName = interaction.options.getString("playlist", true);
       const result = await playMusicPlaylist(interaction.guild, interaction.user.id, playlistName);
       await interaction.editReply(
-        `▶️ **${result.playlist.name}** 재생을 시작했습니다.\n` +
+        `▶️ **${result.playlist.name}** 반복 재생을 시작했습니다.\n` +
         `${result.current ? `현재 곡: **${result.current.title}**\n` : ""}` +
-        `대기열: **${result.queued}곡**`,
+        `남은 곡: **${result.queued}곡**\n` +
+        "🔁 마지막 곡이 끝나면 첫 곡부터 다시 재생합니다.",
       );
       return;
     }
@@ -147,7 +206,7 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
       await assertUserInBotVoiceChannel(interaction.guild, interaction.user.id);
       const stopped = stopMusic(interaction.guild.id);
       if (!stopped) throw new Error("현재 재생 중인 음악이 없습니다.");
-      await interaction.editReply("⏹️ 음악 재생과 대기열을 정지했습니다.");
+      await interaction.editReply("⏹️ 음악 반복 재생을 정지했습니다.");
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
