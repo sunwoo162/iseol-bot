@@ -16,6 +16,8 @@ const DATA_FILE = resolve(process.cwd(), "data", "music-playlists.json");
 export type MusicTrack = {
   title: string;
   url: string;
+  playbackUrl?: string;
+  source?: "youtube" | "spotify";
   addedBy: string;
 };
 
@@ -31,8 +33,15 @@ type MusicData = {
 type GuildMusicState = {
   player: AudioPlayer;
   queue: MusicTrack[];
+  loopTracks: MusicTrack[];
+  activePlaylistName?: string;
   current?: MusicTrack;
   initialized: boolean;
+};
+
+type SpotifyOEmbed = {
+  title?: string;
+  html?: string;
 };
 
 const runtime = new Map<string, GuildMusicState>();
@@ -80,6 +89,28 @@ function findPlaylist(playlists: MusicPlaylist[], name: string): MusicPlaylist |
   return playlists.find((playlist) => normalizePlaylistName(playlist.name) === normalized);
 }
 
+function clonePlaylist(playlist: MusicPlaylist): MusicPlaylist {
+  return {
+    ...playlist,
+    tracks: playlist.tracks.map((track) => ({ ...track })),
+  };
+}
+
+function playbackUrl(track: MusicTrack): string {
+  return track.playbackUrl || track.url;
+}
+
+function sameTrack(left: MusicTrack, right: MusicTrack): boolean {
+  return left.url === right.url
+    && playbackUrl(left) === playbackUrl(right)
+    && left.title === right.title;
+}
+
+function removeFirstMatchingTrack(tracks: MusicTrack[], target: MusicTrack): void {
+  const index = tracks.findIndex((track) => sameTrack(track, target));
+  if (index >= 0) tracks.splice(index, 1);
+}
+
 export async function createPlaylist(guildId: string, name: string): Promise<MusicPlaylist> {
   const cleanName = name.trim().slice(0, 80);
   if (!cleanName) throw new Error("플레이리스트 이름을 입력해주세요.");
@@ -91,13 +122,54 @@ export async function createPlaylist(guildId: string, name: string): Promise<Mus
     const playlist: MusicPlaylist = { name: cleanName, tracks: [] };
     playlists.push(playlist);
     data.guilds[guildId] = playlists;
-    return playlist;
+    return clonePlaylist(playlist);
   });
+}
+
+async function resolveSpotifyTrack(input: string, userId: string): Promise<MusicTrack> {
+  const endpoint = new URL("https://open.spotify.com/oembed");
+  endpoint.searchParams.set("url", input);
+
+  const response = await fetch(endpoint, {
+    headers: { "user-agent": "IseolBot/1.0" },
+  });
+  if (!response.ok) {
+    throw new Error("Spotify 노래 정보를 가져오지 못했습니다.");
+  }
+
+  const metadata = await response.json() as SpotifyOEmbed;
+  if (!metadata.html?.includes("/embed/track/")) {
+    throw new Error("Spotify 플레이리스트/앨범이 아니라 개별 노래 링크를 입력해주세요.");
+  }
+
+  const title = metadata.title?.trim();
+  if (!title) throw new Error("Spotify 노래 제목을 확인하지 못했습니다.");
+
+  const results = await play.search(title, {
+    limit: 5,
+    source: { youtube: "video" },
+  });
+  const video = results[0];
+  if (!video?.url) {
+    throw new Error("Spotify 노래와 일치하는 YouTube 음원을 찾지 못했습니다.");
+  }
+
+  return {
+    title,
+    url: input,
+    playbackUrl: video.url,
+    source: "spotify",
+    addedBy: userId,
+  };
 }
 
 async function resolveTrack(query: string, userId: string): Promise<MusicTrack> {
   const input = query.trim();
-  if (!input) throw new Error("노래 제목이나 YouTube 링크를 입력해주세요.");
+  if (!input) throw new Error("YouTube 또는 Spotify 노래 링크를 입력해주세요.");
+
+  if (/^https?:\/\/(?:open\.spotify\.com|spotify\.link)\//i.test(input)) {
+    return resolveSpotifyTrack(input, userId);
+  }
 
   const validation = await play.validate(input);
   if (validation === "yt_video") {
@@ -105,22 +177,16 @@ async function resolveTrack(query: string, userId: string): Promise<MusicTrack> 
     return {
       title: info.video_details.title ?? input,
       url: info.video_details.url,
+      source: "youtube",
       addedBy: userId,
     };
   }
 
-  const results = await play.search(input, {
-    limit: 1,
-    source: { youtube: "video" },
-  });
-  const video = results[0];
-  if (!video) throw new Error("YouTube에서 해당 노래를 찾지 못했습니다.");
+  if (validation === "yt_playlist") {
+    throw new Error("YouTube 플레이리스트 링크가 아니라 개별 노래 링크를 입력해주세요.");
+  }
 
-  return {
-    title: video.title ?? input,
-    url: video.url,
-    addedBy: userId,
-  };
+  throw new Error("YouTube 또는 Spotify의 개별 노래 링크만 추가할 수 있습니다.");
 }
 
 export async function addTrackToPlaylist(
@@ -131,24 +197,64 @@ export async function addTrackToPlaylist(
 ): Promise<{ playlist: MusicPlaylist; track: MusicTrack }> {
   const track = await resolveTrack(query, userId);
 
-  return updateData((data) => {
+  const result = await updateData((data) => {
     const playlists = data.guilds[guildId] ?? [];
     const playlist = findPlaylist(playlists, playlistName);
     if (!playlist) throw new Error(`플레이리스트 \"${playlistName}\"을 찾을 수 없습니다.`);
 
     playlist.tracks.push(track);
     data.guilds[guildId] = playlists;
-    return { playlist: { ...playlist, tracks: [...playlist.tracks] }, track };
+    return { playlist: clonePlaylist(playlist), track: { ...track } };
   });
+
+  const state = runtime.get(guildId);
+  if (state?.activePlaylistName
+    && normalizePlaylistName(state.activePlaylistName) === normalizePlaylistName(result.playlist.name)) {
+    state.loopTracks.push({ ...track });
+    state.queue.push({ ...track });
+  }
+
+  return result;
+}
+
+export async function removeTrackFromPlaylist(
+  guildId: string,
+  playlistName: string,
+  position: number,
+): Promise<{ playlist: MusicPlaylist; removed: MusicTrack }> {
+  if (!Number.isInteger(position) || position < 1) {
+    throw new Error("삭제할 노래 번호는 1 이상의 정수여야 합니다.");
+  }
+
+  const result = await updateData((data) => {
+    const playlists = data.guilds[guildId] ?? [];
+    const playlist = findPlaylist(playlists, playlistName);
+    if (!playlist) throw new Error(`플레이리스트 \"${playlistName}\"을 찾을 수 없습니다.`);
+    if (position > playlist.tracks.length) {
+      throw new Error(`해당 플레이리스트에는 ${playlist.tracks.length}곡만 있습니다.`);
+    }
+
+    const [removed] = playlist.tracks.splice(position - 1, 1);
+    if (!removed) throw new Error("삭제할 노래를 찾을 수 없습니다.");
+
+    data.guilds[guildId] = playlists;
+    return { playlist: clonePlaylist(playlist), removed: { ...removed } };
+  });
+
+  const state = runtime.get(guildId);
+  if (state?.activePlaylistName
+    && normalizePlaylistName(state.activePlaylistName) === normalizePlaylistName(result.playlist.name)) {
+    removeFirstMatchingTrack(state.loopTracks, result.removed);
+    removeFirstMatchingTrack(state.queue, result.removed);
+  }
+
+  return result;
 }
 
 export async function listPlaylists(guildId: string): Promise<MusicPlaylist[]> {
   await writeQueue;
   const data = await readData();
-  return (data.guilds[guildId] ?? []).map((playlist) => ({
-    ...playlist,
-    tracks: [...playlist.tracks],
-  }));
+  return (data.guilds[guildId] ?? []).map(clonePlaylist);
 }
 
 export async function getPlaylist(guildId: string, name: string): Promise<MusicPlaylist | null> {
@@ -166,6 +272,7 @@ function getRuntimeState(guildId: string): GuildMusicState {
   const state: GuildMusicState = {
     player,
     queue: [],
+    loopTracks: [],
     initialized: false,
   };
 
@@ -187,18 +294,35 @@ async function playNext(guildId: string): Promise<void> {
   const state = runtime.get(guildId);
   if (!state || state.current) return;
 
-  const track = state.queue.shift();
-  if (!track) return;
+  const attempted = new Set<string>();
+  const uniqueLoopTracks = new Set(state.loopTracks.map(playbackUrl)).size;
 
-  state.current = track;
-  try {
-    const stream = await play.stream(track.url);
-    const resource = createAudioResource(stream.stream, { inputType: stream.type });
-    state.player.play(resource);
-  } catch (error) {
-    console.error(`노래 스트림 생성 실패 (${track.title})`, error);
-    state.current = undefined;
-    await playNext(guildId);
+  while (!state.current) {
+    if (state.queue.length === 0) {
+      if (state.loopTracks.length === 0) return;
+      if (uniqueLoopTracks > 0 && attempted.size >= uniqueLoopTracks) {
+        console.error(`플레이리스트의 모든 노래 스트림 생성 실패 (${guildId})`);
+        return;
+      }
+      state.queue = state.loopTracks.map((track) => ({ ...track }));
+    }
+
+    const track = state.queue.shift();
+    if (!track) return;
+
+    const streamUrl = playbackUrl(track);
+    attempted.add(streamUrl);
+    state.current = track;
+
+    try {
+      const stream = await play.stream(streamUrl);
+      const resource = createAudioResource(stream.stream, { inputType: stream.type });
+      state.player.play(resource);
+      return;
+    } catch (error) {
+      console.error(`노래 스트림 생성 실패 (${track.title})`, error);
+      state.current = undefined;
+    }
   }
 }
 
@@ -206,27 +330,33 @@ export async function playMusicPlaylist(
   guild: Guild,
   userId: string,
   playlistName: string,
-): Promise<{ playlist: MusicPlaylist; current?: MusicTrack; queued: number }> {
+): Promise<{ playlist: MusicPlaylist; current?: MusicTrack; queued: number; looping: boolean }> {
   const playlist = await getPlaylist(guild.id, playlistName);
   if (!playlist) throw new Error(`플레이리스트 \"${playlistName}\"을 찾을 수 없습니다.`);
   if (playlist.tracks.length === 0) throw new Error("플레이리스트에 노래가 없습니다.");
 
   const connection = await joinUserVoiceChannel(guild, userId);
   const state = getRuntimeState(guild.id);
-  if (!state.initialized) {
-    connection.subscribe(state.player);
-    state.initialized = true;
-  } else {
-    connection.subscribe(state.player);
-  }
+  connection.subscribe(state.player);
+  state.initialized = true;
 
-  state.queue.push(...playlist.tracks);
-  await playNext(guild.id);
+  const wasPlaying = Boolean(state.current);
+  state.activePlaylistName = playlist.name;
+  state.loopTracks = playlist.tracks.map((track) => ({ ...track }));
+  state.queue = playlist.tracks.map((track) => ({ ...track }));
+  state.current = undefined;
+
+  if (wasPlaying) {
+    state.player.stop(true);
+  } else {
+    await playNext(guild.id);
+  }
 
   return {
     playlist,
     current: state.current,
     queued: state.queue.length,
+    looping: true,
   };
 }
 
@@ -243,6 +373,8 @@ export function stopMusic(guildId: string): boolean {
   const state = runtime.get(guildId);
   if (!state) return false;
   state.queue = [];
+  state.loopTracks = [];
+  state.activePlaylistName = undefined;
   state.current = undefined;
   state.player.stop(true);
   return true;
@@ -252,6 +384,8 @@ export function clearMusicRuntime(guildId: string): void {
   const state = runtime.get(guildId);
   if (!state) return;
   state.queue = [];
+  state.loopTracks = [];
+  state.activePlaylistName = undefined;
   state.current = undefined;
   state.player.stop(true);
   runtime.delete(guildId);
