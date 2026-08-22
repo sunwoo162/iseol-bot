@@ -8,6 +8,7 @@ import {
   Client,
   EmbedBuilder,
   Guild,
+  type GuildMember,
   PermissionFlagsBits,
   TextChannel,
 } from "discord.js";
@@ -24,6 +25,10 @@ const DATA_FILE = resolve(process.cwd(), "data", "contest-feed.json");
 export const CONTEST_POLL_INTERVAL_MS = 60 * 60 * 1000;
 const DEADLINE_REMINDER_DAYS = 10;
 const DAY_MS = 86_400_000;
+const GUILD_MEMBER_CACHE_TTL_MS = 60_000;
+
+const guildHumanIdsCache = new Map<string, { expiresAt: number; userIds: string[] }>();
+const guildHumanIdsFetches = new Map<string, Promise<string[]>>();
 
 export type ContestAudienceFilter = "all" | "high-school" | "university";
 
@@ -284,12 +289,45 @@ export function majorityOf(total: number): number {
   return Math.floor(total / 2) + 1;
 }
 
-export async function getEligibleHumans(channel: TextChannel) {
-  const members = await channel.guild.members.fetch();
-  return members.filter((member) =>
-    !member.user.bot
-    && channel.permissionsFor(member)?.has(PermissionFlagsBits.ViewChannel) === true,
-  );
+async function getGuildHumanIds(guild: Guild): Promise<string[]> {
+  const now = Date.now();
+  const cached = guildHumanIdsCache.get(guild.id);
+  if (cached && cached.expiresAt > now) return cached.userIds;
+
+  const inFlight = guildHumanIdsFetches.get(guild.id);
+  if (inFlight) return inFlight;
+
+  const request = guild.members.fetch()
+    .then((members) => [...members.values()]
+      .filter((member) => !member.user.bot)
+      .map((member) => member.id))
+    .then((userIds) => {
+      guildHumanIdsCache.set(guild.id, {
+        expiresAt: Date.now() + GUILD_MEMBER_CACHE_TTL_MS,
+        userIds,
+      });
+      return userIds;
+    })
+    .finally(() => {
+      guildHumanIdsFetches.delete(guild.id);
+    });
+
+  guildHumanIdsFetches.set(guild.id, request);
+  return request;
+}
+
+export async function getEligibleHumans(channel: TextChannel): Promise<Map<string, GuildMember>> {
+  const userIds = await getGuildHumanIds(channel.guild);
+  const eligible = new Map<string, GuildMember>();
+
+  for (const userId of userIds) {
+    const member = channel.guild.members.cache.get(userId);
+    if (!member) continue;
+    if (channel.permissionsFor(member)?.has(PermissionFlagsBits.ViewChannel) !== true) continue;
+    eligible.set(userId, member);
+  }
+
+  return eligible;
 }
 
 function safeValue(value?: string, fallback = "정보없음"): string {
