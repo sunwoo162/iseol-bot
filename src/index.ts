@@ -5,6 +5,7 @@ import {
   Events,
   GatewayIntentBits,
   ModalBuilder,
+  PermissionFlagsBits,
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
@@ -19,6 +20,7 @@ import { commandHelpEmbed } from "./services/command-help.js";
 import { startContestAudienceFeedPolling } from "./services/contest-audience-feed.js";
 import { startContestFeedPolling } from "./services/contest-feed.js";
 import { ensureContestPrepAnnouncementChannels } from "./services/contest-prep-announcement.js";
+import { resetGuildState } from "./services/guild-reset.js";
 import { GitHubWebhookService } from "./services/github.js";
 import { startJobFeedPolling } from "./services/job-feed.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
@@ -67,7 +69,46 @@ client.on(Events.GuildDelete, (guild) => {
 
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.inGuild()) return;
-  if (message.content.trim() !== "!명령어") return;
+
+  const content = message.content.trim();
+  if (content === "!관리자권한초기화") {
+    if (!message.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+      await message.reply({
+        content: "❌ 서버 관리자만 사용할 수 있습니다.",
+        allowedMentions: { repliedUser: false },
+      });
+      return;
+    }
+
+    await message.reply({
+      content: "⚠️ 이설이 생성한 서버 공간과 저장 데이터를 초기화합니다. 완료 결과는 이 채널 또는 DM으로 알려드립니다.",
+      allowedMentions: { repliedUser: false },
+    });
+
+    try {
+      const summary = await resetGuildState(message.guild);
+      const warningText = summary.warnings.length > 0
+        ? `\n⚠️ 일부 정리 실패: **${summary.warnings.length}건** (서버 로그 확인)`
+        : "";
+      const report =
+        `✅ **${message.guild.name}** 이설 초기화 완료\n` +
+        `삭제한 Discord 채널/카테고리: **${summary.deletedChannels}개**\n` +
+        `초기화한 저장 데이터: **${summary.clearedRecords}건**\n` +
+        `삭제한 GitHub/Figma webhook: **${summary.removedExternalHooks}개**${warningText}`;
+
+      console.log(`관리자 서버 초기화 완료 (${message.guild.id})`, summary);
+      await message.channel.send(report).catch(async () => {
+        await message.author.send(report).catch(() => undefined);
+      });
+    } catch (error) {
+      console.error(`관리자 서버 초기화 실패 (${message.guild.id})`, error);
+      const detail = error instanceof Error ? error.message : "알 수 없는 오류";
+      await message.author.send(`❌ 서버 초기화에 실패했습니다.\n\`${detail}\``).catch(() => undefined);
+    }
+    return;
+  }
+
+  if (content !== "!명령어") return;
 
   await message.reply({
     embeds: [commandHelpEmbed()],
