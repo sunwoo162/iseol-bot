@@ -2,10 +2,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { ChannelType, type Guild } from "discord.js";
 import { config } from "../config.js";
-import { FigmaWebhookService } from "./figma.js";
 import { GitHubWebhookService, type RepositoryRef } from "./github.js";
 import { clearMusicRuntime } from "./music.js";
 import { leaveGuildVoiceChannel } from "./voice-connection.js";
+import { stopStudySessionsForGuild } from "./voice-time.js";
 
 const DATA_DIR = resolve(process.cwd(), "data");
 const PROJECTS_FILE = resolve(DATA_DIR, "projects.json");
@@ -26,7 +26,6 @@ type ProjectRecord = GuildScopedRecord & {
   backend?: RepositoryRef;
   frontendHookId?: number;
   backendHookId?: number;
-  figmaWebhookId?: string;
   notionChannelId?: string;
   figmaChannelId?: string;
 };
@@ -83,11 +82,6 @@ async function removeProjectHooks(projects: ProjectRecord[], warnings: string[])
   if (projects.length === 0) return 0;
 
   const github = new GitHubWebhookService(config.githubToken);
-  const figma = new FigmaWebhookService(
-    config.figmaToken,
-    config.publicBaseUrl,
-    config.figmaWebhookPasscode,
-  );
   let removed = 0;
 
   for (const project of projects) {
@@ -108,21 +102,16 @@ async function removeProjectHooks(projects: ProjectRecord[], warnings: string[])
         warnings.push(`Backend GitHub webhook 삭제 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
       }
     }
-
-    if (project.figmaWebhookId) {
-      try {
-        await figma.deleteWebhook(project.figmaWebhookId);
-        removed += 1;
-      } catch (error) {
-        warnings.push(`Figma webhook 삭제 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
-      }
-    }
   }
 
   return removed;
 }
 
 export async function resetGuildState(guild: Guild): Promise<GuildResetSummary> {
+  await stopStudySessionsForGuild(guild.id);
+  clearMusicRuntime(guild.id);
+  leaveGuildVoiceChannel(guild.id);
+
   const [projects, contestFeeds, audienceFeeds, contestVotes, jobFeeds, musicData, voiceData] = await Promise.all([
     readJson<ProjectRecord[]>(PROJECTS_FILE, []),
     readJson<FeedRecord[]>(CONTEST_FEED_FILE, []),
@@ -157,9 +146,6 @@ export async function resetGuildState(guild: Guild): Promise<GuildResetSummary> 
     directChannelIds.add(vote.channelId);
     if (vote.prepCategoryId) categoryIds.add(vote.prepCategoryId);
   }
-
-  clearMusicRuntime(guild.id);
-  leaveGuildVoiceChannel(guild.id);
 
   const warnings: string[] = [];
   const removedExternalHooks = await removeProjectHooks(guildProjects, warnings);
