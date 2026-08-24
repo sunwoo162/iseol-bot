@@ -26,8 +26,10 @@ import { startJobFeedPolling } from "./services/job-feed.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
 import { findProject } from "./services/projects.js";
 import {
+  getActiveStudySession,
   recoverInterruptedStudySessions,
   startVoiceStudyHeartbeat,
+  stopStudySession,
 } from "./services/voice-time.js";
 import { startWebhookServer } from "./services/webhook-server.js";
 
@@ -65,6 +67,24 @@ client.on(Events.GuildCreate, (guild) => {
 
 client.on(Events.GuildDelete, (guild) => {
   console.log(`Discord 서버 연결 해제: ${guild.name} (${guild.id}) · 총 ${client.guilds.cache.size}개`);
+});
+
+client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+  if (oldState.member?.user.bot) return;
+
+  try {
+    const session = await getActiveStudySession(oldState.guild.id, oldState.id);
+    if (!session) return;
+    if (oldState.channelId !== session.channelId) return;
+    if (newState.channelId === session.channelId) return;
+
+    const stopped = await stopStudySession(oldState.guild.id, oldState.id);
+    if (stopped) {
+      console.log(`음성 공부 자동 종료 (${oldState.guild.id}/${oldState.id}): ${Math.round(stopped.seconds)}초`);
+    }
+  } catch (error) {
+    console.error(`음성 공부 자동 종료 실패 (${oldState.guild.id}/${oldState.id})`, error);
+  }
 });
 
 client.on(Events.MessageCreate, async (message) => {

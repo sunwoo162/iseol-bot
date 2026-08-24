@@ -15,7 +15,7 @@ import { config } from "../config.js";
 import { FigmaWebhookService, parseFigmaFile } from "../services/figma.js";
 import { GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
 import { NotionService, parseNotionPage } from "../services/notion.js";
-import { deleteProject, findProjectByName, saveProject, updateProject } from "../services/projects.js";
+import { deleteProject, listProjects, saveProject, updateProject } from "../services/projects.js";
 
 export const projectCommand = new SlashCommandBuilder()
   .setName("project")
@@ -62,7 +62,7 @@ export const projectCommand = new SlashCommandBuilder()
   .addSubcommand((subcommand) =>
     subcommand
       .setName("delete")
-      .setDescription("생성된 프로젝트 방을 삭제합니다.")
+      .setDescription("생성된 프로젝트 방과 연결 정보를 삭제합니다.")
       .addStringOption((option) => option
         .setName("name")
         .setDescription("삭제할 프로젝트 방 선택")
@@ -82,12 +82,9 @@ function linkButton(label: string, url: string) {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel(label).setStyle(ButtonStyle.Link).setURL(url));
 }
 
-function projectNameFromCategory(name: string): string {
-  return name.replace(/^📁\s*/, "").trim();
-}
-
 export async function handleProjectAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
   if (!interaction.inGuild() || !interaction.guild || interaction.commandName !== "project") return;
+  const guildId = interaction.guild.id;
 
   let subcommand: string;
   try {
@@ -99,15 +96,14 @@ export async function handleProjectAutocomplete(interaction: AutocompleteInterac
   if (subcommand !== "delete" && subcommand !== "figma-connect" && subcommand !== "notion-connect") return;
 
   const focused = interaction.options.getFocused().toString().trim().toLowerCase();
-  const channels = await interaction.guild.channels.fetch();
-  const choices = channels
-    .filter((channel) => channel?.type === ChannelType.GuildCategory)
-    .map((channel) => ({
-      name: projectNameFromCategory(channel!.name),
-      value: channel!.id,
-    }))
-    .filter((choice) => !focused || choice.name.toLowerCase().includes(focused))
-    .slice(0, 25);
+  const projects = (await listProjects()).filter((project) => project.guildId === guildId);
+  const choices = projects
+    .filter((project) => !focused || project.name.toLowerCase().includes(focused))
+    .slice(0, 25)
+    .map((project) => ({
+      name: project.name.slice(0, 100),
+      value: project.categoryId,
+    }));
 
   await interaction.respond(choices);
 }
@@ -115,16 +111,17 @@ export async function handleProjectAutocomplete(interaction: AutocompleteInterac
 async function resolveProjectCategory(interaction: ChatInputCommandInteraction, target: string) {
   if (!interaction.guild) return null;
 
-  const channels = await interaction.guild.channels.fetch();
-  const selectedById = channels.get(target);
-  const category = selectedById?.type === ChannelType.GuildCategory
-    ? selectedById
-    : channels.find((channel) =>
-        channel?.type === ChannelType.GuildCategory
-        && projectNameFromCategory(channel.name).toLowerCase() === target.toLowerCase(),
-      );
+  const normalizedTarget = target.trim().toLowerCase();
+  const projects = (await listProjects()).filter((project) => project.guildId === interaction.guild!.id);
+  const project = projects.find((item) =>
+    item.categoryId === target || item.name.trim().toLowerCase() === normalizedTarget,
+  ) ?? null;
 
-  return { channels, category };
+  const channels = await interaction.guild.channels.fetch();
+  const selected = project ? channels.get(project.categoryId) : null;
+  const category = selected?.type === ChannelType.GuildCategory ? selected : null;
+
+  return { channels, category, project };
 }
 
 async function handleNotionConnect(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -137,19 +134,14 @@ async function handleNotionConnect(interaction: ChatInputCommandInteraction): Pr
     const resolved = await resolveProjectCategory(interaction, target);
     const category = resolved?.category;
     const channels = resolved?.channels;
+    const project = resolved?.project;
 
-    if (!category || !channels) {
-      await interaction.editReply("❌ 선택한 프로젝트 방을 찾을 수 없습니다.");
+    if (!project || !category || !channels) {
+      await interaction.editReply("❌ 이설로 생성한 프로젝트 방을 찾을 수 없습니다.");
       return;
     }
 
-    const projectName = projectNameFromCategory(category.name);
-    const project = await findProjectByName(interaction.guild.id, projectName);
-    if (!project) {
-      await interaction.editReply("❌ 저장된 프로젝트 정보를 찾을 수 없습니다. 이설로 생성한 프로젝트인지 확인해주세요.");
-      return;
-    }
-
+    const projectName = project.name;
     const notionChannel = channels.find((channel) =>
       channel?.parentId === category.id
       && channel.type === ChannelType.GuildText
@@ -197,19 +189,14 @@ async function handleFigmaConnect(interaction: ChatInputCommandInteraction): Pro
     const resolved = await resolveProjectCategory(interaction, target);
     const category = resolved?.category;
     const channels = resolved?.channels;
+    const project = resolved?.project;
 
-    if (!category || !channels) {
-      await interaction.editReply("❌ 선택한 프로젝트 방을 찾을 수 없습니다.");
+    if (!project || !category || !channels) {
+      await interaction.editReply("❌ 이설로 생성한 프로젝트 방을 찾을 수 없습니다.");
       return;
     }
 
-    const projectName = projectNameFromCategory(category.name);
-    const project = await findProjectByName(interaction.guild.id, projectName);
-    if (!project) {
-      await interaction.editReply("❌ 저장된 프로젝트 정보를 찾을 수 없습니다. 이설로 생성한 프로젝트인지 확인해주세요.");
-      return;
-    }
-
+    const projectName = project.name;
     const figmaChannel = channels.find((channel) =>
       channel?.parentId === category.id
       && channel.type === ChannelType.GuildText
@@ -276,25 +263,67 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
 
   try {
     const resolved = await resolveProjectCategory(interaction, target);
+    const project = resolved?.project;
     const category = resolved?.category;
     const channels = resolved?.channels;
 
-    if (!category || !channels) {
-      await interaction.editReply("❌ 선택한 프로젝트 방을 찾을 수 없습니다.");
+    if (!project || !channels) {
+      await interaction.editReply("❌ 이설로 생성한 프로젝트 정보를 찾을 수 없습니다.");
       return;
     }
 
-    const projectName = projectNameFromCategory(category.name);
-    const children = channels.filter((channel) => channel?.parentId === category.id);
+    const warnings: string[] = [];
+    const github = new GitHubWebhookService(config.githubToken);
+    const figmaWebhook = new FigmaWebhookService(
+      config.figmaToken,
+      config.publicBaseUrl,
+      config.figmaWebhookPasscode,
+    );
 
-    for (const channel of children.values()) {
-      if (channel) {
-        await channel.delete(`${projectName} 프로젝트 방 삭제`);
+    if (project.frontendHookId !== undefined) {
+      try {
+        await github.deleteWebhook(project.frontend, project.frontendHookId);
+      } catch (error) {
+        console.warn(`Frontend GitHub webhook 삭제 실패 (${project.name}):`, error);
+        warnings.push("Frontend GitHub webhook");
       }
     }
 
-    await category.delete(`${projectName} 프로젝트 방 삭제`);
-    await interaction.editReply(`✅ **${projectName}** 프로젝트 방을 삭제했습니다.`);
+    if (project.backendHookId !== undefined) {
+      try {
+        await github.deleteWebhook(project.backend, project.backendHookId);
+      } catch (error) {
+        console.warn(`Backend GitHub webhook 삭제 실패 (${project.name}):`, error);
+        warnings.push("Backend GitHub webhook");
+      }
+    }
+
+    if (project.figmaWebhookId) {
+      try {
+        await figmaWebhook.deleteWebhook(project.figmaWebhookId);
+      } catch (error) {
+        console.warn(`Figma webhook 삭제 실패 (${project.name}):`, error);
+        warnings.push("Figma webhook");
+      }
+    }
+
+    if (category) {
+      const children = channels.filter((channel) => channel?.parentId === category.id);
+      for (const channel of children.values()) {
+        if (channel) {
+          await channel.delete(`${project.name} 프로젝트 방 삭제`);
+        }
+      }
+      await category.delete(`${project.name} 프로젝트 방 삭제`);
+    }
+
+    const deleted = await deleteProject(project.id);
+    if (!deleted) throw new Error("프로젝트 저장 정보를 삭제하지 못했습니다.");
+
+    const warningText = warnings.length > 0
+      ? `\n⚠️ 외부 연동 정리 실패: ${warnings.join(", ")} (서버 로그 확인)`
+      : "";
+    await interaction.editReply(`✅ **${project.name}** 프로젝트 방과 저장 정보를 삭제했습니다.${warningText}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
     await interaction.editReply(`❌ 프로젝트 방 삭제에 실패했습니다.\n\`${message}\``);
