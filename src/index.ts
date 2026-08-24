@@ -94,7 +94,7 @@ client.on(Events.MessageCreate, async (message) => {
         `✅ **${message.guild.name}** 이설 초기화 완료\n` +
         `삭제한 Discord 채널/카테고리: **${summary.deletedChannels}개**\n` +
         `초기화한 저장 데이터: **${summary.clearedRecords}건**\n` +
-        `삭제한 GitHub/Figma webhook: **${summary.removedExternalHooks}개**${warningText}`;
+        `삭제한 GitHub webhook: **${summary.removedExternalHooks}개**${warningText}`;
 
       console.log(`관리자 서버 초기화 완료 (${message.guild.id})`, summary);
       await message.channel.send(report).catch(async () => {
