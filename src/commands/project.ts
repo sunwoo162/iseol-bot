@@ -84,6 +84,7 @@ function linkButton(label: string, url: string) {
 
 export async function handleProjectAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
   if (!interaction.inGuild() || !interaction.guild || interaction.commandName !== "project") return;
+  const guildId = interaction.guild.id;
 
   let subcommand: string;
   try {
@@ -95,7 +96,7 @@ export async function handleProjectAutocomplete(interaction: AutocompleteInterac
   if (subcommand !== "delete" && subcommand !== "figma-connect" && subcommand !== "notion-connect") return;
 
   const focused = interaction.options.getFocused().toString().trim().toLowerCase();
-  const projects = (await listProjects()).filter((project) => project.guildId === interaction.guild.id);
+  const projects = (await listProjects()).filter((project) => project.guildId === guildId);
   const choices = projects
     .filter((project) => !focused || project.name.toLowerCase().includes(focused))
     .slice(0, 25)
