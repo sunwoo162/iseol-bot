@@ -19,8 +19,11 @@ import {
 } from "./contest-feed.js";
 import {
   createContestVoteId,
+  listContestVotesForChannel,
   saveContestVote,
+  updateContestVote,
 } from "./contest-votes.js";
+import { resolveContestDeadline, seoulDateKey } from "./contest-time.js";
 import { listActiveItContests, type Contest } from "./contests.js";
 
 const DATA_FILE = resolve(process.cwd(), "data", "contest-audience-feeds.json");
@@ -184,6 +187,32 @@ async function publishContest(channel: TextChannel, contest: Contest): Promise<v
   });
 }
 
+async function refreshContestDeadlineCards(channel: TextChannel): Promise<void> {
+  const today = seoulDateKey();
+  const votes = await listContestVotesForChannel(channel.guild.id, channel.id);
+
+  for (const vote of votes) {
+    if (vote.deadlineLastRenderedDate === today) continue;
+
+    const resolved = resolveContestDeadline(vote);
+    if (!resolved.deadlineDate) continue;
+
+    const message = await channel.messages.fetch(vote.messageId).catch(() => null);
+    if (!message) continue;
+
+    const majority = vote.majority ?? majorityOf(vote.eligibleVoterIds?.length ?? 0);
+    await message.edit({
+      embeds: [contestVoteEmbed(resolved, vote.voterIds.length, majority, vote.finalized)],
+      components: contestVoteComponents(vote.id, vote.homepage || vote.url, vote.finalized),
+    });
+
+    await updateContestVote(vote.id, {
+      deadlineDate: resolved.deadlineDate,
+      deadlineLastRenderedDate: today,
+    });
+  }
+}
+
 export async function syncContestAudienceFeed(
   client: Client,
   state: ContestAudienceFeedState,
@@ -194,6 +223,8 @@ export async function syncContestAudienceFeed(
 
   const fetched = await guild.channels.fetch(state.channelId).catch(() => null);
   if (!(fetched instanceof TextChannel)) return 0;
+
+  await refreshContestDeadlineCards(fetched);
 
   const contests = await listActiveItContests();
   const posted = new Set(state.postedKeys);
