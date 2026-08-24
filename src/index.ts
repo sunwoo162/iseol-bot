@@ -25,6 +25,7 @@ import { GitHubWebhookService } from "./services/github.js";
 import { startJobFeedPolling } from "./services/job-feed.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
 import { findProject } from "./services/projects.js";
+import { handleVoiceAutoLeave } from "./services/voice-auto-leave.js";
 import {
   getActiveStudySession,
   recoverInterruptedStudySessions,
@@ -70,20 +71,28 @@ client.on(Events.GuildDelete, (guild) => {
 });
 
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
-  if (oldState.member?.user.bot) return;
+  if (!oldState.member?.user.bot) {
+    try {
+      const session = await getActiveStudySession(oldState.guild.id, oldState.id);
+      if (
+        session
+        && oldState.channelId === session.channelId
+        && newState.channelId !== session.channelId
+      ) {
+        const stopped = await stopStudySession(oldState.guild.id, oldState.id);
+        if (stopped) {
+          console.log(`음성 공부 자동 종료 (${oldState.guild.id}/${oldState.id}): ${Math.round(stopped.seconds)}초`);
+        }
+      }
+    } catch (error) {
+      console.error(`음성 공부 자동 종료 실패 (${oldState.guild.id}/${oldState.id})`, error);
+    }
+  }
 
   try {
-    const session = await getActiveStudySession(oldState.guild.id, oldState.id);
-    if (!session) return;
-    if (oldState.channelId !== session.channelId) return;
-    if (newState.channelId === session.channelId) return;
-
-    const stopped = await stopStudySession(oldState.guild.id, oldState.id);
-    if (stopped) {
-      console.log(`음성 공부 자동 종료 (${oldState.guild.id}/${oldState.id}): ${Math.round(stopped.seconds)}초`);
-    }
+    await handleVoiceAutoLeave(newState.guild);
   } catch (error) {
-    console.error(`음성 공부 자동 종료 실패 (${oldState.guild.id}/${oldState.id})`, error);
+    console.error(`음성 채널 자동 퇴장 상태 확인 실패 (${newState.guild.id})`, error);
   }
 });
 
