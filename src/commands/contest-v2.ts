@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
+import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from "discord.js";
 import { handleContestCommand as handleLegacyContestCommand } from "./contest.js";
 import {
   createContestAudienceFeed,
@@ -6,9 +6,15 @@ import {
 } from "../services/contest-audience-feed.js";
 import {
   contestAudienceFilterLabel,
+  formatContestPeriod,
   type ContestAudienceFilter,
 } from "../services/contest-feed.js";
 import { repostAllContests } from "../services/contest-repost-all.js";
+import { resolveContestDeadline } from "../services/contest-time.js";
+import {
+  listContestVotesByUser,
+  type ContestVote,
+} from "../services/contest-votes.js";
 
 export const contestCommandV2 = new SlashCommandBuilder()
   .setName("contest")
@@ -44,8 +50,86 @@ function parseAudienceFilter(value: string): ContestAudienceFilter {
   throw new Error("지원하지 않는 참가대상 필터입니다.");
 }
 
+function normalizeContestTitle(title: string): string {
+  return title
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/제\s*\d+\s*회/g, "")
+    .replace(/[\[\](){}<>「」『』【】'"“”‘’·•,:.!?~_\-–—/\\|]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function uniqueUserVotes(votes: ContestVote[]): ContestVote[] {
+  const unique = new Map<string, ContestVote>();
+
+  for (const vote of votes) {
+    const key = normalizeContestTitle(vote.title) || vote.homepage || vote.url;
+    const current = unique.get(key);
+    if (!current || (!current.finalized && vote.finalized)) {
+      unique.set(key, vote);
+    }
+  }
+
+  return [...unique.values()];
+}
+
+function myVotesEmbeds(votes: ContestVote[]): EmbedBuilder[] {
+  const lines = votes.map((vote, index) => {
+    const link = vote.homepage || vote.url;
+    const state = vote.finalized ? "✅ 참여 확정" : "🗳️ 투표 중";
+    const formattedPeriod = formatContestPeriod(resolveContestDeadline(vote));
+    const period = formattedPeriod ? ` · ${formattedPeriod}` : "";
+    return `**${index + 1}. [${vote.title}](${link})**\n${state}${period}`;
+  });
+
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const line of lines) {
+    const next = current ? `${current}\n\n${line}` : line;
+    if (next.length > 3800) {
+      if (current) chunks.push(current);
+      current = line;
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+
+  return chunks.slice(0, 10).map((description, index) => new EmbedBuilder()
+    .setTitle(index === 0 ? "🗳️ 내가 투표한 공모전" : `🗳️ 내가 투표한 공모전 (${index + 1})`)
+    .setDescription(description));
+}
+
 export async function handleContestCommandV2(interaction: ChatInputCommandInteraction): Promise<void> {
   const subcommand = interaction.options.getSubcommand();
+
+  if (subcommand === "my-votes") {
+    if (!interaction.inGuild() || !interaction.guild) {
+      await interaction.reply({ content: "서버 안에서만 사용할 수 있습니다.", ephemeral: true });
+      return;
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+
+    try {
+      const votes = uniqueUserVotes(await listContestVotesByUser(interaction.guild.id, interaction.user.id));
+      if (votes.length === 0) {
+        await interaction.editReply("아직 투표한 공모전이 없습니다.");
+        return;
+      }
+
+      await interaction.editReply({
+        content: `내가 투표한 공모전은 **${votes.length}개**입니다.`,
+        embeds: myVotesEmbeds(votes),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      await interaction.editReply(`❌ 투표한 공모전 조회 실패\n\`${message}\``);
+    }
+    return;
+  }
 
   if (subcommand === "repost") {
     if (!interaction.inGuild() || !interaction.guild) {
