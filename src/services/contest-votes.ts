@@ -110,7 +110,19 @@ export async function listContestVotesByUser(guildId: string, userId: string): P
   const votes = await readVotes();
   return votes
     .filter((vote) => vote.guildId === guildId && vote.voterIds.includes(userId))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map((vote) => {
+      const homepage = vote.homepage || vote.url;
+      const messageUrl = `https://discord.com/channels/${vote.guildId}/${vote.channelId}/${vote.messageId}`;
+      const periodParts = [vote.period, homepage ? `[🌐 홈페이지](${homepage})` : undefined]
+        .filter((value): value is string => Boolean(value));
+
+      return {
+        ...vote,
+        homepage: messageUrl,
+        period: periodParts.length > 0 ? periodParts.join(" · ") : undefined,
+      };
+    });
 }
 
 export async function updateContestVote(
