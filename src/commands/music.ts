@@ -17,6 +17,9 @@ import {
 } from "../services/music.js";
 import { assertUserInBotVoiceChannel } from "../services/voice-connection.js";
 
+const NO_PLAYLIST_CHOICE = "__create_playlist_first__";
+const CREATE_PLAYLIST_GUIDE = "먼저 /music playlist-create name:<플레이리스트 이름> 명령어로 플레이리스트를 만들어주세요.";
+
 export const musicCommand = new SlashCommandBuilder()
   .setName("music")
   .setDescription("이설이의 음악 플레이리스트를 관리하고 재생합니다.")
@@ -37,7 +40,7 @@ export const musicCommand = new SlashCommandBuilder()
       .setAutocomplete(true))
     .addStringOption((option) => option
       .setName("song")
-      .setDescription("YouTube 또는 Spotify 개별 노래 링크")
+      .setDescription("YouTube 노래 링크(재생목록에서 연 링크 포함) 또는 Spotify 개별 노래 링크")
       .setRequired(true)))
   .addSubcommand((subcommand) => subcommand
     .setName("playlist-remove")
@@ -97,6 +100,15 @@ export async function handleMusicAutocomplete(interaction: AutocompleteInteracti
 
   const query = focused.value.toString().trim().toLowerCase();
   const playlists = await listPlaylists(interaction.guildId);
+
+  if (playlists.length === 0) {
+    await interaction.respond([{
+      name: "플레이리스트가 없습니다 · /music playlist-create로 먼저 만들어주세요.",
+      value: NO_PLAYLIST_CHOICE,
+    }]);
+    return;
+  }
+
   const choices = playlists
     .filter((playlist) => !query || playlist.name.toLowerCase().includes(query))
     .slice(0, 25)
@@ -126,7 +138,12 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
     }
 
     if (subcommand === "playlist-add") {
+      const playlists = await listPlaylists(interaction.guild.id);
+      if (playlists.length === 0) throw new Error(CREATE_PLAYLIST_GUIDE);
+
       const playlistName = interaction.options.getString("playlist", true);
+      if (playlistName === NO_PLAYLIST_CHOICE) throw new Error(CREATE_PLAYLIST_GUIDE);
+
       const song = interaction.options.getString("song", true);
       const { playlist, track } = await addTrackToPlaylist(
         interaction.guild.id,
@@ -170,7 +187,7 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
 
       const playlists = await listPlaylists(interaction.guild.id);
       if (playlists.length === 0) {
-        await interaction.editReply("아직 만든 플레이리스트가 없습니다.");
+        await interaction.editReply(`아직 만든 플레이리스트가 없습니다.\n${CREATE_PLAYLIST_GUIDE}`);
         return;
       }
 
