@@ -156,9 +156,12 @@ async function publishContest(channel: TextChannel, contest: Contest): Promise<v
   const majority = majorityOf(eligibleVoterIds.length);
   const voteId = createContestVoteId();
   const contestLink = contest.homepage || contest.url;
+  const createdAt = new Date().toISOString();
+  const renderedDate = seoulDateKey();
+  const contestWithDeadline = resolveContestDeadline({ ...contest, createdAt });
 
   const message = await channel.send({
-    embeds: [contestVoteEmbed(contest, 0, majority, false)],
+    embeds: [contestVoteEmbed(contestWithDeadline, 0, majority, false)],
     components: contestVoteComponents(voteId, contestLink, false),
   });
 
@@ -175,6 +178,8 @@ async function publishContest(channel: TextChannel, contest: Contest): Promise<v
     host: contest.host,
     sponsor: contest.sponsor,
     period: contest.period,
+    deadlineDate: contestWithDeadline.deadlineDate,
+    deadlineLastRenderedDate: renderedDate,
     totalPrize: contest.totalPrize,
     firstPrize: contest.firstPrize,
     homepage: contest.homepage,
