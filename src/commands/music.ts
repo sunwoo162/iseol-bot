@@ -202,6 +202,9 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
     if (subcommand === "play") {
       const playlistName = interaction.options.getString("playlist", true);
       const result = await playMusicPlaylist(interaction.guild, interaction.user.id, playlistName);
+      if (!result.current && result.queued === 0) {
+        throw new Error("노래 음원 스트림을 시작하지 못했습니다. 잠시 후 다시 시도하거나 서버 로그를 확인해주세요.");
+      }
       await interaction.editReply(
         `▶️ **${result.playlist.name}** 반복 재생을 시작했습니다.\n` +
         `${result.current ? `현재 곡: **${result.current.title}**\n` : ""}` +
