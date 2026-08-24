@@ -26,6 +26,7 @@ export const CONTEST_POLL_INTERVAL_MS = 60 * 60 * 1000;
 const DEADLINE_REMINDER_DAYS = 10;
 const DAY_MS = 86_400_000;
 const GUILD_MEMBER_CACHE_TTL_MS = 60_000;
+const SEOUL_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 const guildHumanIdsCache = new Map<string, { expiresAt: number; userIds: string[] }>();
 const guildHumanIdsFetches = new Map<string, Promise<string[]>>();
@@ -65,6 +66,12 @@ export type ContestCardData = {
 type DeadlineSnapshot = {
   initialDeadlineDays?: number;
   deadlineDate?: string;
+};
+
+type PeriodDateMatch = {
+  raw: string;
+  index: number;
+  dateKey: string;
 };
 
 async function readStates(): Promise<ContestFeedState[]> {
@@ -184,6 +191,52 @@ function dateKeyToUtc(dateKey: string): number | null {
   return Date.UTC(year, month - 1, day);
 }
 
+function parsePeriodDateMatches(period?: string): PeriodDateMatch[] {
+  if (!period) return [];
+
+  const result: PeriodDateMatch[] = [];
+  for (const match of period.matchAll(/(?:(20)?(\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2}))/g)) {
+    if (match.index === undefined || !match[0]) continue;
+
+    const year = Number(match[1] ? `${match[1]}${match[2]}` : `20${match[2]}`);
+    const month = Number(match[3]);
+    const day = Number(match[4]);
+    if (!year || !month || !day) continue;
+
+    const check = new Date(Date.UTC(year, month - 1, day));
+    if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) continue;
+
+    result.push({
+      raw: match[0],
+      index: match.index,
+      dateKey: `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+    });
+  }
+
+  return result;
+}
+
+function dateKeyToDiscordUnix(dateKey: string, endOfDay: boolean): number | null {
+  const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!year || !month || !day) return null;
+
+  const localHour = endOfDay ? 23 : 0;
+  const localMinute = endOfDay ? 59 : 0;
+  const utcMs = Date.UTC(year, month - 1, day, localHour, localMinute) - SEOUL_OFFSET_MS;
+  return Math.floor(utcMs / 1000);
+}
+
+function discordDateTimestamp(dateKey: string, endOfDay: boolean): string | null {
+  const unix = dateKeyToDiscordUnix(dateKey, endOfDay);
+  if (unix === null) return null;
+  return `<t:${unix}:F> (<t:${unix}:R>)`;
+}
+
 function addDaysToDateKey(dateKey: string, days: number): string | undefined {
   const base = dateKeyToUtc(dateKey);
   if (base === null) return undefined;
@@ -191,18 +244,7 @@ function addDaysToDateKey(dateKey: string, days: number): string | undefined {
 }
 
 function parseDeadlineDateFromPeriod(period?: string): string | undefined {
-  if (!period) return undefined;
-
-  const matches = [...period.matchAll(/(?:(20)?(\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2}))/g)];
-  const last = matches.at(-1);
-  if (!last) return undefined;
-
-  const year = Number(last[1] ? `${last[1]}${last[2]}` : `20${last[2]}`);
-  const month = Number(last[3]);
-  const day = Number(last[4]);
-  if (!year || !month || !day) return undefined;
-
-  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return parsePeriodDateMatches(period).at(-1)?.dateKey;
 }
 
 function daysBetweenDateKeys(fromDateKey: string, toDateKey: string): number | null {
@@ -262,12 +304,40 @@ function stripDeadlineLabel(period?: string): string {
     .replace(/\s*\*{0,2}D-(?:\d+)\*{0,2}/gi, "")
     .replace(/\s*\*{0,2}D-DAY\*{0,2}/gi, "")
     .replace(/\s*\*{0,2}마감\*{0,2}\s*$/gi, "")
+    .replace(/\s*홈페이지\s*[-–—]?\s*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
+function formatContestPeriodDates(period?: string, fallbackDeadlineDate?: string): string | undefined {
+  const base = stripDeadlineLabel(period);
+  const matches = parsePeriodDateMatches(base);
+
+  if (matches.length === 0) {
+    if (!base && fallbackDeadlineDate) {
+      const deadline = discordDateTimestamp(fallbackDeadlineDate, true);
+      return deadline ? `마감일 ${deadline}` : fallbackDeadlineDate;
+    }
+    return base || undefined;
+  }
+
+  let formatted = base;
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    const current = matches[index];
+    if (!current) continue;
+
+    const isDeadline = matches.length === 1 || index === matches.length - 1;
+    const timestamp = discordDateTimestamp(current.dateKey, isDeadline);
+    if (!timestamp) continue;
+
+    formatted = `${formatted.slice(0, current.index)}${timestamp}${formatted.slice(current.index + current.raw.length)}`;
+  }
+
+  return formatted.replace(/\s+/g, " ").trim();
+}
+
 export function formatContestPeriod(contest: ContestCardData): string | undefined {
-  const base = stripDeadlineLabel(contest.period) || contest.deadlineDate || "";
+  const base = formatContestPeriodDates(contest.period, contest.deadlineDate) ?? "";
   const daysLeft = getDeadlineDaysLeft(contest);
   if (daysLeft === null) return base || undefined;
 
