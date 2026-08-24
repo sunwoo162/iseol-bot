@@ -10,6 +10,7 @@ import {
   type ContestAudienceFilter,
 } from "./contest-feed.js";
 import { createContestVoteId, saveContestVote } from "./contest-votes.js";
+import { resolveContestDeadline, seoulDateKey } from "./contest-time.js";
 import { listActiveItContests, type Contest } from "./contests.js";
 
 const CONTEST_FEED_FILE = resolve(process.cwd(), "data", "contest-feed.json");
@@ -78,9 +79,12 @@ async function publishContest(channel: TextChannel, contest: Contest, eligibleVo
   const voteId = createContestVoteId();
   const majority = majorityOf(eligibleVoterIds.length);
   const contestLink = contest.homepage || contest.url;
+  const createdAt = new Date().toISOString();
+  const renderedDate = seoulDateKey();
+  const contestWithDeadline = resolveContestDeadline({ ...contest, createdAt });
 
   const message = await channel.send({
-    embeds: [contestVoteEmbed(contest, 0, majority, false)],
+    embeds: [contestVoteEmbed(contestWithDeadline, 0, majority, false)],
     components: contestVoteComponents(voteId, contestLink, false),
   });
 
@@ -97,6 +101,8 @@ async function publishContest(channel: TextChannel, contest: Contest, eligibleVo
     host: contest.host,
     sponsor: contest.sponsor,
     period: contest.period,
+    deadlineDate: contestWithDeadline.deadlineDate,
+    deadlineLastRenderedDate: renderedDate,
     totalPrize: contest.totalPrize,
     firstPrize: contest.firstPrize,
     homepage: contest.homepage,
