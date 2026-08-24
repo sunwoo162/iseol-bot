@@ -111,6 +111,32 @@ function removeFirstMatchingTrack(tracks: MusicTrack[], target: MusicTrack): voi
   if (index >= 0) tracks.splice(index, 1);
 }
 
+function extractYouTubeVideoUrl(input: string): string | null {
+  try {
+    const url = new URL(input);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    let videoId: string | null = null;
+
+    if (host === "youtu.be") {
+      videoId = url.pathname.split("/").filter(Boolean)[0] ?? null;
+    } else if (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com") {
+      videoId = url.searchParams.get("v");
+
+      if (!videoId) {
+        const [kind, id] = url.pathname.split("/").filter(Boolean);
+        if ((kind === "shorts" || kind === "live" || kind === "embed") && id) {
+          videoId = id;
+        }
+      }
+    }
+
+    if (!videoId || !/^[A-Za-z0-9_-]{6,20}$/.test(videoId)) return null;
+    return `https://www.youtube.com/watch?v=${videoId}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function createPlaylist(guildId: string, name: string): Promise<MusicPlaylist> {
   const cleanName = name.trim().slice(0, 80);
   if (!cleanName) throw new Error("플레이리스트 이름을 입력해주세요.");
@@ -171,6 +197,20 @@ async function resolveTrack(query: string, userId: string): Promise<MusicTrack> 
     return resolveSpotifyTrack(input, userId);
   }
 
+  const youtubeVideoUrl = extractYouTubeVideoUrl(input);
+  if (youtubeVideoUrl) {
+    const validation = await play.validate(youtubeVideoUrl);
+    if (validation === "yt_video") {
+      const info = await play.video_basic_info(youtubeVideoUrl);
+      return {
+        title: info.video_details.title ?? youtubeVideoUrl,
+        url: info.video_details.url,
+        source: "youtube",
+        addedBy: userId,
+      };
+    }
+  }
+
   const validation = await play.validate(input);
   if (validation === "yt_video") {
     const info = await play.video_basic_info(input);
@@ -183,7 +223,7 @@ async function resolveTrack(query: string, userId: string): Promise<MusicTrack> 
   }
 
   if (validation === "yt_playlist") {
-    throw new Error("YouTube 플레이리스트 링크가 아니라 개별 노래 링크를 입력해주세요.");
+    throw new Error("재생목록 전체 링크만으로는 노래를 고를 수 없습니다. 재생목록 안에서 추가할 노래 하나를 연 뒤 그 영상 링크를 넣어주세요.");
   }
 
   throw new Error("YouTube 또는 Spotify의 개별 노래 링크만 추가할 수 있습니다.");
@@ -200,7 +240,9 @@ export async function addTrackToPlaylist(
   const result = await updateData((data) => {
     const playlists = data.guilds[guildId] ?? [];
     const playlist = findPlaylist(playlists, playlistName);
-    if (!playlist) throw new Error(`플레이리스트 \"${playlistName}\"을 찾을 수 없습니다.`);
+    if (!playlist) {
+      throw new Error(`플레이리스트 \"${playlistName}\"을 찾을 수 없습니다. 먼저 /music playlist-create name:<플레이리스트 이름> 명령어로 만들어주세요.`);
+    }
 
     playlist.tracks.push(track);
     data.guilds[guildId] = playlists;
