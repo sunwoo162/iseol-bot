@@ -8,6 +8,7 @@ import {
   contestAudienceFilterLabel,
   type ContestAudienceFilter,
 } from "../services/contest-feed.js";
+import { repostAllContests } from "../services/contest-repost-all.js";
 
 export const contestCommandV2 = new SlashCommandBuilder()
   .setName("contest")
@@ -29,10 +30,10 @@ export const contestCommandV2 = new SlashCommandBuilder()
       )))
   .addSubcommand((subcommand) => subcommand
     .setName("repost")
-    .setDescription("테스트용으로 이미 게시한 공모전을 다시 올립니다.")
-    .addStringOption((option) => option
-      .setName("name")
-      .setDescription("다시 올릴 공모전 이름 또는 이름 일부")
+    .setDescription("현재 진행 중인 공모전을 모든 설정된 공모전 채널에 다시 올립니다.")
+    .addBooleanOption((option) => option
+      .setName("all")
+      .setDescription("현재 진행 중인 공모전을 전부 다시 게시")
       .setRequired(true)))
   .addSubcommand((subcommand) => subcommand
     .setName("my-votes")
@@ -45,6 +46,35 @@ function parseAudienceFilter(value: string): ContestAudienceFilter {
 
 export async function handleContestCommandV2(interaction: ChatInputCommandInteraction): Promise<void> {
   const subcommand = interaction.options.getSubcommand();
+
+  if (subcommand === "repost") {
+    if (!interaction.inGuild() || !interaction.guild) {
+      await interaction.reply({ content: "서버 안에서만 사용할 수 있습니다.", ephemeral: true });
+      return;
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+
+    try {
+      const all = interaction.options.getBoolean("all", true);
+      if (!all) {
+        await interaction.editReply("전체 재게시를 실행하려면 `all`을 `True`로 선택해주세요.");
+        return;
+      }
+
+      const result = await repostAllContests(interaction.client, interaction.guild.id);
+      await interaction.editReply(
+        `✅ 현재 진행 중인 IT 공모전 **${result.contestCount}개**를 다시 확인했습니다.\n` +
+        `설정된 공모전 채널 **${result.channelCount}개**에 총 **${result.postedCount}건**을 다시 게시했습니다.\n` +
+        "참가대상별 채널에는 각 채널 조건에 맞는 공모전만 게시됩니다.",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      await interaction.editReply(`❌ 공모전 전체 재게시 실패\n\`${message}\``);
+    }
+    return;
+  }
+
   if (subcommand !== "filter") {
     await handleLegacyContestCommand(interaction);
     return;
