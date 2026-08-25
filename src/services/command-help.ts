@@ -3,6 +3,7 @@ import { contestCommandV2 } from "../commands/contest-v2.js";
 import { githubCommand } from "../commands/github.js";
 import { musicCommand } from "../commands/music.js";
 import { projectCommand } from "../commands/project.js";
+import { scrumCommand } from "../commands/scrum.js";
 import { voiceCommand } from "../commands/voice.js";
 
 type HelpOption = {
@@ -24,6 +25,7 @@ const commands: HelpCommand[] = [
   projectCommand,
   contestCommandV2,
   githubCommand,
+  scrumCommand,
   voiceCommand,
   musicCommand,
 ];
