@@ -16,7 +16,7 @@ import { handleJobCommand } from "./commands/job.js";
 import { config } from "./config.js";
 import { handleMusicAutocomplete, handleMusicCommand } from "./commands/music.js";
 import { handleProjectAutocomplete, handleProjectCommand } from "./commands/project.js";
-import { handleScrumCommand } from "./commands/scrum.js";
+import { handleScrumAutocomplete, handleScrumCommand } from "./commands/scrum.js";
 import { handleVoiceCommand } from "./commands/voice.js";
 import { commandHelpEmbed } from "./services/command-help.js";
 import { startContestAudienceFeedPolling } from "./services/contest-audience-feed.js";
@@ -156,6 +156,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isAutocomplete()) {
       if (interaction.commandName === "project") await handleProjectAutocomplete(interaction);
       if (interaction.commandName === "music") await handleMusicAutocomplete(interaction);
+      if (interaction.commandName === "scrum") await handleScrumAutocomplete(interaction);
       return;
     }
 

@@ -1,4 +1,5 @@
 import {
+  AutocompleteInteraction,
   ChatInputCommandInteraction,
   EmbedBuilder,
   SlashCommandBuilder,
@@ -23,7 +24,7 @@ export const scrumCommand = new SlashCommandBuilder()
       .addStringOption((option) =>
         option
           .setName("todo")
-          .setDescription("오늘 할 일")
+          .setDescription("오늘 할 일 (쉼표로 여러 개 구분)")
           .setRequired(true)
           .setMinLength(1)
           .setMaxLength(1000),
@@ -31,13 +32,29 @@ export const scrumCommand = new SlashCommandBuilder()
       .addStringOption((option) =>
         option
           .setName("did")
-          .setDescription("한 일 (비우면 전날 TODO가 자동으로 들어갑니다.)")
+          .setDescription("완료한 일 (선택, 전날 TODO에서 선택 가능)")
           .setRequired(false)
+          .setAutocomplete(true)
           .setMaxLength(1000),
       ),
   );
 
-async function resolveProject(interaction: ChatInputCommandInteraction) {
+function splitScrumItems(value: string): string[] {
+  return value
+    .split(/[,\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatScrumItems(value: string): string {
+  const items = splitScrumItems(value);
+  if (items.length === 0) return value.trim();
+  return items.map((item, index) => `${index + 1}. ${item}`).join("\n");
+}
+
+async function resolveProject(
+  interaction: ChatInputCommandInteraction | AutocompleteInteraction,
+) {
   if (!interaction.guild || !(interaction.channel instanceof TextChannel)) return null;
 
   const parentId = interaction.channel.parentId;
@@ -48,6 +65,67 @@ async function resolveProject(interaction: ChatInputCommandInteraction) {
     project.guildId === interaction.guild!.id
     && project.categoryId === parentId,
   ) ?? null;
+}
+
+export async function handleScrumAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
+  if (!interaction.inGuild() || !interaction.guild || interaction.commandName !== "scrum") return;
+
+  let subcommand: string;
+  try {
+    subcommand = interaction.options.getSubcommand();
+  } catch {
+    await interaction.respond([]);
+    return;
+  }
+
+  const focused = interaction.options.getFocused(true);
+  if (subcommand !== "write" || focused.name !== "did") {
+    await interaction.respond([]);
+    return;
+  }
+
+  const project = await resolveProject(interaction);
+  if (!project) {
+    await interaction.respond([]);
+    return;
+  }
+
+  const yesterday = previousSeoulDateKey();
+  const yesterdayRecord = await getDailyScrumRecord(project.id, interaction.user.id, yesterday);
+  const previousItems = splitScrumItems(yesterdayRecord?.todo ?? "");
+  if (previousItems.length === 0) {
+    await interaction.respond([]);
+    return;
+  }
+
+  const rawFocused = String(focused.value ?? "");
+  const parts = rawFocused.split(",");
+  const query = (parts.pop() ?? "").trim().toLowerCase();
+  const selected = parts.map((item) => item.trim()).filter(Boolean);
+  const selectedLower = new Set(selected.map((item) => item.toLowerCase()));
+  const prefix = selected.length > 0 ? `${selected.join(", ")}, ` : "";
+
+  const choices: Array<{ name: string; value: string }> = [];
+  const allValue = previousItems.join(", ");
+  if (!rawFocused.trim() && allValue.length <= 100) {
+    choices.push({ name: "✅ 전날 TODO 전체 선택", value: allValue });
+  }
+
+  for (const item of previousItems) {
+    if (choices.length >= 25) break;
+    if (selectedLower.has(item.toLowerCase())) continue;
+    if (query && !item.toLowerCase().includes(query)) continue;
+
+    const value = `${prefix}${item}`;
+    if (value.length > 100) continue;
+
+    choices.push({
+      name: `${selected.length > 0 ? "+ " : ""}${item}`.slice(0, 100),
+      value,
+    });
+  }
+
+  await interaction.respond(choices.slice(0, 25));
 }
 
 export async function handleScrumCommand(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -75,11 +153,8 @@ export async function handleScrumCommand(interaction: ChatInputCommandInteractio
 
   const now = new Date();
   const today = seoulDateKey(now);
-  const yesterday = previousSeoulDateKey(now);
   const todo = interaction.options.getString("todo", true).trim();
-  const didInput = interaction.options.getString("did")?.trim() ?? "";
-  const yesterdayRecord = await getDailyScrumRecord(project.id, interaction.user.id, yesterday);
-  const did = didInput || yesterdayRecord?.todo || "전날 TODO 없음";
+  const did = interaction.options.getString("did")?.trim() ?? "";
   const existing = await getDailyScrumRecord(project.id, interaction.user.id, today);
 
   const embed = new EmbedBuilder()
@@ -88,12 +163,20 @@ export async function handleScrumCommand(interaction: ChatInputCommandInteractio
       iconURL: interaction.user.displayAvatarURL(),
     })
     .setTitle(`📋 ${today} 데일리 스크럼`)
-    .addFields(
-      { name: "✅ DID", value: did.slice(0, 1024) },
-      { name: "🎯 TODO", value: todo.slice(0, 1024) },
-    )
     .setFooter({ text: project.name })
     .setTimestamp(now);
+
+  if (did) {
+    embed.addFields({
+      name: "✅ DID",
+      value: formatScrumItems(did).slice(0, 1024),
+    });
+  }
+
+  embed.addFields({
+    name: "🎯 TODO",
+    value: formatScrumItems(todo).slice(0, 1024),
+  });
 
   let messageId = existing?.messageId ?? "";
   let channelId = existing?.channelId ?? scrumChannel.id;
@@ -127,13 +210,7 @@ export async function handleScrumCommand(interaction: ChatInputCommandInteractio
     updatedAt: now.toISOString(),
   });
 
-  const didNote = didInput
-    ? "입력한 DID를 사용했습니다."
-    : yesterdayRecord
-      ? "전날 TODO를 DID로 자동 반영했습니다."
-      : "전날 TODO가 없어 DID는 `전날 TODO 없음`으로 기록했습니다.";
-
   await interaction.editReply(
-    `${updatedExisting ? "✅ 오늘 스크럼을 수정했습니다." : "✅ 오늘 스크럼을 기록했습니다."}\n${didNote}\n<#${scrumChannel.id}>`,
+    `${updatedExisting ? "✅ 오늘 스크럼을 수정했습니다." : "✅ 오늘 스크럼을 기록했습니다."}\n<#${scrumChannel.id}>`,
   );
 }

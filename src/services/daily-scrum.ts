@@ -145,7 +145,8 @@ export async function sendDailyScrumReminders(client: Client, now = new Date()):
           "@everyone\n" +
           "🌅 **데일리 스크럼 작성 시간입니다.**\n" +
           "오늘 할 일은 `/scrum write todo:...`로 작성해주세요.\n" +
-          "`did`를 비우면 전날 작성한 TODO가 자동으로 DID에 들어갑니다.",
+          "여러 할 일은 쉼표(`,`)로 구분하면 번호 목록으로 표시됩니다.\n" +
+          "`did`는 선택값이며, 입력할 때 전날 TODO 목록에서 완료한 항목을 선택할 수 있습니다.",
         allowedMentions: { parse: ["everyone"] },
       });
       await markReminderSent(project.id, date);
