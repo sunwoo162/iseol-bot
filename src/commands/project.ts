@@ -24,40 +24,12 @@ export const projectCommand = new SlashCommandBuilder()
   .addSubcommand((subcommand) =>
     subcommand
       .setName("create")
-      .setDescription("새 프로젝트 공간을 생성합니다.")
+      .setDescription("프로젝트 공간을 만들고 Notion/Figma/GitHub 연동을 자동 설정합니다.")
       .addStringOption((option) => option.setName("name").setDescription("프로젝트 이름 (2~50자)").setMinLength(2).setMaxLength(50).setRequired(true))
       .addStringOption((option) => option.setName("notion").setDescription("실제 Notion 기능명세서 페이지 URL").setRequired(true))
       .addStringOption((option) => option.setName("figma").setDescription("실제 Figma 파일 URL (figma.com/design/...)").setRequired(true))
       .addStringOption((option) => option.setName("frontend").setDescription("https://github.com/ORG/frontend 형식").setRequired(true))
       .addStringOption((option) => option.setName("backend").setDescription("https://github.com/ORG/backend 형식").setRequired(true)),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("notion-connect")
-      .setDescription("기존 프로젝트에 Notion 기능명세서 수정 알림을 연결합니다.")
-      .addStringOption((option) => option
-        .setName("name")
-        .setDescription("연결할 프로젝트 방 선택")
-        .setRequired(true)
-        .setAutocomplete(true))
-      .addStringOption((option) => option
-        .setName("notion")
-        .setDescription("연결할 실제 Notion 기능명세서 페이지 URL")
-        .setRequired(true)),
-  )
-  .addSubcommand((subcommand) =>
-    subcommand
-      .setName("figma-connect")
-      .setDescription("기존 프로젝트에 Figma 이름 있는 버전 알림을 연결합니다.")
-      .addStringOption((option) => option
-        .setName("name")
-        .setDescription("연결할 프로젝트 방 선택")
-        .setRequired(true)
-        .setAutocomplete(true))
-      .addStringOption((option) => option
-        .setName("figma")
-        .setDescription("연결할 실제 Figma 파일 URL")
-        .setRequired(true)),
   )
   .addSubcommand((subcommand) =>
     subcommand
@@ -84,7 +56,6 @@ function linkButton(label: string, url: string) {
 
 export async function handleProjectAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
   if (!interaction.inGuild() || !interaction.guild || interaction.commandName !== "project") return;
-  const guildId = interaction.guild.id;
 
   let subcommand: string;
   try {
@@ -93,10 +64,10 @@ export async function handleProjectAutocomplete(interaction: AutocompleteInterac
     return;
   }
 
-  if (subcommand !== "delete" && subcommand !== "figma-connect" && subcommand !== "notion-connect") return;
+  if (subcommand !== "delete") return;
 
   const focused = interaction.options.getFocused().toString().trim().toLowerCase();
-  const projects = (await listProjects()).filter((project) => project.guildId === guildId);
+  const projects = (await listProjects()).filter((project) => project.guildId === interaction.guild!.id);
   const choices = projects
     .filter((project) => !focused || project.name.toLowerCase().includes(focused))
     .slice(0, 25)
@@ -122,137 +93,6 @@ async function resolveProjectCategory(interaction: ChatInputCommandInteraction, 
   const category = selected?.type === ChannelType.GuildCategory ? selected : null;
 
   return { channels, category, project };
-}
-
-async function handleNotionConnect(interaction: ChatInputCommandInteraction): Promise<void> {
-  if (!interaction.guild) return;
-
-  await interaction.deferReply();
-  const target = interaction.options.getString("name", true).trim();
-
-  try {
-    const resolved = await resolveProjectCategory(interaction, target);
-    const category = resolved?.category;
-    const channels = resolved?.channels;
-    const project = resolved?.project;
-
-    if (!project || !category || !channels) {
-      await interaction.editReply("❌ 이설로 생성한 프로젝트 방을 찾을 수 없습니다.");
-      return;
-    }
-
-    const projectName = project.name;
-    const notionChannel = channels.find((channel) =>
-      channel?.parentId === category.id
-      && channel.type === ChannelType.GuildText
-      && channel.name === "📄・기능명세서",
-    );
-
-    if (!(notionChannel instanceof TextChannel)) {
-      await interaction.editReply("❌ 프로젝트의 📄・기능명세서 채널을 찾을 수 없습니다.");
-      return;
-    }
-
-    const notionPage = parseNotionPage(interaction.options.getString("notion", true));
-    const notion = new NotionService(config.notionToken);
-    const page = await notion.getPage(notionPage.id);
-
-    await updateProject(project.id, {
-      notionUrl: notionPage.url,
-      notionPageId: notionPage.id,
-      notionChannelId: notionChannel.id,
-      notionLastEditedTime: page.last_edited_time,
-    });
-
-    await notionChannel.send({
-      embeds: [new EmbedBuilder()
-        .setTitle("✅ Notion 수정 알림 연결 완료")
-        .setDescription("이제 기능명세서 페이지가 수정되면 이 채널에 변경 알림이 기록됩니다.")
-        .setURL(notionPage.url)],
-      components: [linkButton("Notion 열기", notionPage.url)],
-    });
-
-    await interaction.editReply(`✅ **${projectName}** 프로젝트에 Notion 기능명세서 수정 알림을 연결했습니다.`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
-    await interaction.editReply(`❌ Notion 알림 연결에 실패했습니다.\n\`${message}\``);
-  }
-}
-
-async function handleFigmaConnect(interaction: ChatInputCommandInteraction): Promise<void> {
-  if (!interaction.guild) return;
-
-  await interaction.deferReply();
-  const target = interaction.options.getString("name", true).trim();
-
-  try {
-    const resolved = await resolveProjectCategory(interaction, target);
-    const category = resolved?.category;
-    const channels = resolved?.channels;
-    const project = resolved?.project;
-
-    if (!project || !category || !channels) {
-      await interaction.editReply("❌ 이설로 생성한 프로젝트 방을 찾을 수 없습니다.");
-      return;
-    }
-
-    const projectName = project.name;
-    const figmaChannel = channels.find((channel) =>
-      channel?.parentId === category.id
-      && channel.type === ChannelType.GuildText
-      && channel.name === "🎨・figma",
-    );
-
-    if (!(figmaChannel instanceof TextChannel)) {
-      await interaction.editReply("❌ 프로젝트의 🎨・figma 채널을 찾을 수 없습니다.");
-      return;
-    }
-
-    const figmaFile = parseFigmaFile(interaction.options.getString("figma", true));
-    const figmaWebhook = new FigmaWebhookService(
-      config.figmaToken,
-      config.publicBaseUrl,
-      config.figmaWebhookPasscode,
-    );
-
-    if (project.figmaWebhookId) {
-      try {
-        await figmaWebhook.deleteWebhook(project.figmaWebhookId);
-      } catch (error) {
-        console.warn(`기존 Figma Webhook 삭제 실패 (${project.name}):`, error);
-      }
-    }
-
-    const [figmaWebhookId, existingComments] = await Promise.all([
-      figmaWebhook.createVersionWebhook(
-        figmaFile.key,
-        `${projectName} named version notifications`,
-      ),
-      figmaWebhook.listComments(figmaFile.key),
-    ]);
-
-    await updateProject(project.id, {
-      figmaUrl: figmaFile.url,
-      figmaFileKey: figmaFile.key,
-      figmaChannelId: figmaChannel.id,
-      figmaWebhookId,
-      figmaLastVersionId: figmaWebhookId,
-      figmaKnownCommentIds: existingComments.map((comment) => comment.id),
-    });
-
-    await figmaChannel.send({
-      embeds: [new EmbedBuilder()
-        .setTitle("✅ Figma 알림 연결 완료")
-        .setDescription("이제 Figma에서 이름 있는 버전을 생성하거나 새 댓글/답글을 작성하면 이 채널에 알림이 기록됩니다.")
-        .setURL(figmaFile.url)],
-      components: [linkButton("Figma 열기", figmaFile.url)],
-    });
-
-    await interaction.editReply(`✅ **${projectName}** 프로젝트에 Figma 버전/댓글 알림을 연결했습니다.`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
-    await interaction.editReply(`❌ Figma 알림 연결에 실패했습니다.\n\`${message}\``);
-  }
 }
 
 async function handleDeleteProject(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -339,14 +179,6 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
   const subcommand = interaction.options.getSubcommand();
   if (subcommand === "delete") {
     await handleDeleteProject(interaction);
-    return;
-  }
-  if (subcommand === "notion-connect") {
-    await handleNotionConnect(interaction);
-    return;
-  }
-  if (subcommand === "figma-connect") {
-    await handleFigmaConnect(interaction);
     return;
   }
   if (subcommand !== "create") return;
