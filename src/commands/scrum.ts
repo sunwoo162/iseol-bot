@@ -1,5 +1,4 @@
 import {
-  ChannelType,
   ChatInputCommandInteraction,
   EmbedBuilder,
   SlashCommandBuilder,
@@ -39,8 +38,7 @@ export const scrumCommand = new SlashCommandBuilder()
   );
 
 async function resolveProject(interaction: ChatInputCommandInteraction) {
-  if (!interaction.guild || !interaction.channel) return null;
-  if (interaction.channel.type !== ChannelType.GuildText) return null;
+  if (!interaction.guild || !(interaction.channel instanceof TextChannel)) return null;
 
   const parentId = interaction.channel.parentId;
   if (!parentId) return null;
@@ -70,7 +68,7 @@ export async function handleScrumCommand(interaction: ChatInputCommandInteractio
   }
 
   const scrumChannel = await findDailyScrumChannel(interaction.guild, project);
-  if (!(scrumChannel instanceof TextChannel)) {
+  if (!scrumChannel) {
     await interaction.editReply("❌ 이 프로젝트의 데일리 스크럼 채널을 찾을 수 없습니다.");
     return;
   }
