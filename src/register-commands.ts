@@ -1,14 +1,18 @@
 import { REST, Routes } from "discord.js";
 import { contestCommandV2 } from "./commands/contest-v2.js";
+import { githubCommand } from "./commands/github.js";
 import { config } from "./config.js";
 import { musicCommand } from "./commands/music.js";
 import { projectCommand } from "./commands/project.js";
+import { scrumCommand } from "./commands/scrum.js";
 import { voiceCommand } from "./commands/voice.js";
 
 const rest = new REST({ version: "10" }).setToken(config.discordToken);
 const commands = [
   projectCommand.toJSON(),
   contestCommandV2.toJSON(),
+  githubCommand.toJSON(),
+  scrumCommand.toJSON(),
   voiceCommand.toJSON(),
   musicCommand.toJSON(),
 ];

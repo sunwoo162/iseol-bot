@@ -15,12 +15,14 @@ const CONTEST_VOTES_FILE = resolve(DATA_DIR, "contest-votes.json");
 const JOB_FEED_FILE = resolve(DATA_DIR, "job-feed.json");
 const MUSIC_FILE = resolve(DATA_DIR, "music-playlists.json");
 const VOICE_TIME_FILE = resolve(DATA_DIR, "voice-study-time.json");
+const DAILY_SCRUM_FILE = resolve(DATA_DIR, "daily-scrum.json");
 
 type GuildScopedRecord = {
   guildId: string;
 };
 
 type ProjectRecord = GuildScopedRecord & {
+  id?: string;
   categoryId: string;
   frontend?: RepositoryRef;
   backend?: RepositoryRef;
@@ -47,6 +49,11 @@ type MusicData = {
 type VoiceStudyData = {
   dailySeconds?: Record<string, Record<string, number>>;
   activeSessions?: Array<{ guildId: string }>;
+};
+
+type DailyScrumData = {
+  records?: Array<GuildScopedRecord & { projectId: string }>;
+  reminderDates?: Record<string, string>;
 };
 
 export type GuildResetSummary = {
@@ -112,7 +119,7 @@ export async function resetGuildState(guild: Guild): Promise<GuildResetSummary> 
   clearMusicRuntime(guild.id);
   leaveGuildVoiceChannel(guild.id);
 
-  const [projects, contestFeeds, audienceFeeds, contestVotes, jobFeeds, musicData, voiceData] = await Promise.all([
+  const [projects, contestFeeds, audienceFeeds, contestVotes, jobFeeds, musicData, voiceData, dailyScrumData] = await Promise.all([
     readJson<ProjectRecord[]>(PROJECTS_FILE, []),
     readJson<FeedRecord[]>(CONTEST_FEED_FILE, []),
     readJson<FeedRecord[]>(CONTEST_AUDIENCE_FILE, []),
@@ -120,6 +127,7 @@ export async function resetGuildState(guild: Guild): Promise<GuildResetSummary> 
     readJson<FeedRecord[]>(JOB_FEED_FILE, []),
     readJson<MusicData>(MUSIC_FILE, { guilds: {} }),
     readJson<VoiceStudyData>(VOICE_TIME_FILE, { dailySeconds: {}, activeSessions: [] }),
+    readJson<DailyScrumData>(DAILY_SCRUM_FILE, { records: [], reminderDates: {} }),
   ]);
 
   const guildProjects = recordsForGuild(projects, guild.id);
@@ -196,6 +204,13 @@ export async function resetGuildState(guild: Guild): Promise<GuildResetSummary> 
   const activeSessions = voiceData.activeSessions ?? [];
   const removedActiveSessions = activeSessions.filter((session) => session.guildId === guild.id).length;
 
+  const scrumRecords = dailyScrumData.records ?? [];
+  const removedScrumRecords = scrumRecords.filter((record) => record.guildId === guild.id).length;
+  const nextReminderDates = { ...(dailyScrumData.reminderDates ?? {}) };
+  for (const project of guildProjects) {
+    if (project.id) delete nextReminderDates[project.id];
+  }
+
   await Promise.all([
     writeJson(PROJECTS_FILE, withoutGuild(projects, guild.id)),
     writeJson(CONTEST_FEED_FILE, withoutGuild(contestFeeds, guild.id)),
@@ -208,6 +223,10 @@ export async function resetGuildState(guild: Guild): Promise<GuildResetSummary> 
       dailySeconds: nextDailySeconds,
       activeSessions: activeSessions.filter((session) => session.guildId !== guild.id),
     }),
+    writeJson(DAILY_SCRUM_FILE, {
+      records: scrumRecords.filter((record) => record.guildId !== guild.id),
+      reminderDates: nextReminderDates,
+    }),
   ]);
 
   const clearedRecords = guildProjects.length
@@ -217,7 +236,8 @@ export async function resetGuildState(guild: Guild): Promise<GuildResetSummary> 
     + guildJobFeeds.length
     + (hadMusicData ? 1 : 0)
     + removedVoiceUsers
-    + removedActiveSessions;
+    + removedActiveSessions
+    + removedScrumRecords;
 
   return {
     deletedChannels,

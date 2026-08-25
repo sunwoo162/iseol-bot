@@ -11,16 +11,20 @@ import {
 } from "discord.js";
 import { handleContestCommandV2 } from "./commands/contest-v2.js";
 import { handleContestVoteButton } from "./commands/contest.js";
+import { handleGitHubCommand } from "./commands/github.js";
 import { handleJobCommand } from "./commands/job.js";
 import { config } from "./config.js";
 import { handleMusicAutocomplete, handleMusicCommand } from "./commands/music.js";
 import { handleProjectAutocomplete, handleProjectCommand } from "./commands/project.js";
+import { handleScrumCommand } from "./commands/scrum.js";
 import { handleVoiceCommand } from "./commands/voice.js";
 import { commandHelpEmbed } from "./services/command-help.js";
 import { startContestAudienceFeedPolling } from "./services/contest-audience-feed.js";
 import { startContestFeedPolling } from "./services/contest-feed.js";
 import { ensureContestPrepAnnouncementChannels } from "./services/contest-prep-announcement.js";
+import { startDailyScrumReminderScheduler } from "./services/daily-scrum.js";
 import { resetGuildState } from "./services/guild-reset.js";
+import { startGitHubCommitFeedPolling } from "./services/github-commit-feed.js";
 import { GitHubWebhookService } from "./services/github.js";
 import { startJobFeedPolling } from "./services/job-feed.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
@@ -51,6 +55,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   startContestFeedPolling(client);
   startContestAudienceFeedPolling(client);
   startJobFeedPolling(client);
+  startGitHubCommitFeedPolling(client);
   startVoiceStudyHeartbeat();
 
   const interruptedSessions = await recoverInterruptedStudySessions();
@@ -60,6 +65,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   await ensureProjectDiscussionChannels(client);
   await ensureContestPrepAnnouncementChannels(client);
+  startDailyScrumReminderScheduler(client);
 });
 
 client.on(Events.GuildCreate, (guild) => {
@@ -160,6 +166,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       if (interaction.commandName === "contest") await handleContestCommandV2(interaction);
       if (interaction.commandName === "job") await handleJobCommand(interaction);
+      if (interaction.commandName === "github") await handleGitHubCommand(interaction);
+      if (interaction.commandName === "scrum") await handleScrumCommand(interaction);
       if (interaction.commandName === "voice") await handleVoiceCommand(interaction);
       if (interaction.commandName === "music") await handleMusicCommand(interaction);
       return;
