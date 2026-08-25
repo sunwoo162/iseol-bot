@@ -11,6 +11,18 @@ export type StoredProject = {
   organization: string;
   frontend: RepositoryRef;
   backend: RepositoryRef;
+  frontendHookId?: number;
+  backendHookId?: number;
+  figmaUrl?: string;
+  figmaFileKey?: string;
+  figmaChannelId?: string;
+  figmaWebhookId?: string;
+  figmaLastVersionId?: string;
+  figmaKnownCommentIds?: string[];
+  notionUrl?: string;
+  notionPageId?: string;
+  notionChannelId?: string;
+  notionLastEditedTime?: string;
 };
 
 const DATA_FILE = resolve(process.cwd(), "data", "projects.json");
@@ -29,6 +41,10 @@ async function writeProjects(projects: StoredProject[]): Promise<void> {
   await writeFile(DATA_FILE, JSON.stringify(projects, null, 2), "utf8");
 }
 
+export async function listProjects(): Promise<StoredProject[]> {
+  return readProjects();
+}
+
 export async function saveProject(project: Omit<StoredProject, "id">): Promise<StoredProject> {
   const projects = await readProjects();
   const stored: StoredProject = { ...project, id: randomBytes(6).toString("hex") };
@@ -37,7 +53,44 @@ export async function saveProject(project: Omit<StoredProject, "id">): Promise<S
   return stored;
 }
 
+export async function updateProject(id: string, updates: Partial<Omit<StoredProject, "id">>): Promise<StoredProject | null> {
+  const projects = await readProjects();
+  const index = projects.findIndex((project) => project.id === id);
+  if (index < 0) return null;
+
+  const current = projects[index];
+  if (!current) return null;
+
+  const updated: StoredProject = { ...current, ...updates, id };
+  projects[index] = updated;
+  await writeProjects(projects);
+  return updated;
+}
+
 export async function findProject(id: string): Promise<StoredProject | null> {
   const projects = await readProjects();
   return projects.find((project) => project.id === id) ?? null;
+}
+
+export async function findProjectByName(guildId: string, name: string): Promise<StoredProject | null> {
+  const normalized = name.trim().toLowerCase();
+  const projects = await readProjects();
+  return projects.find((project) => project.guildId === guildId && project.name.trim().toLowerCase() === normalized) ?? null;
+}
+
+export async function findProjectByFigmaWebhook(webhookId: string, fileKey: string): Promise<StoredProject | null> {
+  const projects = await readProjects();
+  const exact = projects.find((project) => project.figmaWebhookId === webhookId);
+  if (exact) return exact;
+
+  return projects.find((project) => project.figmaFileKey === fileKey && !!project.figmaChannelId) ?? null;
+}
+
+export async function deleteProject(id: string): Promise<boolean> {
+  const projects = await readProjects();
+  const next = projects.filter((project) => project.id !== id);
+  if (next.length === projects.length) return false;
+
+  await writeProjects(next);
+  return true;
 }

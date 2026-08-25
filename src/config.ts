@@ -10,9 +10,17 @@ function required(name: string): string {
   return value;
 }
 
+function optional(name: string): string {
+  return process.env[name]?.trim() ?? "";
+}
+
 export const config = {
   discordToken: required("DISCORD_TOKEN"),
   discordClientId: required("DISCORD_CLIENT_ID"),
-  discordGuildId: required("DISCORD_GUILD_ID"),
+  discordGuildId: optional("DISCORD_GUILD_ID"),
   githubToken: required("GITHUB_TOKEN"),
+  figmaToken: required("FIGMA_TOKEN"),
+  notionToken: required("NOTION_TOKEN"),
+  figmaWebhookPasscode: optional("FIGMA_WEBHOOK_PASSCODE"),
+  publicBaseUrl: optional("PUBLIC_BASE_URL"),
 };
