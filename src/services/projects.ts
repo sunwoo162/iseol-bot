@@ -13,6 +13,8 @@ export type StoredProject = {
   backend: RepositoryRef;
   frontendHookId?: number;
   backendHookId?: number;
+  frontendLogChannelId?: string;
+  backendLogChannelId?: string;
   figmaUrl?: string;
   figmaFileKey?: string;
   figmaChannelId?: string;
