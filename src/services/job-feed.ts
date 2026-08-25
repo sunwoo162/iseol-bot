@@ -18,7 +18,6 @@ import {
 
 const DATA_FILE = resolve(process.cwd(), "data", "job-feed.json");
 export const JOB_POLL_INTERVAL_MS = 60 * 60 * 1000;
-const INITIAL_POST_LIMIT = 20;
 
 export type JobFeedState = {
   guildId: string;
@@ -141,7 +140,7 @@ export async function syncJobFeed(client: Client, state: JobFeedState): Promise<
   const postings = await listActiveDeveloperJobs(state.field);
   const posted = new Set(state.postedIds);
   const unseen = postings.filter((posting) => !posted.has(posting.id));
-  const toPublish = state.postedIds.length === 0 ? unseen.slice(0, INITIAL_POST_LIMIT) : unseen;
+  const toPublish = unseen;
   let count = 0;
 
   for (const posting of toPublish) {
