@@ -16,6 +16,7 @@ import {
   renderGitHubGrass,
   unlinkGitHubAccount,
 } from "../services/github-user.js";
+import { getTotalStudySeconds } from "../services/voice-time.js";
 
 export const githubCommand = new SlashCommandBuilder()
   .setName("github")
@@ -41,6 +42,15 @@ export const githubCommand = new SlashCommandBuilder()
 
 function validGitHubUsername(value: string): boolean {
   return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(value);
+}
+
+function formatStudyTime(seconds: number | null): string {
+  if (seconds === null) return "조회 실패";
+  const totalMinutes = Math.max(0, Math.floor(seconds / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes.toLocaleString("ko-KR")}분`;
+  return `${hours.toLocaleString("ko-KR")}시간 ${minutes}분`;
 }
 
 async function handleConnect(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -98,15 +108,18 @@ async function handleProfile(interaction: ChatInputCommandInteraction): Promise<
     const profile = await github.getProfile(link.githubLogin);
     const member = await interaction.guild.members.fetch(target.id).catch(() => null);
     const displayName = member?.displayName ?? target.username;
+    const studySeconds = await getTotalStudySeconds(interaction.guildId, target.id).catch(() => null);
 
     let grass: Buffer | null = null;
     let totalContributions: number | null = null;
+    let totalCommitContributions: number | null = null;
     let grassWarning: string | null = null;
 
     try {
       const calendar = await github.getContributionCalendar(profile.login);
       totalContributions = calendar.totalContributions;
-      grass = await renderGitHubGrass(calendar, profile.login);
+      totalCommitContributions = calendar.totalCommitContributions ?? null;
+      grass = await renderGitHubGrass(calendar);
     } catch (error) {
       grassWarning = error instanceof Error ? error.message : "GitHub 잔디를 불러오지 못했습니다.";
       console.warn(`GitHub 잔디 조회 실패 (${profile.login})`, error);
@@ -117,8 +130,8 @@ async function handleProfile(interaction: ChatInputCommandInteraction): Promise<
       : `@${profile.login}`;
     const bio = profile.bio?.trim();
     const description = bio
-      ? `> ${bio.replace(/\n/g, "\n> ")}\n\n<@${target.id}>님의 GitHub 활동을 한눈에 보여드려요.`
-      : `<@${target.id}>님의 GitHub 활동을 한눈에 보여드려요.`;
+      ? `> ${bio.replace(/\n/g, "\n> ")}\n\n<@${target.id}>님의 개발 활동과 공부 기록입니다.`
+      : `<@${target.id}>님의 개발 활동과 공부 기록입니다.`;
 
     const embed = new EmbedBuilder()
       .setColor(0x238636)
@@ -135,17 +148,34 @@ async function handleProfile(interaction: ChatInputCommandInteraction): Promise<
           name: "🌱 최근 1년 기여",
           value: totalContributions === null
             ? "**조회 실패**"
-            : `**${totalContributions.toLocaleString("ko-KR")}** contributions`,
+            : `**${totalContributions.toLocaleString("ko-KR")}**`,
+          inline: true,
+        },
+        {
+          name: "💻 최근 1년 커밋",
+          value: totalCommitContributions === null
+            ? "**조회 실패**"
+            : `**${totalCommitContributions.toLocaleString("ko-KR")}**`,
+          inline: true,
+        },
+        {
+          name: "🎧 누적 공부 시간",
+          value: `**${formatStudyTime(studySeconds)}**`,
           inline: true,
         },
         {
           name: "📦 공개 저장소",
-          value: `**${profile.publicRepos.toLocaleString("ko-KR")}** repositories`,
+          value: `**${profile.publicRepos.toLocaleString("ko-KR")}**`,
           inline: true,
         },
         {
-          name: "👥 Community",
-          value: `**${profile.followers.toLocaleString("ko-KR")}** followers\n**${profile.following.toLocaleString("ko-KR")}** following`,
+          name: "👤 팔로워",
+          value: `**${profile.followers.toLocaleString("ko-KR")}**`,
+          inline: true,
+        },
+        {
+          name: "➡️ 팔로잉",
+          value: `**${profile.following.toLocaleString("ko-KR")}**`,
           inline: true,
         },
       );
@@ -161,7 +191,7 @@ async function handleProfile(interaction: ChatInputCommandInteraction): Promise<
     if (grassWarning) {
       embed.setFooter({ text: `GitHub contribution graph를 불러오지 못했습니다 · ${grassWarning}`.slice(0, 2048) });
     } else {
-      embed.setFooter({ text: "GitHub contribution activity · 최근 1년 기준" });
+      embed.setFooter({ text: "GitHub 최근 1년 활동 · 이설 누적 공부 시간" });
     }
 
     const profileButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
