@@ -77,7 +77,7 @@ NOTION_TOKEN=...
 - `GITHUB_TOKEN`: 두 저장소의 webhook을 만들 수 있는 GitHub token
 - `DISCORD_GUILD_ID`: 선택값. 과거 길드 전용 slash command를 정리할 때만 기존 서버 ID를 잠시 유지합니다.
 
-멀티 서버 운영에서는 각 서버의 프로젝트, 공모전, 취업 공고, 음악/음성 상태가 Discord `guildId`를 기준으로 분리됩니다.
+멀티 서버 운영에서는 각 서버의 프로젝트, 공모전, 음악/음성 상태가 Discord `guildId`를 기준으로 분리됩니다.
 
 ## 4. Slash command 등록
 
@@ -86,7 +86,7 @@ npm install
 npm run register
 ```
 
-`npm run register`는 `/project`, `/contest`, `/job`, `/voice`, `/music` 명령어를 글로벌 slash command로 등록합니다.
+`npm run register`는 `/project`, `/contest`, `/voice`, `/music` 명령어를 글로벌 slash command로 등록합니다.
 
 기존 단일 서버 버전에서 사용하던 `DISCORD_GUILD_ID`가 `.env`에 남아 있으면 해당 서버에 등록되어 있던 옛 Guild slash command를 비워서 글로벌 명령어와 중복되지 않게 정리합니다. 한 번 정리한 뒤에는 `DISCORD_GUILD_ID`를 제거해도 됩니다.
 
@@ -148,11 +148,14 @@ GitHub 이벤트는 Discord의 GitHub-compatible webhook endpoint로 바로 전�
 
 - 프로젝트 데이터는 `guildId`별로 구분
 - 공모전 피드/투표는 `guildId`별로 구분
-- 취업 공고 채널은 `guildId`별로 구분
 - 음악 플레이리스트와 재생 상태는 `guildId`별로 구분
 - 음성 공부 시간은 `guildId + userId` 기준으로 구분
 
 한 서버에서 만든 프로젝트나 투표/플레이리스트가 다른 서버의 명령 결과에 섞이지 않도록 서버 ID를 기준으로 조회합니다.
+
+## 취업 공고 기능
+
+취업 공고 수집 기능은 공식 API 연동 전까지 비활성화되어 있으며 `/job` 명령어도 등록하지 않습니다.
 
 ## 주의
 
