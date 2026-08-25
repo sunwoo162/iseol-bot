@@ -176,6 +176,21 @@ export async function getDailyStudySeconds(guildId: string, userId: string): Pro
   return { ...(data.dailySeconds[userKey(guildId, userId)] ?? {}) };
 }
 
+export async function getTotalStudySeconds(guildId: string, userId: string): Promise<number> {
+  await updateQueue;
+  const data = await readData();
+  const savedSeconds = Object.values(data.dailySeconds[userKey(guildId, userId)] ?? {})
+    .reduce((total, seconds) => total + seconds, 0);
+  const active = data.activeSessions.find((session) => session.guildId === guildId && session.userId === userId);
+  if (!active) return savedSeconds;
+
+  const lastAccountedAt = new Date(active.lastAccountedAt).getTime();
+  const pendingSeconds = Number.isFinite(lastAccountedAt)
+    ? Math.max(0, (Date.now() - lastAccountedAt) / 1000)
+    : 0;
+  return savedSeconds + pendingSeconds;
+}
+
 export async function getActiveStudySession(guildId: string, userId: string): Promise<ActiveStudySession | null> {
   await updateQueue;
   const data = await readData();

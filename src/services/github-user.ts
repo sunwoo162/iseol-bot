@@ -36,6 +36,7 @@ export type GitHubContributionDay = {
 
 export type GitHubContributionCalendar = {
   totalContributions: number;
+  totalCommitContributions?: number;
   weeks: Array<{ contributionDays: GitHubContributionDay[] }>;
 };
 
@@ -77,7 +78,8 @@ type ContributionGraphQlResponse = {
   data?: {
     user?: {
       contributionsCollection?: {
-        contributionCalendar?: GitHubContributionCalendar;
+        totalCommitContributions?: number;
+        contributionCalendar?: Omit<GitHubContributionCalendar, "totalCommitContributions">;
       };
     } | null;
   };
@@ -183,6 +185,7 @@ export class GitHubUserService {
       query($login: String!) {
         user(login: $login) {
           contributionsCollection {
+            totalCommitContributions
             contributionCalendar {
               totalContributions
               weeks {
@@ -212,9 +215,14 @@ export class GitHubUserService {
       throw new Error(body.errors.map((error) => error.message || "GraphQL 오류").join(", "));
     }
 
-    const calendar = body.data?.user?.contributionsCollection?.contributionCalendar;
+    const collection = body.data?.user?.contributionsCollection;
+    const calendar = collection?.contributionCalendar;
     if (!calendar) throw new Error("GitHub 잔디 정보를 불러올 수 없습니다.");
-    return calendar;
+
+    return {
+      ...calendar,
+      totalCommitContributions: collection?.totalCommitContributions ?? 0,
+    };
   }
 
   async listRepositoryEvents(repository: RepositoryRef): Promise<GitHubRepositoryEvent[]> {
@@ -239,81 +247,28 @@ const LEVEL_COLORS: Record<GitHubContributionDay["contributionLevel"], string> =
   FOURTH_QUARTILE: "#39d353",
 };
 
-function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-export async function renderGitHubGrass(
-  calendar: GitHubContributionCalendar,
-  displayName: string,
-): Promise<Buffer> {
-  const cell = 13;
+export async function renderGitHubGrass(calendar: GitHubContributionCalendar): Promise<Buffer> {
+  const cell = 14;
   const gap = 4;
   const step = cell + gap;
-  const gridX = 72;
-  const gridY = 82;
-  const width = 1080;
-  const height = 252;
+  const padding = 8;
   const weeks = calendar.weeks.slice(-53);
+  const width = Math.max(1, weeks.length * step - gap + padding * 2);
+  const height = 7 * step - gap + padding * 2;
   const rects: string[] = [];
-  const monthLabels: string[] = [];
-  let previousMonth = -1;
 
   weeks.forEach((week, weekIndex) => {
     week.contributionDays.forEach((day) => {
-      const x = gridX + weekIndex * step;
-      const y = gridY + day.weekday * step;
+      const x = padding + weekIndex * step;
+      const y = padding + day.weekday * step;
       const color = LEVEL_COLORS[day.contributionLevel] ?? LEVEL_COLORS.NONE;
       rects.push(`<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="3" fill="${color}"/>`);
-
-      const date = new Date(`${day.date}T00:00:00Z`);
-      if (day.weekday === 0 && date.getUTCMonth() !== previousMonth && date.getUTCDate() <= 7) {
-        previousMonth = date.getUTCMonth();
-        const label = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(date);
-        monthLabels.push(`<text x="${x}" y="71" fill="#8b949e" font-size="13">${escapeXml(label)}</text>`);
-      }
     });
   });
 
-  const visibleDays = weeks.flatMap((week) => week.contributionDays);
-  const activeDays = visibleDays.filter((day) => day.contributionCount > 0).length;
-  const totalText = calendar.totalContributions.toLocaleString("en-US");
-  const legendColors = [
-    LEVEL_COLORS.NONE,
-    LEVEL_COLORS.FIRST_QUARTILE,
-    LEVEL_COLORS.SECOND_QUARTILE,
-    LEVEL_COLORS.THIRD_QUARTILE,
-    LEVEL_COLORS.FOURTH_QUARTILE,
-  ];
-  const legendX = width - 205;
-  const legendY = 223;
-  const legendRects = legendColors.map((color, index) =>
-    `<rect x="${legendX + 34 + index * 18}" y="${legendY - 11}" width="12" height="12" rx="3" fill="${color}"/>`,
-  ).join("");
-
   const svg = `
   <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
-    <rect x="1" y="1" width="${width - 2}" height="${height - 2}" rx="18" fill="#0d1117" stroke="#30363d" stroke-width="2"/>
-
-    <text x="26" y="30" fill="#8b949e" font-size="12" font-weight="600" letter-spacing="1.8">CONTRIBUTION ACTIVITY</text>
-    <text x="26" y="56" fill="#f0f6fc" font-size="20" font-weight="700">@${escapeXml(displayName)}</text>
-    <text x="${width - 26}" y="56" text-anchor="end" fill="#c9d1d9" font-size="15" font-weight="600">${totalText} contributions</text>
-
-    ${monthLabels.join("")}
-    <text x="26" y="${gridY + step + 11}" fill="#8b949e" font-size="12">Mon</text>
-    <text x="26" y="${gridY + step * 3 + 11}" fill="#8b949e" font-size="12">Wed</text>
-    <text x="26" y="${gridY + step * 5 + 11}" fill="#8b949e" font-size="12">Fri</text>
     ${rects.join("")}
-
-    <text x="26" y="226" fill="#8b949e" font-size="13">${activeDays.toLocaleString("en-US")} active days in the last year</text>
-    <text x="${legendX}" y="223" fill="#8b949e" font-size="12">Less</text>
-    ${legendRects}
-    <text x="${legendX + 133}" y="223" fill="#8b949e" font-size="12">More</text>
   </svg>`;
 
   return sharp(Buffer.from(svg)).png().toBuffer();
