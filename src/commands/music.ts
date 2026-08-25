@@ -22,50 +22,53 @@ import {
 import { ensureStudySession } from "../services/voice-time.js";
 
 const NO_PLAYLIST_CHOICE = "__create_playlist_first__";
-const CREATE_PLAYLIST_GUIDE = "먼저 /music playlist-create name:<플레이리스트 이름> 명령어로 플레이리스트를 만들어주세요.";
+const CREATE_PLAYLIST_GUIDE = "먼저 /music playlist create name:<플레이리스트 이름> 명령어로 플레이리스트를 만들어주세요.";
 
 export const musicCommand = new SlashCommandBuilder()
   .setName("music")
   .setDescription("이설이의 음악 플레이리스트를 관리하고 재생합니다.")
-  .addSubcommand((subcommand) => subcommand
-    .setName("playlist-create")
-    .setDescription("새 플레이리스트를 만듭니다.")
-    .addStringOption((option) => option
-      .setName("name")
-      .setDescription("플레이리스트 이름")
-      .setRequired(true)))
-  .addSubcommand((subcommand) => subcommand
-    .setName("playlist-add")
-    .setDescription("플레이리스트에 YouTube/Spotify 노래 링크를 추가합니다.")
-    .addStringOption((option) => option
-      .setName("playlist")
-      .setDescription("노래를 추가할 플레이리스트")
-      .setRequired(true)
-      .setAutocomplete(true))
-    .addStringOption((option) => option
-      .setName("song")
-      .setDescription("YouTube 노래 링크(재생목록에서 연 링크 포함) 또는 Spotify 개별 노래 링크")
-      .setRequired(true)))
-  .addSubcommand((subcommand) => subcommand
-    .setName("playlist-remove")
-    .setDescription("플레이리스트에서 노래를 삭제합니다.")
-    .addStringOption((option) => option
-      .setName("playlist")
-      .setDescription("노래를 삭제할 플레이리스트")
-      .setRequired(true)
-      .setAutocomplete(true))
-    .addIntegerOption((option) => option
-      .setName("number")
-      .setDescription("/music playlist-show에 표시되는 노래 번호")
-      .setMinValue(1)
-      .setRequired(true)))
-  .addSubcommand((subcommand) => subcommand
-    .setName("playlist-show")
-    .setDescription("플레이리스트 목록 또는 수록곡을 확인합니다.")
-    .addStringOption((option) => option
-      .setName("playlist")
-      .setDescription("확인할 플레이리스트 이름 (비우면 전체 목록)")
-      .setAutocomplete(true)))
+  .addSubcommandGroup((group) => group
+    .setName("playlist")
+    .setDescription("플레이리스트를 만들고 곡을 관리합니다.")
+    .addSubcommand((subcommand) => subcommand
+      .setName("create")
+      .setDescription("새 플레이리스트를 만듭니다.")
+      .addStringOption((option) => option
+        .setName("name")
+        .setDescription("플레이리스트 이름")
+        .setRequired(true)))
+    .addSubcommand((subcommand) => subcommand
+      .setName("add")
+      .setDescription("플레이리스트에 YouTube/Spotify 노래 링크를 추가합니다.")
+      .addStringOption((option) => option
+        .setName("playlist")
+        .setDescription("노래를 추가할 플레이리스트")
+        .setRequired(true)
+        .setAutocomplete(true))
+      .addStringOption((option) => option
+        .setName("song")
+        .setDescription("YouTube 노래 링크(재생목록에서 연 링크 포함) 또는 Spotify 개별 노래 링크")
+        .setRequired(true)))
+    .addSubcommand((subcommand) => subcommand
+      .setName("remove")
+      .setDescription("플레이리스트에서 노래를 삭제합니다.")
+      .addStringOption((option) => option
+        .setName("playlist")
+        .setDescription("노래를 삭제할 플레이리스트")
+        .setRequired(true)
+        .setAutocomplete(true))
+      .addIntegerOption((option) => option
+        .setName("number")
+        .setDescription("/music playlist show에 표시되는 노래 번호")
+        .setMinValue(1)
+        .setRequired(true)))
+    .addSubcommand((subcommand) => subcommand
+      .setName("show")
+      .setDescription("플레이리스트 목록 또는 수록곡을 확인합니다.")
+      .addStringOption((option) => option
+        .setName("playlist")
+        .setDescription("확인할 플레이리스트 이름 (비우면 전체 목록)")
+        .setAutocomplete(true))))
   .addSubcommand((subcommand) => subcommand
     .setName("play")
     .setDescription("저장한 플레이리스트를 반복 재생하고 공부 시간 측정을 시작합니다.")
@@ -107,7 +110,7 @@ export async function handleMusicAutocomplete(interaction: AutocompleteInteracti
 
   if (playlists.length === 0) {
     await interaction.respond([{
-      name: "플레이리스트가 없습니다 · /music playlist-create로 먼저 만들어주세요.",
+      name: "플레이리스트가 없습니다 · /music playlist create로 먼저 만들어주세요.",
       value: NO_PLAYLIST_CHOICE,
     }]);
     return;
@@ -130,18 +133,19 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
     return;
   }
 
+  const group = interaction.options.getSubcommandGroup(false);
   const subcommand = interaction.options.getSubcommand();
   await interaction.deferReply();
 
   try {
-    if (subcommand === "playlist-create") {
+    if (group === "playlist" && subcommand === "create") {
       const name = interaction.options.getString("name", true);
       const playlist = await createPlaylist(interaction.guild.id, name);
       await interaction.editReply(`✅ **${playlist.name}** 플레이리스트를 만들었습니다.`);
       return;
     }
 
-    if (subcommand === "playlist-add") {
+    if (group === "playlist" && subcommand === "add") {
       const playlists = await listPlaylists(interaction.guild.id);
       if (playlists.length === 0) throw new Error(CREATE_PLAYLIST_GUIDE);
 
@@ -164,7 +168,7 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
       return;
     }
 
-    if (subcommand === "playlist-remove") {
+    if (group === "playlist" && subcommand === "remove") {
       const playlistName = interaction.options.getString("playlist", true);
       const number = interaction.options.getInteger("number", true);
       const { playlist, removed } = await removeTrackFromPlaylist(
@@ -180,7 +184,7 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
       return;
     }
 
-    if (subcommand === "playlist-show") {
+    if (group === "playlist" && subcommand === "show") {
       const name = interaction.options.getString("playlist")?.trim();
       if (name) {
         const playlist = await getPlaylist(interaction.guild.id, name);
@@ -203,7 +207,7 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
       return;
     }
 
-    if (subcommand === "play") {
+    if (!group && subcommand === "play") {
       const playlistName = interaction.options.getString("playlist", true);
       const result = await playMusicPlaylist(interaction.guild, interaction.user.id, playlistName);
       if (!result.current && result.queued === 0) {
@@ -226,7 +230,7 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
       return;
     }
 
-    if (subcommand === "skip") {
+    if (!group && subcommand === "skip") {
       await assertUserInBotVoiceChannel(interaction.guild, interaction.user.id);
       const skipped = skipMusic(interaction.guild.id);
       if (!skipped) throw new Error("현재 재생 중인 노래가 없습니다.");
@@ -234,7 +238,7 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
       return;
     }
 
-    if (subcommand === "stop") {
+    if (!group && subcommand === "stop") {
       await assertUserInBotVoiceChannel(interaction.guild, interaction.user.id);
       const stopped = stopMusic(interaction.guild.id);
       if (!stopped) throw new Error("현재 재생 중인 음악이 없습니다.");
