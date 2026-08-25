@@ -11,9 +11,8 @@ import {
   leaveGuildVoiceChannel,
 } from "../services/voice-connection.js";
 import {
-  getActiveStudySession,
+  ensureStudySession,
   getDailyStudySeconds,
-  startStudySession,
   stopStudySessionsForGuild,
 } from "../services/voice-time.js";
 
@@ -22,13 +21,10 @@ export const voiceCommand = new SlashCommandBuilder()
   .setDescription("이설이의 음성 채널 및 공부 시간 기능을 사용합니다.")
   .addSubcommand((subcommand) => subcommand
     .setName("join")
-    .setDescription("내가 있는 음성 채널로 이설이를 부릅니다."))
+    .setDescription("내가 있는 음성 채널로 이설이를 부르고 공부 시간 측정을 시작합니다."))
   .addSubcommand((subcommand) => subcommand
     .setName("leave")
     .setDescription("이설이를 음성 채널에서 내보내고 진행 중인 공부 측정을 저장합니다."))
-  .addSubcommand((subcommand) => subcommand
-    .setName("study")
-    .setDescription("이설이를 음성 채널에 부르고 나갈 때까지 공부 시간을 측정합니다."))
   .addSubcommand((subcommand) => subcommand
     .setName("grass")
     .setDescription("내 음성 공부 시간을 GitHub 잔디 형태로 확인합니다."));
@@ -67,25 +63,15 @@ export async function handleVoiceCommand(interaction: ChatInputCommandInteractio
   try {
     if (subcommand === "join") {
       const connection = await joinUserVoiceChannel(interaction.guild, interaction.user.id);
-      await interaction.editReply(`🔊 이설이가 <#${connection.joinConfig.channelId}> 음성 채널에 들어왔습니다.`);
-      return;
-    }
-
-    if (subcommand === "study") {
-      const existing = await getActiveStudySession(interaction.guild.id, interaction.user.id);
-      if (existing) {
-        await interaction.editReply(`⏱️ 이미 <#${existing.channelId}>에서 공부 시간이 측정 중입니다.`);
-        return;
-      }
-
-      const connection = await joinUserVoiceChannel(interaction.guild, interaction.user.id);
       const channelId = connection.joinConfig.channelId;
       if (!channelId) throw new Error("연결된 음성 채널을 확인할 수 없습니다.");
 
-      await startStudySession(interaction.guild.id, interaction.user.id, channelId);
+      const started = await ensureStudySession(interaction.guild.id, interaction.user.id, channelId);
       await interaction.editReply(
-        `⏱️ <@${interaction.user.id}>님의 공부 시간 측정을 시작했습니다.\n` +
-        `<#${channelId}>에서 이설이가 나갈 때까지 시간이 누적됩니다.`,
+        `🔊 이설이가 <#${channelId}> 음성 채널에 들어왔습니다.\n` +
+        (started
+          ? `⏱️ <@${interaction.user.id}>님의 공부 시간 측정을 자동으로 시작했습니다.`
+          : `⏱️ <@${interaction.user.id}>님의 공부 시간은 이미 측정 중이라 계속 기록합니다.`),
       );
       return;
     }

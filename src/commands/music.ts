@@ -15,7 +15,11 @@ import {
   stopMusic,
   type MusicTrack,
 } from "../services/music.js";
-import { assertUserInBotVoiceChannel } from "../services/voice-connection.js";
+import {
+  assertUserInBotVoiceChannel,
+  getGuildVoiceConnection,
+} from "../services/voice-connection.js";
+import { ensureStudySession } from "../services/voice-time.js";
 
 const NO_PLAYLIST_CHOICE = "__create_playlist_first__";
 const CREATE_PLAYLIST_GUIDE = "먼저 /music playlist-create name:<플레이리스트 이름> 명령어로 플레이리스트를 만들어주세요.";
@@ -64,7 +68,7 @@ export const musicCommand = new SlashCommandBuilder()
       .setAutocomplete(true)))
   .addSubcommand((subcommand) => subcommand
     .setName("play")
-    .setDescription("저장한 플레이리스트를 반복 재생합니다.")
+    .setDescription("저장한 플레이리스트를 반복 재생하고 공부 시간 측정을 시작합니다.")
     .addStringOption((option) => option
       .setName("playlist")
       .setDescription("재생할 플레이리스트")
@@ -205,11 +209,19 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
       if (!result.current && result.queued === 0) {
         throw new Error("노래 음원 스트림을 시작하지 못했습니다. 잠시 후 다시 시도하거나 서버 로그를 확인해주세요.");
       }
+
+      const channelId = getGuildVoiceConnection(interaction.guild.id)?.joinConfig.channelId;
+      if (!channelId) throw new Error("연결된 음성 채널을 확인할 수 없습니다.");
+      const studyStarted = await ensureStudySession(interaction.guild.id, interaction.user.id, channelId);
+
       await interaction.editReply(
         `▶️ **${result.playlist.name}** 반복 재생을 시작했습니다.\n` +
         `${result.current ? `현재 곡: **${result.current.title}**\n` : ""}` +
         `남은 곡: **${result.queued}곡**\n` +
-        "🔁 마지막 곡이 끝나면 첫 곡부터 다시 재생합니다.",
+        "🔁 마지막 곡이 끝나면 첫 곡부터 다시 재생합니다.\n" +
+        (studyStarted
+          ? `⏱️ <@${interaction.user.id}>님의 공부 시간 측정을 자동으로 시작했습니다.`
+          : `⏱️ <@${interaction.user.id}>님의 공부 시간은 이미 측정 중이라 계속 기록합니다.`),
       );
       return;
     }

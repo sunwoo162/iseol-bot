@@ -108,19 +108,31 @@ function accountRange(
   return totalSeconds;
 }
 
+function appendStudySession(data: VoiceStudyData, guildId: string, userId: string, channelId: string): void {
+  const now = new Date().toISOString();
+  data.activeSessions.push({
+    guildId,
+    userId,
+    channelId,
+    startedAt: now,
+    lastAccountedAt: now,
+  });
+}
+
 export async function startStudySession(guildId: string, userId: string, channelId: string): Promise<void> {
   await updateData((data) => {
     const existing = data.activeSessions.find((session) => session.guildId === guildId && session.userId === userId);
     if (existing) throw new Error("이미 음성 공부 시간이 측정 중입니다.");
+    appendStudySession(data, guildId, userId, channelId);
+  });
+}
 
-    const now = new Date().toISOString();
-    data.activeSessions.push({
-      guildId,
-      userId,
-      channelId,
-      startedAt: now,
-      lastAccountedAt: now,
-    });
+export async function ensureStudySession(guildId: string, userId: string, channelId: string): Promise<boolean> {
+  return updateData((data) => {
+    const existing = data.activeSessions.find((session) => session.guildId === guildId && session.userId === userId);
+    if (existing) return false;
+    appendStudySession(data, guildId, userId, channelId);
+    return true;
   });
 }
 
