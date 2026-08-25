@@ -1,6 +1,5 @@
 const SARAMIN_BASE = "https://www.saramin.co.kr";
 const REQUEST_TIMEOUT_MS = 15_000;
-const MAX_JOBS_PER_FIELD = 50;
 
 export type JobField =
   | "frontend"
@@ -208,5 +207,5 @@ export async function listActiveDeveloperJobs(field: JobField): Promise<JobPosti
     }
   });
 
-  return [...merged.values()].slice(0, MAX_JOBS_PER_FIELD);
+  return [...merged.values()];
 }
