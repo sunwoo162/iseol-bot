@@ -56,7 +56,6 @@ client.once(Events.ClientReady, async (readyClient) => {
   startContestAudienceFeedPolling(client);
   startJobFeedPolling(client);
   startGitHubCommitFeedPolling(client);
-  startDailyScrumReminderScheduler(client);
   startVoiceStudyHeartbeat();
 
   const interruptedSessions = await recoverInterruptedStudySessions();
@@ -66,6 +65,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   await ensureProjectDiscussionChannels(client);
   await ensureContestPrepAnnouncementChannels(client);
+  startDailyScrumReminderScheduler(client);
 });
 
 client.on(Events.GuildCreate, (guild) => {
