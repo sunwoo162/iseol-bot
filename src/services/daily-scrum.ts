@@ -101,6 +101,15 @@ export async function saveDailyScrumRecord(record: DailyScrumRecord): Promise<vo
   });
 }
 
+export async function clearDailyScrumProject(projectId: string): Promise<number> {
+  return updateData((data) => {
+    const before = data.records.length;
+    data.records = data.records.filter((record) => record.projectId !== projectId);
+    delete data.reminderDates[projectId];
+    return before - data.records.length;
+  });
+}
+
 export async function findDailyScrumChannel(
   guild: Guild,
   project: StoredProject,
