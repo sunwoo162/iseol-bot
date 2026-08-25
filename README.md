@@ -26,6 +26,8 @@
 - check_run
 - check_suite
 
+Discord 사용자별로 GitHub 사용자명을 연결하면 프로젝트 저장소의 새 커밋을 1분 간격으로 확인해 해당 사용자를 멘션한 커밋 로그도 추가로 기록합니다.
+
 ## 1. Discord Bot 준비
 
 Discord Developer Portal에서 애플리케이션과 Bot을 생성합니다.
@@ -35,6 +37,7 @@ Discord Developer Portal에서 애플리케이션과 Bot을 생성합니다.
 - View Channels
 - Send Messages
 - Embed Links
+- Attach Files
 - Manage Channels
 - Manage Webhooks
 - Manage Messages
@@ -58,8 +61,11 @@ GitHub Fine-grained personal access token을 만들고 대상 프론트/백엔�
 필수 repository permission:
 
 - Webhooks: Read and write
+- Metadata: Read
 
 프로젝트 저장소가 private이면 해당 저장소 자체에 대한 접근도 허용되어 있어야 합니다.
+
+GitHub 프로필의 잔디는 GitHub GraphQL `contributionsCollection`을 사용해 조회합니다.
 
 ## 3. 환경변수
 
@@ -74,10 +80,10 @@ NOTION_TOKEN=...
 ```
 
 - `DISCORD_CLIENT_ID`: Discord Application ID
-- `GITHUB_TOKEN`: 두 저장소의 webhook을 만들 수 있는 GitHub token
+- `GITHUB_TOKEN`: 저장소 webhook, 저장소 이벤트 조회, GitHub 프로필/잔디 조회에 사용하는 GitHub token
 - `DISCORD_GUILD_ID`: 선택값. 과거 길드 전용 slash command를 정리할 때만 기존 서버 ID를 잠시 유지합니다.
 
-멀티 서버 운영에서는 각 서버의 프로젝트, 공모전, 음악/음성 상태가 Discord `guildId`를 기준으로 분리됩니다.
+멀티 서버 운영에서는 각 서버의 프로젝트, 공모전, GitHub 사용자 연결, 음악/음성 상태가 Discord `guildId`를 기준으로 분리됩니다.
 
 ## 4. Slash command 등록
 
@@ -86,7 +92,7 @@ npm install
 npm run register
 ```
 
-`npm run register`는 `/project`, `/contest`, `/voice`, `/music` 명령어를 글로벌 slash command로 등록합니다.
+`npm run register`는 `/project`, `/contest`, `/github`, `/voice`, `/music` 명령어를 글로벌 slash command로 등록합니다.
 
 기존 단일 서버 버전에서 사용하던 `DISCORD_GUILD_ID`가 `.env`에 남아 있으면 해당 서버에 등록되어 있던 옛 Guild slash command를 비워서 글로벌 명령어와 중복되지 않게 정리합니다. 한 번 정리한 뒤에는 `DISCORD_GUILD_ID`를 제거해도 됩니다.
 
@@ -142,16 +148,33 @@ Discord webhook을 만든 뒤 각 GitHub repository webhook을 자동 등록합�
 GitHub 이벤트는 Discord의 GitHub-compatible webhook endpoint로 바로 전달되므로
 별도의 GitHub 이벤트 수신용 웹 서버는 필요하지 않습니다.
 
+### GitHub 사용자 연결 / 프로필
+
+```text
+/github connect username:<GitHub 사용자명>
+/github profile
+/github profile user:@Discord사용자
+/github disconnect
+```
+
+- `connect`: 현재 Discord 사용자와 GitHub 사용자명을 서버 단위로 연결합니다.
+- `profile`: GitHub 프로필, 공개 저장소 수, 팔로워/팔로잉, 최근 1년 기여 수와 잔디 이미지를 표시합니다.
+- 프로젝트 저장소의 새 PushEvent를 1분 간격으로 확인하고 연결된 GitHub 사용자의 각 커밋을 해당 `frontend-log` 또는 `backend-log` 채널에 Discord 멘션과 함께 기록합니다.
+- 감시를 처음 시작할 때는 기존 이벤트를 기준점으로만 저장해 과거 커밋을 한꺼번에 재게시하지 않습니다.
+
+현재 연결은 GitHub OAuth 로그인이 아니라 사용자가 입력한 GitHub 사용자명의 존재 여부를 확인한 뒤 Discord 계정과 매핑하는 방식입니다.
+
 ## 멀티 서버 동작
 
 이설을 여러 Discord 서버에 초대해도 한 프로세스로 모두 처리합니다.
 
 - 프로젝트 데이터는 `guildId`별로 구분
 - 공모전 피드/투표는 `guildId`별로 구분
+- GitHub 사용자 연결은 `guildId + Discord userId` 기준으로 구분
 - 음악 플레이리스트와 재생 상태는 `guildId`별로 구분
 - 음성 공부 시간은 `guildId + userId` 기준으로 구분
 
-한 서버에서 만든 프로젝트나 투표/플레이리스트가 다른 서버의 명령 결과에 섞이지 않도록 서버 ID를 기준으로 조회합니다.
+한 서버에서 만든 프로젝트나 투표/플레이리스트/GitHub 사용자 연결이 다른 서버의 결과에 섞이지 않도록 서버 ID를 기준으로 조회합니다.
 
 ## 취업 공고 기능
 
