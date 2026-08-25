@@ -1,6 +1,5 @@
 import { EmbedBuilder } from "discord.js";
 import { contestCommandV2 } from "../commands/contest-v2.js";
-import { jobCommand } from "../commands/job.js";
 import { musicCommand } from "../commands/music.js";
 import { projectCommand } from "../commands/project.js";
 import { voiceCommand } from "../commands/voice.js";
@@ -23,7 +22,6 @@ type HelpCommand = {
 const commands: HelpCommand[] = [
   projectCommand,
   contestCommandV2,
-  jobCommand,
   voiceCommand,
   musicCommand,
 ];
