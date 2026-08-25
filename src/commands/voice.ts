@@ -7,6 +7,7 @@ import { clearMusicRuntime } from "../services/music.js";
 import { renderVoiceGrass } from "../services/voice-grass.js";
 import {
   assertUserInBotVoiceChannel,
+  getGuildVoiceConnection,
   joinUserVoiceChannel,
   leaveGuildVoiceChannel,
 } from "../services/voice-connection.js";
@@ -22,6 +23,13 @@ export const voiceCommand = new SlashCommandBuilder()
   .addSubcommand((subcommand) => subcommand
     .setName("join")
     .setDescription("내가 있는 음성 채널로 이설이를 부르고 공부 시간 측정을 시작합니다."))
+  .addSubcommand((subcommand) => subcommand
+    .setName("add")
+    .setDescription("같은 음성 채널의 사용자를 공부 시간 측정에 추가합니다.")
+    .addUserOption((option) => option
+      .setName("user")
+      .setDescription("공부 시간 측정에 추가할 사용자")
+      .setRequired(true)))
   .addSubcommand((subcommand) => subcommand
     .setName("leave")
     .setDescription("이설이를 음성 채널에서 내보내고 진행 중인 공부 측정을 저장합니다."))
@@ -72,6 +80,25 @@ export async function handleVoiceCommand(interaction: ChatInputCommandInteractio
         (started
           ? `⏱️ <@${interaction.user.id}>님의 공부 시간 측정을 자동으로 시작했습니다.`
           : `⏱️ <@${interaction.user.id}>님의 공부 시간은 이미 측정 중이라 계속 기록합니다.`),
+      );
+      return;
+    }
+
+    if (subcommand === "add") {
+      const target = interaction.options.getUser("user", true);
+      if (target.bot) throw new Error("봇은 공부 시간 측정에 추가할 수 없습니다.");
+
+      await assertUserInBotVoiceChannel(interaction.guild, interaction.user.id);
+      await assertUserInBotVoiceChannel(interaction.guild, target.id);
+
+      const channelId = getGuildVoiceConnection(interaction.guild.id)?.joinConfig.channelId;
+      if (!channelId) throw new Error("이설이가 들어가 있는 음성 채널이 없습니다.");
+
+      const started = await ensureStudySession(interaction.guild.id, target.id, channelId);
+      await interaction.editReply(
+        started
+          ? `➕ <@${target.id}>님을 공부 시간 측정에 추가했습니다. 이제 음성 채널을 나갈 때까지 자동으로 기록합니다.`
+          : `ℹ️ <@${target.id}>님은 이미 공부 시간이 측정 중입니다.`,
       );
       return;
     }
