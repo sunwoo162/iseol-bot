@@ -1,14 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { Client, TextChannel } from "discord.js";
+import { Client, PermissionFlagsBits, TextChannel } from "discord.js";
 import {
   contestVoteComponents,
   contestVoteEmbed,
   getEligibleHumans,
   majorityOf,
-  matchesContestAudience,
   type ContestAudienceFilter,
 } from "./contest-feed.js";
+import { matchesStrictContestAudience } from "./contest-audience-match.js";
 import { createContestVoteId, saveContestVote } from "./contest-votes.js";
 import { resolveContestDeadline, seoulDateKey } from "./contest-time.js";
 import { listActiveItContests, type Contest } from "./contests.js";
@@ -75,6 +75,26 @@ async function listRepostTargets(guildId: string): Promise<RepostTarget[]> {
   return [...targets.values()];
 }
 
+function cachedEligibleVoterIds(channel: TextChannel): string[] {
+  return [...channel.guild.members.cache.values()]
+    .filter((member) => !member.user.bot)
+    .filter((member) => channel.permissionsFor(member)?.has(PermissionFlagsBits.ViewChannel) === true)
+    .map((member) => member.id);
+}
+
+async function resolveEligibleVoterIds(channel: TextChannel): Promise<string[]> {
+  try {
+    return [...(await getEligibleHumans(channel)).keys()];
+  } catch (error) {
+    const cached = cachedEligibleVoterIds(channel);
+    console.warn(
+      `공모전 재게시 투표 대상 멤버 조회 실패 (${channel.guild.id}/${channel.id}); 캐시 ${cached.length}명으로 계속 진행합니다.`,
+      error,
+    );
+    return cached;
+  }
+}
+
 async function publishContest(channel: TextChannel, contest: Contest, eligibleVoterIds: string[]): Promise<void> {
   const voteId = createContestVoteId();
   const majority = majorityOf(eligibleVoterIds.length);
@@ -133,13 +153,21 @@ export async function repostAllContests(client: Client, guildId: string): Promis
     const fetched = await guild.channels.fetch(target.channelId).catch(() => null);
     if (!(fetched instanceof TextChannel)) continue;
 
-    const eligibleHumans = await getEligibleHumans(fetched);
-    const eligibleVoterIds = [...eligibleHumans.keys()];
-    const matching = contests.filter((contest) => matchesContestAudience(contest, target.audienceFilter));
+    const eligibleVoterIds = await resolveEligibleVoterIds(fetched);
+    const matching = contests.filter((contest) =>
+      matchesStrictContestAudience(contest, target.audienceFilter),
+    );
 
     for (const contest of matching) {
-      await publishContest(fetched, contest, eligibleVoterIds);
-      postedCount += 1;
+      try {
+        await publishContest(fetched, contest, eligibleVoterIds);
+        postedCount += 1;
+      } catch (error) {
+        console.error(
+          `공모전 재게시 실패; 다음 공모전으로 계속 진행 (${guildId}/${target.audienceFilter}/${contest.title})`,
+          error,
+        );
+      }
     }
 
     channelCount += 1;
