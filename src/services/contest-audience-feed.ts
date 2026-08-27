@@ -5,6 +5,7 @@ import {
   Client,
   EmbedBuilder,
   Guild,
+  PermissionFlagsBits,
   TextChannel,
 } from "discord.js";
 import {
@@ -14,9 +15,9 @@ import {
   findContestFeed,
   getEligibleHumans,
   majorityOf,
-  matchesContestAudience,
   type ContestAudienceFilter,
 } from "./contest-feed.js";
+import { matchesStrictContestAudience } from "./contest-audience-match.js";
 import {
   createContestVoteId,
   listContestVotesForChannel,
@@ -150,9 +151,31 @@ function contestKey(contest: Contest): string {
   return normalizeTitle(contest.title) || contest.url;
 }
 
-async function publishContest(channel: TextChannel, contest: Contest): Promise<void> {
-  const eligibleHumans = await getEligibleHumans(channel);
-  const eligibleVoterIds = [...eligibleHumans.keys()];
+function cachedEligibleVoterIds(channel: TextChannel): string[] {
+  return [...channel.guild.members.cache.values()]
+    .filter((member) => !member.user.bot)
+    .filter((member) => channel.permissionsFor(member)?.has(PermissionFlagsBits.ViewChannel) === true)
+    .map((member) => member.id);
+}
+
+async function resolveEligibleVoterIds(channel: TextChannel): Promise<string[]> {
+  try {
+    return [...(await getEligibleHumans(channel)).keys()];
+  } catch (error) {
+    const cached = cachedEligibleVoterIds(channel);
+    console.warn(
+      `공모전 투표 대상 멤버 전체 조회 실패 (${channel.guild.id}/${channel.id}); 캐시 ${cached.length}명으로 계속 진행합니다.`,
+      error,
+    );
+    return cached;
+  }
+}
+
+async function publishContest(
+  channel: TextChannel,
+  contest: Contest,
+  eligibleVoterIds: string[],
+): Promise<void> {
   const majority = majorityOf(eligibleVoterIds.length);
   const voteId = createContestVoteId();
   const contestLink = contest.homepage || contest.url;
@@ -218,9 +241,10 @@ async function refreshContestDeadlineCards(channel: TextChannel): Promise<void> 
   }
 }
 
-export async function syncContestAudienceFeed(
+async function syncContestAudienceFeedWithContests(
   client: Client,
   state: ContestAudienceFeedState,
+  contests: Contest[],
 ): Promise<number> {
   const guild = client.guilds.cache.get(state.guildId)
     ?? await client.guilds.fetch(state.guildId).catch(() => null);
@@ -231,16 +255,25 @@ export async function syncContestAudienceFeed(
 
   await refreshContestDeadlineCards(fetched);
 
-  const contests = await listActiveItContests();
+  const eligibleVoterIds = await resolveEligibleVoterIds(fetched);
   const posted = new Set(state.postedKeys);
   let count = 0;
 
   for (const contest of contests) {
-    if (!matchesContestAudience(contest, state.audienceFilter)) continue;
+    if (!matchesStrictContestAudience(contest, state.audienceFilter)) continue;
     const key = contestKey(contest);
     if (posted.has(key)) continue;
 
-    await publishContest(fetched, contest);
+    try {
+      await publishContest(fetched, contest, eligibleVoterIds);
+    } catch (error) {
+      console.error(
+        `공모전 게시 실패; 다음 공모전으로 계속 진행 (${state.guildId}/${state.audienceFilter}/${contest.title})`,
+        error,
+      );
+      continue;
+    }
+
     posted.add(key);
     count += 1;
 
@@ -255,11 +288,36 @@ export async function syncContestAudienceFeed(
   return count;
 }
 
+export async function syncContestAudienceFeed(
+  client: Client,
+  state: ContestAudienceFeedState,
+): Promise<number> {
+  const contests = await listActiveItContests();
+  if (contests.length === 0) {
+    console.warn("진행 중 IT 공모전 수집 결과가 0개입니다. 출처 파서/네트워크 상태를 확인해주세요.");
+  }
+  return syncContestAudienceFeedWithContests(client, state, contests);
+}
+
 export async function syncAllContestAudienceFeeds(client: Client): Promise<void> {
   const states = await readStates();
+  if (states.length === 0) return;
+
+  let contests: Contest[];
+  try {
+    contests = await listActiveItContests();
+  } catch (error) {
+    console.error("참가대상별 공모전 원본 수집 실패", error);
+    return;
+  }
+
+  if (contests.length === 0) {
+    console.warn("진행 중 IT 공모전 수집 결과가 0개입니다. 출처 파서/네트워크 상태를 확인해주세요.");
+  }
+
   for (const state of states) {
     try {
-      const added = await syncContestAudienceFeed(client, state);
+      const added = await syncContestAudienceFeedWithContests(client, state, contests);
       if (added > 0) {
         console.log(`새 ${contestAudienceFilterLabel(state.audienceFilter)} 대상 IT 공모전 게시 완료: ${added}개`);
       }
