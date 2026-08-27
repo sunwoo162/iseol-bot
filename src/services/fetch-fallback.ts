@@ -52,6 +52,7 @@ async function fetchAllconWithCurl(
     "--show-error",
     "--location",
     "--compressed",
+    "--insecure",
     "--max-time",
     "15",
   ];
@@ -82,7 +83,7 @@ const fetchWithAllconFallback: typeof globalThis.fetch = async (input, init) => 
   } catch (error) {
     if (!isAllconUrl(url) || !isCertificateChainError(error) || !url) throw error;
 
-    console.warn("올콘 HTTPS 인증서 체인 검증 실패: 시스템 curl로 재시도합니다.");
+    console.warn("올콘 HTTPS 인증서 체인 검증 실패: 올콘 전용 비검증 curl fallback으로 재시도합니다.");
     return fetchAllconWithCurl(url, init);
   }
 };
