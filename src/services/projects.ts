@@ -13,6 +13,12 @@ export type StoredProject = {
   backend: RepositoryRef;
   frontendHookId?: number;
   backendHookId?: number;
+  frontendLogChannelId?: string;
+  backendLogChannelId?: string;
+  calendarId?: string;
+  calendarUrl?: string;
+  calendarChannelId?: string;
+  calendarPanelMessageId?: string;
   figmaUrl?: string;
   figmaFileKey?: string;
   figmaChannelId?: string;
