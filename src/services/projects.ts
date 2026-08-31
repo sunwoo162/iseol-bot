@@ -13,6 +13,8 @@ export type StoredProject = {
   backend: RepositoryRef;
   frontendHookId?: number;
   backendHookId?: number;
+  frontendAutomationHookId?: number;
+  backendAutomationHookId?: number;
   frontendLogChannelId?: string;
   backendLogChannelId?: string;
   calendarId?: string;
