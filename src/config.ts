@@ -1,4 +1,4 @@
-import "dotenv/config";
+﻿import "dotenv/config";
 
 function required(name: string): string {
   const value = process.env[name]?.trim();
@@ -23,4 +23,10 @@ export const config = {
   notionToken: required("NOTION_TOKEN"),
   figmaWebhookPasscode: optional("FIGMA_WEBHOOK_PASSCODE"),
   publicBaseUrl: optional("PUBLIC_BASE_URL"),
+  googleClientId: optional("GOOGLE_CLIENT_ID"),
+  googleClientSecret: optional("GOOGLE_CLIENT_SECRET"),
+  googleRefreshToken: optional("GOOGLE_REFRESH_TOKEN"),
+  googleRedirectUri: optional("GOOGLE_REDIRECT_URI"),
+  geminiApiKey: optional("GEMINI_API_KEY"),
+  githubWebhookSecret: optional("GITHUB_WEBHOOK_SECRET"),
 };
