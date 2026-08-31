@@ -1,4 +1,4 @@
-﻿import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 export type CalendarMapping = {
@@ -45,6 +45,13 @@ export class CalendarStateStore {
     await this.write(items);
   }
 
+  async removeProject(projectId: string): Promise<number> {
+    const items = await this.read();
+    const next = items.filter((item) => item.projectId !== projectId);
+    const removed = items.length - next.length;
+    if (removed > 0) await this.write(next);
+    return removed;
+  }
   async remove(externalKey: string): Promise<boolean> {
     const items = await this.read();
     const next = items.filter((item) => item.externalKey !== externalKey);

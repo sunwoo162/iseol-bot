@@ -18,3 +18,11 @@ test("calendar panel copy stays compact", () => {
   assert.match(text, /Google Calendar/);
   assert.ok(text.length < 500);
 });
+
+import { parseRepositorySide } from "../src/services/calendar/calendar-discord.js";
+
+test("github issue repository selector accepts frontend or backend only", () => {
+  assert.equal(parseRepositorySide(" FRONTEND "), "frontend");
+  assert.equal(parseRepositorySide("backend"), "backend");
+  assert.throws(() => parseRepositorySide("api"), /frontend 또는 backend/);
+});

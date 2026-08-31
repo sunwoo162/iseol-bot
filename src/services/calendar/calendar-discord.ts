@@ -1,4 +1,4 @@
-﻿import {
+import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonInteraction,
@@ -11,6 +11,9 @@
 } from "discord.js";
 import { config } from "../../config.js";
 import { findProject } from "../projects.js";
+import { GitHubWebhookService } from "../github.js";
+import { GitHubScheduleSyncService } from "../github-schedule-sync.js";
+import { CalendarStateStore } from "./calendar-state.js";
 import { GoogleCalendarService } from "./google-calendar.js";
 
 export type CalendarAction = "add" | "view" | "update" | "delete" | "issue";
@@ -20,6 +23,11 @@ export function parseCalendarCustomId(customId: string): { action: CalendarActio
   return match ? { action: match[1] as CalendarAction, projectId: match[2]! } : null;
 }
 
+export function parseRepositorySide(value: string): "frontend" | "backend" {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "frontend" || normalized === "backend") return normalized;
+  throw new Error("repository는 frontend 또는 backend로 입력해주세요.");
+}
 export function parseKstDateTime(value: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(value.trim());
   if (!match) throw new Error("날짜는 YYYY-MM-DD HH:mm 형식으로 입력해주세요.");
@@ -73,6 +81,18 @@ async function showEventModal(interaction: ButtonInteraction, action: "add" | "u
   await interaction.showModal(modal);
 }
 
+async function showIssueModal(interaction: ButtonInteraction) {
+  const parsed = parseCalendarCustomId(interaction.customId)!;
+  const modal = new ModalBuilder().setCustomId(`calendar_issue_modal:${parsed.projectId}`).setTitle("GitHub Issue + 일정 생성");
+  modal.addComponents(
+    textInput("repository", "저장소", "frontend 또는 backend"),
+    textInput("title", "Issue 제목", "예: 로그인 API 구현"),
+    textInput("body", "Issue 내용", "완료 조건/작업 내용", TextInputStyle.Paragraph),
+    textInput("start", "시작", "2026-09-01 14:00"),
+    textInput("end", "종료", "2026-09-01 15:00"),
+  );
+  await interaction.showModal(modal);
+}
 async function showDeleteModal(interaction: ButtonInteraction) {
   const parsed = parseCalendarCustomId(interaction.customId)!;
   const modal = new ModalBuilder().setCustomId(`calendar_delete_modal:${parsed.projectId}`).setTitle("일정 삭제");
@@ -96,7 +116,10 @@ export async function handleCalendarButton(interaction: ButtonInteraction): Prom
     await showDeleteModal(interaction);
     return true;
   }
-  if (parsed.action === "issue") return false;
+  if (parsed.action === "issue") {
+    await showIssueModal(interaction);
+    return true;
+  }
   if (!project.calendarId) {
     await interaction.reply({ content: "Google Calendar OAuth 설정이 필요합니다.", ephemeral: true });
     return true;
@@ -109,7 +132,7 @@ export async function handleCalendarButton(interaction: ButtonInteraction): Prom
 }
 
 export async function handleCalendarModal(interaction: ModalSubmitInteraction): Promise<boolean> {
-  const match = /^calendar_(add|update|delete)_modal:([A-Za-z0-9_-]+)$/.exec(interaction.customId);
+  const match = /^calendar_(add|update|delete|issue)_modal:([A-Za-z0-9_-]+)$/.exec(interaction.customId);
   if (!match) return false;
   const action = match[1]!;
   const project = await findProject(match[2]!);
@@ -118,6 +141,25 @@ export async function handleCalendarModal(interaction: ModalSubmitInteraction): 
     return true;
   }
   await interaction.deferReply({ ephemeral: true });
+  if (action === "issue") {
+    const side = parseRepositorySide(interaction.fields.getTextInputValue("repository"));
+    const repository = project[side];
+    const title = interaction.fields.getTextInputValue("title").trim();
+    const body = interaction.fields.getTextInputValue("body").trim();
+    const start = parseKstDateTime(interaction.fields.getTextInputValue("start"));
+    const end = parseKstDateTime(interaction.fields.getTextInputValue("end"));
+    if (new Date(end).getTime() <= new Date(start).getTime()) throw new Error("종료 시간은 시작 시간보다 뒤여야 합니다.");
+    const github = new GitHubWebhookService(config.githubToken);
+    const linked = await new GitHubScheduleSyncService(calendarService(), new CalendarStateStore()).createLinkedIssue(
+      project.id,
+      project.calendarId,
+      `${repository.owner}/${repository.repo}`,
+      { title, body, start, end },
+      { createIssue: (_repository, issueTitle, issueBody) => github.createIssue(repository, issueTitle, issueBody) },
+    );
+    await interaction.editReply(`✅ GitHub Issue #${linked.issueNumber} + Google Calendar 일정 생성 완료\n${linked.issueUrl}`);
+    return true;
+  }
   const service = calendarService();
   if (action === "delete") {
     const eventId = interaction.fields.getTextInputValue("event_id").trim();

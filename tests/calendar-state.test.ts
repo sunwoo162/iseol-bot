@@ -25,3 +25,14 @@ test("calendar mappings can be created, updated, and deleted", async () => {
   assert.equal(await store.find(key), null);
   await rm(dir, { recursive: true, force: true });
 });
+
+test("calendar state can remove all mappings for a deleted project", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iseol-calendar-cleanup-"));
+  const store = new CalendarStateStore(join(dir, "state.json"));
+  await store.upsert({ externalKey: "p:a:issue:1", projectId: "p", calendarId: "c", eventId: "1", source: "issue" });
+  await store.upsert({ externalKey: "q:a:issue:2", projectId: "q", calendarId: "c", eventId: "2", source: "issue" });
+  assert.equal(await store.removeProject("p"), 1);
+  assert.equal(await store.find("p:a:issue:1"), null);
+  assert.notEqual(await store.find("q:a:issue:2"), null);
+  await rm(dir, { recursive: true, force: true });
+});

@@ -11,6 +11,16 @@ export type RepositoryOwner = {
   type: string;
 };
 
+const GITHUB_AUTOMATION_EVENTS = ["pull_request", "milestone"] as const;
+
+export function buildAutomationWebhookUrl(publicBaseUrl: string): string {
+  const url = new URL(publicBaseUrl);
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/github/events`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
 const GITHUB_EVENTS = [
   "push",
   "pull_request",
@@ -29,12 +39,12 @@ export function parseGitHubRepository(input: string): RepositoryRef {
 
   const url = new URL(normalized);
   if (url.hostname !== "github.com" && url.hostname !== "www.github.com") {
-    throw new Error("GitHub 저장소는 https://github.com/ORG/REPO 형식만 사용할 수 있습니다.");
+    throw new Error("GitHub ??μ냼??https://github.com/ORG/REPO ?뺤떇留??ъ슜?????덉뒿?덈떎.");
   }
 
   const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error("GitHub 저장소는 https://github.com/ORG/REPO 형식으로 입력해주세요.");
+    throw new Error("GitHub ??μ냼??https://github.com/ORG/REPO ?뺤떇?쇰줈 ?낅젰?댁＜?몄슂.");
   }
 
   const owner = parts[0];
@@ -56,7 +66,7 @@ export class GitHubWebhookService {
     });
 
     if (!data.owner?.login || !data.owner.type) {
-      throw new Error(`GitHub 저장소 owner 정보를 확인할 수 없습니다: ${repository.url}`);
+      throw new Error(`GitHub ??μ냼 owner ?뺣낫瑜??뺤씤?????놁뒿?덈떎: ${repository.url}`);
     }
 
     return {
@@ -77,6 +87,23 @@ export class GitHubWebhookService {
     return data.id;
   }
 
+  async createAutomationWebhook(repository: RepositoryRef, endpoint: string, secret: string): Promise<number> {
+    const { data } = await this.octokit.rest.repos.createWebhook({
+      owner: repository.owner,
+      repo: repository.repo,
+      name: "web",
+      active: true,
+      events: [...GITHUB_AUTOMATION_EVENTS],
+      config: { url: endpoint, content_type: "json", insecure_ssl: "0", secret },
+    });
+    return data.id;
+  }
+
+  async createIssue(repository: RepositoryRef | string, title: string, body: string): Promise<{ number: number; htmlUrl: string }> {
+    const ref = typeof repository === "string" ? parseGitHubRepository(repository) : repository;
+    const { data } = await this.octokit.rest.issues.create({ owner: ref.owner, repo: ref.repo, title, body });
+    return { number: data.number, htmlUrl: data.html_url };
+  }
   async deleteWebhook(repository: RepositoryRef, hookId: number): Promise<void> {
     await this.octokit.rest.repos.deleteWebhook({ owner: repository.owner, repo: repository.repo, hook_id: hookId });
   }
