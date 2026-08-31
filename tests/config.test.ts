@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import test from "node:test";
 
 process.env.DISCORD_TOKEN = "discord";
@@ -6,12 +6,12 @@ process.env.DISCORD_CLIENT_ID = "client";
 process.env.GITHUB_TOKEN = "github";
 process.env.FIGMA_TOKEN = "figma";
 process.env.NOTION_TOKEN = "notion";
-delete process.env.GOOGLE_CLIENT_ID;
-delete process.env.GOOGLE_CLIENT_SECRET;
-delete process.env.GOOGLE_REFRESH_TOKEN;
-delete process.env.GOOGLE_REDIRECT_URI;
-delete process.env.GEMINI_API_KEY;
-delete process.env.GITHUB_WEBHOOK_SECRET;
+process.env.GOOGLE_CLIENT_ID = "";
+process.env.GOOGLE_CLIENT_SECRET = "";
+process.env.GOOGLE_REFRESH_TOKEN = "";
+process.env.GOOGLE_REDIRECT_URI = "";
+process.env.GEMINI_API_KEY = "";
+process.env.GITHUB_WEBHOOK_SECRET = "";
 
 const { config } = await import("../src/config.js");
 
