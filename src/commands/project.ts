@@ -11,8 +11,10 @@ import {
   SlashCommandBuilder,
   TextChannel,
 } from "discord.js";
-import { config } from "../config.js";`r`nimport { calendarPanel } from "../services/calendar/calendar-discord.js";
-import { CalendarStateStore } from "../services/calendar/calendar-state.js";`r`nimport { GoogleCalendarService } from "../services/calendar/google-calendar.js";
+import { config } from "../config.js";
+import { calendarPanel } from "../services/calendar/calendar-discord.js";
+import { CalendarStateStore } from "../services/calendar/calendar-state.js";
+import { GoogleCalendarService } from "../services/calendar/google-calendar.js";
 import { FigmaWebhookService, parseFigmaFile } from "../services/figma.js";
 import { buildAutomationWebhookUrl, GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
 import { NotionService, parseNotionPage } from "../services/notion.js";
@@ -20,25 +22,25 @@ import { deleteProject, listProjects, saveProject, updateProject } from "../serv
 
 export const projectCommand = new SlashCommandBuilder()
   .setName("project")
-  .setDescription("?熬곣뫁夷??釉띾콦??Discord 嶺??х몭硫㈑???⑤베吏?????吏???㉱?洹먮뿫????덈펲.")
+  .setDescription("프로젝트용 Discord 채널과 연동을 자동 관리합니다.")
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
   .addSubcommand((subcommand) =>
     subcommand
       .setName("create")
-      .setDescription("?熬곣뫁夷??釉띾콦 ??ㅻ????嶺뚮씭??キ?뤒?Notion/Figma/GitHub ??⑤베吏?????吏????깆젧??紐껊퉵??")
-      .addStringOption((option) => option.setName("name").setDescription("?熬곣뫁夷??釉띾콦 ???藥?(2~50??").setMinLength(2).setMaxLength(50).setRequired(true))
-      .addStringOption((option) => option.setName("notion").setDescription("???깆젷 Notion ?リ옇????춻??얠돪????瑜곷턄嶺뚯솘? URL").setRequired(true))
-      .addStringOption((option) => option.setName("figma").setDescription("???깆젷 Figma ???逾?URL (figma.com/design/...)").setRequired(true))
-      .addStringOption((option) => option.setName("frontend").setDescription("https://github.com/ORG/frontend ?筌먦끇六?).setRequired(true))
-      .addStringOption((option) => option.setName("backend").setDescription("https://github.com/ORG/backend ?筌먦끇六?).setRequired(true)),
+      .setDescription("프로젝트 공간을 만들고 Notion/Figma/GitHub 연동을 자동 설정합니다.")
+      .addStringOption((option) => option.setName("name").setDescription("프로젝트 이름 (2~50자)").setMinLength(2).setMaxLength(50).setRequired(true))
+      .addStringOption((option) => option.setName("notion").setDescription("실제 Notion 기능명세서 페이지 URL").setRequired(true))
+      .addStringOption((option) => option.setName("figma").setDescription("실제 Figma 파일 URL (figma.com/design/...)").setRequired(true))
+      .addStringOption((option) => option.setName("frontend").setDescription("https://github.com/ORG/frontend 형식").setRequired(true))
+      .addStringOption((option) => option.setName("backend").setDescription("https://github.com/ORG/backend 형식").setRequired(true)),
   )
   .addSubcommand((subcommand) =>
     subcommand
       .setName("delete")
-      .setDescription("??諛댁뎽???熬곣뫁夷??釉띾콦 ?꾩렮維????⑤슡???筌먲퐢沅???????紐껊퉵??")
+      .setDescription("생성된 프로젝트 방과 연결 정보를 삭제합니다.")
       .addStringOption((option) => option
         .setName("name")
-        .setDescription("??????熬곣뫁夷??釉띾콦 ????ルㅎ臾?)
+        .setDescription("삭제할 프로젝트 방 선택")
         .setRequired(true)
         .setAutocomplete(true)),
   );
@@ -47,7 +49,7 @@ type GitHubHook = { repository: RepositoryRef; id: number };
 
 async function createTextChannel(guild: Guild, parentId: string, name: string): Promise<TextChannel> {
   const channel = await guild.channels.create({ name, type: ChannelType.GuildText, parent: parentId });
-  if (!(channel instanceof TextChannel)) throw new Error(`${name} 嶺??х몭????諛댁뎽??? 嶺뚮쪇沅?쭛???鍮??`);
+  if (!(channel instanceof TextChannel)) throw new Error(`${name} 채널을 생성하지 못했습니다.`);
   return channel;
 }
 
@@ -109,7 +111,7 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
     const channels = resolved?.channels;
 
     if (!project || !channels) {
-      await interaction.editReply("????怨댄맟????諛댁뎽???熬곣뫁夷??釉띾콦 ?筌먲퐢沅??嶺뚢돦堉??????怨룸????덈펲.");
+      await interaction.editReply("❌ 이설로 생성한 프로젝트 정보를 찾을 수 없습니다.");
       return;
     }
 
@@ -125,26 +127,35 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
       try {
         await github.deleteWebhook(project.frontend, project.frontendHookId);
       } catch (error) {
-        console.warn(`Frontend GitHub webhook ???????덉넮 (${project.name}):`, error);
+        console.warn(`Frontend GitHub webhook 삭제 실패 (${project.name}):`, error);
         warnings.push("Frontend GitHub webhook");
       }
     }
 
-    if (project.frontendAutomationHookId !== undefined) {
-      try { await github.deleteWebhook(project.frontend, project.frontendAutomationHookId); }
-      catch (error) { console.warn(`Frontend automation webhook ??젣 ?ㅽ뙣 (${project.name}):`, error); warnings.push("Frontend automation webhook"); }
-    }
-
-    if (project.backendAutomationHookId !== undefined) {
-      try { await github.deleteWebhook(project.backend, project.backendAutomationHookId); }
-      catch (error) { console.warn(`Backend automation webhook ??젣 ?ㅽ뙣 (${project.name}):`, error); warnings.push("Backend automation webhook"); }
-    }
     if (project.backendHookId !== undefined) {
       try {
         await github.deleteWebhook(project.backend, project.backendHookId);
       } catch (error) {
-        console.warn(`Backend GitHub webhook ???????덉넮 (${project.name}):`, error);
+        console.warn(`Backend GitHub webhook 삭제 실패 (${project.name}):`, error);
         warnings.push("Backend GitHub webhook");
+      }
+    }
+
+    if (project.frontendAutomationHookId !== undefined) {
+      try {
+        await github.deleteWebhook(project.frontend, project.frontendAutomationHookId);
+      } catch (error) {
+        console.warn(`Frontend automation webhook 삭제 실패 (${project.name}):`, error);
+        warnings.push("Frontend automation webhook");
+      }
+    }
+
+    if (project.backendAutomationHookId !== undefined) {
+      try {
+        await github.deleteWebhook(project.backend, project.backendAutomationHookId);
+      } catch (error) {
+        console.warn(`Backend automation webhook 삭제 실패 (${project.name}):`, error);
+        warnings.push("Backend automation webhook");
       }
     }
 
@@ -152,47 +163,52 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
       try {
         await figmaWebhook.deleteWebhook(project.figmaWebhookId);
       } catch (error) {
-        console.warn(`Figma webhook ???????덉넮 (${project.name}):`, error);
+        console.warn(`Figma webhook 삭제 실패 (${project.name}):`, error);
         warnings.push("Figma webhook");
       }
     }
 
-    if (project.calendarId && config.googleClientId && config.googleClientSecret && config.googleRefreshToken) {
-      try {
-        await new GoogleCalendarService(config.googleClientId, config.googleClientSecret, config.googleRefreshToken, config.googleRedirectUri)
-          .deleteProjectCalendar(project.calendarId);
-        await new CalendarStateStore().removeProject(project.id);
-      } catch (error) {
-        console.warn(`Google Calendar 삭제 실패 (${project.name}):`, error);
-        warnings.push("Google Calendar");
+    if (project.calendarId) {
+      if (config.googleClientId && config.googleClientSecret && config.googleRefreshToken) {
+        try {
+          await new GoogleCalendarService(config.googleClientId, config.googleClientSecret, config.googleRefreshToken, config.googleRedirectUri)
+            .deleteProjectCalendar(project.calendarId);
+          await new CalendarStateStore().removeProject(project.id);
+        } catch (error) {
+          console.warn(`Google Calendar 삭제 실패 (${project.name}):`, error);
+          warnings.push("Google Calendar");
+        }
+      } else {
+        warnings.push("Google Calendar credentials missing");
       }
     }
+
     if (category) {
       const children = channels.filter((channel) => channel?.parentId === category.id);
       for (const channel of children.values()) {
         if (channel) {
-          await channel.delete(`${project.name} ?熬곣뫁夷??釉띾콦 ??????);
+          await channel.delete(`${project.name} 프로젝트 방 삭제`);
         }
       }
-      await category.delete(`${project.name} ?熬곣뫁夷??釉띾콦 ??????);
+      await category.delete(`${project.name} 프로젝트 방 삭제`);
     }
 
     const deleted = await deleteProject(project.id);
-    if (!deleted) throw new Error("?熬곣뫁夷??釉띾콦 ?????筌먲퐢沅???????? 嶺뚮쪇沅?쭛???鍮??");
+    if (!deleted) throw new Error("프로젝트 저장 정보를 삭제하지 못했습니다.");
 
     const warningText = warnings.length > 0
-      ? `\n??ル쵑???筌? ??⑤베吏??筌먲퐘遊????덉넮: ${warnings.join(", ")} (??類ㅼ뮅 ?β돦裕???筌먦끉逾?`
+      ? `\n⚠️ 외부 연동 정리 실패: ${warnings.join(", ")} (서버 로그 확인)`
       : "";
-    await interaction.editReply(`??**${project.name}** ?熬곣뫁夷??釉띾콦 ?꾩렮維???????筌먲퐢沅????????곕????덈펲.${warningText}`);
+    await interaction.editReply(`✅ **${project.name}** 프로젝트 방과 저장 정보를 삭제했습니다.${warningText}`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "???????⑸츎 ???댁쾼?띠럾? ?꾩룇裕뉑틦???곕????덈펲.";
-    await interaction.editReply(`???熬곣뫁夷??釉띾콦 ??????????덉넮???곕????덈펲.\n\`${message}\``);
+    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    await interaction.editReply(`❌ 프로젝트 방 삭제에 실패했습니다.\n\`${message}\``);
   }
 }
 
 export async function handleProjectCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.inGuild() || !interaction.guild) {
-    await interaction.reply({ content: "??類ㅼ뮅 ???고뱺??類ㅼ떳 ??????????곕????덈펲." });
+    await interaction.reply({ content: "서버 안에서만 사용할 수 있습니다." });
     return;
   }
 
@@ -213,7 +229,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     const backendRepo = parseGitHubRepository(interaction.options.getString("backend", true));
 
     if (frontendRepo.owner.toLowerCase() !== backendRepo.owner.toLowerCase()) {
-      throw new Error("Frontend?? Backend ????????띠룇?? GitHub Organization ?熬곣뫁??????곗꽑????紐껊퉵??");
+      throw new Error("Frontend와 Backend 저장소는 같은 GitHub Organization 아래에 있어야 합니다.");
     }
 
     const github = new GitHubWebhookService(config.githubToken);
@@ -230,27 +246,38 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     ]);
 
     if (frontendOwner.login.toLowerCase() !== backendOwner.login.toLowerCase()) {
-      throw new Error("Frontend?? Backend ????????띠룇?? GitHub Organization ?熬곣뫁??????곗꽑????紐껊퉵??");
+      throw new Error("Frontend와 Backend 저장소는 같은 GitHub Organization 아래에 있어야 합니다.");
     }
 
     if (frontendOwner.type !== "Organization" || backendOwner.type !== "Organization") {
-      throw new Error(`GitHub owner "${frontendOwner.login}"?띠럾? Organization???熬곣뫀六???덈펲.`);
+      throw new Error(`GitHub owner "${frontendOwner.login}"가 Organization이 아닙니다.`);
     }
 
     const organization = frontendOwner.login;
-    const category = await interaction.guild.channels.create({ name: `?獄?${name}`, type: ChannelType.GuildCategory });
+    const category = await interaction.guild.channels.create({ name: `📁 ${name}`, type: ChannelType.GuildCategory });
     const createdChannelIds: string[] = [];
     const githubHooks: GitHubHook[] = [];
     let figmaWebhookId: string | null = null;
-    let storedProjectId: string | null = null;`r`n    let calendarId: string | null = null;`r`n    let calendarUrl: string | undefined;
+    let storedProjectId: string | null = null;
+    let calendarId: string | null = null;
+    let calendarUrl: string | undefined;
 
     try {
-      const overview = await createTextChannel(interaction.guild, category.id, "?獄???щ뒆?β돦裕???);
-      const spec = await createTextChannel(interaction.guild, category.id, "?獄??怨뺚뵛?縕ワ㎖?筌뤾쑨??);
-      const figma = await createTextChannel(interaction.guild, category.id, "????異둮ma");
-      const frontendLog = await createTextChannel(interaction.guild, category.id, "?獒??異뱋ntend-log");
-      const backendLog = await createTextChannel(interaction.guild, category.id, "????已냖kend-log");
-      createdChannelIds.push(overview.id, spec.id, figma.id, frontendLog.id, backendLog.id);
+      const overview = await createTextChannel(interaction.guild, category.id, "📌・프로젝트");
+      const spec = await createTextChannel(interaction.guild, category.id, "📄・기능명세서");
+      const figma = await createTextChannel(interaction.guild, category.id, "🎨・figma");
+      const frontendLog = await createTextChannel(interaction.guild, category.id, "💻・frontend-log");
+      const backendLog = await createTextChannel(interaction.guild, category.id, "🛠・backend-log");
+      const calendarChannel = await createTextChannel(interaction.guild, category.id, "📅・일정");
+      createdChannelIds.push(overview.id, spec.id, figma.id, frontendLog.id, backendLog.id, calendarChannel.id);
+
+      if (config.googleClientId && config.googleClientSecret && config.googleRefreshToken) {
+        const createdCalendar = await new GoogleCalendarService(
+          config.googleClientId, config.googleClientSecret, config.googleRefreshToken, config.googleRedirectUri,
+        ).createProjectCalendar(name);
+        calendarId = createdCalendar.id;
+        calendarUrl = createdCalendar.url;
+      }
 
       const storedProject = await saveProject({
         name,
@@ -259,6 +286,11 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
         organization,
         frontend: frontendRepo,
         backend: backendRepo,
+        frontendLogChannelId: frontendLog.id,
+        backendLogChannelId: backendLog.id,
+        calendarId: calendarId ?? undefined,
+        calendarUrl,
+        calendarChannelId: calendarChannel.id,
         figmaUrl: figmaFile.url,
         figmaFileKey: figmaFile.key,
         figmaChannelId: figma.id,
@@ -274,14 +306,14 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
       await updateProject(storedProject.id, { calendarPanelMessageId: calendarMessage.id });
 
       const joinRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`project_join:${storedProject.id}`).setLabel("GitHub Organization 嶺뚣볦굣??).setEmoji("??").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`project_join:${storedProject.id}`).setLabel("GitHub Organization 참여").setEmoji("🚀").setStyle(ButtonStyle.Primary),
       );
 
       const overviewMessage = await overview.send({
         content: "@everyone",
         allowedMentions: { parse: ["everyone"] },
-        embeds: [new EmbedBuilder().setTitle(name).setDescription("?熬곣뫁夷??釉띾콦 ??쒖굣??? ?띠룇裕녻???????섎ご???蹂κ텛???????㉱?洹먮뿫????덈펲.\n\n????? ?熬곣뫁???뺢퀗????怨쀬Ŧ GitHub Organization ?貫??????븐슙????????곕????덈펲.").addFields(
-          { name: "?リ옇????춻??얠돪??, value: notionPage.url },
+        embeds: [new EmbedBuilder().setTitle(name).setDescription("프로젝트 문서와 개발 저장소를 한곳에서 관리합니다.\n\n팀원은 아래 버튼으로 GitHub Organization 초대를 요청할 수 있습니다.").addFields(
+          { name: "기능명세서", value: notionPage.url },
           { name: "Figma", value: figmaFile.url },
           { name: "GitHub Organization", value: `https://github.com/${organization}` },
           { name: "Frontend", value: frontendRepo.url },
@@ -293,18 +325,18 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
 
       const specMessage = await spec.send({
         embeds: [new EmbedBuilder()
-          .setTitle("?獄??リ옇????춻??얠돪??)
-          .setDescription("Notion??????熬곣뫁夷??釉띾콦 ?リ옇????춻??얠돪??? ?筌먦끉逾??紐껊퉵??\n\n??瑜곷턄嶺뚯솘??띠럾? ??瑜곸젧??濡?듆 ??嶺??х몭???곌떠??????逾???リ옇?▽빳??紐껊퉵??")
+          .setTitle("📄 기능명세서")
+          .setDescription("Notion에서 프로젝트 기능명세서를 확인합니다.\n\n페이지가 수정되면 이 채널에 변경 알림이 기록됩니다.")
           .setURL(notionPage.url)],
-        components: [linkButton("Notion ???⒱뵛", notionPage.url)],
+        components: [linkButton("Notion 열기", notionPage.url)],
       });
       await specMessage.pin();
       const figmaMessage = await figma.send({
         embeds: [new EmbedBuilder()
-          .setTitle("???Figma")
-          .setDescription("?熬곣뫁夷??釉띾콦 UI/UX ??븐슦??筌뤾쑴諭??筌먦끉逾??紐껊퉵??\n\nFigma????????藥????덈츎 ?뺢퀗??????諛댁뎽???삵깴?????癰?/???????얜????濡?듆 ??嶺??х몭?????逾???リ옇?▽빳??紐껊퉵??")
+          .setTitle("🎨 Figma")
+          .setDescription("프로젝트 UI/UX 디자인을 확인합니다.\n\nFigma에서 이름 있는 버전을 생성하거나 새 댓글/답글을 작성하면 이 채널에 알림이 기록됩니다.")
           .setURL(figmaFile.url)],
-        components: [linkButton("Figma ???⒱뵛", figmaFile.url)],
+        components: [linkButton("Figma 열기", figmaFile.url)],
       });
       await figmaMessage.pin();
 
@@ -337,9 +369,9 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
 
       await updateProject(storedProject.id, { frontendHookId: frontHookId, backendHookId: backHookId, ...automationHooks });
 
-      await frontendLog.send({ embeds: [new EmbedBuilder().setTitle("??Frontend GitHub ??⑤슡???熬곣뫁??).setDescription(frontendRepo.url).setURL(frontendRepo.url)] });
-      await backendLog.send({ embeds: [new EmbedBuilder().setTitle("??Backend GitHub ??⑤슡???熬곣뫁??).setDescription(backendRepo.url).setURL(backendRepo.url)] });
-      await interaction.editReply(`??**${name}** ?熬곣뫁夷??釉띾콦 ??諛댁뎽 + Notion ??瑜곸젧 ???逾?+ Figma ?뺢퀗????癰? ???逾?+ GitHub ?β돦裕??+ Organization 嶺뚣볦굣???뺢퀗???ろ떐?? ?熬곣뫁????곕????덈펲.`);
+      await frontendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Frontend GitHub 연결 완료").setDescription(frontendRepo.url).setURL(frontendRepo.url)] });
+      await backendLog.send({ embeds: [new EmbedBuilder().setTitle("✅ Backend GitHub 연결 완료").setDescription(backendRepo.url).setURL(backendRepo.url)] });
+      await interaction.editReply(`✅ **${name}** 프로젝트 생성 + Notion 수정 알림 + Figma 버전/댓글 알림 + GitHub 로그 + 프로젝트 일정 + Organization 참여 버튼까지 완료했습니다.`);
     } catch (error) {
       for (const hook of githubHooks.reverse()) {
         try { await github.deleteWebhook(hook.repository, hook.id); } catch {}
@@ -350,14 +382,20 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
       if (storedProjectId) {
         try { await deleteProject(storedProjectId); } catch {}
       }
-      for (const id of createdChannelIds) {
-        try { await interaction.guild.channels.delete(id, "?熬곣뫁夷??釉띾콦 ??諛댁뎽 ???덉넮 ?β뼯?뉐첎?); } catch {}
+      if (calendarId && config.googleClientId && config.googleClientSecret && config.googleRefreshToken) {
+        try {
+          await new GoogleCalendarService(config.googleClientId, config.googleClientSecret, config.googleRefreshToken, config.googleRedirectUri)
+            .deleteProjectCalendar(calendarId);
+        } catch {}
       }
-      try { await category.delete("?熬곣뫁夷??釉띾콦 ??諛댁뎽 ???덉넮 ?β뼯?뉐첎?); } catch {}
+      for (const id of createdChannelIds) {
+        try { await interaction.guild.channels.delete(id, "프로젝트 생성 실패 롤백"); } catch {}
+      }
+      try { await category.delete("프로젝트 생성 실패 롤백"); } catch {}
       throw error;
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "???????⑸츎 ???댁쾼?띠럾? ?꾩룇裕뉑틦???곕????덈펲.";
-    await interaction.editReply(`???熬곣뫁夷??釉띾콦 ??諛댁뎽?????덉넮???곕????덈펲.\n\`${message}\``);
+    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    await interaction.editReply(`❌ 프로젝트 생성에 실패했습니다.\n\`${message}\``);
   }
 }

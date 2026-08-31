@@ -18,7 +18,8 @@ import { handleMusicAutocomplete, handleMusicCommand } from "./commands/music.js
 import { handleProjectAutocomplete, handleProjectCommand } from "./commands/project.js";
 import { handleScrumAutocomplete, handleScrumCommand } from "./commands/scrum.js";
 import { handleVoiceCommand } from "./commands/voice.js";
-import { commandHelpEmbed } from "./services/command-help.js";`r`nimport { handleCalendarButton, handleCalendarModal } from "./services/calendar/calendar-discord.js";
+import { commandHelpEmbed } from "./services/command-help.js";
+import { handleCalendarButton, handleCalendarModal } from "./services/calendar/calendar-discord.js";
 import { startContestAudienceFeedPolling } from "./services/contest-audience-feed.js";
 import { startContestFeedPolling } from "./services/contest-feed.js";
 import { ensureContestPrepAnnouncementChannels } from "./services/contest-prep-announcement.js";
@@ -50,7 +51,7 @@ const client = new Client({
 const github = new GitHubWebhookService(config.githubToken);
 
 client.once(Events.ClientReady, async (readyClient) => {
-  console.log(`${readyClient.user.tag} 濡쒓렇???꾨즺 쨌 ?곌껐 ?쒕쾭 ${readyClient.guilds.cache.size}媛?);
+  console.log(`${readyClient.user.tag} 로그인 완료 · 연결 서버 ${readyClient.guilds.cache.size}개`);
   startWebhookServer(client);
   startContestFeedPolling(client);
   startContestAudienceFeedPolling(client);
@@ -60,7 +61,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   const interruptedSessions = await recoverInterruptedStudySessions();
   if (interruptedSessions > 0) {
-    console.log(`?댁쟾 ?ㅽ뻾?먯꽌 醫낅즺?섏? ?딆? ?뚯꽦 怨듬? ?몄뀡 ?뺣━: ${interruptedSessions}媛?);
+    console.log(`이전 실행에서 종료되지 않은 음성 공부 세션 정리: ${interruptedSessions}개`);
   }
 
   await ensureProjectDiscussionChannels(client);
@@ -69,11 +70,11 @@ client.once(Events.ClientReady, async (readyClient) => {
 });
 
 client.on(Events.GuildCreate, (guild) => {
-  console.log(`Discord ?쒕쾭 ?곌껐: ${guild.name} (${guild.id}) 쨌 珥?${client.guilds.cache.size}媛?);
+  console.log(`Discord 서버 연결: ${guild.name} (${guild.id}) · 총 ${client.guilds.cache.size}개`);
 });
 
 client.on(Events.GuildDelete, (guild) => {
-  console.log(`Discord ?쒕쾭 ?곌껐 ?댁젣: ${guild.name} (${guild.id}) 쨌 珥?${client.guilds.cache.size}媛?);
+  console.log(`Discord 서버 연결 해제: ${guild.name} (${guild.id}) · 총 ${client.guilds.cache.size}개`);
 });
 
 client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
@@ -87,18 +88,18 @@ client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
       ) {
         const stopped = await stopStudySession(oldState.guild.id, oldState.id);
         if (stopped) {
-          console.log(`?뚯꽦 怨듬? ?먮룞 醫낅즺 (${oldState.guild.id}/${oldState.id}): ${Math.round(stopped.seconds)}珥?);
+          console.log(`음성 공부 자동 종료 (${oldState.guild.id}/${oldState.id}): ${Math.round(stopped.seconds)}초`);
         }
       }
     } catch (error) {
-      console.error(`?뚯꽦 怨듬? ?먮룞 醫낅즺 ?ㅽ뙣 (${oldState.guild.id}/${oldState.id})`, error);
+      console.error(`음성 공부 자동 종료 실패 (${oldState.guild.id}/${oldState.id})`, error);
     }
   }
 
   try {
     await handleVoiceAutoLeave(newState.guild);
   } catch (error) {
-    console.error(`?뚯꽦 梨꾨꼸 ?먮룞 ?댁옣 ?곹깭 ?뺤씤 ?ㅽ뙣 (${newState.guild.id})`, error);
+    console.error(`음성 채널 자동 퇴장 상태 확인 실패 (${newState.guild.id})`, error);
   }
 });
 
@@ -106,44 +107,44 @@ client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.inGuild()) return;
 
   const content = message.content.trim();
-  if (content === "!愿由ъ옄沅뚰븳珥덇린??) {
+  if (content === "!관리자권한초기화") {
     if (!message.member?.permissions.has(PermissionFlagsBits.Administrator)) {
       await message.reply({
-        content: "???쒕쾭 愿由ъ옄留??ъ슜?????덉뒿?덈떎.",
+        content: "❌ 서버 관리자만 사용할 수 있습니다.",
         allowedMentions: { repliedUser: false },
       });
       return;
     }
 
     await message.reply({
-      content: "?좑툘 ?댁꽕???앹꽦???쒕쾭 怨듦컙怨?????곗씠?곕? 珥덇린?뷀빀?덈떎. ?꾨즺 寃곌낵????梨꾨꼸 ?먮뒗 DM?쇰줈 ?뚮젮?쒕┰?덈떎.",
+      content: "⚠️ 이설이 생성한 서버 공간과 저장 데이터를 초기화합니다. 완료 결과는 이 채널 또는 DM으로 알려드립니다.",
       allowedMentions: { repliedUser: false },
     });
 
     try {
       const summary = await resetGuildState(message.guild);
       const warningText = summary.warnings.length > 0
-        ? `\n?좑툘 ?쇰? ?뺣━ ?ㅽ뙣: **${summary.warnings.length}嫄?* (?쒕쾭 濡쒓렇 ?뺤씤)`
+        ? `\n⚠️ 일부 정리 실패: **${summary.warnings.length}건** (서버 로그 확인)`
         : "";
       const report =
-        `??**${message.guild.name}** ?댁꽕 珥덇린???꾨즺\n` +
-        `??젣??Discord 梨꾨꼸/移댄뀒怨좊━: **${summary.deletedChannels}媛?*\n` +
-        `珥덇린?뷀븳 ????곗씠?? **${summary.clearedRecords}嫄?*\n` +
-        `??젣??GitHub webhook: **${summary.removedExternalHooks}媛?*${warningText}`;
+        `✅ **${message.guild.name}** 이설 초기화 완료\n` +
+        `삭제한 Discord 채널/카테고리: **${summary.deletedChannels}개**\n` +
+        `초기화한 저장 데이터: **${summary.clearedRecords}건**\n` +
+        `삭제한 GitHub webhook: **${summary.removedExternalHooks}개**${warningText}`;
 
-      console.log(`愿由ъ옄 ?쒕쾭 珥덇린???꾨즺 (${message.guild.id})`, summary);
+      console.log(`관리자 서버 초기화 완료 (${message.guild.id})`, summary);
       await message.channel.send(report).catch(async () => {
         await message.author.send(report).catch(() => undefined);
       });
     } catch (error) {
-      console.error(`愿由ъ옄 ?쒕쾭 珥덇린???ㅽ뙣 (${message.guild.id})`, error);
-      const detail = error instanceof Error ? error.message : "?????녿뒗 ?ㅻ쪟";
-      await message.author.send(`???쒕쾭 珥덇린?붿뿉 ?ㅽ뙣?덉뒿?덈떎.\n\`${detail}\``).catch(() => undefined);
+      console.error(`관리자 서버 초기화 실패 (${message.guild.id})`, error);
+      const detail = error instanceof Error ? error.message : "알 수 없는 오류";
+      await message.author.send(`❌ 서버 초기화에 실패했습니다.\n\`${detail}\``).catch(() => undefined);
     }
     return;
   }
 
-  if (content !== "!紐낅졊??) return;
+  if (content !== "!명령어") return;
 
   await message.reply({
     embeds: [commandHelpEmbed()],
@@ -188,12 +189,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const projectId = interaction.customId.split(":")[1];
       const project = projectId ? await findProject(projectId) : null;
       if (!project || project.guildId !== interaction.guildId) {
-        await interaction.reply({ content: "?꾨줈?앺듃 ?뺣낫瑜?李얠쓣 ???놁뒿?덈떎.", ephemeral: true });
+        await interaction.reply({ content: "프로젝트 정보를 찾을 수 없습니다.", ephemeral: true });
         return;
       }
 
-      const username = new TextInputBuilder().setCustomId("github_username").setLabel("GitHub ?ъ슜?먮챸").setPlaceholder("?? sunwoo162").setMinLength(1).setMaxLength(39).setRequired(true).setStyle(TextInputStyle.Short);
-      const modal = new ModalBuilder().setCustomId(`project_join_modal:${project.id}`).setTitle(`${project.name} 李몄뿬`);
+      const username = new TextInputBuilder().setCustomId("github_username").setLabel("GitHub 사용자명").setPlaceholder("예: sunwoo162").setMinLength(1).setMaxLength(39).setRequired(true).setStyle(TextInputStyle.Short);
+      const modal = new ModalBuilder().setCustomId(`project_join_modal:${project.id}`).setTitle(`${project.name} 참여`);
       modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(username));
       await interaction.showModal(modal);
       return;
@@ -207,29 +208,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const projectId = interaction.customId.split(":")[1];
       const project = projectId ? await findProject(projectId) : null;
       if (!project || project.guildId !== interaction.guildId) {
-        await interaction.reply({ content: "?꾨줈?앺듃 ?뺣낫瑜?李얠쓣 ???놁뒿?덈떎.", ephemeral: true });
+        await interaction.reply({ content: "프로젝트 정보를 찾을 수 없습니다.", ephemeral: true });
         return;
       }
 
       const username = interaction.fields.getTextInputValue("github_username").trim().replace(/^@/, "");
       if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(username)) {
-        await interaction.reply({ content: "???щ컮瑜?GitHub ?ъ슜?먮챸???낅젰?댁＜?몄슂.", ephemeral: true });
+        await interaction.reply({ content: "❌ 올바른 GitHub 사용자명을 입력해주세요.", ephemeral: true });
         return;
       }
 
       await interaction.deferReply({ ephemeral: true });
       try {
         await github.inviteOrganizationMember(project.organization, username);
-        await interaction.editReply(`??**@${username}** 怨꾩젙?쇰줈 **${project.organization}** Organization 珥덈?瑜?蹂대깉?듬땲??\nGitHub ?뚮┝ ?먮뒗 ?대찓?쇱뿉??珥덈?瑜??섎씫?섎㈃ ?⑸쪟媛 ?꾨즺?⑸땲??`);
+        await interaction.editReply(`✅ **@${username}** 계정으로 **${project.organization}** Organization 초대를 보냈습니다.\nGitHub 알림 또는 이메일에서 초대를 수락하면 합류가 완료됩니다.`);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "?????녿뒗 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.";
-        await interaction.editReply(`??GitHub Organization 珥덈????ㅽ뙣?덉뒿?덈떎.\n\`${message}\`\n\n?대? 硫ㅻ쾭/珥덈? ?湲?以묒씤吏, ?먮뒗 ?좏겙??Organization Members ?곌린 沅뚰븳???덈뒗吏 ?뺤씤?댁＜?몄슂.`);
+        const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+        await interaction.editReply(`❌ GitHub Organization 초대에 실패했습니다.\n\`${message}\`\n\n이미 멤버/초대 대기 중인지, 또는 토큰에 Organization Members 쓰기 권한이 있는지 확인해주세요.`);
       }
     }
   } catch (error) {
     console.error(error);
     if (interaction.isRepliable() && !interaction.deferred && !interaction.replied) {
-      await interaction.reply({ content: "紐낅졊 泥섎━ 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.", ephemeral: true }).catch(() => undefined);
+      await interaction.reply({ content: "명령 처리 중 오류가 발생했습니다.", ephemeral: true }).catch(() => undefined);
     }
   }
 });

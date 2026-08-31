@@ -39,12 +39,12 @@ export function parseGitHubRepository(input: string): RepositoryRef {
 
   const url = new URL(normalized);
   if (url.hostname !== "github.com" && url.hostname !== "www.github.com") {
-    throw new Error("GitHub ??μ냼??https://github.com/ORG/REPO ?뺤떇留??ъ슜?????덉뒿?덈떎.");
+    throw new Error("GitHub 저장소는 https://github.com/ORG/REPO 형식만 사용할 수 있습니다.");
   }
 
   const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new Error("GitHub ??μ냼??https://github.com/ORG/REPO ?뺤떇?쇰줈 ?낅젰?댁＜?몄슂.");
+    throw new Error("GitHub 저장소는 https://github.com/ORG/REPO 형식으로 입력해주세요.");
   }
 
   const owner = parts[0];
@@ -66,7 +66,7 @@ export class GitHubWebhookService {
     });
 
     if (!data.owner?.login || !data.owner.type) {
-      throw new Error(`GitHub ??μ냼 owner ?뺣낫瑜??뺤씤?????놁뒿?덈떎: ${repository.url}`);
+      throw new Error(`GitHub 저장소 owner 정보를 확인할 수 없습니다: ${repository.url}`);
     }
 
     return {
@@ -104,6 +104,7 @@ export class GitHubWebhookService {
     const { data } = await this.octokit.rest.issues.create({ owner: ref.owner, repo: ref.repo, title, body });
     return { number: data.number, htmlUrl: data.html_url };
   }
+
   async deleteWebhook(repository: RepositoryRef, hookId: number): Promise<void> {
     await this.octokit.rest.repos.deleteWebhook({ owner: repository.owner, repo: repository.repo, hook_id: hookId });
   }
