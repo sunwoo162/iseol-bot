@@ -57,7 +57,7 @@ bash scripts/setup-review-runner-tools.sh check
 bash scripts/setup-review-runner-tools.sh install
 ```
 
-The helper installs when prerequisites exist:
+The helper installs:
 
 - Knip
 - dependency-cruiser
@@ -74,18 +74,43 @@ Project-local tools are also detected automatically:
 - package scripts: `lint`, `typecheck`, `test`, `build`
 - `npm audit`
 
-If Ubuntu lacks prerequisites:
+The helper downloads the current official Go Linux runtime into the runner user's private tools directory before installing the Go-based security analyzers. This avoids depending on an older Ubuntu `golang-go` package when a scanner requires a newer Go release.
+
+If Ubuntu lacks the Python venv module used by Semgrep:
 
 ```bash
 sudo apt update
-sudo apt install -y python3-venv golang-go
+sudo apt install -y python3-venv
 ```
 
-Then rerun the install helper. Ensure the runner service PATH includes the path printed by the helper (normally `~/.local/bin`). Restart the runner service after changing its environment.
+Ensure the runner service PATH includes the paths printed by the helper, normally:
+
+```text
+~/.local/bin
+~/.local/share/iseol-review-tools/go/bin
+```
+
+Restart the runner service after changing its environment.
 
 Missing optional analyzers do not abort a review. They are recorded as `skipped` while available analyzers continue.
 
-## 4. Install workflows into existing Iseol projects
+## 4. GitHub token permissions
+
+The Iseol runtime token needs access to every linked repository. For the full review workflow, use a fine-grained token with the permissions required by the enabled features, including:
+
+```text
+Metadata: Read
+Contents: Read and write
+Workflows: Read and write
+Actions: Read
+Pull requests: Read and write
+Issues: Read and write
+Webhooks: Read and write
+```
+
+`Workflows: write` is needed when Iseol creates `.github/workflows/iseol-code-review.yml`. `Actions: read` is used to find completed runs and download the findings artifact. `Pull requests: write` is used only by the Iseol runtime to post the review; the self-hosted review job itself receives no production bot token.
+
+## 5. Install workflows into existing Iseol projects
 
 From the production Iseol checkout:
 
@@ -95,9 +120,9 @@ npm run review:install-workflows
 
 The installer creates `.github/workflows/iseol-code-review.yml` only when it does not already exist. It never overwrites a repository's existing file at that path.
 
-The normal 1-minute Iseol polling loop also attempts this installation once per project after bot startup, so newly stored projects are automatically covered when the GitHub token has repository contents write permission.
+The normal 1-minute Iseol polling loop also attempts this installation once per project after bot startup, so newly stored projects are automatically covered when the GitHub token can write workflow files.
 
-## 5. Expected PR flow
+## 6. Expected PR flow
 
 ```text
 same-repository PR opened/reopened/synchronized
