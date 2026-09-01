@@ -1,12 +1,19 @@
 import {
   ActionRowBuilder,
   ButtonBuilder,
+  ButtonInteraction,
   ButtonStyle,
   EmbedBuilder,
+  PermissionFlagsBits,
   TextChannel,
 } from "discord.js";
-import type { StoredProject } from "../projects.js";
-import { buildProjectHubId } from "./project-custom-id.js";
+import { calendarPanel } from "../calendar/calendar-discord.js";
+import { findProject, type StoredProject } from "../projects.js";
+import {
+  buildProjectHubId,
+  parseProjectHubId,
+  type ProjectHubAction,
+} from "./project-custom-id.js";
 import { projectHealthLines, type ProjectHealth } from "./project-health.js";
 
 function linkButton(label: string, url: string, emoji?: string): ButtonBuilder {
@@ -16,6 +23,27 @@ function linkButton(label: string, url: string, emoji?: string): ButtonBuilder {
     .setURL(url);
   if (emoji) button.setEmoji(emoji);
   return button;
+}
+
+export function projectHubActionCopy(action: ProjectHubAction): string {
+  if (action === "calendar") return "📅 일정 관리";
+  if (action === "scrum") return "📋 데일리 스크럼";
+  if (action === "github") return "🐙 GitHub 계정/프로젝트";
+  if (action === "review") return "🔍 코드리뷰 상태";
+  if (action === "refresh") return "🔄 프로젝트 상태 새로고침";
+  return "⚙️ 프로젝트 관리";
+}
+
+function currentProjectHealth(project: StoredProject): ProjectHealth {
+  const githubReady = project.frontendHookId !== undefined && project.backendHookId !== undefined;
+  return {
+    github: githubReady ? "connected" : "repair",
+    review: "checking",
+    calendar: project.calendarId ? "connected" : "needs_setup",
+    scrum: project.scrumChannelId ? "connected" : "repair",
+    notion: project.notionUrl ? "connected" : "needs_setup",
+    figma: project.figmaUrl ? "connected" : "needs_setup",
+  };
 }
 
 export function projectHubMessage(project: StoredProject, health: ProjectHealth) {
@@ -63,9 +91,12 @@ export function projectHubMessage(project: StoredProject, health: ProjectHealth)
     linkButton("Backend", project.backend.url, "🐙"),
   ].filter((button): button is ButtonBuilder => Boolean(button));
 
-  if (links.length > 0) {
-    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...links));
-  }
+  const manageButton = new ButtonBuilder()
+    .setCustomId(buildProjectHubId("admin", project.id))
+    .setLabel("관리")
+    .setEmoji("⚙️")
+    .setStyle(ButtonStyle.Secondary);
+  components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...links, manageButton));
 
   return { embeds: [embed], components };
 }
@@ -87,4 +118,116 @@ export async function ensureProjectHub(
   const created = await channel.send(projectHubMessage(project, health));
   await created.pin().catch(() => undefined);
   return created.id;
+}
+
+function githubPanel(project: StoredProject) {
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`project_join:${project.id}`)
+      .setLabel("Organization 참여")
+      .setEmoji("🚀")
+      .setStyle(ButtonStyle.Primary),
+    linkButton("Frontend", project.frontend.url, "🐙"),
+    linkButton("Backend", project.backend.url, "🐙"),
+  );
+  return {
+    content: [
+      `🐙 **${project.name} GitHub**`,
+      `Organization: **${project.organization}**`,
+      "팀 참여가 필요하면 아래 버튼을 누르세요.",
+    ].join("\n"),
+    components: [row],
+    ephemeral: true as const,
+  };
+}
+
+async function refreshHub(interaction: ButtonInteraction, project: StoredProject): Promise<void> {
+  const guild = interaction.guild;
+  if (!guild) {
+    await interaction.reply({ content: "연결 정보를 찾을 수 없습니다.", ephemeral: true });
+    return;
+  }
+
+  const channels = await guild.channels.fetch();
+  const overview = channels.find((channel) =>
+    channel instanceof TextChannel
+    && channel.parentId === project.categoryId
+    && channel.name === "📌・프로젝트",
+  );
+  if (!(overview instanceof TextChannel)) {
+    await interaction.reply({ content: "프로젝트 허브 채널을 찾을 수 없습니다. 관리자에게 자동 복구를 요청해주세요.", ephemeral: true });
+    return;
+  }
+
+  await ensureProjectHub(overview, project, currentProjectHealth(project));
+  await interaction.reply({ content: "✅ 프로젝트 상태를 새로고침했습니다.", ephemeral: true });
+}
+
+export async function handleProjectHubButton(interaction: ButtonInteraction): Promise<boolean> {
+  const parsed = parseProjectHubId(interaction.customId);
+  if (!parsed) return false;
+
+  const project = await findProject(parsed.projectId);
+  if (!project || project.guildId !== interaction.guildId) {
+    await interaction.reply({ content: "연결 정보를 찾을 수 없습니다.", ephemeral: true });
+    return true;
+  }
+
+  if (parsed.action === "calendar") {
+    await interaction.reply({
+      ...calendarPanel(project.id, project.calendarUrl),
+      ephemeral: true,
+    });
+    return true;
+  }
+
+  if (parsed.action === "scrum") {
+    const channel = project.scrumChannelId ? `<#${project.scrumChannelId}>` : "스크럼 채널을 찾을 수 없습니다.";
+    await interaction.reply({
+      content: `📋 **데일리 스크럼**\n${channel}\n현재 `/scrum write`로 작성할 수 있고, 버튼 작성 흐름은 다음 자동화 단계에서 이 패널에 바로 연결됩니다.`,
+      ephemeral: true,
+    });
+    return true;
+  }
+
+  if (parsed.action === "github") {
+    await interaction.reply(githubPanel(project));
+    return true;
+  }
+
+  if (parsed.action === "review") {
+    await interaction.reply({
+      content: [
+        "🔍 **이설 Code Review**",
+        `Frontend · ${project.frontend.owner}/${project.frontend.repo}`,
+        `Backend · ${project.backend.owner}/${project.backend.repo}`,
+        "PR이 생성되거나 새 커밋이 올라오면 자동 리뷰합니다.",
+        "workflow 설치 권한이 부족하면 관리자 설정 필요 상태로 표시됩니다.",
+      ].join("\n"),
+      ephemeral: true,
+    });
+    return true;
+  }
+
+  if (parsed.action === "refresh") {
+    await refreshHub(interaction, project);
+    return true;
+  }
+
+  if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) {
+    await interaction.reply({ content: "이 기능은 프로젝트 관리 권한이 있는 사용자만 사용할 수 있습니다.", ephemeral: true });
+    return true;
+  }
+
+  await interaction.reply({
+    content: [
+      `⚙️ **${project.name} 관리**`,
+      "• 누락된 프로젝트 허브/스크럼 채널은 봇 시작 시 자동 복구됩니다.",
+      "• Notion/Figma는 선택 연동이며 없어도 프로젝트를 사용할 수 있습니다.",
+      "• GitHub PAT/Google OAuth 같은 전역 비밀값은 Discord에서 입력하지 않습니다.",
+      "• 프로젝트 삭제는 기존 `/project delete`에서 명시적으로 실행합니다.",
+    ].join("\n"),
+    ephemeral: true,
+  });
+  return true;
 }
