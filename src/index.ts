@@ -24,6 +24,7 @@ import { startContestAudienceFeedPolling } from "./services/contest-audience-fee
 import { startContestFeedPolling } from "./services/contest-feed.js";
 import { ensureContestPrepAnnouncementChannels } from "./services/contest-prep-announcement.js";
 import { startDailyScrumReminderScheduler } from "./services/daily-scrum.js";
+import { handleProjectScrumButton, handleProjectScrumModal } from "./services/daily-scrum-discord.js";
 import { resetGuildState } from "./services/guild-reset.js";
 import { startGitHubCommitFeedPolling } from "./services/github-commit-feed.js";
 import { GitHubWebhookService } from "./services/github.js";
@@ -183,6 +184,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (await handleProjectHubButton(interaction)) return;
     }
 
+    if (interaction.isButton() && interaction.customId.startsWith("project_scrum:")) {
+      if (await handleProjectScrumButton(interaction)) return;
+    }
+
     if (
       interaction.isButton()
       && (interaction.customId.startsWith("calendar:") || interaction.customId.startsWith("calendar_delete_"))
@@ -226,6 +231,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await ensureProjectDiscussionChannels(client);
         return;
       }
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith("project_scrum_")) {
+      if (await handleProjectScrumModal(interaction)) return;
     }
 
     if (interaction.isModalSubmit() && interaction.customId.startsWith("calendar_")) {
