@@ -28,13 +28,95 @@ export function parseRepositorySide(value: string): "frontend" | "backend" {
   if (normalized === "frontend" || normalized === "backend") return normalized;
   throw new Error("repository는 frontend 또는 backend로 입력해주세요.");
 }
-export function parseKstDateTime(value: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(value.trim());
-  if (!match) throw new Error("날짜는 YYYY-MM-DD HH:mm 형식으로 입력해주세요.");
-  const [, y, m, d, hh, mm] = match;
-  const date = new Date(`${y}-${m}-${d}T${hh}:${mm}:00+09:00`);
-  if (Number.isNaN(date.getTime())) throw new Error("올바른 날짜/시간을 입력해주세요.");
-  return `${y}-${m}-${d}T${hh}:${mm}:00+09:00`;
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function kstParts(now: Date): { year: number; month: number; day: number } {
+  const shifted = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+  };
+}
+
+function isValidCalendarDate(year: number, month: number, day: number, hour: number, minute: number): boolean {
+  if (!Number.isInteger(year) || year < 1970 || year > 9999) return false;
+  if (!Number.isInteger(month) || month < 1 || month > 12) return false;
+  if (!Number.isInteger(day) || day < 1) return false;
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return false;
+  if (!Number.isInteger(minute) || minute < 0 || minute > 59) return false;
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return day <= daysInMonth;
+}
+
+function formatKst(year: number, month: number, day: number, hour: number, minute: number): string {
+  if (!isValidCalendarDate(year, month, day, hour, minute)) {
+    throw new Error("올바른 날짜/시간을 입력해주세요.");
+  }
+  return `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(minute)}:00+09:00`;
+}
+
+function formatKstInstant(date: Date): string {
+  const shifted = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return formatKst(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth() + 1,
+    shifted.getUTCDate(),
+    shifted.getUTCHours(),
+    shifted.getUTCMinutes(),
+  );
+}
+
+export function parseKstDateTime(value: string, now = new Date()): string {
+  const input = value.trim();
+  const current = kstParts(now);
+
+  const full = /^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})$/.exec(input);
+  if (full) {
+    return formatKst(Number(full[1]), Number(full[2]), Number(full[3]), Number(full[4]), Number(full[5]));
+  }
+
+  const monthDay = /^(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})$/.exec(input);
+  if (monthDay) {
+    return formatKst(current.year, Number(monthDay[1]), Number(monthDay[2]), Number(monthDay[3]), Number(monthDay[4]));
+  }
+
+  const relative = /^(오늘|내일)\s+(\d{1,2}):(\d{2})$/.exec(input);
+  if (relative) {
+    const baseUtc = Date.UTC(current.year, current.month - 1, current.day + (relative[1] === "내일" ? 1 : 0));
+    const base = new Date(baseUtc);
+    return formatKst(base.getUTCFullYear(), base.getUTCMonth() + 1, base.getUTCDate(), Number(relative[2]), Number(relative[3]));
+  }
+
+  throw new Error("날짜는 `내일 14:00`, `9/3 14:00`, `2026-09-03 14:00` 형식으로 입력해주세요.");
+}
+
+export function resolveCalendarRange(
+  startText: string,
+  endText: string,
+  now = new Date(),
+): { start: string; end: string } {
+  const start = parseKstDateTime(startText, now);
+  const endInput = endText.trim();
+  let end: string;
+
+  if (!endInput) {
+    end = formatKstInstant(new Date(new Date(start).getTime() + 60 * 60 * 1000));
+  } else if (/^\d{1,2}:\d{2}$/.test(endInput)) {
+    const startDate = start.slice(0, 10);
+    end = parseKstDateTime(`${startDate} ${endInput}`, now);
+  } else {
+    end = parseKstDateTime(endInput, now);
+  }
+
+  if (new Date(end).getTime() <= new Date(start).getTime()) {
+    throw new Error("종료 시간은 시작 시간보다 뒤여야 합니다.");
+  }
+
+  return { start, end };
 }
 
 export function calendarPanelDescription(calendarUrl?: string): string {
