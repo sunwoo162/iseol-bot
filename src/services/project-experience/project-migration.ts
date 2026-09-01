@@ -123,10 +123,10 @@ async function ensureCalendarGuide(
 }
 
 async function findLegacyDocumentGuide(channel: TextChannel, title: string) {
-  const pinned = await channel.messages.fetchPins().catch(() => null);
+  const pinned = await channel.messages.fetchPinned().catch(() => null);
   const botId = channel.client.user?.id;
   if (!pinned || !botId) return null;
-  return pinned.items.find((message) =>
+  return pinned.find((message) =>
     message.author.id === botId
     && message.embeds.some((embed) => embed.title === title),
   ) ?? null;
