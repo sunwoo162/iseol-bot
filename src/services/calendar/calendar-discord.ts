@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -6,6 +7,9 @@ import {
   EmbedBuilder,
   ModalBuilder,
   ModalSubmitInteraction,
+  StringSelectMenuBuilder,
+  StringSelectMenuInteraction,
+  StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
@@ -17,10 +21,35 @@ import { CalendarStateStore } from "./calendar-state.js";
 import { GoogleCalendarService } from "./google-calendar.js";
 
 export type CalendarAction = "add" | "view" | "update" | "delete" | "issue";
+export type CalendarEventSelectAction = "update" | "delete";
+
+type CalendarEventOptionSource = {
+  id?: string | null;
+  summary?: string | null;
+  start?: {
+    dateTime?: string | null;
+    date?: string | null;
+  } | null;
+};
+
+type CalendarSelectionSession = {
+  projectId: string;
+  eventId: string;
+  action: CalendarEventSelectAction;
+  expiresAt: number;
+};
+
+const CALENDAR_SELECTION_TTL_MS = 10 * 60 * 1000;
+const calendarSelectionSessions = new Map<string, CalendarSelectionSession>();
 
 export function parseCalendarCustomId(customId: string): { action: CalendarAction; projectId: string } | null {
   const match = /^calendar:(add|view|update|delete|issue):([A-Za-z0-9_-]+)$/.exec(customId);
   return match ? { action: match[1] as CalendarAction, projectId: match[2]! } : null;
+}
+
+export function parseCalendarEventSelectId(customId: string): { action: CalendarEventSelectAction; projectId: string } | null {
+  const match = /^calendar_event:(update|delete):([A-Za-z0-9_-]+)$/.exec(customId);
+  return match ? { action: match[1] as CalendarEventSelectAction, projectId: match[2]! } : null;
 }
 
 export function parseRepositorySide(value: string): "frontend" | "backend" {
@@ -119,6 +148,73 @@ export function resolveCalendarRange(
   return { start, end };
 }
 
+function eventStartDescription(event: CalendarEventOptionSource): string {
+  if (event.start?.dateTime) {
+    const instant = new Date(event.start.dateTime);
+    if (!Number.isNaN(instant.getTime())) {
+      const shifted = new Date(instant.getTime() + 9 * 60 * 60 * 1000);
+      return `${shifted.getUTCMonth() + 1}/${shifted.getUTCDate()} ${pad2(shifted.getUTCHours())}:${pad2(shifted.getUTCMinutes())}`;
+    }
+  }
+
+  const date = /^(\d{4})-(\d{2})-(\d{2})$/.exec(event.start?.date ?? "");
+  if (date) return `${Number(date[2])}/${Number(date[3])} 하루 종일`;
+  return "시간 없음";
+}
+
+function truncateDiscordText(value: string, maxLength: number): string {
+  const normalized = value.trim() || "제목 없음";
+  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+export function calendarEventSelectOptions(events: CalendarEventOptionSource[]): Array<{
+  label: string;
+  description: string;
+  value: string;
+}> {
+  return events
+    .filter((event): event is CalendarEventOptionSource & { id: string } => Boolean(event.id))
+    .slice(0, 25)
+    .map((event) => ({
+      label: truncateDiscordText(event.summary ?? "제목 없음", 100),
+      description: truncateDiscordText(eventStartDescription(event), 100),
+      value: event.id,
+    }));
+}
+
+function clearExpiredCalendarSelections(now = Date.now()): void {
+  for (const [token, session] of calendarSelectionSessions) {
+    if (session.expiresAt <= now) calendarSelectionSessions.delete(token);
+  }
+}
+
+export function createCalendarSelectionSession(
+  projectId: string,
+  eventId: string,
+  action: CalendarEventSelectAction,
+  now = Date.now(),
+): string {
+  clearExpiredCalendarSelections(now);
+  const token = randomUUID().replaceAll("-", "").slice(0, 24);
+  calendarSelectionSessions.set(token, {
+    projectId,
+    eventId,
+    action,
+    expiresAt: now + CALENDAR_SELECTION_TTL_MS,
+  });
+  return token;
+}
+
+export function getCalendarSelectionSession(token: string, now = Date.now()): CalendarSelectionSession | null {
+  clearExpiredCalendarSelections(now);
+  const session = calendarSelectionSessions.get(token);
+  if (!session || session.expiresAt <= now) {
+    calendarSelectionSessions.delete(token);
+    return null;
+  }
+  return { ...session };
+}
+
 export function calendarPanelDescription(calendarUrl?: string): string {
   return [
     "프로젝트 일정을 이설에서 바로 관리합니다.",
@@ -157,8 +253,8 @@ async function showEventModal(interaction: ButtonInteraction, action: "add" | "u
   if (action === "update") modal.addComponents(textInput("event_id", "Event ID", "일정 보기에서 확인한 ID"));
   modal.addComponents(
     textInput("title", "일정 제목", "예: 로그인 API 완료"),
-    textInput("start", "시작", "2026-09-01 14:00"),
-    textInput("end", "종료", "2026-09-01 15:00"),
+    textInput("start", "시작", "내일 14:00"),
+    textInput("end", "종료", "내일 15:00"),
   );
   await interaction.showModal(modal);
 }
@@ -170,16 +266,40 @@ async function showIssueModal(interaction: ButtonInteraction) {
     textInput("repository", "저장소", "frontend 또는 backend"),
     textInput("title", "Issue 제목", "예: 로그인 API 구현"),
     textInput("body", "Issue 내용", "완료 조건/작업 내용", TextInputStyle.Paragraph),
-    textInput("start", "시작", "2026-09-01 14:00"),
-    textInput("end", "종료", "2026-09-01 15:00"),
+    textInput("start", "시작", "내일 14:00"),
+    textInput("end", "종료", "내일 15:00"),
   );
   await interaction.showModal(modal);
 }
-async function showDeleteModal(interaction: ButtonInteraction) {
-  const parsed = parseCalendarCustomId(interaction.customId)!;
-  const modal = new ModalBuilder().setCustomId(`calendar_delete_modal:${parsed.projectId}`).setTitle("일정 삭제");
-  modal.addComponents(textInput("event_id", "Event ID", "삭제할 일정 ID"));
-  await interaction.showModal(modal);
+
+async function showEventSelect(interaction: ButtonInteraction, projectId: string, calendarId: string, action: CalendarEventSelectAction) {
+  await interaction.deferReply({ ephemeral: true });
+  const events = await calendarService().listEvents(calendarId);
+  const eligible = events.filter((event): event is typeof event & { id: string } => Boolean(event.id)).slice(0, 25);
+  const displayOptions = calendarEventSelectOptions(eligible);
+  if (eligible.length === 0 || displayOptions.length === 0) {
+    await interaction.editReply("선택할 예정 일정이 없습니다.");
+    return;
+  }
+
+  const options = displayOptions.map((option, index) =>
+    new StringSelectMenuOptionBuilder()
+      .setLabel(option.label)
+      .setDescription(option.description)
+      .setValue(createCalendarSelectionSession(projectId, eligible[index]!.id, action)),
+  );
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`calendar_event:${action}:${projectId}`)
+    .setPlaceholder(action === "update" ? "수정할 일정 선택" : "삭제할 일정 선택")
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(...options);
+
+  await interaction.editReply({
+    content: action === "update" ? "수정할 일정을 선택해주세요." : "삭제할 일정을 선택해주세요.",
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
+  });
 }
 
 export async function handleCalendarButton(interaction: ButtonInteraction): Promise<boolean> {
@@ -190,12 +310,16 @@ export async function handleCalendarButton(interaction: ButtonInteraction): Prom
     await interaction.reply({ content: "프로젝트 정보를 찾을 수 없습니다.", ephemeral: true });
     return true;
   }
-  if (parsed.action === "add" || parsed.action === "update") {
-    await showEventModal(interaction, parsed.action);
+  if (parsed.action === "add") {
+    await showEventModal(interaction, "add");
     return true;
   }
-  if (parsed.action === "delete") {
-    await showDeleteModal(interaction);
+  if (parsed.action === "update" || parsed.action === "delete") {
+    if (!project.calendarId) {
+      await interaction.reply({ content: "Google Calendar OAuth 설정이 필요합니다.", ephemeral: true });
+      return true;
+    }
+    await showEventSelect(interaction, project.id, project.calendarId, parsed.action);
     return true;
   }
   if (parsed.action === "issue") {
@@ -208,8 +332,32 @@ export async function handleCalendarButton(interaction: ButtonInteraction): Prom
   }
   await interaction.deferReply({ ephemeral: true });
   const events = await calendarService().listEvents(project.calendarId);
-  const lines = events.slice(0, 10).map((event) => `• **${event.summary ?? "제목 없음"}** · \`${event.id}\`\n  ${event.start?.dateTime ?? event.start?.date ?? "시간 없음"}`);
+  const lines = events.slice(0, 10).map((event) => `• **${event.summary ?? "제목 없음"}**\n  ${eventStartDescription(event)}`);
   await interaction.editReply(lines.length ? lines.join("\n") : "예정된 일정이 없습니다.");
+  return true;
+}
+
+export async function handleCalendarSelect(interaction: StringSelectMenuInteraction): Promise<boolean> {
+  const parsed = parseCalendarEventSelectId(interaction.customId);
+  if (!parsed) return false;
+  const project = await findProject(parsed.projectId);
+  if (!project || project.guildId !== interaction.guildId || !project.calendarId) {
+    await interaction.reply({ content: "프로젝트 Calendar 연결 정보를 찾을 수 없습니다.", ephemeral: true });
+    return true;
+  }
+
+  const token = interaction.values[0] ?? "";
+  const session = getCalendarSelectionSession(token);
+  if (!session || session.projectId !== project.id || session.action !== parsed.action) {
+    await interaction.reply({ content: "선택 시간이 만료되었습니다. 다시 일정을 선택해주세요.", ephemeral: true });
+    return true;
+  }
+
+  const event = await calendarService().getEvent(project.calendarId, session.eventId);
+  await interaction.reply({
+    content: `✅ **${event.summary ?? "제목 없음"}** 일정 선택 완료`,
+    ephemeral: true,
+  });
   return true;
 }
 
