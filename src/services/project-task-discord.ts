@@ -4,6 +4,7 @@ import {
   ButtonInteraction,
   ButtonStyle,
   EmbedBuilder,
+  Guild,
   ModalBuilder,
   ModalSubmitInteraction,
   TextChannel,
@@ -20,6 +21,7 @@ import {
   listMemberProjectTasks,
   saveProjectTask,
   updateProjectTask,
+  type ProjectTaskStatus,
   type StoredProjectTask,
 } from "./project-task.js";
 import { findProject, type StoredProject } from "./projects.js";
@@ -31,6 +33,19 @@ export type ProjectTaskCreatePlan = {
   repository: RepositoryRef;
   creatorDiscordId: string;
   githubUsername?: string;
+  title: string;
+  body: string;
+  start: string;
+  end: string;
+};
+
+export type ProjectTaskCompletionPlan = {
+  shouldCloseIssue: boolean;
+  nextStatus: ProjectTaskStatus;
+  calendarSummary: string;
+};
+
+export type ProjectTaskEditPlan = {
   title: string;
   body: string;
   start: string;
@@ -61,6 +76,30 @@ export function projectTaskCreatePlan(
     repository: project.frontend,
     creatorDiscordId,
     ...(githubUsername ? { githubUsername } : {}),
+    title: title.trim(),
+    body: body.trim(),
+    start: range.start,
+    end: range.end,
+  };
+}
+
+export function projectTaskCompletionPlan(task: StoredProjectTask): ProjectTaskCompletionPlan {
+  return {
+    shouldCloseIssue: task.status !== "completed",
+    nextStatus: "completed",
+    calendarSummary: `✅ ${task.title}`,
+  };
+}
+
+export function projectTaskEditPlan(
+  _task: StoredProjectTask,
+  title: string,
+  body: string,
+  startText: string,
+  now = new Date(),
+): ProjectTaskEditPlan {
+  const range = resolveCalendarRange(startText, "", now);
+  return {
     title: title.trim(),
     body: body.trim(),
     start: range.start,
@@ -206,6 +245,62 @@ async function resolveTaskChannel(interaction: ModalSubmitInteraction, project: 
   return found instanceof TextChannel ? found : null;
 }
 
+async function refreshStoredTaskCard(guild: Guild | null, task: StoredProjectTask): Promise<void> {
+  if (!guild || !task.discordChannelId || !task.discordMessageId) return;
+  const channel = await guild.channels.fetch(task.discordChannelId).catch(() => null);
+  if (!(channel instanceof TextChannel)) return;
+  const message = await channel.messages.fetch(task.discordMessageId).catch(() => null);
+  if (!message) return;
+  await message.edit(taskCardPayload(task)).catch(() => undefined);
+}
+
+async function handleTaskCompletion(interaction: ButtonInteraction, task: StoredProjectTask): Promise<boolean> {
+  const project = await findProject(task.projectId);
+  if (!project || project.guildId !== interaction.guildId || task.guildId !== interaction.guildId) {
+    await interaction.reply({ content: "작업의 프로젝트 정보를 찾을 수 없습니다.", ephemeral: true });
+    return true;
+  }
+
+  const plan = projectTaskCompletionPlan(task);
+  if (!plan.shouldCloseIssue) {
+    await refreshStoredTaskCard(interaction.guild, task);
+    await interaction.reply({ content: "이미 완료된 작업입니다.", ephemeral: true });
+    return true;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+  const github = new GitHubWebhookService(config.githubToken);
+  await github.closeIssue(task.repository, task.issueNumber);
+
+  let calendarWarning = false;
+  const calendar = taskCalendarService();
+  if (calendar && project.calendarId && task.calendarEventId) {
+    try {
+      await calendar.updateEvent(project.calendarId, task.calendarEventId, {
+        summary: plan.calendarSummary,
+        description: [task.body, `GitHub Issue #${task.issueNumber}`, task.issueUrl].filter(Boolean).join("\n\n"),
+        start: task.start,
+        end: task.end,
+        metadata: {
+          iseolProjectId: project.id,
+          source: "task",
+          repository: task.repository,
+          number: String(task.issueNumber),
+          status: "completed",
+        },
+      });
+    } catch (error) {
+      calendarWarning = true;
+      console.warn(`완료 작업 Calendar 갱신 실패 (${project.name} #${task.issueNumber})`, error);
+    }
+  }
+
+  const updated = await updateProjectTask(task.id, { status: plan.nextStatus }) ?? { ...task, status: plan.nextStatus };
+  await refreshStoredTaskCard(interaction.guild, updated);
+  await interaction.editReply(`✅ **${updated.title}** 완료 · GitHub Issue Close${calendarWarning ? "\n⚠️ Calendar 완료 표시 확인 필요" : ""}`);
+  return true;
+}
+
 export async function handleProjectTaskButton(interaction: ButtonInteraction): Promise<boolean> {
   const parsed = parseProjectTaskId(interaction.customId);
   if (!parsed) return false;
@@ -231,10 +326,88 @@ export async function handleProjectTaskButton(interaction: ButtonInteraction): P
     return true;
   }
 
-  return false;
+  const task = await findProjectTask(parsed.id);
+  if (!task || task.guildId !== interaction.guildId) {
+    await interaction.reply({ content: "작업 정보를 찾을 수 없습니다.", ephemeral: true });
+    return true;
+  }
+
+  if (parsed.action === "complete") return handleTaskCompletion(interaction, task);
+
+  if (parsed.action === "edit") {
+    await interaction.showModal(taskEditModal(task));
+    return true;
+  }
+
+  const project = await findProject(task.projectId);
+  const lines = [
+    `🐙 [GitHub Issue #${task.issueNumber}](${task.issueUrl})`,
+    project?.calendarUrl ? `📅 [Google Calendar 열기](${project.calendarUrl})` : "📅 Google Calendar 미연결",
+  ];
+  await interaction.reply({ content: lines.join("\n"), ephemeral: true });
+  return true;
+}
+
+async function handleTaskEditModal(interaction: ModalSubmitInteraction, taskId: string): Promise<boolean> {
+  const task = await findProjectTask(taskId);
+  if (!task || task.guildId !== interaction.guildId) {
+    await interaction.reply({ content: "작업 정보를 찾을 수 없습니다.", ephemeral: true });
+    return true;
+  }
+  const project = await findProject(task.projectId);
+  if (!project || project.guildId !== interaction.guildId) {
+    await interaction.reply({ content: "작업의 프로젝트 정보를 찾을 수 없습니다.", ephemeral: true });
+    return true;
+  }
+
+  const plan = projectTaskEditPlan(
+    task,
+    interaction.fields.getTextInputValue("title"),
+    interaction.fields.getTextInputValue("body"),
+    interaction.fields.getTextInputValue("start"),
+  );
+  if (!plan.title) {
+    await interaction.reply({ content: "작업 제목을 입력해주세요.", ephemeral: true });
+    return true;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+  const github = new GitHubWebhookService(config.githubToken);
+  await github.updateIssue(task.repository, task.issueNumber, { title: plan.title, body: plan.body });
+
+  let calendarWarning = false;
+  const calendar = taskCalendarService();
+  if (calendar && project.calendarId && task.calendarEventId) {
+    try {
+      await calendar.updateEvent(project.calendarId, task.calendarEventId, {
+        summary: task.status === "completed" ? `✅ ${plan.title}` : `[${project.name}] ${plan.title}`,
+        description: [plan.body, `GitHub Issue #${task.issueNumber}`, task.issueUrl].filter(Boolean).join("\n\n"),
+        start: plan.start,
+        end: plan.end,
+        metadata: {
+          iseolProjectId: project.id,
+          source: "task",
+          repository: task.repository,
+          number: String(task.issueNumber),
+          status: task.status,
+        },
+      });
+    } catch (error) {
+      calendarWarning = true;
+      console.warn(`작업 Calendar 수정 실패 (${project.name} #${task.issueNumber})`, error);
+    }
+  }
+
+  const updated = await updateProjectTask(task.id, plan) ?? { ...task, ...plan };
+  await refreshStoredTaskCard(interaction.guild, updated);
+  await interaction.editReply(`✅ **${updated.title}** 수정 완료${calendarWarning ? "\n⚠️ Calendar 반영 확인 필요" : ""}`);
+  return true;
 }
 
 export async function handleProjectTaskModal(interaction: ModalSubmitInteraction): Promise<boolean> {
+  const edit = /^project_task_edit_modal:([A-Za-z0-9_-]+)$/.exec(interaction.customId);
+  if (edit) return handleTaskEditModal(interaction, edit[1]!);
+
   const create = /^project_task_create_modal:([A-Za-z0-9_-]+)$/.exec(interaction.customId);
   if (!create) return false;
 
@@ -283,6 +456,7 @@ export async function handleProjectTaskModal(interaction: ModalSubmitInteraction
           source: "task",
           repository: `${plan.repository.owner}/${plan.repository.repo}`,
           number: String(issue.number),
+          status: "open",
         },
       });
       calendarEventId = event.id;
