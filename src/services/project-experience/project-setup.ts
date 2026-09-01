@@ -1,17 +1,13 @@
 import {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   ChannelType,
-  EmbedBuilder,
   Guild,
   ModalSubmitInteraction,
   TextChannel,
 } from "discord.js";
 import { config } from "../../config.js";
-import { calendarPanel } from "../calendar/calendar-discord.js";
 import { GoogleCalendarService } from "../calendar/google-calendar.js";
 import { DAILY_SCRUM_CHANNEL_NAME } from "../daily-scrum.js";
+import { scrumPinnedGuideMessage } from "../daily-scrum-discord.js";
 import { FigmaWebhookService, parseFigmaFile, type FigmaFileRef } from "../figma.js";
 import {
   buildAutomationWebhookUrl,
@@ -28,8 +24,13 @@ import {
   type StoredProject,
 } from "../projects.js";
 import { ensureProjectReviewWorkflows } from "../review/review-workflow-install.js";
-import { ensureProjectHub } from "./project-hub.js";
+import { ensureProjectHub, ensureProjectHubGuide } from "./project-hub.js";
 import type { ProjectHealth } from "./project-health.js";
+import {
+  calendarPinnedGuide,
+  discordMessageUrl,
+  documentPinnedGuide,
+} from "./project-navigation-guides.js";
 
 export type RawProjectSetupFields = {
   name: string;
@@ -84,6 +85,15 @@ export function parseProjectSetupFields(fields: RawProjectSetupFields): ProjectS
   };
 }
 
+export function projectSetupPinnedGuides(project: StoredProject, hubUrl?: string) {
+  return {
+    scrum: scrumPinnedGuideMessage(project, hubUrl),
+    calendar: calendarPinnedGuide(project, hubUrl),
+    notion: documentPinnedGuide(project, "notion", hubUrl),
+    figma: documentPinnedGuide(project, "figma", hubUrl),
+  };
+}
+
 export async function assertProjectSetupNotDuplicate(
   guildId: string,
   input: ProjectSetupInput,
@@ -98,12 +108,6 @@ async function createTextChannel(guild: Guild, parentId: string, name: string): 
   const channel = await guild.channels.create({ name, type: ChannelType.GuildText, parent: parentId });
   if (!(channel instanceof TextChannel)) throw new Error(`${name} 채널을 생성하지 못했습니다.`);
   return channel;
-}
-
-function linkRow(label: string, url: string) {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setLabel(label).setStyle(ButtonStyle.Link).setURL(url),
-  );
 }
 
 async function patchProject(
@@ -130,24 +134,13 @@ function projectHealth(
   };
 }
 
-async function sendDocumentPanel(channel: TextChannel, kind: "notion" | "figma", url?: string): Promise<void> {
-  const isNotion = kind === "notion";
-  const title = isNotion ? "📄 기능명세서" : "🎨 Figma";
-  const serviceName = isNotion ? "Notion" : "Figma";
-  const embed = new EmbedBuilder().setTitle(title);
-
-  if (url) {
-    embed
-      .setDescription(`${serviceName} 연동 주소입니다. 변경 알림은 연동 상태에 따라 이 채널에 기록됩니다.`)
-      .setURL(url);
-    const message = await channel.send({ embeds: [embed], components: [linkRow(`${serviceName} 열기`, url)] });
-    await message.pin().catch(() => undefined);
-    return;
-  }
-
-  embed.setDescription(`아직 ${serviceName}가 연결되지 않았습니다. 프로젝트는 그대로 사용할 수 있으며 나중에 연동할 수 있습니다.`);
-  const message = await channel.send({ embeds: [embed] });
+async function sendPinnedGuide(
+  channel: TextChannel,
+  payload: ReturnType<typeof calendarPinnedGuide>,
+): Promise<string> {
+  const message = await channel.send(payload);
   await message.pin().catch(() => undefined);
+  return message.id;
 }
 
 export async function createProjectExperience(
@@ -219,16 +212,22 @@ export async function createProjectExperience(
     const hubPanelMessageId = await ensureProjectHub(overview, storedProject, initialHealth);
     storedProject = await patchProject(storedProject, { hubPanelMessageId });
 
-    const scrumMessage = await scrum.send(
-      "📋 **데일리 스크럼**\n매일 오전 8시 알림이 오며, 지금은 `/scrum write`도 계속 사용할 수 있습니다. 허브 버튼 작성 흐름도 자동으로 연결됩니다.",
-    );
-    await scrumMessage.pin().catch(() => undefined);
-    storedProject = await patchProject(storedProject, { scrumPanelMessageId: scrumMessage.id });
+    const hubGuideMessageId = await ensureProjectHubGuide(overview, storedProject, hubPanelMessageId);
+    storedProject = await patchProject(storedProject, { hubGuideMessageId });
 
-    await sendDocumentPanel(spec, "notion", input.notion?.url);
-    await sendDocumentPanel(figma, "figma", input.figma?.url);
+    const hubUrl = discordMessageUrl(guild.id, overview.id, hubPanelMessageId);
+    let guides = projectSetupPinnedGuides(storedProject, hubUrl);
 
-    const calendarMessage = await calendar.send(calendarPanel(storedProject.id));
+    const scrumPanelMessageId = await sendPinnedGuide(scrum, guides.scrum);
+    storedProject = await patchProject(storedProject, { scrumPanelMessageId });
+
+    const notionGuideMessageId = await sendPinnedGuide(spec, guides.notion);
+    storedProject = await patchProject(storedProject, { notionGuideMessageId });
+
+    const figmaGuideMessageId = await sendPinnedGuide(figma, guides.figma);
+    storedProject = await patchProject(storedProject, { figmaGuideMessageId });
+
+    const calendarMessage = await calendar.send(guides.calendar);
     await calendarMessage.pin().catch(() => undefined);
     storedProject = await patchProject(storedProject, { calendarPanelMessageId: calendarMessage.id });
     coreReady = true;
@@ -248,7 +247,8 @@ export async function createProjectExperience(
           calendarId: createdCalendar.id,
           calendarUrl: createdCalendar.url,
         });
-        await calendarMessage.edit(calendarPanel(storedProject.id, createdCalendar.url)).catch(() => undefined);
+        guides = projectSetupPinnedGuides(storedProject, hubUrl);
+        await calendarMessage.edit(guides.calendar).catch(() => undefined);
       } catch (error) {
         warnings.add("calendar");
         console.warn(`Google Calendar 자동 연결 실패 (${input.name})`, error);
@@ -350,6 +350,8 @@ export async function createProjectExperience(
 
     await ensureProjectHub(overview, storedProject, projectHealth(storedProject, warnings, reviewReady))
       .catch((error) => console.warn(`프로젝트 허브 상태 갱신 실패 (${input.name})`, error));
+    await ensureProjectHubGuide(overview, storedProject, hubPanelMessageId)
+      .catch((error) => console.warn(`프로젝트 허브 안내 갱신 실패 (${input.name})`, error));
 
     return { project: storedProject, warnings: [...warnings] };
   } catch (error) {
