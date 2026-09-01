@@ -8,7 +8,7 @@
     "register": "tsx src/register-commands.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node --use-system-ca dist/index.js",
-    "test": "node --import tsx --test tests/calendar-discord.test.ts tests/calendar-state.test.ts tests/config.test.ts tests/github-schedule-sync.test.ts tests/github-webhook.test.ts tests/review-domain.test.ts",
+    "test": "node --import tsx --test tests/calendar-discord.test.ts tests/calendar-state.test.ts tests/config.test.ts tests/github-automation-polling.test.ts tests/github-schedule-sync.test.ts tests/github-webhook.test.ts tests/review-domain.test.ts",
     "google:auth": "tsx scripts/google-calendar-auth.ts",
     "github:webhooks": "tsx scripts/register-automation-webhooks.ts"
   },
