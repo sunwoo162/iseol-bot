@@ -13,17 +13,21 @@ export type ReviewWorkflowInstallResult = {
 };
 
 export async function ensureProjectReviewWorkflows(
-  github: Pick<GitHubWebhookService, "ensureRepositoryFile">,
+  github: Pick<GitHubWebhookService, "ensureRepositoryFile" | "getRepositoryVisibility">,
   project: StoredProject,
   collectorRef = DEFAULT_ISEOL_COLLECTOR_REF,
 ): Promise<ReviewWorkflowInstallResult[]> {
-  const workflow = renderIseolReviewWorkflow(collectorRef);
   const repositories = [project.frontend, project.backend];
   const results: ReviewWorkflowInstallResult[] = [];
 
   for (const repository of repositories) {
     const name = `${repository.owner}/${repository.repo}`;
     try {
+      const visibility = await github.getRepositoryVisibility(repository);
+      const workflow = renderIseolReviewWorkflow(
+        collectorRef,
+        visibility === "public" ? "github-hosted" : "self-hosted",
+      );
       const result = await github.ensureRepositoryFile(
         repository,
         ISEOL_REVIEW_WORKFLOW_PATH,
