@@ -3,7 +3,7 @@ import { config } from "../config.js";
 import { CalendarStateStore } from "./calendar/calendar-state.js";
 import { GoogleCalendarService } from "./calendar/google-calendar.js";
 import { GitHubAutomationPollStateStore } from "./github-automation-poll-state.js";
-import { syncMilestonesFromPoll } from "./github-automation-polling-domain.js";
+import { reviewWorkflowInstallKey, syncMilestonesFromPoll } from "./github-automation-polling-domain.js";
 import { GitHubAutomationSource } from "./github-automation-source.js";
 import { GitHubScheduleSyncService } from "./github-schedule-sync.js";
 import { GitHubWebhookService, type RepositoryRef } from "./github.js";
@@ -46,8 +46,9 @@ async function notify(client: Client, project: StoredProject, side: RepositorySi
 }
 
 async function ensureWorkflows(github: GitHubWebhookService, project: StoredProject): Promise<void> {
-  if (workflowInstallAttempted.has(project.id)) return;
-  workflowInstallAttempted.add(project.id);
+  const installKey = reviewWorkflowInstallKey(project.frontend, project.backend);
+  if (workflowInstallAttempted.has(installKey)) return;
+  workflowInstallAttempted.add(installKey);
   const results = await ensureProjectReviewWorkflows(github, project);
   for (const result of results) {
     if (result.error) console.warn(`Iseol review workflow 설치 실패 (${result.repository}): ${result.error}`);
