@@ -3,12 +3,15 @@ import test from "node:test";
 import {
   calendarEventEditDefaults,
   calendarEventSelectOptions,
+  calendarIssueModal,
+  calendarIssueRepositorySelect,
   calendarPanelDescription,
   createCalendarSelectionSession,
   getCalendarSelectionSession,
   parseCalendarCustomId,
   parseCalendarDeleteDecisionId,
   parseCalendarEventSelectId,
+  parseCalendarIssueRepositorySelectId,
   parseKstDateTime,
   parseRepositorySide,
   resolveCalendarRange,
@@ -84,6 +87,27 @@ test("selected calendar event produces prefilled KST edit values", () => {
     start: "2026-09-03 14:00",
     end: "2026-09-03 15:30",
   });
+});
+
+test("issue calendar flow selects exactly frontend or backend", () => {
+  assert.equal(parseCalendarIssueRepositorySelectId("calendar_issue_repo:abc123"), "abc123");
+  assert.equal(parseCalendarIssueRepositorySelectId("calendar_issue:abc123"), null);
+
+  const row = calendarIssueRepositorySelect("abc123").toJSON();
+  const menu = row.components[0];
+  assert.equal(menu?.custom_id, "calendar_issue_repo:abc123");
+  assert.deepEqual(menu?.options?.map((option) => option.value), ["frontend", "backend"]);
+});
+
+test("issue calendar modal has no repository text input and optional end", () => {
+  const modal = calendarIssueModal("abc123", "frontend").toJSON();
+  assert.equal(modal.custom_id, "calendar_issue_modal:abc123:frontend");
+  const inputs = modal.components.flatMap((row) => row.components);
+  const ids = inputs.map((input) => input.custom_id);
+  assert.deepEqual(ids, ["title", "body", "start", "end"]);
+  assert.ok(!ids.includes("repository"));
+  const end = inputs.find((input) => input.custom_id === "end");
+  assert.equal(end?.required, false);
 });
 
 test("calendar date parser accepts full, month/day, today and tomorrow forms", () => {
