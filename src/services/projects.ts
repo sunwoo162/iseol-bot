@@ -22,17 +22,20 @@ export type StoredProject = {
   calendarChannelId?: string;
   calendarPanelMessageId?: string;
   hubPanelMessageId?: string;
+  hubGuideMessageId?: string;
   scrumChannelId?: string;
   scrumPanelMessageId?: string;
   figmaUrl?: string;
   figmaFileKey?: string;
   figmaChannelId?: string;
+  figmaGuideMessageId?: string;
   figmaWebhookId?: string;
   figmaLastVersionId?: string;
   figmaKnownCommentIds?: string[];
   notionUrl?: string;
   notionPageId?: string;
   notionChannelId?: string;
+  notionGuideMessageId?: string;
   notionLastEditedTime?: string;
 };
 
@@ -121,7 +124,6 @@ export async function deleteProject(id: string): Promise<boolean> {
   const projects = await readProjects();
   const next = projects.filter((project) => project.id !== id);
   if (next.length === projects.length) return false;
-
   await writeProjects(next);
   return true;
 }
