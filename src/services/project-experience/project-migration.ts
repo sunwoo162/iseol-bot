@@ -1,4 +1,5 @@
 import { ChannelType, Client, TextChannel } from "discord.js";
+import { calendarPanel } from "../calendar/calendar-discord.js";
 import { DAILY_SCRUM_CHANNEL_NAME } from "../daily-scrum.js";
 import { ensureScrumPanel } from "../daily-scrum-discord.js";
 import { listProjects, updateProject, type StoredProject } from "../projects.js";
@@ -9,6 +10,8 @@ export type ProjectExperienceEnsureResult = {
   hubPanelMessageId?: string;
   scrumChannelId?: string;
   scrumPanelMessageId?: string;
+  calendarChannelId?: string;
+  calendarPanelMessageId?: string;
 };
 
 export type ProjectExperienceMigrationPlanItem = {
@@ -29,6 +32,10 @@ export function projectExperienceNeeds(project: StoredProject): { hub: boolean; 
   };
 }
 
+export function projectCalendarExperienceNeeds(project: StoredProject): boolean {
+  return !project.calendarChannelId || !project.calendarPanelMessageId;
+}
+
 export function applyEnsuredProjectExperience(
   project: StoredProject,
   ensured: ProjectExperienceEnsureResult,
@@ -38,6 +45,8 @@ export function applyEnsuredProjectExperience(
     ...(ensured.hubPanelMessageId !== undefined ? { hubPanelMessageId: ensured.hubPanelMessageId } : {}),
     ...(ensured.scrumChannelId !== undefined ? { scrumChannelId: ensured.scrumChannelId } : {}),
     ...(ensured.scrumPanelMessageId !== undefined ? { scrumPanelMessageId: ensured.scrumPanelMessageId } : {}),
+    ...(ensured.calendarChannelId !== undefined ? { calendarChannelId: ensured.calendarChannelId } : {}),
+    ...(ensured.calendarPanelMessageId !== undefined ? { calendarPanelMessageId: ensured.calendarPanelMessageId } : {}),
   };
 }
 
@@ -80,6 +89,21 @@ export function planProjectExperienceMigration(
   }
 
   return plan;
+}
+
+async function ensureCalendarPanel(channel: TextChannel, project: StoredProject): Promise<string> {
+  if (project.calendarPanelMessageId) {
+    const existing = await channel.messages.fetch(project.calendarPanelMessageId).catch(() => null);
+    if (existing) {
+      await existing.edit(calendarPanel(project.id, project.calendarUrl));
+      if (!existing.pinned) await existing.pin().catch(() => undefined);
+      return existing.id;
+    }
+  }
+
+  const created = await channel.send(calendarPanel(project.id, project.calendarUrl));
+  await created.pin().catch(() => undefined);
+  return created.id;
 }
 
 export async function ensureProjectExperience(
@@ -128,6 +152,22 @@ export async function ensureProjectExperience(
     scrum = created instanceof TextChannel ? created : undefined;
   }
 
+  let calendar = channels.find((channel) =>
+    channel instanceof TextChannel
+    && channel.parentId === project.categoryId
+    && channel.name === "📅・일정",
+  );
+
+  if (!(calendar instanceof TextChannel)) {
+    const created = await guild.channels.create({
+      name: "📅・일정",
+      type: ChannelType.GuildText,
+      parent: category.id,
+      reason: `${project.name} 이설 작업 일정 자동 복구`,
+    });
+    calendar = created instanceof TextChannel ? created : undefined;
+  }
+
   let current: StoredProject = project;
   if (scrum instanceof TextChannel && current.scrumChannelId !== scrum.id) {
     current = await updateProject(current.id, { scrumChannelId: scrum.id }) ?? current;
@@ -137,6 +177,17 @@ export async function ensureProjectExperience(
     const scrumPanelMessageId = await ensureScrumPanel(scrum, current);
     if (current.scrumPanelMessageId !== scrumPanelMessageId) {
       current = await updateProject(current.id, { scrumPanelMessageId }) ?? current;
+    }
+  }
+
+  if (calendar instanceof TextChannel && current.calendarChannelId !== calendar.id) {
+    current = await updateProject(current.id, { calendarChannelId: calendar.id }) ?? current;
+  }
+
+  if (calendar instanceof TextChannel) {
+    const calendarPanelMessageId = await ensureCalendarPanel(calendar, current);
+    if (current.calendarPanelMessageId !== calendarPanelMessageId) {
+      current = await updateProject(current.id, { calendarPanelMessageId }) ?? current;
     }
   }
 
@@ -153,6 +204,8 @@ export async function ensureProjectExperience(
     hubPanelMessageId: current.hubPanelMessageId,
     scrumChannelId: current.scrumChannelId,
     scrumPanelMessageId: current.scrumPanelMessageId,
+    calendarChannelId: current.calendarChannelId,
+    calendarPanelMessageId: current.calendarPanelMessageId,
   };
 }
 
