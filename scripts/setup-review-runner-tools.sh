@@ -4,6 +4,7 @@ set -euo pipefail
 MODE="${1:-check}"
 TOOLS_HOME="${ISEOL_REVIEW_TOOLS_HOME:-$HOME/.local/share/iseol-review-tools}"
 BIN_DIR="${ISEOL_REVIEW_BIN_DIR:-$HOME/.local/bin}"
+GO_HOME="$TOOLS_HOME/go"
 mkdir -p "$TOOLS_HOME" "$BIN_DIR"
 
 log() { printf '%s\n' "$*"; }
@@ -11,7 +12,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 require_base() {
   local failed=0
-  for command in node npm git curl; do
+  for command in node npm git curl tar; do
     if have "$command"; then
       log "✅ $command: $(command -v "$command")"
     else
@@ -43,10 +44,40 @@ install_semgrep() {
   ln -sfn "$TOOLS_HOME/semgrep-venv/bin/semgrep" "$BIN_DIR/semgrep"
 }
 
+install_go_runtime() {
+  log "== Go runtime for security analyzers =="
+  local os arch version archive
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  case "$(uname -m)" in
+    x86_64|amd64) arch="amd64" ;;
+    aarch64|arm64) arch="arm64" ;;
+    *) log "⚠️ 지원하지 않는 CPU 아키텍처: $(uname -m)"; return 1 ;;
+  esac
+  if [[ "$os" != "linux" ]]; then
+    log "⚠️ 자동 Go 설치는 Linux runner만 지원합니다: $os"
+    return 1
+  fi
+
+  version="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -n 1)"
+  if [[ ! "$version" =~ ^go[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+    log "⚠️ 최신 Go 버전을 확인하지 못했습니다: $version"
+    return 1
+  fi
+
+  archive="$TOOLS_HOME/${version}.${os}-${arch}.tar.gz"
+  log "Go runtime: $version ($os/$arch)"
+  curl -fsSL "https://go.dev/dl/${version}.${os}-${arch}.tar.gz" -o "$archive"
+  rm -rf "$GO_HOME"
+  tar -C "$TOOLS_HOME" -xzf "$archive"
+  rm -f "$archive"
+  export PATH="$GO_HOME/bin:$BIN_DIR:$PATH"
+  log "✅ go: $($GO_HOME/bin/go version)"
+}
+
 install_go_tools() {
   log "== Go security analyzers =="
-  if ! have go; then
-    log "⚠️ go 없음 · gitleaks/trivy/osv-scanner/actionlint 설치 건너뜀 (Ubuntu: sudo apt install golang-go)"
+  if ! install_go_runtime; then
+    log "⚠️ Go runtime 준비 실패 · gitleaks/trivy/osv-scanner/actionlint 설치 건너뜀"
     return
   fi
   GOBIN="$BIN_DIR" go install github.com/gitleaks/gitleaks/v8@latest
@@ -57,7 +88,7 @@ install_go_tools() {
 
 report() {
   log "== Iseol review analyzer status =="
-  for tool in node npm git curl knip depcruise semgrep gitleaks trivy osv-scanner actionlint; do
+  for tool in node npm git curl go knip depcruise semgrep gitleaks trivy osv-scanner actionlint; do
     if have "$tool"; then
       local version
       version="$($tool --version 2>/dev/null | head -1 || true)"
@@ -67,6 +98,7 @@ report() {
     fi
   done
   log "PATH must include: $BIN_DIR"
+  log "Go runtime path when installed by this helper: $GO_HOME/bin"
 }
 
 require_base || {
@@ -88,5 +120,5 @@ case "$MODE" in
     ;;
 esac
 
-export PATH="$BIN_DIR:$PATH"
+export PATH="$GO_HOME/bin:$BIN_DIR:$PATH"
 report
