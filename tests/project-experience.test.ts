@@ -10,7 +10,11 @@ import {
   storedProjectHealth,
   type ProjectHealth,
 } from "../src/services/project-experience/project-health.js";
-import { projectHubActionCopy, projectHubMessage } from "../src/services/project-experience/project-hub.js";
+import {
+  projectHubActionCopy,
+  projectHubAdvancedMessage,
+  projectHubMessage,
+} from "../src/services/project-experience/project-hub.js";
 import type { StoredProject } from "../src/services/projects.js";
 
 const projectFixture: StoredProject = {
@@ -46,6 +50,7 @@ test("project hub custom ids round-trip", () => {
   const id = buildProjectHubId("calendar", "abc123");
   assert.equal(id, "project_hub:calendar:abc123");
   assert.deepEqual(parseProjectHubId(id), { action: "calendar", projectId: "abc123" });
+  assert.deepEqual(parseProjectHubId("project_hub:more:abc123"), { action: "more", projectId: "abc123" });
   assert.equal(parseProjectHubId("calendar:add:abc123"), null);
 });
 
@@ -108,22 +113,34 @@ test("project health issues stay actionable and hide raw api details", () => {
   assert.ok(issues.every((line) => !/403|HTTP|token|PAT/i.test(line)));
 });
 
-test("project hub exposes the five primary member actions", () => {
+test("project hub primary row is task first", () => {
   const payload = projectHubMessage(projectFixture, connectedHealthFixture);
   const ids = payload.components.flatMap((row) =>
     row.components.map((component) => component.data.custom_id),
   );
 
+  assert.deepEqual(ids, [
+    "project_task:create:abc123",
+    "project_task:my:abc123",
+    "project_hub:scrum:abc123",
+    "project_hub:github:abc123",
+    "project_hub:more:abc123",
+  ]);
+});
+
+test("advanced hub keeps calendar review refresh and admin compatibility", () => {
+  const payload = projectHubAdvancedMessage(projectFixture, connectedHealthFixture);
+  const ids = payload.components.flatMap((row) =>
+    row.components.map((component) => component.data.custom_id).filter(Boolean),
+  );
   assert.ok(ids.includes("project_hub:calendar:abc123"));
-  assert.ok(ids.includes("project_hub:scrum:abc123"));
-  assert.ok(ids.includes("project_hub:github:abc123"));
   assert.ok(ids.includes("project_hub:review:abc123"));
   assert.ok(ids.includes("project_hub:refresh:abc123"));
   assert.ok(ids.includes("project_hub:admin:abc123"));
 });
 
 test("every project hub action has user-facing copy", () => {
-  for (const action of ["calendar", "scrum", "github", "review", "refresh", "admin"] as const) {
+  for (const action of ["calendar", "scrum", "github", "review", "refresh", "admin", "more"] as const) {
     assert.ok(projectHubActionCopy(action).trim().length > 0);
   }
 });
