@@ -17,7 +17,7 @@ import {
   parseProjectHubId,
   type ProjectHubAction,
 } from "./project-custom-id.js";
-import { projectHealthLines, type ProjectHealth } from "./project-health.js";
+import { projectHealthLines, storedProjectHealth, type ProjectHealth } from "./project-health.js";
 
 function linkButton(label: string, url: string, emoji?: string): ButtonBuilder {
   const button = new ButtonBuilder()
@@ -35,18 +35,6 @@ export function projectHubActionCopy(action: ProjectHubAction): string {
   if (action === "review") return "🔍 코드리뷰 상태";
   if (action === "refresh") return "🔄 프로젝트 상태 새로고침";
   return "⚙️ 프로젝트 관리";
-}
-
-function currentProjectHealth(project: StoredProject): ProjectHealth {
-  const githubReady = project.frontendHookId !== undefined && project.backendHookId !== undefined;
-  return {
-    github: githubReady ? "connected" : "repair",
-    review: "checking",
-    calendar: project.calendarId ? "connected" : "needs_setup",
-    scrum: project.scrumChannelId ? "connected" : "repair",
-    notion: project.notionUrl ? "connected" : "needs_setup",
-    figma: project.figmaUrl ? "connected" : "needs_setup",
-  };
 }
 
 export function projectHubMessage(project: StoredProject, health: ProjectHealth) {
@@ -148,7 +136,7 @@ async function refreshHub(interaction: ButtonInteraction, project: StoredProject
     return;
   }
 
-  await ensureProjectHub(overview, project, currentProjectHealth(project));
+  await ensureProjectHub(overview, project, storedProjectHealth(project));
   await interaction.reply({ content: "✅ 프로젝트 상태를 새로고침했습니다.", ephemeral: true });
 }
 
