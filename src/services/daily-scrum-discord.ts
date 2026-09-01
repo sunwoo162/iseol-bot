@@ -1,11 +1,26 @@
 import {
   ActionRowBuilder,
   ButtonBuilder,
+  ButtonInteraction,
   ButtonStyle,
   EmbedBuilder,
+  Guild,
+  ModalBuilder,
+  ModalSubmitInteraction,
   TextChannel,
+  TextInputBuilder,
+  TextInputStyle,
 } from "discord.js";
-import type { StoredProject } from "./projects.js";
+import {
+  findDailyScrumChannel,
+  getDailyScrumRecord,
+  listDailyScrumRecords,
+  previousSeoulDateKey,
+  saveDailyScrumRecord,
+  type DailyScrumRecord,
+} from "./daily-scrum.js";
+import { findProject, type StoredProject } from "./projects.js";
+import { seoulDateKey } from "./voice-time.js";
 
 export type ProjectScrumAction = "write" | "carry" | "recent";
 
@@ -21,6 +36,49 @@ export function parseProjectScrumId(customId: string): {
   return match
     ? { action: match[1] as ProjectScrumAction, projectId: match[2]! }
     : null;
+}
+
+export function scrumWriteDefaults(
+  todayRecord: Pick<DailyScrumRecord, "todo" | "did"> | null,
+  yesterdayRecord: Pick<DailyScrumRecord, "todo" | "did"> | null,
+  carryYesterday: boolean,
+): { todo: string; did: string } {
+  return {
+    todo: todayRecord?.todo ?? "",
+    did: carryYesterday
+      ? (yesterdayRecord?.todo.trim() || todayRecord?.did || "")
+      : (todayRecord?.did ?? ""),
+  };
+}
+
+function splitScrumItems(value: string): string[] {
+  return value
+    .split(/[,\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatScrumItems(value: string): string {
+  const items = splitScrumItems(value);
+  if (items.length === 0) return value.trim();
+  return items.map((item, index) => `${index + 1}. ${item}`).join("\n");
+}
+
+function compactScrumItems(value: string): string {
+  return splitScrumItems(value).join(", ") || "없음";
+}
+
+export function recentScrumText(records: DailyScrumRecord[]): string {
+  if (records.length === 0) return "아직 작성한 데일리 스크럼 기록이 없습니다.";
+
+  return records
+    .map((record) => [
+      `**${record.date}**`,
+      record.did.trim() ? `✅ DID · ${compactScrumItems(record.did)}` : null,
+      `🎯 TODO · ${compactScrumItems(record.todo)}`,
+    ].filter((line): line is string => Boolean(line)).join("\n"))
+    .join("\n\n")
+    .slice(0, 1900);
 }
 
 export function scrumPanelMessage(project: StoredProject) {
@@ -72,4 +130,183 @@ export async function ensureScrumPanel(
   const created = await channel.send(scrumPanelMessage(project));
   await created.pin().catch(() => undefined);
   return created.id;
+}
+
+async function resolveScrumChannel(guild: Guild, project: StoredProject): Promise<TextChannel | null> {
+  if (project.scrumChannelId) {
+    const stored = await guild.channels.fetch(project.scrumChannelId).catch(() => null);
+    if (stored instanceof TextChannel) return stored;
+  }
+  return findDailyScrumChannel(guild, project);
+}
+
+function scrumInput(
+  id: string,
+  label: string,
+  placeholder: string,
+  value: string,
+  required: boolean,
+): ActionRowBuilder<TextInputBuilder> {
+  const input = new TextInputBuilder()
+    .setCustomId(id)
+    .setLabel(label)
+    .setPlaceholder(placeholder)
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(required);
+  if (value.trim()) input.setValue(value.slice(0, 4000));
+  return new ActionRowBuilder<TextInputBuilder>().addComponents(input);
+}
+
+async function showScrumWriteModal(
+  interaction: ButtonInteraction,
+  project: StoredProject,
+  carryYesterday: boolean,
+): Promise<void> {
+  const now = new Date();
+  const today = seoulDateKey(now);
+  const yesterday = previousSeoulDateKey(now);
+  const [todayRecord, yesterdayRecord] = await Promise.all([
+    getDailyScrumRecord(project.id, interaction.user.id, today),
+    getDailyScrumRecord(project.id, interaction.user.id, yesterday),
+  ]);
+
+  if (carryYesterday && !yesterdayRecord?.todo.trim()) {
+    await interaction.reply({
+      content: "전날 완료 처리할 TODO가 없습니다.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const defaults = scrumWriteDefaults(todayRecord, yesterdayRecord, carryYesterday);
+  const modal = new ModalBuilder()
+    .setCustomId(`project_scrum_write_modal:${project.id}`)
+    .setTitle(carryYesterday ? "전날 TODO 완료 처리" : "오늘 데일리 스크럼");
+  modal.addComponents(
+    scrumInput("todo", "오늘 TODO", "쉼표 또는 줄바꿈으로 여러 개 입력", defaults.todo, true),
+    scrumInput("did", "오늘 DID (선택)", "완료한 일", defaults.did, false),
+  );
+  await interaction.showModal(modal);
+}
+
+export async function handleProjectScrumButton(interaction: ButtonInteraction): Promise<boolean> {
+  const parsed = parseProjectScrumId(interaction.customId);
+  if (!parsed) return false;
+
+  const project = await findProject(parsed.projectId);
+  if (!project || project.guildId !== interaction.guildId || !interaction.guild) {
+    await interaction.reply({ content: "연결 정보를 찾을 수 없습니다.", ephemeral: true });
+    return true;
+  }
+
+  const scrumChannel = await resolveScrumChannel(interaction.guild, project);
+  if (!scrumChannel) {
+    await interaction.reply({
+      content: "스크럼 채널을 찾을 수 없습니다. 관리자에게 자동 복구를 요청해주세요.",
+      ephemeral: true,
+    });
+    return true;
+  }
+
+  if (parsed.action === "recent") {
+    const records = await listDailyScrumRecords(project.id, interaction.user.id, 5);
+    await interaction.reply({
+      content: `📖 **내 최근 데일리 스크럼**\n\n${recentScrumText(records)}`,
+      ephemeral: true,
+    });
+    return true;
+  }
+
+  await showScrumWriteModal(interaction, project, parsed.action === "carry");
+  return true;
+}
+
+export async function handleProjectScrumModal(interaction: ModalSubmitInteraction): Promise<boolean> {
+  const match = /^project_scrum_write_modal:([A-Za-z0-9_-]+)$/.exec(interaction.customId);
+  if (!match) return false;
+
+  const project = await findProject(match[1]!);
+  if (!project || project.guildId !== interaction.guildId || !interaction.guild) {
+    await interaction.reply({ content: "연결 정보를 찾을 수 없습니다.", ephemeral: true });
+    return true;
+  }
+
+  const todo = interaction.fields.getTextInputValue("todo").trim();
+  const did = interaction.fields.getTextInputValue("did").trim();
+  if (!todo) {
+    await interaction.reply({ content: "오늘 TODO를 한 개 이상 입력해주세요.", ephemeral: true });
+    return true;
+  }
+
+  const scrumChannel = await resolveScrumChannel(interaction.guild, project);
+  if (!scrumChannel) {
+    await interaction.reply({
+      content: "스크럼 채널을 찾을 수 없습니다. 관리자에게 자동 복구를 요청해주세요.",
+      ephemeral: true,
+    });
+    return true;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+  const now = new Date();
+  const today = seoulDateKey(now);
+  const existing = await getDailyScrumRecord(project.id, interaction.user.id, today);
+
+  const embed = new EmbedBuilder()
+    .setAuthor({
+      name: interaction.user.globalName ?? interaction.user.username,
+      iconURL: interaction.user.displayAvatarURL(),
+    })
+    .setTitle(`📋 ${today} 데일리 스크럼`)
+    .setFooter({ text: project.name })
+    .setTimestamp(now);
+
+  if (did) {
+    embed.addFields({
+      name: "✅ DID",
+      value: formatScrumItems(did).slice(0, 1024),
+    });
+  }
+  embed.addFields({
+    name: "🎯 TODO",
+    value: formatScrumItems(todo).slice(0, 1024),
+  });
+
+  let messageId = existing?.messageId ?? "";
+  let channelId = scrumChannel.id;
+  let updatedExisting = false;
+
+  if (existing?.messageId && existing.channelId === scrumChannel.id) {
+    const previousMessage = await scrumChannel.messages.fetch(existing.messageId).catch(() => null);
+    if (previousMessage) {
+      await previousMessage.edit({ embeds: [embed] });
+      messageId = previousMessage.id;
+      updatedExisting = true;
+    }
+  }
+
+  if (!updatedExisting) {
+    const message = await scrumChannel.send({ embeds: [embed] });
+    messageId = message.id;
+    channelId = scrumChannel.id;
+  }
+
+  await saveDailyScrumRecord({
+    guildId: interaction.guild.id,
+    projectId: project.id,
+    userId: interaction.user.id,
+    date: today,
+    todo,
+    did,
+    channelId,
+    messageId,
+    updatedAt: now.toISOString(),
+  });
+
+  await interaction.editReply(
+    updatedExisting
+      ? `✅ 오늘 스크럼을 수정했습니다.\n<#${scrumChannel.id}>`
+      : `✅ 오늘 스크럼을 기록했습니다.\n<#${scrumChannel.id}>`,
+  );
+  return true;
 }
