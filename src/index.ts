@@ -30,6 +30,7 @@ import {
 import { startGitHubCommitFeedPolling } from "./services/github-commit-feed.js";
 import { startJobFeedPolling } from "./services/job-feed.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
+import { handleProjectAdminButton } from "./services/project-experience/project-admin-runtime.js";
 import { handleProjectHubButton } from "./services/project-experience/project-hub.js";
 import { ensureAllProjectExperiences } from "./services/project-experience/project-migration.js";
 import { handleProjectSetupModal } from "./services/project-experience/project-setup.js";
@@ -180,6 +181,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (interaction.isButton() && interaction.customId.startsWith("project_hub:")) {
       if (await handleProjectHubButton(interaction)) return;
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith("project_admin:")) {
+      if (await handleProjectAdminButton(interaction)) return;
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("project_scrum:")) {
