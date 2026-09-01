@@ -57,19 +57,26 @@ test("startup migration keeps duplicate stored records and reuses one category e
   );
 });
 
-test("post-ensure snapshot refreshes health and task calendar ids", () => {
+test("post-ensure snapshot refreshes health and all navigation guide ids", () => {
   const refreshed = applyEnsuredProjectExperience(legacyProject, {
     hubPanelMessageId: "hub1",
+    hubGuideMessageId: "hub-guide",
     scrumChannelId: "scrum1",
-    scrumPanelMessageId: "panel1",
+    scrumPanelMessageId: "scrum-guide",
     calendarChannelId: "calendar-channel",
-    calendarPanelMessageId: "calendar-panel",
+    calendarPanelMessageId: "calendar-guide",
+    notionGuideMessageId: "notion-guide",
+    figmaGuideMessageId: "figma-guide",
   });
   const health = storedProjectHealth(refreshed);
   assert.equal(health.scrum, "connected");
   assert.equal(refreshed.hubPanelMessageId, "hub1");
+  assert.equal(refreshed.hubGuideMessageId, "hub-guide");
+  assert.equal(refreshed.scrumPanelMessageId, "scrum-guide");
   assert.equal(refreshed.calendarChannelId, "calendar-channel");
-  assert.equal(refreshed.calendarPanelMessageId, "calendar-panel");
+  assert.equal(refreshed.calendarPanelMessageId, "calendar-guide");
+  assert.equal(refreshed.notionGuideMessageId, "notion-guide");
+  assert.equal(refreshed.figmaGuideMessageId, "figma-guide");
 });
 
 test("stale category reconnects only when the exact project category is unique", () => {
