@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { parseProjectSetupFields } from "../src/services/project-experience/project-setup.js";
 import { normalizeRepositoryPair } from "../src/services/projects.js";
 
 const frontend = {
@@ -18,4 +19,30 @@ test("repository pair key is case-insensitive and order-independent", () => {
     normalizeRepositoryPair(frontend, backend),
     normalizeRepositoryPair(backend, frontend),
   );
+});
+
+test("project setup accepts empty notion and figma", () => {
+  const parsed = parseProjectSetupFields({
+    name: "Rain GJ",
+    frontend: "https://github.com/rain-gj/rain-gj-frontend",
+    backend: "https://github.com/rain-gj/rain-gj-backend",
+    notion: "",
+    figma: "",
+  });
+
+  assert.equal(parsed.name, "Rain GJ");
+  assert.equal(parsed.notion, null);
+  assert.equal(parsed.figma, null);
+  assert.equal(parsed.frontend.owner, "rain-gj");
+  assert.equal(parsed.backend.owner, "rain-gj");
+});
+
+test("project setup rejects repositories from different organizations", () => {
+  assert.throws(() => parseProjectSetupFields({
+    name: "Mixed",
+    frontend: "https://github.com/org-a/front",
+    backend: "https://github.com/org-b/back",
+    notion: "",
+    figma: "",
+  }), /같은 GitHub Organization/);
 });
