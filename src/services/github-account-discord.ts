@@ -22,6 +22,23 @@ export function parseProjectGitHubId(customId: string): {
     : null;
 }
 
+export function buildGitHubConnectModalId(projectId: string): string {
+  return `project_github_connect_modal:${projectId}`;
+}
+
+export function parseGitHubConnectModalId(customId: string): { projectId: string } | null {
+  const match = /^project_github_connect_modal:([A-Za-z0-9_-]+)$/.exec(customId);
+  return match ? { projectId: match[1]! } : null;
+}
+
+export function normalizeGitHubUsername(value: string): string {
+  const username = value.trim().replace(/^@/, "");
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(username)) {
+    throw new Error("올바른 GitHub 사용자명을 입력해주세요.");
+  }
+  return username;
+}
+
 export function githubJoinUsername(link: GitHubAccountLink | null): string | null {
   return link?.githubLogin ?? null;
 }
