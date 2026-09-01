@@ -83,7 +83,6 @@ export function projectHubMessage(project: StoredProject, health: ProjectHealth)
       value: projectHealthLines(health).join("\n"),
     });
 
-  const components: ActionRowBuilder<ButtonBuilder>[] = [memberRow];
   const links = [
     project.notionUrl ? linkButton("Notion", project.notionUrl, "📄") : null,
     project.figmaUrl ? linkButton("Figma", project.figmaUrl, "🎨") : null,
@@ -96,9 +95,14 @@ export function projectHubMessage(project: StoredProject, health: ProjectHealth)
     .setLabel("관리")
     .setEmoji("⚙️")
     .setStyle(ButtonStyle.Secondary);
-  components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...links, manageButton));
 
-  return { embeds: [embed], components };
+  return {
+    embeds: [embed],
+    components: [
+      memberRow,
+      new ActionRowBuilder<ButtonBuilder>().addComponents(...links, manageButton),
+    ],
+  };
 }
 
 export async function ensureProjectHub(
@@ -130,6 +134,7 @@ function githubPanel(project: StoredProject) {
     linkButton("Frontend", project.frontend.url, "🐙"),
     linkButton("Backend", project.backend.url, "🐙"),
   );
+
   return {
     content: [
       `🐙 **${project.name} GitHub**`,
@@ -155,7 +160,10 @@ async function refreshHub(interaction: ButtonInteraction, project: StoredProject
     && channel.name === "📌・프로젝트",
   );
   if (!(overview instanceof TextChannel)) {
-    await interaction.reply({ content: "프로젝트 허브 채널을 찾을 수 없습니다. 관리자에게 자동 복구를 요청해주세요.", ephemeral: true });
+    await interaction.reply({
+      content: "프로젝트 허브 채널을 찾을 수 없습니다. 관리자에게 자동 복구를 요청해주세요.",
+      ephemeral: true,
+    });
     return;
   }
 
@@ -182,9 +190,15 @@ export async function handleProjectHubButton(interaction: ButtonInteraction): Pr
   }
 
   if (parsed.action === "scrum") {
-    const channel = project.scrumChannelId ? `<#${project.scrumChannelId}>` : "스크럼 채널을 찾을 수 없습니다.";
+    const channel = project.scrumChannelId
+      ? `<#${project.scrumChannelId}>`
+      : "스크럼 채널을 찾을 수 없습니다.";
     await interaction.reply({
-      content: `📋 **데일리 스크럼**\n${channel}\n현재 `/scrum write`로 작성할 수 있고, 버튼 작성 흐름은 다음 자동화 단계에서 이 패널에 바로 연결됩니다.`,
+      content: [
+        "📋 **데일리 스크럼**",
+        channel,
+        "현재 `/scrum write`로 작성할 수 있고, 버튼 작성 흐름은 다음 자동화 단계에서 이 패널에 바로 연결됩니다.",
+      ].join("\n"),
       ephemeral: true,
     });
     return true;
@@ -215,7 +229,10 @@ export async function handleProjectHubButton(interaction: ButtonInteraction): Pr
   }
 
   if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) {
-    await interaction.reply({ content: "이 기능은 프로젝트 관리 권한이 있는 사용자만 사용할 수 있습니다.", ephemeral: true });
+    await interaction.reply({
+      content: "이 기능은 프로젝트 관리 권한이 있는 사용자만 사용할 수 있습니다.",
+      ephemeral: true,
+    });
     return true;
   }
 
