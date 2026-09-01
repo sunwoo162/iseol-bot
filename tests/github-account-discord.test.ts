@@ -4,6 +4,7 @@ import {
   buildGitHubConnectModalId,
   buildProjectGitHubId,
   findDuplicateGitHubAccount,
+  githubAccountActionPlan,
   githubAccountPanel,
   githubJoinUsername,
   normalizeGitHubUsername,
@@ -85,6 +86,16 @@ test("linked github panel reuses stored identity for project join", () => {
   assert.ok(ids.includes("project_github:disconnect:p1"));
   assert.equal(githubJoinUsername(linkedAccount), "sunwoo162");
   assert.equal(githubJoinUsername(null), null);
+});
+
+test("github action plan never asks for username again after linking", () => {
+  assert.deepEqual(githubAccountActionPlan("connect", null), { kind: "connect" });
+  assert.deepEqual(githubAccountActionPlan("join", null), { kind: "connect_required" });
+  assert.deepEqual(githubAccountActionPlan("profile", null), { kind: "connect_required" });
+  assert.deepEqual(githubAccountActionPlan("disconnect", null), { kind: "not_linked" });
+  assert.deepEqual(githubAccountActionPlan("join", linkedAccount), { kind: "join", username: "sunwoo162" });
+  assert.deepEqual(githubAccountActionPlan("profile", linkedAccount), { kind: "profile", username: "sunwoo162" });
+  assert.deepEqual(githubAccountActionPlan("disconnect", linkedAccount), { kind: "disconnect", username: "sunwoo162" });
 });
 
 test("duplicate github identity detection is guild scoped and ignores current user", () => {
