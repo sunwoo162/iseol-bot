@@ -1,8 +1,11 @@
 ﻿import { Octokit } from "@octokit/rest";
+import { aggregateCiFindings } from "./ci-review-aggregate.js";
+import type { CiReviewArtifact } from "./ci-review-types.js";
 import { changedLinesFromPatch, filterReviewFindings } from "./review-filter.js";
 import { renderInlineComment, renderReviewBody } from "./review-render.js";
 import { ReviewStateStore } from "./review-state.js";
 import type { ReviewProvider } from "./gemini-review-provider.js";
+import type { ReviewResult } from "./review-types.js";
 
 export type PullFile = { filename: string; patch?: string | null };
 
@@ -34,32 +37,40 @@ export class GitHubReviewService {
 
   constructor(
     token: string,
-    private readonly provider: ReviewProvider,
+    private readonly provider?: ReviewProvider,
     private readonly state = new ReviewStateStore(),
   ) {
     this.octokit = new Octokit({ auth: token });
   }
 
-  async reviewPullRequest(repository: string, pullNumber: number, headSha: string): Promise<{ skipped: boolean; findings: number }> {
-    if (await this.state.hasReviewed(repository, pullNumber, headSha)) return { skipped: true, findings: 0 };
+  private parseRepository(repository: string): { owner: string; repo: string } {
     const [owner, repo] = repository.split("/");
     if (!owner || !repo) throw new Error(`올바르지 않은 GitHub 저장소: ${repository}`);
+    return { owner, repo };
+  }
 
+  private async listReviewableFiles(owner: string, repo: string, pullNumber: number): Promise<PullFile[]> {
     const { data: files } = await this.octokit.rest.pulls.listFiles({ owner, repo, pull_number: pullNumber, per_page: 100 });
-    const reviewable = files.filter((file) => isReviewablePath(file.filename));
-    const context = buildReviewContext(reviewable);
-    if (!context.trim()) {
-      await this.octokit.rest.pulls.createReview({ owner, repo, pull_number: pullNumber, commit_id: headSha, body: renderReviewBody({ summary: [], findings: [] }), event: "COMMENT" });
-      await this.state.markReviewed(repository, pullNumber, headSha);
-      return { skipped: false, findings: 0 };
-    }
+    return files.filter((file) => isReviewablePath(file.filename));
+  }
 
+  private changedLines(files: PullFile[]): Set<string> {
     const changedLines = new Set<string>();
-    for (const file of reviewable) {
+    for (const file of files) {
       for (const key of changedLinesFromPatch(file.filename, file.patch)) changedLines.add(key);
     }
-    const normalized = filterReviewFindings(await this.provider.review(context), changedLines);
-    const comments = normalized.findings.map((finding) => ({
+    return changedLines;
+  }
+
+  private async postReview(
+    owner: string,
+    repo: string,
+    repository: string,
+    pullNumber: number,
+    headSha: string,
+    result: ReviewResult,
+  ): Promise<{ skipped: boolean; findings: number }> {
+    const comments = result.findings.map((finding) => ({
       path: finding.filePath,
       line: finding.line,
       side: "RIGHT" as const,
@@ -70,11 +81,39 @@ export class GitHubReviewService {
       repo,
       pull_number: pullNumber,
       commit_id: headSha,
-      body: renderReviewBody(normalized),
+      body: renderReviewBody(result),
       event: "COMMENT",
       comments,
     });
     await this.state.markReviewed(repository, pullNumber, headSha);
     return { skipped: false, findings: comments.length };
+  }
+
+  async reviewCiArtifact(
+    repository: string,
+    pullNumber: number,
+    headSha: string,
+    artifact: CiReviewArtifact,
+  ): Promise<{ skipped: boolean; findings: number }> {
+    if (await this.state.hasReviewed(repository, pullNumber, headSha)) return { skipped: true, findings: 0 };
+    const { owner, repo } = this.parseRepository(repository);
+    const files = await this.listReviewableFiles(owner, repo, pullNumber);
+    const normalized = aggregateCiFindings(artifact, this.changedLines(files));
+    return this.postReview(owner, repo, repository, pullNumber, headSha, normalized);
+  }
+
+  async reviewPullRequest(repository: string, pullNumber: number, headSha: string): Promise<{ skipped: boolean; findings: number }> {
+    if (await this.state.hasReviewed(repository, pullNumber, headSha)) return { skipped: true, findings: 0 };
+    if (!this.provider) throw new Error("AI ReviewProvider가 설정되지 않았습니다.");
+    const { owner, repo } = this.parseRepository(repository);
+
+    const reviewable = await this.listReviewableFiles(owner, repo, pullNumber);
+    const context = buildReviewContext(reviewable);
+    if (!context.trim()) {
+      return this.postReview(owner, repo, repository, pullNumber, headSha, { summary: [], findings: [] });
+    }
+
+    const normalized = filterReviewFindings(await this.provider.review(context), this.changedLines(reviewable));
+    return this.postReview(owner, repo, repository, pullNumber, headSha, normalized);
   }
 }
