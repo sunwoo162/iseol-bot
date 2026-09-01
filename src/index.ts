@@ -183,7 +183,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (await handleProjectHubButton(interaction)) return;
     }
 
-    if (interaction.isButton() && interaction.customId.startsWith("calendar:")) {
+    if (
+      interaction.isButton()
+      && (interaction.customId.startsWith("calendar:") || interaction.customId.startsWith("calendar_delete_"))
+    ) {
       if (await handleCalendarButton(interaction)) return;
     }
 
