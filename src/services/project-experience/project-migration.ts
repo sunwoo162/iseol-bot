@@ -3,23 +3,12 @@ import { DAILY_SCRUM_CHANNEL_NAME } from "../daily-scrum.js";
 import { ensureScrumPanel } from "../daily-scrum-discord.js";
 import { listProjects, updateProject, type StoredProject } from "../projects.js";
 import { ensureProjectHub } from "./project-hub.js";
-import type { ProjectHealth } from "./project-health.js";
+import { storedProjectHealth } from "./project-health.js";
 
 export function projectExperienceNeeds(project: StoredProject): { hub: boolean; scrum: boolean } {
   return {
     hub: !project.hubPanelMessageId,
     scrum: !project.scrumChannelId,
-  };
-}
-
-function storedProjectHealth(project: StoredProject): ProjectHealth {
-  return {
-    github: "connected",
-    review: "checking",
-    calendar: project.calendarId ? "connected" : "needs_setup",
-    scrum: project.scrumChannelId ? "connected" : "repair",
-    notion: project.notionUrl ? "connected" : "needs_setup",
-    figma: project.figmaUrl ? "connected" : "needs_setup",
   };
 }
 
