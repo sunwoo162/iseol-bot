@@ -114,20 +114,56 @@ export function scrumPanelMessage(project: StoredProject) {
   };
 }
 
+export function scrumPinnedGuideMessage(project: StoredProject, hubUrl?: string) {
+  const description = [
+    `**${project.name}** 프로젝트의 데일리 스크럼 안내입니다.`,
+    "고정된 메시지 목록은 빠르게 찾아가는 용도로만 사용합니다.",
+    "실제 작성/수정은 **📌・프로젝트 → 스크럼**에서 진행해주세요.",
+    hubUrl
+      ? `[📌 프로젝트 허브로 이동](${hubUrl})`
+      : "`📌・프로젝트` 채널에서 **스크럼** 버튼을 눌러주세요.",
+  ].join("\n");
+
+  return {
+    embeds: [new EmbedBuilder().setTitle("📋 데일리 스크럼").setDescription(description)],
+    components: [],
+  };
+}
+
+async function resolveProjectHubUrl(channel: TextChannel, project: StoredProject): Promise<string | undefined> {
+  const channels = await channel.guild.channels.fetch().catch(() => null);
+  if (!channels) return undefined;
+
+  const overview = channels.find((candidate) =>
+    candidate instanceof TextChannel
+    && candidate.parentId === project.categoryId
+    && candidate.name === "📌・프로젝트",
+  );
+  if (!(overview instanceof TextChannel)) return undefined;
+
+  const channelUrl = `https://discord.com/channels/${channel.guild.id}/${overview.id}`;
+  return project.hubPanelMessageId
+    ? `${channelUrl}/${project.hubPanelMessageId}`
+    : channelUrl;
+}
+
 export async function ensureScrumPanel(
   channel: TextChannel,
   project: StoredProject,
 ): Promise<string> {
+  const hubUrl = await resolveProjectHubUrl(channel, project);
+  const pinnedGuide = scrumPinnedGuideMessage(project, hubUrl);
+
   if (project.scrumPanelMessageId) {
     const existing = await channel.messages.fetch(project.scrumPanelMessageId).catch(() => null);
     if (existing) {
-      await existing.edit(scrumPanelMessage(project));
+      await existing.edit(pinnedGuide);
       if (!existing.pinned) await existing.pin().catch(() => undefined);
       return existing.id;
     }
   }
 
-  const created = await channel.send(scrumPanelMessage(project));
+  const created = await channel.send(pinnedGuide);
   await created.pin().catch(() => undefined);
   return created.id;
 }
