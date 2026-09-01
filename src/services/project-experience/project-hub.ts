@@ -20,6 +20,7 @@ import {
   type ProjectHubAction,
 } from "./project-custom-id.js";
 import { projectHealthLines, storedProjectHealth, type ProjectHealth } from "./project-health.js";
+import { discordMessageUrl, projectHubPinnedGuide } from "./project-navigation-guides.js";
 
 function linkButton(label: string, url: string, emoji?: string): ButtonBuilder {
   const button = new ButtonBuilder()
@@ -140,12 +141,33 @@ export async function ensureProjectHub(
     const existing = await channel.messages.fetch(project.hubPanelMessageId).catch(() => null);
     if (existing) {
       await existing.edit(projectHubMessage(project, health));
-      if (!existing.pinned) await existing.pin().catch(() => undefined);
+      if (existing.pinned) await existing.unpin().catch(() => undefined);
       return existing.id;
     }
   }
 
   const created = await channel.send(projectHubMessage(project, health));
+  return created.id;
+}
+
+export async function ensureProjectHubGuide(
+  channel: TextChannel,
+  project: StoredProject,
+  hubMessageId: string,
+): Promise<string> {
+  const hubUrl = discordMessageUrl(project.guildId, channel.id, hubMessageId);
+  const payload = projectHubPinnedGuide(project, hubUrl);
+
+  if (project.hubGuideMessageId) {
+    const existing = await channel.messages.fetch(project.hubGuideMessageId).catch(() => null);
+    if (existing) {
+      await existing.edit(payload);
+      if (!existing.pinned) await existing.pin().catch(() => undefined);
+      return existing.id;
+    }
+  }
+
+  const created = await channel.send(payload);
   await created.pin().catch(() => undefined);
   return created.id;
 }
