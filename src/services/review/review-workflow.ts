@@ -1,8 +1,16 @@
 export const ISEOL_REVIEW_WORKFLOW_PATH = ".github/workflows/iseol-code-review.yml";
 export const DEFAULT_ISEOL_COLLECTOR_REF = "679ebeec63ede4d8d71dd3542ecb90e5ea1ae8a8";
 
-export function renderIseolReviewWorkflow(collectorRef = DEFAULT_ISEOL_COLLECTOR_REF): string {
+export type ReviewRunnerMode = "self-hosted" | "github-hosted";
+
+export function renderIseolReviewWorkflow(
+  collectorRef = DEFAULT_ISEOL_COLLECTOR_REF,
+  runnerMode: ReviewRunnerMode = "self-hosted",
+): string {
   if (!/^[A-Za-z0-9._/-]+$/.test(collectorRef)) throw new Error("올바르지 않은 Iseol collector ref입니다.");
+  const runsOn = runnerMode === "github-hosted"
+    ? "ubuntu-latest"
+    : "[self-hosted, linux, x64, iseol-review]";
 
   return `name: Iseol Code Review
 
@@ -16,7 +24,7 @@ permissions:
 jobs:
   analyze:
     if: \${{ github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [self-hosted, linux, x64, iseol-review]
+    runs-on: ${runsOn}
     timeout-minutes: 40
     env:
       ISEOL_PR_NUMBER: \${{ github.event.pull_request.number }}
