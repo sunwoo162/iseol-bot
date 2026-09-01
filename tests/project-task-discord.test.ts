@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildProjectTaskId,
+  canManageProjectTask,
   memberTaskSummary,
   parseProjectTaskId,
   projectTaskCompletionPlan,
@@ -96,6 +97,12 @@ test("task creation defaults to frontend creator identity and one hour duration"
   assert.equal(plan.githubUsername, "sunwoo162");
   assert.equal(plan.start, "2026-09-05T18:00:00+09:00");
   assert.equal(plan.end, "2026-09-05T19:00:00+09:00");
+});
+
+test("task mutation permissions allow owner or project manager only", () => {
+  assert.equal(canManageProjectTask(task, "user1", false), true);
+  assert.equal(canManageProjectTask(task, "user2", true), true);
+  assert.equal(canManageProjectTask(task, "user2", false), false);
 });
 
 test("task completion is idempotent and marks the calendar summary", () => {
