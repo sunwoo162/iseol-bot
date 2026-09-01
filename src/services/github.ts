@@ -13,6 +13,20 @@ export type RepositoryOwner = {
 
 export type RepositoryVisibility = "public" | "private";
 
+export type IssueMutation = {
+  title?: string;
+  body?: string;
+  state?: "open" | "closed";
+};
+
+export function normalizeIssueMutation(input: IssueMutation): IssueMutation {
+  const mutation: IssueMutation = {};
+  if (input.title !== undefined) mutation.title = input.title;
+  if (input.body !== undefined) mutation.body = input.body;
+  if (input.state !== undefined) mutation.state = input.state;
+  return mutation;
+}
+
 const GITHUB_AUTOMATION_EVENTS = ["pull_request", "milestone"] as const;
 
 export function buildAutomationWebhookUrl(publicBaseUrl: string): string {
@@ -102,6 +116,30 @@ export class GitHubWebhookService {
     const ref = typeof repository === "string" ? parseGitHubRepository(repository) : repository;
     const { data } = await this.octokit.rest.issues.create({ owner: ref.owner, repo: ref.repo, title, body });
     return { number: data.number, htmlUrl: data.html_url };
+  }
+
+  async updateIssue(
+    repository: RepositoryRef | string,
+    issueNumber: number,
+    input: IssueMutation,
+  ): Promise<{ number: number; htmlUrl: string; state: "open" | "closed" }> {
+    const ref = typeof repository === "string" ? parseGitHubRepository(repository) : repository;
+    const mutation = normalizeIssueMutation(input);
+    const { data } = await this.octokit.rest.issues.update({
+      owner: ref.owner,
+      repo: ref.repo,
+      issue_number: issueNumber,
+      ...mutation,
+    });
+    return {
+      number: data.number,
+      htmlUrl: data.html_url,
+      state: data.state === "closed" ? "closed" : "open",
+    };
+  }
+
+  async closeIssue(repository: RepositoryRef | string, issueNumber: number): Promise<void> {
+    await this.updateIssue(repository, issueNumber, { state: "closed" });
   }
 
   async ensureRepositoryFile(repository: RepositoryRef, path: string, content: string, message: string): Promise<{ created: boolean; branch: string }> {
