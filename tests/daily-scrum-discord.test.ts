@@ -8,7 +8,12 @@ import {
   scrumPinnedGuideMessage,
   scrumWriteDefaults,
 } from "../src/services/daily-scrum-discord.js";
-import { selectRecentDailyScrumRecords, type DailyScrumRecord } from "../src/services/daily-scrum.js";
+import {
+  selectDailyScrumReminderTargets,
+  selectRecentDailyScrumRecords,
+  type DailyScrumRecord,
+  type DailyScrumReminderTarget,
+} from "../src/services/daily-scrum.js";
 import type { StoredProject } from "../src/services/projects.js";
 
 const projectFixture: StoredProject = {
@@ -82,6 +87,31 @@ test("pinned scrum guide has no interaction buttons and points to the project hu
   const description = payload.embeds[0]?.data.description ?? "";
   assert.match(description, /프로젝트.*스크럼/);
   assert.match(description, /https:\/\/discord\.com\/channels\/guild1\/hub-channel\/hub-message/);
+});
+
+test("duplicate stored projects produce one daily scrum reminder per Discord channel", () => {
+  const targets: DailyScrumReminderTarget[] = [
+    { projectId: "p1", guildId: "guild1", channelId: "scrum1" },
+    { projectId: "p2", guildId: "guild1", channelId: "scrum1" },
+    { projectId: "p3", guildId: "guild1", channelId: "scrum1" },
+  ];
+
+  assert.deepEqual(
+    selectDailyScrumReminderTargets(targets, {}, "2026-09-02"),
+    [targets[0]],
+  );
+});
+
+test("legacy project reminder state suppresses the whole shared scrum channel for the day", () => {
+  const targets: DailyScrumReminderTarget[] = [
+    { projectId: "p1", guildId: "guild1", channelId: "scrum1" },
+    { projectId: "p2", guildId: "guild1", channelId: "scrum1" },
+  ];
+
+  assert.deepEqual(
+    selectDailyScrumReminderTargets(targets, { p1: "2026-09-02" }, "2026-09-02"),
+    [],
+  );
 });
 
 test("scrum write pre-fills today's existing values", () => {
