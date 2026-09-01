@@ -7,6 +7,7 @@ import { parseProjectAdminId, projectAdminPanel } from "./project-admin.js";
 import { storedProjectHealth } from "./project-health.js";
 import { ensureProjectExperience } from "./project-migration.js";
 import { repairProject, type ProjectRepairResult } from "./project-repair.js";
+import { projectSettingsPanel } from "./project-settings.js";
 
 function section(title: string, items: string[]): string | null {
   if (items.length === 0) return null;
@@ -44,15 +45,7 @@ export async function handleProjectAdminButton(interaction: ButtonInteraction): 
   }
 
   if (parsed.action === "settings") {
-    await interaction.reply({
-      content: [
-        `⚙️ **${project.name} 연동 설정**`,
-        `Notion · ${project.notionUrl ? "연결됨" : "설정 필요"}`,
-        `Figma · ${project.figmaUrl ? "연결됨" : "설정 필요"}`,
-        "GitHub PAT/Google OAuth 같은 전역 비밀값은 Discord에서 입력하지 않습니다.",
-      ].join("\n"),
-      ephemeral: true,
-    });
+    await interaction.reply(projectSettingsPanel(project));
     return true;
   }
 
