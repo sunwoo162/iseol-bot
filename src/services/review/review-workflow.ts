@@ -1,5 +1,5 @@
 export const ISEOL_REVIEW_WORKFLOW_PATH = ".github/workflows/iseol-code-review.yml";
-export const DEFAULT_ISEOL_COLLECTOR_REF = "feat/calendar-code-review";
+export const DEFAULT_ISEOL_COLLECTOR_REF = "679ebeec63ede4d8d71dd3542ecb90e5ea1ae8a8";
 
 export function renderIseolReviewWorkflow(collectorRef = DEFAULT_ISEOL_COLLECTOR_REF): string {
   if (!/^[A-Za-z0-9._/-]+$/.test(collectorRef)) throw new Error("올바르지 않은 Iseol collector ref입니다.");
