@@ -81,3 +81,17 @@ test("resolved stale records deduplicate by the recovered category", () => {
     ["ensure", "reuse", "reuse"],
   );
 });
+
+test("an already-valid category record becomes canonical before recovered duplicates", () => {
+  const recoveredA = { ...legacyProject, id: "a", categoryId: "real-category" };
+  const recoveredB = { ...legacyProject, id: "b", categoryId: "real-category" };
+  const valid = { ...legacyProject, id: "valid", categoryId: "real-category" };
+
+  const plan = planProjectExperienceMigration(
+    [recoveredA, recoveredB, valid],
+    new Set([valid.id]),
+  );
+
+  assert.deepEqual(plan.map((item) => item.project.id), ["valid", "a", "b"]);
+  assert.deepEqual(plan.map((item) => item.mode), ["ensure", "reuse", "reuse"]);
+});
