@@ -21,6 +21,9 @@ export type StoredProject = {
   calendarUrl?: string;
   calendarChannelId?: string;
   calendarPanelMessageId?: string;
+  hubPanelMessageId?: string;
+  scrumChannelId?: string;
+  scrumPanelMessageId?: string;
   figmaUrl?: string;
   figmaFileKey?: string;
   figmaChannelId?: string;
@@ -47,6 +50,13 @@ async function readProjects(): Promise<StoredProject[]> {
 async function writeProjects(projects: StoredProject[]): Promise<void> {
   await mkdir(dirname(DATA_FILE), { recursive: true });
   await writeFile(DATA_FILE, JSON.stringify(projects, null, 2), "utf8");
+}
+
+export function normalizeRepositoryPair(frontend: RepositoryRef, backend: RepositoryRef): string {
+  return [frontend, backend]
+    .map((repository) => `${repository.owner}/${repository.repo}`.toLowerCase())
+    .sort()
+    .join("|");
 }
 
 export async function listProjects(): Promise<StoredProject[]> {
@@ -84,6 +94,19 @@ export async function findProjectByName(guildId: string, name: string): Promise<
   const normalized = name.trim().toLowerCase();
   const projects = await readProjects();
   return projects.find((project) => project.guildId === guildId && project.name.trim().toLowerCase() === normalized) ?? null;
+}
+
+export async function findProjectByRepositories(
+  guildId: string,
+  frontend: RepositoryRef,
+  backend: RepositoryRef,
+): Promise<StoredProject | null> {
+  const target = normalizeRepositoryPair(frontend, backend);
+  const projects = await readProjects();
+  return projects.find((project) =>
+    project.guildId === guildId
+    && normalizeRepositoryPair(project.frontend, project.backend) === target,
+  ) ?? null;
 }
 
 export async function findProjectByFigmaWebhook(webhookId: string, fileKey: string): Promise<StoredProject | null> {
