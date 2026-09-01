@@ -1,4 +1,4 @@
-﻿import { google, calendar_v3 } from "googleapis";
+import { google, calendar_v3 } from "googleapis";
 
 export type CalendarEventInput = {
   summary: string;
@@ -39,6 +39,12 @@ export class GoogleCalendarService {
     return { id: data.id, htmlLink: data.htmlLink ?? "" };
   }
 
+  async getEvent(calendarId: string, eventId: string): Promise<calendar_v3.Schema$Event> {
+    const { data } = await this.calendar.events.get({ calendarId, eventId });
+    if (!data.id) throw new Error("Google Calendar 일정 정보를 찾을 수 없습니다.");
+    return data;
+  }
+
   async updateEvent(calendarId: string, eventId: string, input: CalendarEventInput): Promise<CalendarEventRef> {
     const { data } = await this.calendar.events.patch({ calendarId, eventId, requestBody: this.eventBody(input) });
     if (!data.id) throw new Error("Google Calendar 일정 수정 결과에 event id가 없습니다.");
@@ -64,4 +70,3 @@ export class GoogleCalendarService {
     };
   }
 }
-
