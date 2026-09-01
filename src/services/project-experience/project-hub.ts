@@ -12,6 +12,7 @@ import { scrumPanelMessage } from "../daily-scrum-discord.js";
 import { githubAccountPanel } from "../github-account-discord.js";
 import { findGitHubAccount } from "../github-user.js";
 import { findProject, type StoredProject } from "../projects.js";
+import { projectAdminPanel } from "./project-admin.js";
 import {
   buildProjectHubId,
   parseProjectHubId,
@@ -195,21 +196,12 @@ export async function handleProjectHubButton(interaction: ButtonInteraction): Pr
 
   if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) {
     await interaction.reply({
-      content: "이 기능은 프로젝트 관리 권한이 있는 사용자만 사용할 수 있습니다.",
+      content: "권한이 없습니다. 프로젝트 관리 권한이 있는 사용자만 사용할 수 있습니다.",
       ephemeral: true,
     });
     return true;
   }
 
-  await interaction.reply({
-    content: [
-      `⚙️ **${project.name} 관리**`,
-      "• 누락된 프로젝트 허브/스크럼 채널은 봇 시작 시 자동 복구됩니다.",
-      "• Notion/Figma는 선택 연동이며 없어도 프로젝트를 사용할 수 있습니다.",
-      "• GitHub PAT/Google OAuth 같은 전역 비밀값은 Discord에서 입력하지 않습니다.",
-      "• 프로젝트 삭제는 기존 `/project delete`에서 명시적으로 실행합니다.",
-    ].join("\n"),
-    ephemeral: true,
-  });
+  await interaction.reply(projectAdminPanel(project, storedProjectHealth(project)));
   return true;
 }
