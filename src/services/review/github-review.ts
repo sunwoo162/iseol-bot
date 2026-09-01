@@ -50,7 +50,12 @@ export class GitHubReviewService {
   }
 
   private async listReviewableFiles(owner: string, repo: string, pullNumber: number): Promise<PullFile[]> {
-    const { data: files } = await this.octokit.rest.pulls.listFiles({ owner, repo, pull_number: pullNumber, per_page: 100 });
+    const files = await this.octokit.paginate(this.octokit.rest.pulls.listFiles, {
+      owner,
+      repo,
+      pull_number: pullNumber,
+      per_page: 100,
+    });
     return files.filter((file) => isReviewablePath(file.filename));
   }
 
