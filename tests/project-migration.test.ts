@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   applyEnsuredProjectExperience,
   planProjectExperienceMigration,
+  projectCalendarExperienceNeeds,
   projectExperienceNeeds,
   resolveProjectCategoryId,
 } from "../src/services/project-experience/project-migration.js";
@@ -39,6 +40,15 @@ test("fully migrated project needs no duplicate resources", () => {
   }), { hub: false, scrum: false });
 });
 
+test("task calendar experience requires both channel and pinned panel ids", () => {
+  assert.equal(projectCalendarExperienceNeeds(legacyProject), true);
+  assert.equal(projectCalendarExperienceNeeds({
+    ...legacyProject,
+    calendarChannelId: "calendar-channel",
+    calendarPanelMessageId: "calendar-panel",
+  }), false);
+});
+
 test("startup migration keeps duplicate stored records and reuses one category ensure", () => {
   const duplicate = { ...legacyProject, id: "legacy2" };
   assert.deepEqual(
@@ -47,15 +57,19 @@ test("startup migration keeps duplicate stored records and reuses one category e
   );
 });
 
-test("post-ensure snapshot refreshes health from newly stored ids", () => {
+test("post-ensure snapshot refreshes health and task calendar ids", () => {
   const refreshed = applyEnsuredProjectExperience(legacyProject, {
     hubPanelMessageId: "hub1",
     scrumChannelId: "scrum1",
     scrumPanelMessageId: "panel1",
+    calendarChannelId: "calendar-channel",
+    calendarPanelMessageId: "calendar-panel",
   });
   const health = storedProjectHealth(refreshed);
   assert.equal(health.scrum, "connected");
   assert.equal(refreshed.hubPanelMessageId, "hub1");
+  assert.equal(refreshed.calendarChannelId, "calendar-channel");
+  assert.equal(refreshed.calendarPanelMessageId, "calendar-panel");
 });
 
 test("stale category reconnects only when the exact project category is unique", () => {
