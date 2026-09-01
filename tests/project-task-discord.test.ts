@@ -4,11 +4,13 @@ import {
   buildProjectTaskId,
   memberTaskSummary,
   parseProjectTaskId,
+  projectTaskCreatePlan,
   taskCardPayload,
   taskCreateModal,
   taskEditModal,
 } from "../src/services/project-task-discord.js";
 import type { StoredProjectTask } from "../src/services/project-task.js";
+import type { StoredProject } from "../src/services/projects.js";
 
 const task: StoredProjectTask = {
   id: "task42",
@@ -30,6 +32,24 @@ const task: StoredProjectTask = {
   status: "open",
   createdAt: "2026-09-01T14:00:00.000Z",
   updatedAt: "2026-09-01T14:00:00.000Z",
+};
+
+const project: StoredProject = {
+  id: "project1",
+  name: "Rain GJ",
+  guildId: "guild1",
+  categoryId: "category1",
+  organization: "rain-gj",
+  frontend: {
+    owner: "rain-gj",
+    repo: "rain-gj-frontend",
+    url: "https://github.com/rain-gj/rain-gj-frontend",
+  },
+  backend: {
+    owner: "rain-gj",
+    repo: "rain-gj-backend",
+    url: "https://github.com/rain-gj/rain-gj-backend",
+  },
 };
 
 test("project task custom ids round-trip", () => {
@@ -54,6 +74,26 @@ test("task create modal only asks for title due and optional description", () =>
     { id: "start", required: true },
     { id: "body", required: false },
   ]);
+});
+
+test("task creation defaults to frontend creator identity and one hour duration", () => {
+  const plan = projectTaskCreatePlan(
+    project,
+    "user1",
+    "sunwoo162",
+    "로그인 API 연동",
+    "로그인 API를 구현한다.",
+    "9/5 18:00",
+    new Date("2026-09-01T00:00:00+09:00"),
+  );
+
+  assert.equal(plan.repositorySide, "frontend");
+  assert.equal(plan.repository.owner, "rain-gj");
+  assert.equal(plan.repository.repo, "rain-gj-frontend");
+  assert.equal(plan.creatorDiscordId, "user1");
+  assert.equal(plan.githubUsername, "sunwoo162");
+  assert.equal(plan.start, "2026-09-05T18:00:00+09:00");
+  assert.equal(plan.end, "2026-09-05T19:00:00+09:00");
 });
 
 test("task card exposes complete edit and more without raw ids", () => {
