@@ -3,8 +3,11 @@ import test from "node:test";
 import {
   buildProjectScrumId,
   parseProjectScrumId,
+  recentScrumText,
   scrumPanelMessage,
+  scrumWriteDefaults,
 } from "../src/services/daily-scrum-discord.js";
+import { selectRecentDailyScrumRecords, type DailyScrumRecord } from "../src/services/daily-scrum.js";
 import type { StoredProject } from "../src/services/projects.js";
 
 const projectFixture: StoredProject = {
@@ -24,6 +27,27 @@ const projectFixture: StoredProject = {
     url: "https://github.com/rain-gj/backend",
   },
   scrumChannelId: "scrum1",
+};
+
+const todayRecord: DailyScrumRecord = {
+  guildId: "guild1",
+  projectId: "p1",
+  userId: "user1",
+  date: "2026-09-01",
+  todo: "로그인 API, 테스트",
+  did: "회원가입 UI",
+  channelId: "scrum1",
+  messageId: "message1",
+  updatedAt: "2026-09-01T01:00:00.000Z",
+};
+
+const yesterdayRecord: DailyScrumRecord = {
+  ...todayRecord,
+  date: "2026-08-31",
+  todo: "회원가입 UI, 약관 검증",
+  did: "",
+  messageId: "message0",
+  updatedAt: "2026-08-31T01:00:00.000Z",
 };
 
 test("project scrum custom ids round-trip", () => {
@@ -47,4 +71,45 @@ test("scrum panel exposes the three member actions", () => {
     "project_scrum:recent:p1",
   ]);
   assert.match(payload.embeds[0]?.data.title ?? "", /데일리 스크럼/);
+});
+
+test("scrum write pre-fills today's existing values", () => {
+  assert.deepEqual(scrumWriteDefaults(todayRecord, yesterdayRecord, false), {
+    todo: "로그인 API, 테스트",
+    did: "회원가입 UI",
+  });
+});
+
+test("carry flow prepares yesterday TODO as DID and keeps today's TODO", () => {
+  assert.deepEqual(scrumWriteDefaults(todayRecord, yesterdayRecord, true), {
+    todo: "로그인 API, 테스트",
+    did: "회원가입 UI, 약관 검증",
+  });
+});
+
+test("recent scrum selection never returns another user's records", () => {
+  const otherUser: DailyScrumRecord = {
+    ...todayRecord,
+    userId: "user2",
+    todo: "다른 사람 기록",
+    messageId: "other-message",
+  };
+  const older: DailyScrumRecord = {
+    ...todayRecord,
+    date: "2026-08-30",
+    todo: "오래된 내 기록",
+    messageId: "older-message",
+    updatedAt: "2026-08-30T01:00:00.000Z",
+  };
+
+  const selected = selectRecentDailyScrumRecords(
+    [older, otherUser, yesterdayRecord, todayRecord],
+    "p1",
+    "user1",
+    2,
+  );
+
+  assert.deepEqual(selected.map((record) => record.date), ["2026-09-01", "2026-08-31"]);
+  assert.ok(selected.every((record) => record.userId === "user1"));
+  assert.doesNotMatch(recentScrumText(selected), /다른 사람 기록/);
 });
