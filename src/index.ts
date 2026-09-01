@@ -190,7 +190,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (await handleCalendarButton(interaction)) return;
     }
 
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith("calendar_event:")) {
+    if (
+      interaction.isStringSelectMenu()
+      && (
+        interaction.customId.startsWith("calendar_event:")
+        || interaction.customId.startsWith("calendar_issue_repo:")
+      )
+    ) {
       if (await handleCalendarSelect(interaction)) return;
     }
 
