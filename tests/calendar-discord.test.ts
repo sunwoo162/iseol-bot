@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  calendarEventSelectOptions,
   calendarPanelDescription,
   parseCalendarCustomId,
+  parseCalendarEventSelectId,
   parseKstDateTime,
   parseRepositorySide,
   resolveCalendarRange,
@@ -13,6 +15,35 @@ const NOW = new Date("2026-09-01T06:00:00.000Z"); // 2026-09-01 15:00 KST
 test("calendar custom ids identify project and action", () => {
   assert.deepEqual(parseCalendarCustomId("calendar:add:abc123"), { action: "add", projectId: "abc123" });
   assert.equal(parseCalendarCustomId("other:add:abc123"), null);
+});
+
+test("calendar event select ids identify update or delete", () => {
+  assert.deepEqual(parseCalendarEventSelectId("calendar_event:update:abc123"), {
+    action: "update",
+    projectId: "abc123",
+  });
+  assert.deepEqual(parseCalendarEventSelectId("calendar_event:delete:abc123"), {
+    action: "delete",
+    projectId: "abc123",
+  });
+  assert.equal(parseCalendarEventSelectId("calendar_event:view:abc123"), null);
+});
+
+test("calendar event options show human content without exposing event ids", () => {
+  const options = calendarEventSelectOptions([
+    {
+      id: "secret-event-id-123",
+      summary: "로그인 API 완료",
+      start: { dateTime: "2026-09-03T14:00:00+09:00" },
+    },
+  ]);
+
+  assert.equal(options.length, 1);
+  assert.equal(options[0]?.value, "secret-event-id-123");
+  assert.match(options[0]?.label ?? "", /로그인 API 완료/);
+  assert.match(options[0]?.description ?? "", /9\/3/);
+  assert.doesNotMatch(options[0]?.label ?? "", /secret-event-id/);
+  assert.doesNotMatch(options[0]?.description ?? "", /secret-event-id/);
 });
 
 test("calendar date parser accepts full, month/day, today and tomorrow forms", () => {
