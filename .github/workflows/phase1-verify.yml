@@ -24,4 +24,4 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node --import tsx --test tests/project-setup.test.ts
+      - run: node --import tsx --test tests/project-setup.test.ts tests/project-experience.test.ts
