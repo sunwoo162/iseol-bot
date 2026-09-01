@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { projectCommand } from "../src/commands/project.js";
-import { parseProjectSetupFields } from "../src/services/project-experience/project-setup.js";
-import { normalizeRepositoryPair } from "../src/services/projects.js";
+import {
+  parseProjectSetupFields,
+  projectSetupPinnedGuides,
+} from "../src/services/project-experience/project-setup.js";
+import { normalizeRepositoryPair, type StoredProject } from "../src/services/projects.js";
 
 const frontend = {
   owner: "Rain-GJ",
@@ -13,6 +16,18 @@ const backend = {
   owner: "rain-gj",
   repo: "Back",
   url: "https://github.com/rain-gj/Back",
+};
+
+const project: StoredProject = {
+  id: "p1",
+  name: "Rain GJ",
+  guildId: "guild1",
+  categoryId: "category1",
+  organization: "rain-gj",
+  frontend,
+  backend,
+  notionUrl: "https://www.notion.so/rain",
+  figmaUrl: "https://www.figma.com/design/rain",
 };
 
 test("repository pair key is case-insensitive and order-independent", () => {
@@ -52,4 +67,13 @@ test("project create opens a modal instead of exposing five command options", ()
   const json = projectCommand.toJSON();
   const create = json.options?.find((option) => option.name === "create");
   assert.deepEqual(create?.options ?? [], []);
+});
+
+test("new projects start with navigation-only pinned guides", () => {
+  const guides = projectSetupPinnedGuides(project, "https://discord.com/channels/g/c/m");
+  for (const payload of [guides.scrum, guides.calendar, guides.notion, guides.figma]) {
+    assert.equal(payload.components.length, 0);
+  }
+  assert.match(guides.scrum.embeds[0]?.data.description ?? "", /프로젝트.*스크럼|스크럼/);
+  assert.match(guides.calendar.embeds[0]?.data.description ?? "", /작업 만들기/);
 });
