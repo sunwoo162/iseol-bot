@@ -34,6 +34,10 @@ import { handleProjectAdminButton } from "./services/project-experience/project-
 import { handleProjectHubButton } from "./services/project-experience/project-hub.js";
 import { ensureAllProjectExperiences } from "./services/project-experience/project-migration.js";
 import { handleProjectSetupModal } from "./services/project-experience/project-setup.js";
+import {
+  handleProjectSettingsButton,
+  handleProjectSettingsModal,
+} from "./services/project-experience/project-settings.js";
 import { handleVoiceAutoLeave } from "./services/voice-auto-leave.js";
 import {
   getActiveStudySession,
@@ -187,6 +191,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (await handleProjectAdminButton(interaction)) return;
     }
 
+    if (interaction.isButton() && interaction.customId.startsWith("project_settings:")) {
+      if (await handleProjectSettingsButton(interaction)) return;
+    }
+
     if (interaction.isButton() && interaction.customId.startsWith("project_scrum:")) {
       if (await handleProjectScrumButton(interaction)) return;
     }
@@ -227,6 +235,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await ensureProjectDiscussionChannels(client);
         return;
       }
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith("project_settings_modal:")) {
+      if (await handleProjectSettingsModal(interaction)) return;
     }
 
     if (interaction.isModalSubmit() && interaction.customId.startsWith("project_github_connect_modal:")) {
