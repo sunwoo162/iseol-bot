@@ -1,13 +1,9 @@
 import "./services/fetch-fallback.js";
 import {
-  ActionRowBuilder,
   Client,
   Events,
   GatewayIntentBits,
-  ModalBuilder,
   PermissionFlagsBits,
-  TextInputBuilder,
-  TextInputStyle,
 } from "discord.js";
 import { handleContestCommandV2 } from "./commands/contest-v2.js";
 import { handleContestVoteButton } from "./commands/contest.js";
@@ -26,14 +22,17 @@ import { ensureContestPrepAnnouncementChannels } from "./services/contest-prep-a
 import { startDailyScrumReminderScheduler } from "./services/daily-scrum.js";
 import { handleProjectScrumButton, handleProjectScrumModal } from "./services/daily-scrum-discord.js";
 import { resetGuildState } from "./services/guild-reset.js";
+import {
+  handleGitHubConnectModal,
+  handleLegacyProjectJoinButton,
+  handleProjectGitHubButton,
+} from "./services/github-account-discord.js";
 import { startGitHubCommitFeedPolling } from "./services/github-commit-feed.js";
-import { GitHubWebhookService } from "./services/github.js";
 import { startJobFeedPolling } from "./services/job-feed.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
 import { handleProjectHubButton } from "./services/project-experience/project-hub.js";
 import { ensureAllProjectExperiences } from "./services/project-experience/project-migration.js";
 import { handleProjectSetupModal } from "./services/project-experience/project-setup.js";
-import { findProject } from "./services/projects.js";
 import { handleVoiceAutoLeave } from "./services/voice-auto-leave.js";
 import {
   getActiveStudySession,
@@ -52,7 +51,6 @@ const client = new Client({
     GatewayIntentBits.GuildVoiceStates,
   ],
 });
-const github = new GitHubWebhookService(config.githubToken);
 
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`${readyClient.user.tag} 로그인 완료 · 연결 서버 ${readyClient.guilds.cache.size}개`);
@@ -188,6 +186,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (await handleProjectScrumButton(interaction)) return;
     }
 
+    if (interaction.isButton() && interaction.customId.startsWith("project_github:")) {
+      if (await handleProjectGitHubButton(interaction)) return;
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith("project_join:")) {
+      if (await handleLegacyProjectJoinButton(interaction)) return;
+    }
+
     if (
       interaction.isButton()
       && (interaction.customId.startsWith("calendar:") || interaction.customId.startsWith("calendar_delete_"))
@@ -211,26 +217,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
-    if (interaction.isButton() && interaction.customId.startsWith("project_join:")) {
-      const projectId = interaction.customId.split(":")[1];
-      const project = projectId ? await findProject(projectId) : null;
-      if (!project || project.guildId !== interaction.guildId) {
-        await interaction.reply({ content: "프로젝트 정보를 찾을 수 없습니다.", ephemeral: true });
-        return;
-      }
-
-      const username = new TextInputBuilder().setCustomId("github_username").setLabel("GitHub 사용자명").setPlaceholder("예: sunwoo162").setMinLength(1).setMaxLength(39).setRequired(true).setStyle(TextInputStyle.Short);
-      const modal = new ModalBuilder().setCustomId(`project_join_modal:${project.id}`).setTitle(`${project.name} 참여`);
-      modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(username));
-      await interaction.showModal(modal);
-      return;
-    }
-
     if (interaction.isModalSubmit() && interaction.customId === "project_setup_modal") {
       if (await handleProjectSetupModal(interaction)) {
         await ensureProjectDiscussionChannels(client);
         return;
       }
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith("project_github_connect_modal:")) {
+      if (await handleGitHubConnectModal(interaction)) return;
     }
 
     if (interaction.isModalSubmit() && interaction.customId.startsWith("project_scrum_")) {
@@ -239,30 +234,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (interaction.isModalSubmit() && interaction.customId.startsWith("calendar_")) {
       if (await handleCalendarModal(interaction)) return;
-    }
-
-    if (interaction.isModalSubmit() && interaction.customId.startsWith("project_join_modal:")) {
-      const projectId = interaction.customId.split(":")[1];
-      const project = projectId ? await findProject(projectId) : null;
-      if (!project || project.guildId !== interaction.guildId) {
-        await interaction.reply({ content: "프로젝트 정보를 찾을 수 없습니다.", ephemeral: true });
-        return;
-      }
-
-      const username = interaction.fields.getTextInputValue("github_username").trim().replace(/^@/, "");
-      if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(username)) {
-        await interaction.reply({ content: "❌ 올바른 GitHub 사용자명을 입력해주세요.", ephemeral: true });
-        return;
-      }
-
-      await interaction.deferReply({ ephemeral: true });
-      try {
-        await github.inviteOrganizationMember(project.organization, username);
-        await interaction.editReply(`✅ **@${username}** 계정으로 **${project.organization}** Organization 초대를 보냈습니다.\nGitHub 알림 또는 이메일에서 초대를 수락하면 합류가 완료됩니다.`);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
-        await interaction.editReply(`❌ GitHub Organization 초대에 실패했습니다.\n\`${message}\`\n\n이미 멤버/초대 대기 중인지, 또는 토큰에 Organization Members 쓰기 권한이 있는지 확인해주세요.`);
-      }
     }
   } catch (error) {
     console.error(error);
