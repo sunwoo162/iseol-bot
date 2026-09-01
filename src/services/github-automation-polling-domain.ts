@@ -7,6 +7,16 @@ export type PolledMilestone = {
   updatedAt: string;
 };
 
+export function reviewWorkflowInstallKey(
+  frontend: { owner: string; repo: string },
+  backend: { owner: string; repo: string },
+): string {
+  return [frontend, backend]
+    .map((repository) => `${repository.owner}/${repository.repo}`.toLowerCase())
+    .sort()
+    .join("|");
+}
+
 export function milestonePollSignature(milestone: PolledMilestone): string {
   return JSON.stringify([
     milestone.title,
