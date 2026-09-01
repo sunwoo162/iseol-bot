@@ -30,6 +30,10 @@ type CalendarEventOptionSource = {
     dateTime?: string | null;
     date?: string | null;
   } | null;
+  end?: {
+    dateTime?: string | null;
+    date?: string | null;
+  } | null;
 };
 
 type CalendarSelectionSession = {
@@ -50,6 +54,11 @@ export function parseCalendarCustomId(customId: string): { action: CalendarActio
 export function parseCalendarEventSelectId(customId: string): { action: CalendarEventSelectAction; projectId: string } | null {
   const match = /^calendar_event:(update|delete):([A-Za-z0-9_-]+)$/.exec(customId);
   return match ? { action: match[1] as CalendarEventSelectAction, projectId: match[2]! } : null;
+}
+
+export function parseCalendarDeleteDecisionId(customId: string): { decision: "confirm" | "cancel"; token: string } | null {
+  const match = /^calendar_delete_(confirm|cancel):([A-Za-z0-9]+)$/.exec(customId);
+  return match ? { decision: match[1] as "confirm" | "cancel", token: match[2]! } : null;
 }
 
 export function parseRepositorySide(value: string): "frontend" | "backend" {
@@ -97,6 +106,20 @@ function formatKstInstant(date: Date): string {
     shifted.getUTCHours(),
     shifted.getUTCMinutes(),
   );
+}
+
+function formatKstInput(date: Date): string {
+  const shifted = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return `${shifted.getUTCFullYear()}-${pad2(shifted.getUTCMonth() + 1)}-${pad2(shifted.getUTCDate())} ${pad2(shifted.getUTCHours())}:${pad2(shifted.getUTCMinutes())}`;
+}
+
+function eventInputDateTime(value?: string | null, date?: string | null): string {
+  if (value) {
+    const instant = new Date(value);
+    if (!Number.isNaN(instant.getTime())) return formatKstInput(instant);
+  }
+  if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) return `${date} 09:00`;
+  return "";
 }
 
 export function parseKstDateTime(value: string, now = new Date()): string {
@@ -182,6 +205,24 @@ export function calendarEventSelectOptions(events: CalendarEventOptionSource[]):
     }));
 }
 
+export function calendarEventEditDefaults(event: CalendarEventOptionSource): {
+  title: string;
+  start: string;
+  end: string;
+} {
+  const start = eventInputDateTime(event.start?.dateTime, event.start?.date);
+  let end = eventInputDateTime(event.end?.dateTime, event.end?.date);
+  if (!end && start) {
+    const parsedStart = parseKstDateTime(start);
+    end = formatKstInput(new Date(new Date(parsedStart).getTime() + 60 * 60 * 1000));
+  }
+  return {
+    title: event.summary?.trim() || "제목 없음",
+    start,
+    end,
+  };
+}
+
 function clearExpiredCalendarSelections(now = Date.now()): void {
   for (const [token, session] of calendarSelectionSessions) {
     if (session.expiresAt <= now) calendarSelectionSessions.delete(token);
@@ -215,6 +256,10 @@ export function getCalendarSelectionSession(token: string, now = Date.now()): Ca
   return { ...session };
 }
 
+function removeCalendarSelectionSession(token: string): void {
+  calendarSelectionSessions.delete(token);
+}
+
 export function calendarPanelDescription(calendarUrl?: string): string {
   return [
     "프로젝트 일정을 이설에서 바로 관리합니다.",
@@ -245,6 +290,17 @@ function textInput(id: string, label: string, placeholder: string, style = TextI
   return new ActionRowBuilder<TextInputBuilder>().addComponents(
     new TextInputBuilder().setCustomId(id).setLabel(label).setPlaceholder(placeholder).setRequired(true).setStyle(style),
   );
+}
+
+function prefilledTextInput(id: string, label: string, placeholder: string, value: string) {
+  const input = new TextInputBuilder()
+    .setCustomId(id)
+    .setLabel(label)
+    .setPlaceholder(placeholder)
+    .setRequired(true)
+    .setStyle(TextInputStyle.Short);
+  if (value) input.setValue(value.slice(0, 4000));
+  return new ActionRowBuilder<TextInputBuilder>().addComponents(input);
 }
 
 async function showEventModal(interaction: ButtonInteraction, action: "add" | "update") {
@@ -302,7 +358,38 @@ async function showEventSelect(interaction: ButtonInteraction, projectId: string
   });
 }
 
+async function handleDeleteDecision(interaction: ButtonInteraction, decision: "confirm" | "cancel", token: string): Promise<boolean> {
+  const session = getCalendarSelectionSession(token);
+  if (!session || session.action !== "delete") {
+    await interaction.reply({ content: "선택 시간이 만료되었습니다. 다시 일정을 선택해주세요.", ephemeral: true });
+    return true;
+  }
+
+  const project = await findProject(session.projectId);
+  if (!project || project.guildId !== interaction.guildId || !project.calendarId) {
+    await interaction.reply({ content: "프로젝트 Calendar 연결 정보를 찾을 수 없습니다.", ephemeral: true });
+    return true;
+  }
+
+  if (decision === "cancel") {
+    removeCalendarSelectionSession(token);
+    await interaction.reply({ content: "일정 삭제를 취소했습니다.", ephemeral: true });
+    return true;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+  const service = calendarService();
+  const event = await service.getEvent(project.calendarId, session.eventId);
+  await service.deleteEvent(project.calendarId, session.eventId);
+  removeCalendarSelectionSession(token);
+  await interaction.editReply(`✅ **${event.summary ?? "일정"}** 삭제 완료`);
+  return true;
+}
+
 export async function handleCalendarButton(interaction: ButtonInteraction): Promise<boolean> {
+  const deleteDecision = parseCalendarDeleteDecisionId(interaction.customId);
+  if (deleteDecision) return handleDeleteDecision(interaction, deleteDecision.decision, deleteDecision.token);
+
   const parsed = parseCalendarCustomId(interaction.customId);
   if (!parsed) return false;
   const project = await findProject(parsed.projectId);
@@ -354,14 +441,69 @@ export async function handleCalendarSelect(interaction: StringSelectMenuInteract
   }
 
   const event = await calendarService().getEvent(project.calendarId, session.eventId);
+  if (parsed.action === "update") {
+    const defaults = calendarEventEditDefaults(event);
+    const modal = new ModalBuilder()
+      .setCustomId(`calendar_update_selected_modal:${token}`)
+      .setTitle("일정 수정");
+    modal.addComponents(
+      prefilledTextInput("title", "일정 제목", "예: 로그인 API 완료", defaults.title),
+      prefilledTextInput("start", "시작", "내일 14:00", defaults.start),
+      prefilledTextInput("end", "종료", "내일 15:00", defaults.end),
+    );
+    await interaction.showModal(modal);
+    return true;
+  }
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`calendar_delete_confirm:${token}`)
+      .setLabel("삭제")
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(`calendar_delete_cancel:${token}`)
+      .setLabel("취소")
+      .setStyle(ButtonStyle.Secondary),
+  );
   await interaction.reply({
-    content: `✅ **${event.summary ?? "제목 없음"}** 일정 선택 완료`,
+    content: `**${event.summary ?? "제목 없음"}** 일정을 삭제할까요?`,
+    components: [row],
     ephemeral: true,
   });
   return true;
 }
 
 export async function handleCalendarModal(interaction: ModalSubmitInteraction): Promise<boolean> {
+  const selectedUpdate = /^calendar_update_selected_modal:([A-Za-z0-9]+)$/.exec(interaction.customId);
+  if (selectedUpdate) {
+    const token = selectedUpdate[1]!;
+    const session = getCalendarSelectionSession(token);
+    if (!session || session.action !== "update") {
+      await interaction.reply({ content: "선택 시간이 만료되었습니다. 다시 일정을 선택해주세요.", ephemeral: true });
+      return true;
+    }
+    const project = await findProject(session.projectId);
+    if (!project || project.guildId !== interaction.guildId || !project.calendarId) {
+      await interaction.reply({ content: "프로젝트 Calendar 연결 정보를 찾을 수 없습니다.", ephemeral: true });
+      return true;
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+    const title = interaction.fields.getTextInputValue("title").trim();
+    const start = parseKstDateTime(interaction.fields.getTextInputValue("start"));
+    const end = parseKstDateTime(interaction.fields.getTextInputValue("end"));
+    if (new Date(end).getTime() <= new Date(start).getTime()) throw new Error("종료 시간은 시작 시간보다 뒤여야 합니다.");
+    await calendarService().updateEvent(project.calendarId, session.eventId, {
+      summary: title,
+      start,
+      end,
+      metadata: { iseolProjectId: project.id, source: "discord" },
+    });
+    removeCalendarSelectionSession(token);
+    await interaction.editReply(`✅ **${title}** 일정 수정 완료`);
+    return true;
+  }
+
   const match = /^calendar_(add|update|delete|issue)_modal:([A-Za-z0-9_-]+)$/.exec(interaction.customId);
   if (!match) return false;
   const action = match[1]!;
