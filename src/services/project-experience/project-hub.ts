@@ -8,6 +8,9 @@ import {
   TextChannel,
 } from "discord.js";
 import { calendarPanel } from "../calendar/calendar-discord.js";
+import { scrumPanelMessage } from "../daily-scrum-discord.js";
+import { githubAccountPanel } from "../github-account-discord.js";
+import { findGitHubAccount } from "../github-user.js";
 import { findProject, type StoredProject } from "../projects.js";
 import {
   buildProjectHubId,
@@ -124,28 +127,6 @@ export async function ensureProjectHub(
   return created.id;
 }
 
-function githubPanel(project: StoredProject) {
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`project_join:${project.id}`)
-      .setLabel("Organization 참여")
-      .setEmoji("🚀")
-      .setStyle(ButtonStyle.Primary),
-    linkButton("Frontend", project.frontend.url, "🐙"),
-    linkButton("Backend", project.backend.url, "🐙"),
-  );
-
-  return {
-    content: [
-      `🐙 **${project.name} GitHub**`,
-      `Organization: **${project.organization}**`,
-      "팀 참여가 필요하면 아래 버튼을 누르세요.",
-    ].join("\n"),
-    components: [row],
-    ephemeral: true as const,
-  };
-}
-
 async function refreshHub(interaction: ButtonInteraction, project: StoredProject): Promise<void> {
   const guild = interaction.guild;
   if (!guild) {
@@ -190,22 +171,18 @@ export async function handleProjectHubButton(interaction: ButtonInteraction): Pr
   }
 
   if (parsed.action === "scrum") {
-    const channel = project.scrumChannelId
-      ? `<#${project.scrumChannelId}>`
-      : "스크럼 채널을 찾을 수 없습니다.";
     await interaction.reply({
-      content: [
-        "📋 **데일리 스크럼**",
-        channel,
-        "현재 `/scrum write`로 작성할 수 있고, 버튼 작성 흐름은 다음 자동화 단계에서 이 패널에 바로 연결됩니다.",
-      ].join("\n"),
+      ...scrumPanelMessage(project),
       ephemeral: true,
     });
     return true;
   }
 
   if (parsed.action === "github") {
-    await interaction.reply(githubPanel(project));
+    const link = interaction.guildId
+      ? await findGitHubAccount(interaction.guildId, interaction.user.id)
+      : null;
+    await interaction.reply(githubAccountPanel(project, link));
     return true;
   }
 
