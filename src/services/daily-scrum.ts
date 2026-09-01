@@ -88,6 +88,33 @@ export async function getDailyScrumRecord(
   ) ?? null;
 }
 
+export function selectRecentDailyScrumRecords(
+  records: DailyScrumRecord[],
+  projectId: string,
+  userId: string,
+  limit = 5,
+): DailyScrumRecord[] {
+  const safeLimit = Math.max(1, Math.min(20, Math.floor(limit)));
+  return records
+    .filter((record) => record.projectId === projectId && record.userId === userId)
+    .slice()
+    .sort((a, b) => {
+      const dateOrder = b.date.localeCompare(a.date);
+      if (dateOrder !== 0) return dateOrder;
+      return b.updatedAt.localeCompare(a.updatedAt);
+    })
+    .slice(0, safeLimit);
+}
+
+export async function listDailyScrumRecords(
+  projectId: string,
+  userId: string,
+  limit = 5,
+): Promise<DailyScrumRecord[]> {
+  const data = await readData();
+  return selectRecentDailyScrumRecords(data.records, projectId, userId, limit);
+}
+
 export async function saveDailyScrumRecord(record: DailyScrumRecord): Promise<void> {
   await updateData((data) => {
     const index = data.records.findIndex((item) =>
@@ -153,9 +180,9 @@ export async function sendDailyScrumReminders(client: Client, now = new Date()):
         content:
           "@everyone\n" +
           "🌅 **데일리 스크럼 작성 시간입니다.**\n" +
-          "오늘 할 일은 `/scrum write todo:...`로 작성해주세요.\n" +
-          "여러 할 일은 쉼표(`,`)로 구분하면 번호 목록으로 표시됩니다.\n" +
-          "`did`는 선택값이며, 입력할 때 전날 TODO 목록에서 완료한 항목을 선택할 수 있습니다.",
+          "오늘 할 일은 프로젝트 스크럼 패널의 `오늘 작성/수정` 버튼으로 작성할 수 있습니다.\n" +
+          "여러 할 일은 쉼표(`,`) 또는 줄바꿈으로 구분하면 번호 목록으로 표시됩니다.\n" +
+          "`/scrum write` 명령도 계속 사용할 수 있습니다.",
         allowedMentions: { parse: ["everyone"] },
       });
       await markReminderSent(project.id, date);
