@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  calendarEventEditDefaults,
   calendarEventSelectOptions,
   calendarPanelDescription,
+  createCalendarSelectionSession,
+  getCalendarSelectionSession,
   parseCalendarCustomId,
+  parseCalendarDeleteDecisionId,
   parseCalendarEventSelectId,
   parseKstDateTime,
   parseRepositorySide,
@@ -44,6 +48,42 @@ test("calendar event options show human content without exposing event ids", () 
   assert.match(options[0]?.description ?? "", /9\/3/);
   assert.doesNotMatch(options[0]?.label ?? "", /secret-event-id/);
   assert.doesNotMatch(options[0]?.description ?? "", /secret-event-id/);
+});
+
+test("calendar selection sessions resolve before expiry and disappear after expiry", () => {
+  const createdAt = 1_000_000;
+  const token = createCalendarSelectionSession("project1", "event1", "delete", createdAt);
+  assert.deepEqual(getCalendarSelectionSession(token, createdAt + 1), {
+    projectId: "project1",
+    eventId: "event1",
+    action: "delete",
+    expiresAt: createdAt + 10 * 60 * 1000,
+  });
+  assert.equal(getCalendarSelectionSession(token, createdAt + 10 * 60 * 1000 + 1), null);
+});
+
+test("calendar delete decisions require explicit confirm or cancel", () => {
+  assert.deepEqual(parseCalendarDeleteDecisionId("calendar_delete_confirm:token123"), {
+    decision: "confirm",
+    token: "token123",
+  });
+  assert.deepEqual(parseCalendarDeleteDecisionId("calendar_delete_cancel:token123"), {
+    decision: "cancel",
+    token: "token123",
+  });
+  assert.equal(parseCalendarDeleteDecisionId("calendar_delete_now:token123"), null);
+});
+
+test("selected calendar event produces prefilled KST edit values", () => {
+  assert.deepEqual(calendarEventEditDefaults({
+    summary: "로그인 API 완료",
+    start: { dateTime: "2026-09-03T14:00:00+09:00" },
+    end: { dateTime: "2026-09-03T15:30:00+09:00" },
+  }), {
+    title: "로그인 API 완료",
+    start: "2026-09-03 14:00",
+    end: "2026-09-03 15:30",
+  });
 });
 
 test("calendar date parser accepts full, month/day, today and tomorrow forms", () => {
