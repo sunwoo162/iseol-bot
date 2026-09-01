@@ -1,5 +1,6 @@
 import { ChannelType, Client, TextChannel } from "discord.js";
 import { DAILY_SCRUM_CHANNEL_NAME } from "../daily-scrum.js";
+import { ensureScrumPanel } from "../daily-scrum-discord.js";
 import { listProjects, updateProject, type StoredProject } from "../projects.js";
 import { ensureProjectHub } from "./project-hub.js";
 import type { ProjectHealth } from "./project-health.js";
@@ -25,7 +26,7 @@ function storedProjectHealth(project: StoredProject): ProjectHealth {
 export async function ensureProjectExperience(
   client: Client,
   project: StoredProject,
-): Promise<{ hubPanelMessageId?: string; scrumChannelId?: string }> {
+): Promise<{ hubPanelMessageId?: string; scrumChannelId?: string; scrumPanelMessageId?: string }> {
   const guild = client.guilds.cache.get(project.guildId)
     ?? await client.guilds.fetch(project.guildId).catch(() => null);
   if (!guild) return {};
@@ -73,6 +74,13 @@ export async function ensureProjectExperience(
     current = await updateProject(current.id, { scrumChannelId: scrum.id }) ?? current;
   }
 
+  if (scrum instanceof TextChannel) {
+    const scrumPanelMessageId = await ensureScrumPanel(scrum, current);
+    if (current.scrumPanelMessageId !== scrumPanelMessageId) {
+      current = await updateProject(current.id, { scrumPanelMessageId }) ?? current;
+    }
+  }
+
   const hubPanelMessageId = await ensureProjectHub(overview, current, storedProjectHealth(current));
   if (current.hubPanelMessageId !== hubPanelMessageId) {
     current = await updateProject(current.id, { hubPanelMessageId }) ?? current;
@@ -81,12 +89,17 @@ export async function ensureProjectExperience(
   return {
     hubPanelMessageId: current.hubPanelMessageId,
     scrumChannelId: current.scrumChannelId,
+    scrumPanelMessageId: current.scrumPanelMessageId,
   };
 }
 
 export async function ensureAllProjectExperiences(client: Client): Promise<void> {
   const projects = await listProjects();
-  const ensuredByCategory = new Map<string, { hubPanelMessageId?: string; scrumChannelId?: string }>();
+  const ensuredByCategory = new Map<string, {
+    hubPanelMessageId?: string;
+    scrumChannelId?: string;
+    scrumPanelMessageId?: string;
+  }>();
 
   for (const project of projects) {
     const key = `${project.guildId}:${project.categoryId}`;
