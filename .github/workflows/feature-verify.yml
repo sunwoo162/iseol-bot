@@ -26,4 +26,5 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - run: bash -n scripts/setup-review-runner-tools.sh
       - run: git diff --check
