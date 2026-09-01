@@ -23,6 +23,12 @@ export type DailyScrumRecord = {
   updatedAt: string;
 };
 
+export type DailyScrumReminderTarget = {
+  projectId: string;
+  guildId: string;
+  channelId: string;
+};
+
 type DailyScrumData = {
   records: DailyScrumRecord[];
   reminderDates: Record<string, string>;
@@ -150,25 +156,51 @@ export async function findDailyScrumChannel(
   return channel instanceof TextChannel ? channel : null;
 }
 
-async function reminderAlreadySent(projectId: string, date: string): Promise<boolean> {
-  const data = await readData();
-  return data.reminderDates[projectId] === date;
+function dailyScrumReminderKey(target: DailyScrumReminderTarget): string {
+  return `${target.guildId}:${target.channelId}`;
 }
 
-async function markReminderSent(projectId: string, date: string): Promise<void> {
+export function selectDailyScrumReminderTargets(
+  targets: DailyScrumReminderTarget[],
+  reminderDates: Record<string, string>,
+  date: string,
+): DailyScrumReminderTarget[] {
+  const groups = new Map<string, DailyScrumReminderTarget[]>();
+
+  for (const target of targets) {
+    const key = dailyScrumReminderKey(target);
+    const group = groups.get(key) ?? [];
+    group.push(target);
+    groups.set(key, group);
+  }
+
+  const selected: DailyScrumReminderTarget[] = [];
+  for (const [key, group] of groups) {
+    const alreadySent = reminderDates[key] === date
+      || group.some((target) => reminderDates[target.projectId] === date);
+    if (!alreadySent && group[0]) selected.push(group[0]);
+  }
+
+  return selected;
+}
+
+async function markReminderSent(reminderKey: string, date: string): Promise<void> {
   await updateData((data) => {
-    data.reminderDates[projectId] = date;
+    data.reminderDates[reminderKey] = date;
   });
 }
 
 export async function sendDailyScrumReminders(client: Client, now = new Date()): Promise<void> {
   const date = seoulDateKey(now);
   const projects = await listProjects();
+  const candidates: Array<{
+    target: DailyScrumReminderTarget;
+    project: StoredProject;
+    channel: TextChannel;
+  }> = [];
 
   for (const project of projects) {
     try {
-      if (await reminderAlreadySent(project.id, date)) continue;
-
       const guild = client.guilds.cache.get(project.guildId)
         ?? await client.guilds.fetch(project.guildId).catch(() => null);
       if (!guild) continue;
@@ -176,18 +208,48 @@ export async function sendDailyScrumReminders(client: Client, now = new Date()):
       const channel = await findDailyScrumChannel(guild, project);
       if (!channel) continue;
 
-      await channel.send({
+      candidates.push({
+        target: {
+          projectId: project.id,
+          guildId: project.guildId,
+          channelId: channel.id,
+        },
+        project,
+        channel,
+      });
+    } catch (error) {
+      console.error(`데일리 스크럼 알림 대상 확인 실패 (${project.name})`, error);
+    }
+  }
+
+  const data = await readData();
+  const selectedTargets = selectDailyScrumReminderTargets(
+    candidates.map((candidate) => candidate.target),
+    data.reminderDates,
+    date,
+  );
+  const candidateByKey = new Map(
+    candidates.map((candidate) => [dailyScrumReminderKey(candidate.target), candidate] as const),
+  );
+
+  for (const target of selectedTargets) {
+    const key = dailyScrumReminderKey(target);
+    const candidate = candidateByKey.get(key);
+    if (!candidate) continue;
+
+    try {
+      await candidate.channel.send({
         content:
           "@everyone\n" +
           "🌅 **데일리 스크럼 작성 시간입니다.**\n" +
-          "오늘 할 일은 프로젝트 스크럼 패널의 `오늘 작성/수정` 버튼으로 작성할 수 있습니다.\n" +
+          "오늘 할 일은 프로젝트 허브의 `📋 스크럼`에서 작성할 수 있습니다.\n" +
           "여러 할 일은 쉼표(`,`) 또는 줄바꿈으로 구분하면 번호 목록으로 표시됩니다.\n" +
           "`/scrum write` 명령도 계속 사용할 수 있습니다.",
         allowedMentions: { parse: ["everyone"] },
       });
-      await markReminderSent(project.id, date);
+      await markReminderSent(key, date);
     } catch (error) {
-      console.error(`데일리 스크럼 알림 전송 실패 (${project.name})`, error);
+      console.error(`데일리 스크럼 알림 전송 실패 (${candidate.project.name})`, error);
     }
   }
 }
