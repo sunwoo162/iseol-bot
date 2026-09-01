@@ -68,12 +68,13 @@ GitHub Fine-grained personal access token을 만들고 대상 프론트/백엔�
 
 - Metadata: Read
 - Contents: Read and write
+- Workflows: Read and write
 - Actions: Read
 - Pull requests: Read and write
 - Issues: Read and write
 - Webhooks: Read and write
 
-`Contents` 쓰기 권한은 프로젝트 저장소에 `.github/workflows/iseol-code-review.yml`을 최초 설치할 때 사용합니다. `Actions` 읽기 권한은 완료된 리뷰 workflow와 artifact를 조회할 때 사용합니다. `Pull requests` 쓰기 권한은 `🤖 이설 Code Review` 및 inline comment 작성에 필요합니다.
+`Contents`/`Workflows` 쓰기 권한은 프로젝트 저장소에 `.github/workflows/iseol-code-review.yml`을 최초 설치할 때 사용합니다. `Actions` 읽기 권한은 완료된 리뷰 workflow와 artifact를 조회할 때 사용합니다. `Pull requests` 쓰기 권한은 `🤖 이설 Code Review` 및 inline comment 작성에 필요합니다.
 
 프로젝트 저장소가 private이면 해당 저장소 자체에 대한 접근도 허용되어 있어야 합니다.
 
@@ -109,7 +110,7 @@ WEBHOOK_PORT=...
 ```
 
 - `DISCORD_CLIENT_ID`: Discord Application ID
-- `GITHUB_TOKEN`: 저장소 webhook/contents/actions/PR/issue 조회 및 자동화에 사용하는 GitHub token
+- `GITHUB_TOKEN`: 저장소 webhook/contents/workflows/actions/PR/issue 조회 및 자동화에 사용하는 GitHub token
 - `DISCORD_GUILD_ID`: 선택값. 과거 길드 전용 slash command를 정리할 때만 기존 서버 ID를 잠시 유지합니다.
 - 기본 PR 코드리뷰에는 Gemini/OpenAI/Groq 등 유료 AI API 키가 필요하지 않습니다.
 - `GITHUB_WEBHOOK_SECRET`, `PUBLIC_BASE_URL`, `WEBHOOK_PORT`, `GEMINI_API_KEY`는 기존 signed webhook fallback을 사용할 때만 필요합니다.
