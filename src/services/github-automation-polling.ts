@@ -10,6 +10,7 @@ import { GitHubWebhookService, type RepositoryRef } from "./github.js";
 import { listProjects, type StoredProject } from "./projects.js";
 import { validateCiArtifactForPull } from "./review/github-ci-review.js";
 import { GitHubReviewService } from "./review/github-review.js";
+import { reviewRuntimeMessages } from "./review/review-runtime.js";
 import { ensureProjectReviewWorkflows } from "./review/review-workflow-install.js";
 
 const POLL_INTERVAL_MS = 60_000;
@@ -170,9 +171,7 @@ export function startGitHubAutomationPolling(client: Client): NodeJS.Timeout {
 
   void run();
   const timer = setInterval(() => void run(), POLL_INTERVAL_MS);
-  console.log("GitHub PR CI 코드리뷰/마일스톤 자동 감시 시작: 1분 간격");
-  if (!config.googleClientId || !config.googleClientSecret || !config.googleRefreshToken) {
-    console.log("GitHub milestone Calendar 동기화 대기: Google OAuth 미설정");
-  }
+  const calendarEnabled = Boolean(config.googleClientId && config.googleClientSecret && config.googleRefreshToken);
+  for (const message of reviewRuntimeMessages(calendarEnabled)) console.log(message);
   return timer;
 }
