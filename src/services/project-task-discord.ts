@@ -7,6 +7,7 @@ import {
   Guild,
   ModalBuilder,
   ModalSubmitInteraction,
+  PermissionFlagsBits,
   TextChannel,
   TextInputBuilder,
   TextInputStyle,
@@ -59,6 +60,10 @@ export function buildProjectTaskId(action: ProjectTaskAction, id: string): strin
 export function parseProjectTaskId(customId: string): { action: ProjectTaskAction; id: string } | null {
   const match = /^project_task:(create|my|complete|edit|more):([A-Za-z0-9_-]+)$/.exec(customId);
   return match ? { action: match[1] as ProjectTaskAction, id: match[2]! } : null;
+}
+
+export function canManageProjectTask(task: StoredProjectTask, userId: string, canManageChannels: boolean): boolean {
+  return task.creatorDiscordId === userId || canManageChannels;
 }
 
 export function projectTaskCreatePlan(
@@ -301,6 +306,17 @@ async function handleTaskCompletion(interaction: ButtonInteraction, task: Stored
   return true;
 }
 
+function interactionCanManageTask(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+  task: StoredProjectTask,
+): boolean {
+  return canManageProjectTask(
+    task,
+    interaction.user.id,
+    interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels) ?? false,
+  );
+}
+
 export async function handleProjectTaskButton(interaction: ButtonInteraction): Promise<boolean> {
   const parsed = parseProjectTaskId(interaction.customId);
   if (!parsed) return false;
@@ -332,6 +348,11 @@ export async function handleProjectTaskButton(interaction: ButtonInteraction): P
     return true;
   }
 
+  if ((parsed.action === "complete" || parsed.action === "edit") && !interactionCanManageTask(interaction, task)) {
+    await interaction.reply({ content: "이 작업은 작성자 또는 프로젝트 관리자만 변경할 수 있습니다.", ephemeral: true });
+    return true;
+  }
+
   if (parsed.action === "complete") return handleTaskCompletion(interaction, task);
 
   if (parsed.action === "edit") {
@@ -357,6 +378,10 @@ async function handleTaskEditModal(interaction: ModalSubmitInteraction, taskId: 
   const project = await findProject(task.projectId);
   if (!project || project.guildId !== interaction.guildId) {
     await interaction.reply({ content: "작업의 프로젝트 정보를 찾을 수 없습니다.", ephemeral: true });
+    return true;
+  }
+  if (!interactionCanManageTask(interaction, task)) {
+    await interaction.reply({ content: "이 작업은 작성자 또는 프로젝트 관리자만 변경할 수 있습니다.", ephemeral: true });
     return true;
   }
 
