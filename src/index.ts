@@ -29,6 +29,7 @@ import { startGitHubCommitFeedPolling } from "./services/github-commit-feed.js";
 import { GitHubWebhookService } from "./services/github.js";
 import { startJobFeedPolling } from "./services/job-feed.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
+import { handleProjectHubButton } from "./services/project-experience/project-hub.js";
 import { ensureAllProjectExperiences } from "./services/project-experience/project-migration.js";
 import { handleProjectSetupModal } from "./services/project-experience/project-setup.js";
 import { findProject } from "./services/projects.js";
@@ -176,6 +177,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (interaction.commandName === "voice") await handleVoiceCommand(interaction);
       if (interaction.commandName === "music") await handleMusicCommand(interaction);
       return;
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith("project_hub:")) {
+      if (await handleProjectHubButton(interaction)) return;
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("calendar:")) {
