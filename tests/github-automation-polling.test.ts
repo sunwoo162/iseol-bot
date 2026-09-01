@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { milestonePollSignature, syncMilestonesFromPoll } from "../src/services/github-automation-polling-domain.js";
+import {
+  milestonePollSignature,
+  reviewWorkflowInstallKey,
+  syncMilestonesFromPoll,
+} from "../src/services/github-automation-polling-domain.js";
 
 const m1 = {
   number: 1,
@@ -26,6 +30,20 @@ const m3 = {
   htmlUrl: "https://github.com/a/b/milestone/3",
   updatedAt: "2026-09-01T00:00:00Z",
 };
+
+test("review workflow install key deduplicates projects that point to the same repositories", () => {
+  const first = reviewWorkflowInstallKey(
+    { owner: "rain-gj", repo: "rain-gj-frontend" },
+    { owner: "rain-gj", repo: "rain-gj-backend" },
+  );
+  const duplicate = reviewWorkflowInstallKey(
+    { owner: "rain-gj", repo: "rain-gj-backend" },
+    { owner: "rain-gj", repo: "rain-gj-frontend" },
+  );
+
+  assert.equal(first, duplicate);
+  assert.equal(first, "rain-gj/rain-gj-backend|rain-gj/rain-gj-frontend");
+});
 
 test("poll syncs only changed or new milestones and removes stale mappings", async () => {
   const previous = {
