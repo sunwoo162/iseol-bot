@@ -102,22 +102,25 @@ type CiReviewArtifact = {
 5. Style-only findings are not posted as inline reviews.
 6. Build/test/typecheck failures without a reliable changed-line mapping stay in the compact review summary/check status instead of being attached to an arbitrary line.
 7. Ordinary inline findings are sorted by severity/confidence and capped at five.
-8. The same repository + PR + HEAD SHA + artifact is never reviewed twice.
+8. The same repository + PR + HEAD SHA is never reviewed twice.
 
 ## Project onboarding
-When a project is created, Iseol attempts to install `.github/workflows/iseol-code-review.yml` into both configured repositories if the file does not already exist. Existing projects get a one-shot bootstrap command/script.
+The 1-minute Iseol polling loop attempts to install `.github/workflows/iseol-code-review.yml` into both repositories once per stored project after bot startup. If the workflow file already exists, Iseol leaves it untouched. Installation failure is logged and does not stop PR/milestone polling.
 
-The generated workflow references the central review collector script in this repository at a pinned commit/ref. The collector is responsible for producing the normalized artifact and must never post GitHub comments itself; comment posting remains centralized in Iseol.
+Existing projects also have a one-shot bootstrap command: `npm run review:install-workflows`.
+
+The generated workflow references the central review collector script in this repository at a configurable ref. While PR #39 is unmerged the default ref is the feature branch; after integration it should be pinned to the integrated branch/commit. The collector only produces the normalized artifact and never posts GitHub comments itself; comment posting remains centralized in Iseol.
 
 ## Self-hosted runner
-The production `gsmsv` host will use a dedicated GitHub Actions runner labeled `iseol-review` and a separate working directory/user where practical. GitHub documents self-hosted runner usage as free from GitHub Actions runner charges; machine hosting cost remains the operator's responsibility.
+For private repositories with zero GitHub-hosted runner-minute usage, use a dedicated GitHub Actions runner labeled `iseol-review`. Prefer a separate VM/container. If the current `gsmsv` host is used, run the Actions runner as a dedicated unprivileged user with no access to production `.env`, PM2 state, runtime data, SSH keys, Docker socket, or other secrets.
 
-A setup helper installs optional analyzers and validates their versions. Missing optional analyzers are recorded as `skipped`, not treated as a failed review.
+A setup helper installs optional analyzers and validates their versions. Missing optional analyzers are recorded as `skipped`, not treated as a failed review. Public repositories may use standard GitHub-hosted runners without Actions charges if desired, although the generated default workflow is self-hosted so the same template also covers private repositories.
 
 ## Failure behavior
 - Analyzer crash: record the analyzer as failed/skipped and continue other analyzers.
-- Artifact missing: no review is posted; Discord/log warning is emitted once per HEAD SHA.
-- Workflow failed before artifact upload: Iseol summarizes the failed check but does not invent line comments.
+- Artifact missing: no review is posted; a server warning is emitted and the next polling cycle may retry.
+- Workflow failed after producing an artifact: the available artifact is still eligible; failed checks can appear in the compact summary.
+- Workflow failed before artifact upload: no line comments are invented.
 - Rate-limit/API errors: retry on the next polling cycle; HEAD SHA state is not marked reviewed until a GitHub review is successfully created.
 - Fork PR: workflow skipped by design.
 
@@ -125,10 +128,10 @@ A setup helper installs optional analyzers and validates their versions. Missing
 - Keep the existing signed webhook code as optional fallback, disabled in production.
 - Remove Gemini/Groq from the default review execution path.
 - Keep the existing `ReviewFinding`, renderers, changed-line parser, and HEAD SHA state where possible.
-- CI findings become the default `ReviewProvider` input source.
+- CI findings become the default review input source.
 
 ## Success criteria
-- A same-repository PR starts an Iseol self-hosted Actions review.
+- A same-repository PR starts an Iseol self-hosted Actions review after the workflow has been installed.
 - The Actions run creates a valid `iseol-review-findings` artifact even when some optional tools are unavailable.
 - Within one polling interval after completion, Iseol posts at most five useful inline comments on changed lines and one compact summary.
 - Re-polling the same HEAD SHA creates no duplicate review.
