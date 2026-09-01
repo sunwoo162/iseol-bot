@@ -5,6 +5,18 @@ import { listProjects, updateProject, type StoredProject } from "../projects.js"
 import { ensureProjectHub } from "./project-hub.js";
 import { storedProjectHealth } from "./project-health.js";
 
+export type ProjectExperienceEnsureResult = {
+  hubPanelMessageId?: string;
+  scrumChannelId?: string;
+  scrumPanelMessageId?: string;
+};
+
+export type ProjectExperienceMigrationPlanItem = {
+  project: StoredProject;
+  key: string;
+  mode: "ensure" | "reuse";
+};
+
 export function projectExperienceNeeds(project: StoredProject): { hub: boolean; scrum: boolean } {
   return {
     hub: !project.hubPanelMessageId,
@@ -12,10 +24,34 @@ export function projectExperienceNeeds(project: StoredProject): { hub: boolean; 
   };
 }
 
+export function applyEnsuredProjectExperience(
+  project: StoredProject,
+  ensured: ProjectExperienceEnsureResult,
+): StoredProject {
+  return {
+    ...project,
+    ...(ensured.hubPanelMessageId !== undefined ? { hubPanelMessageId: ensured.hubPanelMessageId } : {}),
+    ...(ensured.scrumChannelId !== undefined ? { scrumChannelId: ensured.scrumChannelId } : {}),
+    ...(ensured.scrumPanelMessageId !== undefined ? { scrumPanelMessageId: ensured.scrumPanelMessageId } : {}),
+  };
+}
+
+export function planProjectExperienceMigration(
+  projects: StoredProject[],
+): ProjectExperienceMigrationPlanItem[] {
+  const seenCategories = new Set<string>();
+  return projects.map((project) => {
+    const key = `${project.guildId}:${project.categoryId}`;
+    const mode = seenCategories.has(key) ? "reuse" : "ensure";
+    seenCategories.add(key);
+    return { project, key, mode };
+  });
+}
+
 export async function ensureProjectExperience(
   client: Client,
   project: StoredProject,
-): Promise<{ hubPanelMessageId?: string; scrumChannelId?: string; scrumPanelMessageId?: string }> {
+): Promise<ProjectExperienceEnsureResult> {
   const guild = client.guilds.cache.get(project.guildId)
     ?? await client.guilds.fetch(project.guildId).catch(() => null);
   if (!guild) return {};
@@ -72,7 +108,11 @@ export async function ensureProjectExperience(
 
   const hubPanelMessageId = await ensureProjectHub(overview, current, storedProjectHealth(current));
   if (current.hubPanelMessageId !== hubPanelMessageId) {
-    current = await updateProject(current.id, { hubPanelMessageId }) ?? current;
+    const updated = await updateProject(current.id, { hubPanelMessageId });
+    if (updated) {
+      current = updated;
+      await ensureProjectHub(overview, current, storedProjectHealth(current));
+    }
   }
 
   return {
@@ -84,18 +124,14 @@ export async function ensureProjectExperience(
 
 export async function ensureAllProjectExperiences(client: Client): Promise<void> {
   const projects = await listProjects();
-  const ensuredByCategory = new Map<string, {
-    hubPanelMessageId?: string;
-    scrumChannelId?: string;
-    scrumPanelMessageId?: string;
-  }>();
+  const ensuredByCategory = new Map<string, ProjectExperienceEnsureResult>();
 
-  for (const project of projects) {
-    const key = `${project.guildId}:${project.categoryId}`;
+  for (const item of planProjectExperienceMigration(projects)) {
+    const { project, key, mode } = item;
     try {
-      const existing = ensuredByCategory.get(key);
-      if (existing) {
-        await updateProject(project.id, existing);
+      if (mode === "reuse") {
+        const existing = ensuredByCategory.get(key);
+        if (existing) await updateProject(project.id, existing);
         continue;
       }
 
