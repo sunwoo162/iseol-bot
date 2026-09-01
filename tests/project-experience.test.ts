@@ -5,7 +5,7 @@ import {
   parseProjectHubId,
 } from "../src/services/project-experience/project-custom-id.js";
 import { projectHealthLines, type ProjectHealth } from "../src/services/project-experience/project-health.js";
-import { projectHubMessage } from "../src/services/project-experience/project-hub.js";
+import { projectHubActionCopy, projectHubMessage } from "../src/services/project-experience/project-hub.js";
 import type { StoredProject } from "../src/services/projects.js";
 
 const projectFixture: StoredProject = {
@@ -70,4 +70,11 @@ test("project hub exposes the five primary member actions", () => {
   assert.ok(ids.includes("project_hub:github:abc123"));
   assert.ok(ids.includes("project_hub:review:abc123"));
   assert.ok(ids.includes("project_hub:refresh:abc123"));
+  assert.ok(ids.includes("project_hub:admin:abc123"));
+});
+
+test("every project hub action has user-facing copy", () => {
+  for (const action of ["calendar", "scrum", "github", "review", "refresh", "admin"] as const) {
+    assert.ok(projectHubActionCopy(action).trim().length > 0);
+  }
 });
