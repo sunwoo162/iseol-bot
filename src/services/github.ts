@@ -105,6 +105,34 @@ export class GitHubWebhookService {
     return { number: data.number, htmlUrl: data.html_url };
   }
 
+  async ensureRepositoryFile(
+    repository: RepositoryRef,
+    path: string,
+    content: string,
+    message: string,
+  ): Promise<{ created: boolean; branch: string }> {
+    const { data: repositoryData } = await this.octokit.rest.repos.get({ owner: repository.owner, repo: repository.repo });
+    const branch = repositoryData.default_branch;
+
+    try {
+      await this.octokit.rest.repos.getContent({ owner: repository.owner, repo: repository.repo, path, ref: branch });
+      return { created: false, branch };
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status !== 404) throw error;
+    }
+
+    await this.octokit.rest.repos.createOrUpdateFileContents({
+      owner: repository.owner,
+      repo: repository.repo,
+      path,
+      branch,
+      message,
+      content: Buffer.from(content, "utf8").toString("base64"),
+    });
+    return { created: true, branch };
+  }
+
   async deleteWebhook(repository: RepositoryRef, hookId: number): Promise<void> {
     await this.octokit.rest.repos.deleteWebhook({ owner: repository.owner, repo: repository.repo, hook_id: hookId });
   }
