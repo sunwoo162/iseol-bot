@@ -29,6 +29,7 @@ import { startGitHubCommitFeedPolling } from "./services/github-commit-feed.js";
 import { GitHubWebhookService } from "./services/github.js";
 import { startJobFeedPolling } from "./services/job-feed.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
+import { handleProjectSetupModal } from "./services/project-experience/project-setup.js";
 import { findProject } from "./services/projects.js";
 import { handleVoiceAutoLeave } from "./services/voice-auto-leave.js";
 import {
@@ -198,6 +199,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
       modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(username));
       await interaction.showModal(modal);
       return;
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId === "project_setup_modal") {
+      if (await handleProjectSetupModal(interaction)) {
+        await ensureProjectDiscussionChannels(client);
+        return;
+      }
     }
 
     if (interaction.isModalSubmit() && interaction.customId.startsWith("calendar_")) {
