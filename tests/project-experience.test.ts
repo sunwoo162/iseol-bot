@@ -4,7 +4,12 @@ import {
   buildProjectHubId,
   parseProjectHubId,
 } from "../src/services/project-experience/project-custom-id.js";
-import { projectHealthLines, type ProjectHealth } from "../src/services/project-experience/project-health.js";
+import {
+  projectHealthIssues,
+  projectHealthLines,
+  storedProjectHealth,
+  type ProjectHealth,
+} from "../src/services/project-experience/project-health.js";
 import { projectHubActionCopy, projectHubMessage } from "../src/services/project-experience/project-hub.js";
 import type { StoredProject } from "../src/services/projects.js";
 
@@ -57,6 +62,50 @@ test("project health uses short user-facing states", () => {
   assert.ok(lines.some((line) => line.includes("Code Review") && line.includes("관리자 설정 필요")));
   assert.ok(lines.some((line) => line.includes("Google Calendar") && line.includes("설정 필요")));
   assert.ok(lines.every((line) => !line.includes("403")));
+});
+
+test("stored project health uses one shared diagnostic rule", () => {
+  const healthy = storedProjectHealth({
+    ...projectFixture,
+    frontendHookId: 1,
+    backendHookId: 2,
+    calendarId: "calendar1",
+    scrumChannelId: "scrum1",
+    scrumPanelMessageId: "scrum-panel1",
+  });
+  assert.deepEqual(healthy, {
+    github: "connected",
+    review: "checking",
+    calendar: "connected",
+    scrum: "connected",
+    notion: "connected",
+    figma: "connected",
+  });
+
+  const incomplete = storedProjectHealth({
+    ...projectFixture,
+    notionUrl: undefined,
+    figmaUrl: undefined,
+  });
+  assert.equal(incomplete.github, "repair");
+  assert.equal(incomplete.calendar, "needs_setup");
+  assert.equal(incomplete.scrum, "repair");
+  assert.equal(incomplete.notion, "needs_setup");
+  assert.equal(incomplete.figma, "needs_setup");
+});
+
+test("project health issues stay actionable and hide raw api details", () => {
+  const issues = projectHealthIssues({
+    github: "repair",
+    review: "needs_admin",
+    calendar: "needs_setup",
+    scrum: "repair",
+    notion: "needs_setup",
+    figma: "connected",
+  });
+  assert.ok(issues.some((line) => line.includes("GitHub") && line.includes("복구")));
+  assert.ok(issues.some((line) => line.includes("Code Review") && line.includes("관리자")));
+  assert.ok(issues.every((line) => !/403|HTTP|token|PAT/i.test(line)));
 });
 
 test("project hub exposes the five primary member actions", () => {
