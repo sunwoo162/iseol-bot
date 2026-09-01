@@ -11,6 +11,12 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      DISCORD_TOKEN: test-token
+      DISCORD_CLIENT_ID: test-client
+      GITHUB_TOKEN: test-github
+      FIGMA_TOKEN: test-figma
+      NOTION_TOKEN: test-notion
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
