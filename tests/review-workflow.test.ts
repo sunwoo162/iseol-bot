@@ -6,8 +6,8 @@ import {
   renderIseolReviewWorkflow,
 } from "../src/services/review/review-workflow.js";
 
-test("review workflow is self-hosted, fork-safe, and uploads the normalized artifact", () => {
-  const yaml = renderIseolReviewWorkflow("abc123");
+test("private review workflow is self-hosted, fork-safe, and uploads the normalized artifact", () => {
+  const yaml = renderIseolReviewWorkflow("abc123", "self-hosted");
   assert.equal(ISEOL_REVIEW_WORKFLOW_PATH, ".github/workflows/iseol-code-review.yml");
   assert.match(yaml, /name: Iseol Code Review/);
   assert.match(yaml, /pull_request:/);
@@ -22,6 +22,12 @@ test("review workflow is self-hosted, fork-safe, and uploads the normalized arti
   assert.match(yaml, /name: iseol-review-findings/);
   assert.match(yaml, /path: \.iseol\/review\/iseol-review\.json/);
   assert.match(yaml, /if: always\(\)/);
+});
+
+test("public review workflow uses the free GitHub-hosted runner", () => {
+  const yaml = renderIseolReviewWorkflow("abc123", "github-hosted");
+  assert.match(yaml, /runs-on: ubuntu-latest/);
+  assert.doesNotMatch(yaml, /runs-on: \[self-hosted/);
 });
 
 test("default collector ref is pinned to an immutable commit", () => {
