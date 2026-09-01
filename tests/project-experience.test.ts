@@ -11,6 +11,8 @@ import {
   type ProjectHealth,
 } from "../src/services/project-experience/project-health.js";
 import {
+  ensureProjectHub,
+  ensureProjectHubGuide,
   projectHubActionCopy,
   projectHubAdvancedMessage,
   projectHubMessage,
@@ -143,4 +145,46 @@ test("every project hub action has user-facing copy", () => {
   for (const action of ["calendar", "scrum", "github", "review", "refresh", "admin", "more"] as const) {
     assert.ok(projectHubActionCopy(action).trim().length > 0);
   }
+});
+
+test("live project hub is unpinned while keeping its interactive payload", async () => {
+  let unpinned = false;
+  const message = {
+    id: "live-hub",
+    pinned: true,
+    edit: async () => undefined,
+    unpin: async () => { unpinned = true; },
+  };
+  const channel = {
+    messages: { fetch: async () => message },
+    send: async () => { throw new Error("must reuse live hub"); },
+  };
+  const id = await ensureProjectHub(
+    channel as never,
+    { ...projectFixture, hubPanelMessageId: "live-hub" },
+    connectedHealthFixture,
+  );
+  assert.equal(id, "live-hub");
+  assert.equal(unpinned, true);
+});
+
+test("pinned hub guide is created separately from the live hub", async () => {
+  let pinned = false;
+  let sentPayload: { components?: unknown[] } | undefined;
+  const created = {
+    id: "guide-message",
+    pin: async () => { pinned = true; },
+  };
+  const channel = {
+    messages: { fetch: async () => null },
+    send: async (payload: { components?: unknown[] }) => {
+      sentPayload = payload;
+      return created;
+    },
+  };
+
+  const id = await ensureProjectHubGuide(channel as never, projectFixture, "live-hub");
+  assert.equal(id, "guide-message");
+  assert.equal(pinned, true);
+  assert.equal(sentPayload?.components?.length ?? 0, 0);
 });
