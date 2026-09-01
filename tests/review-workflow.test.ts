@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ISEOL_REVIEW_WORKFLOW_PATH, renderIseolReviewWorkflow } from "../src/services/review/review-workflow.js";
+import {
+  DEFAULT_ISEOL_COLLECTOR_REF,
+  ISEOL_REVIEW_WORKFLOW_PATH,
+  renderIseolReviewWorkflow,
+} from "../src/services/review/review-workflow.js";
 
 test("review workflow is self-hosted, fork-safe, and uploads the normalized artifact", () => {
   const yaml = renderIseolReviewWorkflow("abc123");
@@ -18,4 +22,10 @@ test("review workflow is self-hosted, fork-safe, and uploads the normalized arti
   assert.match(yaml, /name: iseol-review-findings/);
   assert.match(yaml, /path: \.iseol\/review\/iseol-review\.json/);
   assert.match(yaml, /if: always\(\)/);
+});
+
+test("default collector ref is pinned to an immutable commit", () => {
+  assert.match(DEFAULT_ISEOL_COLLECTOR_REF, /^[0-9a-f]{40}$/);
+  const yaml = renderIseolReviewWorkflow();
+  assert.match(yaml, new RegExp(`/iseol-bot/${DEFAULT_ISEOL_COLLECTOR_REF}/scripts/iseol-review-collector\\.mjs`));
 });
