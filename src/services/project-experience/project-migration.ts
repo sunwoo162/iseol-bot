@@ -22,20 +22,6 @@ function storedProjectHealth(project: StoredProject): ProjectHealth {
   };
 }
 
-async function findOrCreateTextChannel(
-  project: StoredProject,
-  channels: Awaited<ReturnType<NonNullable<Awaited<ReturnType<Client["guilds"]["fetch"]>>>["channels"]["fetch"]>>>,
-  name: string,
-): Promise<TextChannel | null> {
-  const existing = channels.find((channel) =>
-    channel instanceof TextChannel
-    && channel.parentId === project.categoryId
-    && channel.name === name,
-  );
-  if (existing instanceof TextChannel) return existing;
-  return null;
-}
-
 export async function ensureProjectExperience(
   client: Client,
   project: StoredProject,
@@ -48,32 +34,42 @@ export async function ensureProjectExperience(
   if (!category || category.type !== ChannelType.GuildCategory) return {};
 
   let channels = await guild.channels.fetch();
-  let overview = await findOrCreateTextChannel(project, channels, "📌・프로젝트");
-  if (!overview) {
+  let overview = channels.find((channel) =>
+    channel instanceof TextChannel
+    && channel.parentId === project.categoryId
+    && channel.name === "📌・프로젝트",
+  );
+
+  if (!(overview instanceof TextChannel)) {
     const created = await guild.channels.create({
       name: "📌・프로젝트",
       type: ChannelType.GuildText,
       parent: category.id,
       reason: `${project.name} 이설 프로젝트 허브 복구`,
     });
-    overview = created instanceof TextChannel ? created : null;
+    overview = created instanceof TextChannel ? created : undefined;
     channels = await guild.channels.fetch();
   }
-  if (!overview) return {};
+  if (!(overview instanceof TextChannel)) return {};
 
-  let scrum = await findOrCreateTextChannel(project, channels, DAILY_SCRUM_CHANNEL_NAME);
-  if (!scrum) {
+  let scrum = channels.find((channel) =>
+    channel instanceof TextChannel
+    && channel.parentId === project.categoryId
+    && channel.name === DAILY_SCRUM_CHANNEL_NAME,
+  );
+
+  if (!(scrum instanceof TextChannel)) {
     const created = await guild.channels.create({
       name: DAILY_SCRUM_CHANNEL_NAME,
       type: ChannelType.GuildText,
       parent: category.id,
       reason: `${project.name} 이설 데일리 스크럼 자동 복구`,
     });
-    scrum = created instanceof TextChannel ? created : null;
+    scrum = created instanceof TextChannel ? created : undefined;
   }
 
   let current: StoredProject = project;
-  if (scrum && current.scrumChannelId !== scrum.id) {
+  if (scrum instanceof TextChannel && current.scrumChannelId !== scrum.id) {
     current = await updateProject(current.id, { scrumChannelId: scrum.id }) ?? current;
   }
 
