@@ -29,6 +29,7 @@ import { startGitHubCommitFeedPolling } from "./services/github-commit-feed.js";
 import { GitHubWebhookService } from "./services/github.js";
 import { startJobFeedPolling } from "./services/job-feed.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
+import { ensureAllProjectExperiences } from "./services/project-experience/project-migration.js";
 import { handleProjectSetupModal } from "./services/project-experience/project-setup.js";
 import { findProject } from "./services/projects.js";
 import { handleVoiceAutoLeave } from "./services/voice-auto-leave.js";
@@ -66,6 +67,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 
   await ensureProjectDiscussionChannels(client);
+  await ensureAllProjectExperiences(client);
   await ensureContestPrepAnnouncementChannels(client);
   startDailyScrumReminderScheduler(client);
 });
