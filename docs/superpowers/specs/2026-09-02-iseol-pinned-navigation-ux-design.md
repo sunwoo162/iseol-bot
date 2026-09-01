@@ -30,7 +30,7 @@ Startup migration edits the existing stored hub panel in place, unpins it if nee
 
 The stored `scrumPanelMessageId` becomes the pinned scrum guide message ID. Existing pinned interactive scrum messages are edited in place to remove action buttons. The guide points users to `📌・프로젝트 → 스크럼` and includes a link to the live hub when available.
 
-`scumPanelMessage()` remains the ephemeral interactive panel with:
+`scrumPanelMessage()` remains the ephemeral interactive panel with:
 
 - `오늘 작성/수정`
 - `전날 TODO 완료 처리`
