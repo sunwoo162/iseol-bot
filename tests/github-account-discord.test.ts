@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildGitHubConnectModalId,
   buildProjectGitHubId,
   findDuplicateGitHubAccount,
   githubAccountPanel,
   githubJoinUsername,
+  normalizeGitHubUsername,
+  parseGitHubConnectModalId,
   parseProjectGitHubId,
 } from "../src/services/github-account-discord.js";
 import type { GitHubAccountLink } from "../src/services/github-user.js";
@@ -49,6 +52,19 @@ test("project github custom ids round-trip", () => {
   assert.deepEqual(parseProjectGitHubId(id), { action: "connect", projectId: "p1" });
   assert.deepEqual(parseProjectGitHubId("project_github:join:p1"), { action: "join", projectId: "p1" });
   assert.equal(parseProjectGitHubId("project_github:invite:p1"), null);
+});
+
+test("github connect modal id preserves project context", () => {
+  const id = buildGitHubConnectModalId("p1");
+  assert.equal(id, "project_github_connect_modal:p1");
+  assert.deepEqual(parseGitHubConnectModalId(id), { projectId: "p1" });
+  assert.equal(parseGitHubConnectModalId("project_github_connect:p1"), null);
+});
+
+test("github username input is normalized and validated once", () => {
+  assert.equal(normalizeGitHubUsername("  @SunWoo162  "), "SunWoo162");
+  assert.throws(() => normalizeGitHubUsername("-invalid"), /올바른 GitHub 사용자명/);
+  assert.throws(() => normalizeGitHubUsername(""), /올바른 GitHub 사용자명/);
 });
 
 test("unlinked github panel exposes connect but not join", () => {
