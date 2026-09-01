@@ -4,7 +4,9 @@ import {
   buildProjectTaskId,
   memberTaskSummary,
   parseProjectTaskId,
+  projectTaskCompletionPlan,
   projectTaskCreatePlan,
+  projectTaskEditPlan,
   taskCardPayload,
   taskCreateModal,
   taskEditModal,
@@ -94,6 +96,35 @@ test("task creation defaults to frontend creator identity and one hour duration"
   assert.equal(plan.githubUsername, "sunwoo162");
   assert.equal(plan.start, "2026-09-05T18:00:00+09:00");
   assert.equal(plan.end, "2026-09-05T19:00:00+09:00");
+});
+
+test("task completion is idempotent and marks the calendar summary", () => {
+  assert.deepEqual(projectTaskCompletionPlan(task), {
+    shouldCloseIssue: true,
+    nextStatus: "completed",
+    calendarSummary: "✅ 로그인 API 연동",
+  });
+  assert.deepEqual(projectTaskCompletionPlan({ ...task, status: "completed" }), {
+    shouldCloseIssue: false,
+    nextStatus: "completed",
+    calendarSummary: "✅ 로그인 API 연동",
+  });
+});
+
+test("task edit plan trims content and keeps one hour duration", () => {
+  const edited = projectTaskEditPlan(
+    task,
+    " 로그인 API v2 ",
+    " 새 완료 조건 ",
+    "9/6 10:00",
+    new Date("2026-09-01T00:00:00+09:00"),
+  );
+  assert.deepEqual(edited, {
+    title: "로그인 API v2",
+    body: "새 완료 조건",
+    start: "2026-09-06T10:00:00+09:00",
+    end: "2026-09-06T11:00:00+09:00",
+  });
 });
 
 test("task card exposes complete edit and more without raw ids", () => {
