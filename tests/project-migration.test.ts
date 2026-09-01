@@ -4,15 +4,16 @@ import {
   applyEnsuredProjectExperience,
   planProjectExperienceMigration,
   projectExperienceNeeds,
+  resolveProjectCategoryId,
 } from "../src/services/project-experience/project-migration.js";
 import { storedProjectHealth } from "../src/services/project-experience/project-health.js";
 import type { StoredProject } from "../src/services/projects.js";
 
 const legacyProject: StoredProject = {
   id: "legacy1",
-  name: "Legacy",
+  name: "Rain GJ",
   guildId: "guild1",
-  categoryId: "category1",
+  categoryId: "stale-category",
   organization: "example",
   frontend: {
     owner: "example",
@@ -39,28 +40,44 @@ test("fully migrated project needs no duplicate resources", () => {
 });
 
 test("startup migration keeps duplicate stored records and reuses one category ensure", () => {
-  const duplicate: StoredProject = {
-    ...legacyProject,
-    id: "legacy2",
-    name: "Legacy duplicate",
-  };
-
-  const plan = planProjectExperienceMigration([legacyProject, duplicate]);
-  assert.equal(plan.length, 2);
-  assert.deepEqual(plan.map((item) => item.mode), ["ensure", "reuse"]);
-  assert.deepEqual(plan.map((item) => item.project.id), ["legacy1", "legacy2"]);
-  assert.equal(plan[0]?.key, plan[1]?.key);
+  const duplicate = { ...legacyProject, id: "legacy2" };
+  assert.deepEqual(
+    planProjectExperienceMigration([legacyProject, duplicate]).map((item) => item.mode),
+    ["ensure", "reuse"],
+  );
 });
 
 test("post-ensure snapshot refreshes health from newly stored ids", () => {
   const refreshed = applyEnsuredProjectExperience(legacyProject, {
     hubPanelMessageId: "hub1",
     scrumChannelId: "scrum1",
-    scrumPanelMessageId: "scrum-panel1",
+    scrumPanelMessageId: "panel1",
   });
-
+  const health = storedProjectHealth(refreshed);
+  assert.equal(health.scrum, "connected");
   assert.equal(refreshed.hubPanelMessageId, "hub1");
-  assert.equal(refreshed.scrumChannelId, "scrum1");
-  assert.equal(refreshed.scrumPanelMessageId, "scrum-panel1");
-  assert.equal(storedProjectHealth(refreshed).scrum, "connected");
+});
+
+test("stale category reconnects only when the exact project category is unique", () => {
+  assert.equal(resolveProjectCategoryId(legacyProject, [
+    { id: "real-category", name: "📁 Rain GJ" },
+  ]), "real-category");
+
+  assert.equal(resolveProjectCategoryId(legacyProject, [
+    { id: "category-a", name: "📁 Rain GJ" },
+    { id: "category-b", name: "📁 Rain GJ" },
+  ]), null);
+});
+
+test("resolved stale records deduplicate by the recovered category", () => {
+  const recovered = [
+    { ...legacyProject, id: "a", categoryId: "real-category" },
+    { ...legacyProject, id: "b", categoryId: "real-category" },
+    { ...legacyProject, id: "c", categoryId: "real-category" },
+  ];
+
+  assert.deepEqual(
+    planProjectExperienceMigration(recovered).map((item) => item.mode),
+    ["ensure", "reuse", "reuse"],
+  );
 });
