@@ -8,7 +8,7 @@
     "register": "tsx src/register-commands.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node --use-system-ca dist/index.js",
-    "test": "node --import tsx --test tests/calendar-discord.test.ts tests/calendar-state.test.ts tests/ci-review-aggregate.test.ts tests/daily-scrum-discord.test.ts tests/github-account-discord.test.ts tests/iseol-review-collector.test.ts tests/review-workflow.test.ts tests/review-workflow-install.test.ts tests/github-ci-review.test.ts tests/review-runtime.test.ts tests/config.test.ts tests/github-automation-polling.test.ts tests/github-schedule-sync.test.ts tests/github-webhook.test.ts tests/review-domain.test.ts tests/project-setup.test.ts tests/project-experience.test.ts tests/project-migration.test.ts",
+    "test": "node --import tsx --test tests/calendar-discord.test.ts tests/calendar-state.test.ts tests/ci-review-aggregate.test.ts tests/daily-scrum-discord.test.ts tests/github-account-discord.test.ts tests/iseol-review-collector.test.ts tests/review-workflow.test.ts tests/review-workflow-install.test.ts tests/github-ci-review.test.ts tests/review-runtime.test.ts tests/config.test.ts tests/github-automation-polling.test.ts tests/github-schedule-sync.test.ts tests/github-webhook.test.ts tests/review-domain.test.ts tests/project-setup.test.ts tests/project-experience.test.ts tests/project-admin.test.ts tests/project-migration.test.ts",
     "google:auth": "tsx scripts/google-calendar-auth.ts",
     "github:webhooks": "tsx scripts/register-automation-webhooks.ts",
     "review:install-workflows": "tsx scripts/install-review-workflows.ts"
