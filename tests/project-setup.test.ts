@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { projectCommand } from "../src/commands/project.js";
 import { parseProjectSetupFields } from "../src/services/project-experience/project-setup.js";
 import { normalizeRepositoryPair } from "../src/services/projects.js";
 
@@ -45,4 +46,10 @@ test("project setup rejects repositories from different organizations", () => {
     notion: "",
     figma: "",
   }), /같은 GitHub Organization/);
+});
+
+test("project create opens a modal instead of exposing five command options", () => {
+  const json = projectCommand.toJSON();
+  const create = json.options?.find((option) => option.name === "create");
+  assert.deepEqual(create?.options ?? [], []);
 });
