@@ -5,6 +5,7 @@ import {
   parseProjectScrumId,
   recentScrumText,
   scrumPanelMessage,
+  scrumPinnedGuideMessage,
   scrumWriteDefaults,
 } from "../src/services/daily-scrum-discord.js";
 import { selectRecentDailyScrumRecords, type DailyScrumRecord } from "../src/services/daily-scrum.js";
@@ -71,6 +72,16 @@ test("scrum panel exposes the three member actions", () => {
     "project_scrum:recent:p1",
   ]);
   assert.match(payload.embeds[0]?.data.title ?? "", /데일리 스크럼/);
+});
+
+test("pinned scrum guide has no interaction buttons and points to the project hub", () => {
+  const hubUrl = "https://discord.com/channels/guild1/hub-channel/hub-message";
+  const payload = scrumPinnedGuideMessage(projectFixture, hubUrl);
+
+  assert.equal(payload.components.length, 0);
+  const description = payload.embeds[0]?.data.description ?? "";
+  assert.match(description, /프로젝트.*스크럼/);
+  assert.match(description, /https:\/\/discord\.com\/channels\/guild1\/hub-channel\/hub-message/);
 });
 
 test("scrum write pre-fills today's existing values", () => {
