@@ -17,6 +17,11 @@ export type ProjectExperienceMigrationPlanItem = {
   mode: "ensure" | "reuse";
 };
 
+export type ProjectCategoryCandidate = {
+  id: string;
+  name: string;
+};
+
 export function projectExperienceNeeds(project: StoredProject): { hub: boolean; scrum: boolean } {
   return {
     hub: !project.hubPanelMessageId,
@@ -36,16 +41,45 @@ export function applyEnsuredProjectExperience(
   };
 }
 
+export function resolveProjectCategoryId(
+  project: StoredProject,
+  categories: ProjectCategoryCandidate[],
+): string | null {
+  if (categories.some((category) => category.id === project.categoryId)) {
+    return project.categoryId;
+  }
+
+  const expectedName = `📁 ${project.name}`;
+  const exactMatches = categories.filter((category) => category.name === expectedName);
+  return exactMatches.length === 1 ? exactMatches[0]!.id : null;
+}
+
 export function planProjectExperienceMigration(
   projects: StoredProject[],
+  preferredProjectIds: ReadonlySet<string> = new Set(),
 ): ProjectExperienceMigrationPlanItem[] {
-  const seenCategories = new Set<string>();
-  return projects.map((project) => {
+  const groups = new Map<string, StoredProject[]>();
+
+  for (const project of projects) {
     const key = `${project.guildId}:${project.categoryId}`;
-    const mode = seenCategories.has(key) ? "reuse" : "ensure";
-    seenCategories.add(key);
-    return { project, key, mode };
-  });
+    const group = groups.get(key) ?? [];
+    group.push(project);
+    groups.set(key, group);
+  }
+
+  const plan: ProjectExperienceMigrationPlanItem[] = [];
+  for (const [key, group] of groups) {
+    const preferredIndex = group.findIndex((project) => preferredProjectIds.has(project.id));
+    const ordered = preferredIndex > 0
+      ? [group[preferredIndex]!, ...group.slice(0, preferredIndex), ...group.slice(preferredIndex + 1)]
+      : group;
+
+    ordered.forEach((project, index) => {
+      plan.push({ project, key, mode: index === 0 ? "ensure" : "reuse" });
+    });
+  }
+
+  return plan;
 }
 
 export async function ensureProjectExperience(
@@ -122,11 +156,69 @@ export async function ensureProjectExperience(
   };
 }
 
+async function resolveStoredProjectCategories(
+  client: Client,
+  projects: StoredProject[],
+): Promise<{ projects: StoredProject[]; preferredProjectIds: Set<string> }> {
+  const categoriesByGuild = new Map<string, ProjectCategoryCandidate[] | null>();
+  const resolvedProjects: StoredProject[] = [];
+  const preferredProjectIds = new Set<string>();
+
+  for (const project of projects) {
+    let categories = categoriesByGuild.get(project.guildId);
+    if (categories === undefined) {
+      const guild = client.guilds.cache.get(project.guildId)
+        ?? await client.guilds.fetch(project.guildId).catch(() => null);
+      if (!guild) {
+        categoriesByGuild.set(project.guildId, null);
+        console.warn(`프로젝트 UX 자동 마이그레이션 건너뜀 (${project.name}): Discord 서버를 찾을 수 없습니다.`);
+        continue;
+      }
+
+      const channels = await guild.channels.fetch().catch(() => null);
+      if (!channels) {
+        categoriesByGuild.set(project.guildId, null);
+        console.warn(`프로젝트 UX 자동 마이그레이션 건너뜀 (${project.name}): Discord 채널 목록을 읽을 수 없습니다.`);
+        continue;
+      }
+
+      categories = [...channels.values()]
+        .filter((channel) => channel?.type === ChannelType.GuildCategory)
+        .map((channel) => ({ id: channel!.id, name: channel!.name }));
+      categoriesByGuild.set(project.guildId, categories);
+    }
+
+    if (!categories) continue;
+
+    const resolvedCategoryId = resolveProjectCategoryId(project, categories);
+    if (!resolvedCategoryId) {
+      console.warn(
+        `프로젝트 UX 자동 마이그레이션 건너뜀 (${project.name}): 저장된 카테고리를 찾지 못했고 같은 이름의 카테고리를 하나로 특정할 수 없습니다.`,
+      );
+      continue;
+    }
+
+    if (resolvedCategoryId === project.categoryId) {
+      preferredProjectIds.add(project.id);
+      resolvedProjects.push(project);
+      continue;
+    }
+
+    const updated = await updateProject(project.id, { categoryId: resolvedCategoryId });
+    const resolved = updated ?? { ...project, categoryId: resolvedCategoryId };
+    resolvedProjects.push(resolved);
+    console.log(`프로젝트 카테고리 자동 재연결: ${project.name} (${project.categoryId} -> ${resolvedCategoryId})`);
+  }
+
+  return { projects: resolvedProjects, preferredProjectIds };
+}
+
 export async function ensureAllProjectExperiences(client: Client): Promise<void> {
-  const projects = await listProjects();
+  const storedProjects = await listProjects();
+  const resolved = await resolveStoredProjectCategories(client, storedProjects);
   const ensuredByCategory = new Map<string, ProjectExperienceEnsureResult>();
 
-  for (const item of planProjectExperienceMigration(projects)) {
+  for (const item of planProjectExperienceMigration(resolved.projects, resolved.preferredProjectIds)) {
     const { project, key, mode } = item;
     try {
       if (mode === "reuse") {
