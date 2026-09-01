@@ -38,6 +38,7 @@ import {
   handleProjectSettingsButton,
   handleProjectSettingsModal,
 } from "./services/project-experience/project-settings.js";
+import { handleProjectTaskButton, handleProjectTaskModal } from "./services/project-task-discord.js";
 import { handleVoiceAutoLeave } from "./services/voice-auto-leave.js";
 import {
   getActiveStudySession,
@@ -183,6 +184,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
+    if (interaction.isButton() && interaction.customId.startsWith("project_task:")) {
+      if (await handleProjectTaskButton(interaction)) return;
+    }
+
     if (interaction.isButton() && interaction.customId.startsWith("project_hub:")) {
       if (await handleProjectHubButton(interaction)) return;
     }
@@ -235,6 +240,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await ensureProjectDiscussionChannels(client);
         return;
       }
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith("project_task_")) {
+      if (await handleProjectTaskModal(interaction)) return;
     }
 
     if (interaction.isModalSubmit() && interaction.customId.startsWith("project_settings_modal:")) {
