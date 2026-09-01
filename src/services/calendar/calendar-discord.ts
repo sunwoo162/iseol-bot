@@ -61,6 +61,11 @@ export function parseCalendarDeleteDecisionId(customId: string): { decision: "co
   return match ? { decision: match[1] as "confirm" | "cancel", token: match[2]! } : null;
 }
 
+export function parseCalendarIssueRepositorySelectId(customId: string): string | null {
+  const match = /^calendar_issue_repo:([A-Za-z0-9_-]+)$/.exec(customId);
+  return match?.[1] ?? null;
+}
+
 export function parseRepositorySide(value: string): "frontend" | "backend" {
   const normalized = value.trim().toLowerCase();
   if (normalized === "frontend" || normalized === "backend") return normalized;
@@ -286,44 +291,67 @@ function calendarService(): GoogleCalendarService {
   return new GoogleCalendarService(config.googleClientId, config.googleClientSecret, config.googleRefreshToken, config.googleRedirectUri);
 }
 
-function textInput(id: string, label: string, placeholder: string, style = TextInputStyle.Short) {
+function textInput(
+  id: string,
+  label: string,
+  placeholder: string,
+  style = TextInputStyle.Short,
+  required = true,
+) {
   return new ActionRowBuilder<TextInputBuilder>().addComponents(
-    new TextInputBuilder().setCustomId(id).setLabel(label).setPlaceholder(placeholder).setRequired(true).setStyle(style),
+    new TextInputBuilder()
+      .setCustomId(id)
+      .setLabel(label)
+      .setPlaceholder(placeholder)
+      .setRequired(required)
+      .setStyle(style),
   );
 }
 
-function prefilledTextInput(id: string, label: string, placeholder: string, value: string) {
+function prefilledTextInput(id: string, label: string, placeholder: string, value: string, required = true) {
   const input = new TextInputBuilder()
     .setCustomId(id)
     .setLabel(label)
     .setPlaceholder(placeholder)
-    .setRequired(true)
+    .setRequired(required)
     .setStyle(TextInputStyle.Short);
   if (value) input.setValue(value.slice(0, 4000));
   return new ActionRowBuilder<TextInputBuilder>().addComponents(input);
 }
 
-async function showEventModal(interaction: ButtonInteraction, action: "add" | "update") {
-  const parsed = parseCalendarCustomId(interaction.customId)!;
-  const modal = new ModalBuilder().setCustomId(`calendar_${action}_modal:${parsed.projectId}`).setTitle(action === "add" ? "일정 추가" : "일정 수정");
-  if (action === "update") modal.addComponents(textInput("event_id", "Event ID", "일정 보기에서 확인한 ID"));
-  modal.addComponents(
-    textInput("title", "일정 제목", "예: 로그인 API 완료"),
-    textInput("start", "시작", "내일 14:00"),
-    textInput("end", "종료", "내일 15:00"),
-  );
-  await interaction.showModal(modal);
+export function calendarIssueRepositorySelect(projectId: string): ActionRowBuilder<StringSelectMenuBuilder> {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`calendar_issue_repo:${projectId}`)
+    .setPlaceholder("Issue를 만들 저장소 선택")
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      new StringSelectMenuOptionBuilder().setLabel("Frontend").setValue("frontend").setDescription("Frontend 저장소에 Issue 생성"),
+      new StringSelectMenuOptionBuilder().setLabel("Backend").setValue("backend").setDescription("Backend 저장소에 Issue 생성"),
+    );
+  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
 }
 
-async function showIssueModal(interaction: ButtonInteraction) {
-  const parsed = parseCalendarCustomId(interaction.customId)!;
-  const modal = new ModalBuilder().setCustomId(`calendar_issue_modal:${parsed.projectId}`).setTitle("GitHub Issue + 일정 생성");
+export function calendarIssueModal(projectId: string, side: "frontend" | "backend"): ModalBuilder {
+  const modal = new ModalBuilder()
+    .setCustomId(`calendar_issue_modal:${projectId}:${side}`)
+    .setTitle(`${side === "frontend" ? "Frontend" : "Backend"} Issue + 일정`);
   modal.addComponents(
-    textInput("repository", "저장소", "frontend 또는 backend"),
     textInput("title", "Issue 제목", "예: 로그인 API 구현"),
     textInput("body", "Issue 내용", "완료 조건/작업 내용", TextInputStyle.Paragraph),
     textInput("start", "시작", "내일 14:00"),
-    textInput("end", "종료", "내일 15:00"),
+    textInput("end", "종료 (선택)", "비우면 시작 + 1시간", TextInputStyle.Short, false),
+  );
+  return modal;
+}
+
+async function showAddEventModal(interaction: ButtonInteraction) {
+  const parsed = parseCalendarCustomId(interaction.customId)!;
+  const modal = new ModalBuilder().setCustomId(`calendar_add_modal:${parsed.projectId}`).setTitle("일정 추가");
+  modal.addComponents(
+    textInput("title", "일정 제목", "예: 로그인 API 완료"),
+    textInput("start", "시작", "내일 14:00"),
+    textInput("end", "종료 (선택)", "비우면 시작 + 1시간", TextInputStyle.Short, false),
   );
   await interaction.showModal(modal);
 }
@@ -398,7 +426,11 @@ export async function handleCalendarButton(interaction: ButtonInteraction): Prom
     return true;
   }
   if (parsed.action === "add") {
-    await showEventModal(interaction, "add");
+    if (!project.calendarId) {
+      await interaction.reply({ content: "Google Calendar OAuth 설정이 필요합니다.", ephemeral: true });
+      return true;
+    }
+    await showAddEventModal(interaction);
     return true;
   }
   if (parsed.action === "update" || parsed.action === "delete") {
@@ -410,7 +442,15 @@ export async function handleCalendarButton(interaction: ButtonInteraction): Prom
     return true;
   }
   if (parsed.action === "issue") {
-    await showIssueModal(interaction);
+    if (!project.calendarId) {
+      await interaction.reply({ content: "Google Calendar OAuth 설정이 필요합니다.", ephemeral: true });
+      return true;
+    }
+    await interaction.reply({
+      content: "GitHub Issue를 생성할 저장소를 선택해주세요.",
+      components: [calendarIssueRepositorySelect(project.id)],
+      ephemeral: true,
+    });
     return true;
   }
   if (!project.calendarId) {
@@ -425,6 +465,18 @@ export async function handleCalendarButton(interaction: ButtonInteraction): Prom
 }
 
 export async function handleCalendarSelect(interaction: StringSelectMenuInteraction): Promise<boolean> {
+  const issueProjectId = parseCalendarIssueRepositorySelectId(interaction.customId);
+  if (issueProjectId) {
+    const project = await findProject(issueProjectId);
+    if (!project || project.guildId !== interaction.guildId || !project.calendarId) {
+      await interaction.reply({ content: "프로젝트 Calendar 연결 정보를 찾을 수 없습니다.", ephemeral: true });
+      return true;
+    }
+    const side = parseRepositorySide(interaction.values[0] ?? "");
+    await interaction.showModal(calendarIssueModal(project.id, side));
+    return true;
+  }
+
   const parsed = parseCalendarEventSelectId(interaction.customId);
   if (!parsed) return false;
   const project = await findProject(parsed.projectId);
@@ -449,7 +501,7 @@ export async function handleCalendarSelect(interaction: StringSelectMenuInteract
     modal.addComponents(
       prefilledTextInput("title", "일정 제목", "예: 로그인 API 완료", defaults.title),
       prefilledTextInput("start", "시작", "내일 14:00", defaults.start),
-      prefilledTextInput("end", "종료", "내일 15:00", defaults.end),
+      prefilledTextInput("end", "종료 (선택)", "비우면 시작 + 1시간", defaults.end, false),
     );
     await interaction.showModal(modal);
     return true;
@@ -490,13 +542,14 @@ export async function handleCalendarModal(interaction: ModalSubmitInteraction): 
 
     await interaction.deferReply({ ephemeral: true });
     const title = interaction.fields.getTextInputValue("title").trim();
-    const start = parseKstDateTime(interaction.fields.getTextInputValue("start"));
-    const end = parseKstDateTime(interaction.fields.getTextInputValue("end"));
-    if (new Date(end).getTime() <= new Date(start).getTime()) throw new Error("종료 시간은 시작 시간보다 뒤여야 합니다.");
+    const range = resolveCalendarRange(
+      interaction.fields.getTextInputValue("start"),
+      interaction.fields.getTextInputValue("end"),
+    );
     await calendarService().updateEvent(project.calendarId, session.eventId, {
       summary: title,
-      start,
-      end,
+      start: range.start,
+      end: range.end,
       metadata: { iseolProjectId: project.id, source: "discord" },
     });
     removeCalendarSelectionSession(token);
@@ -504,52 +557,55 @@ export async function handleCalendarModal(interaction: ModalSubmitInteraction): 
     return true;
   }
 
-  const match = /^calendar_(add|update|delete|issue)_modal:([A-Za-z0-9_-]+)$/.exec(interaction.customId);
-  if (!match) return false;
-  const action = match[1]!;
-  const project = await findProject(match[2]!);
-  if (!project || project.guildId !== interaction.guildId || !project.calendarId) {
-    await interaction.reply({ content: "프로젝트 Calendar 연결 정보를 찾을 수 없습니다.", ephemeral: true });
-    return true;
-  }
-  await interaction.deferReply({ ephemeral: true });
-  if (action === "issue") {
-    const side = parseRepositorySide(interaction.fields.getTextInputValue("repository"));
+  const issue = /^calendar_issue_modal:([A-Za-z0-9_-]+):(frontend|backend)$/.exec(interaction.customId);
+  if (issue) {
+    const project = await findProject(issue[1]!);
+    if (!project || project.guildId !== interaction.guildId || !project.calendarId) {
+      await interaction.reply({ content: "프로젝트 Calendar 연결 정보를 찾을 수 없습니다.", ephemeral: true });
+      return true;
+    }
+
+    const side = parseRepositorySide(issue[2]!);
     const repository = project[side];
     const title = interaction.fields.getTextInputValue("title").trim();
     const body = interaction.fields.getTextInputValue("body").trim();
-    const start = parseKstDateTime(interaction.fields.getTextInputValue("start"));
-    const end = parseKstDateTime(interaction.fields.getTextInputValue("end"));
-    if (new Date(end).getTime() <= new Date(start).getTime()) throw new Error("종료 시간은 시작 시간보다 뒤여야 합니다.");
+    const range = resolveCalendarRange(
+      interaction.fields.getTextInputValue("start"),
+      interaction.fields.getTextInputValue("end"),
+    );
+    await interaction.deferReply({ ephemeral: true });
     const github = new GitHubWebhookService(config.githubToken);
     const linked = await new GitHubScheduleSyncService(calendarService(), new CalendarStateStore()).createLinkedIssue(
       project.id,
       project.calendarId,
       `${repository.owner}/${repository.repo}`,
-      { title, body, start, end },
+      { title, body, start: range.start, end: range.end },
       { createIssue: (_repository, issueTitle, issueBody) => github.createIssue(repository, issueTitle, issueBody) },
     );
     await interaction.editReply(`✅ GitHub Issue #${linked.issueNumber} + Google Calendar 일정 생성 완료\n${linked.issueUrl}`);
     return true;
   }
-  const service = calendarService();
-  if (action === "delete") {
-    const eventId = interaction.fields.getTextInputValue("event_id").trim();
-    await service.deleteEvent(project.calendarId, eventId);
-    await interaction.editReply(`✅ 일정 \`${eventId}\` 삭제 완료`);
+
+  const add = /^calendar_add_modal:([A-Za-z0-9_-]+)$/.exec(interaction.customId);
+  if (!add) return false;
+  const project = await findProject(add[1]!);
+  if (!project || project.guildId !== interaction.guildId || !project.calendarId) {
+    await interaction.reply({ content: "프로젝트 Calendar 연결 정보를 찾을 수 없습니다.", ephemeral: true });
     return true;
   }
+
   const title = interaction.fields.getTextInputValue("title").trim();
-  const start = parseKstDateTime(interaction.fields.getTextInputValue("start"));
-  const end = parseKstDateTime(interaction.fields.getTextInputValue("end"));
-  if (new Date(end).getTime() <= new Date(start).getTime()) throw new Error("종료 시간은 시작 시간보다 뒤여야 합니다.");
-  if (action === "add") {
-    const event = await service.createEvent(project.calendarId, { summary: title, start, end, metadata: { iseolProjectId: project.id, source: "discord" } });
-    await interaction.editReply(`✅ **${title}** 일정 추가 완료\nEvent ID: \`${event.id}\``);
-    return true;
-  }
-  const eventId = interaction.fields.getTextInputValue("event_id").trim();
-  await service.updateEvent(project.calendarId, eventId, { summary: title, start, end, metadata: { iseolProjectId: project.id, source: "discord" } });
-  await interaction.editReply(`✅ **${title}** 일정 수정 완료`);
+  const range = resolveCalendarRange(
+    interaction.fields.getTextInputValue("start"),
+    interaction.fields.getTextInputValue("end"),
+  );
+  await interaction.deferReply({ ephemeral: true });
+  await calendarService().createEvent(project.calendarId, {
+    summary: title,
+    start: range.start,
+    end: range.end,
+    metadata: { iseolProjectId: project.id, source: "discord" },
+  });
+  await interaction.editReply(`✅ **${title}** 일정 추가 완료`);
   return true;
 }
