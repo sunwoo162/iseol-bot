@@ -19,7 +19,7 @@ import { handleProjectAutocomplete, handleProjectCommand } from "./commands/proj
 import { handleScrumAutocomplete, handleScrumCommand } from "./commands/scrum.js";
 import { handleVoiceCommand } from "./commands/voice.js";
 import { commandHelpEmbed } from "./services/command-help.js";
-import { handleCalendarButton, handleCalendarModal } from "./services/calendar/calendar-discord.js";
+import { handleCalendarButton, handleCalendarModal, handleCalendarSelect } from "./services/calendar/calendar-discord.js";
 import { startContestAudienceFeedPolling } from "./services/contest-audience-feed.js";
 import { startContestFeedPolling } from "./services/contest-feed.js";
 import { ensureContestPrepAnnouncementChannels } from "./services/contest-prep-announcement.js";
@@ -185,6 +185,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (interaction.isButton() && interaction.customId.startsWith("calendar:")) {
       if (await handleCalendarButton(interaction)) return;
+    }
+
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith("calendar_event:")) {
+      if (await handleCalendarSelect(interaction)) return;
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("contest_vote:")) {
