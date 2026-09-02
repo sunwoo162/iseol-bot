@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+  GoogleOAuthTokenStore,
+  buildGoogleAuthorizationUrl,
   buildGoogleOAuthRedirectUri,
   createGoogleOAuthSession,
   consumeGoogleOAuthSession,
@@ -40,4 +45,30 @@ test("google oauth session is one-time and expires", () => {
 
   const expired = createGoogleOAuthSession({ projectId: "p2", guildId: "g1", userId: "u1" }, now);
   assert.equal(consumeGoogleOAuthSession(expired.state, now + 11 * 60_000), null);
+});
+
+test("google authorization url requests offline calendar access with csrf state", () => {
+  const url = new URL(buildGoogleAuthorizationUrl({
+    clientId: "client-id",
+    clientSecret: "client-secret",
+    redirectUri: "https://iseol.example.com/google/oauth/callback",
+    state: "state-123",
+  }));
+  assert.equal(url.hostname, "accounts.google.com");
+  assert.equal(url.searchParams.get("access_type"), "offline");
+  assert.equal(url.searchParams.get("prompt"), "consent");
+  assert.equal(url.searchParams.get("state"), "state-123");
+  assert.match(url.searchParams.get("scope") ?? "", /googleapis\.com\/auth\/calendar/);
+});
+
+test("google oauth token store persists only the refresh token", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iseol-google-oauth-"));
+  try {
+    const store = new GoogleOAuthTokenStore(join(dir, "google-oauth.json"));
+    assert.equal(await store.getRefreshToken(), "");
+    await store.saveRefreshToken("refresh-123");
+    assert.equal(await store.getRefreshToken(), "refresh-123");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
