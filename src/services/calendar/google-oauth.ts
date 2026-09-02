@@ -1,6 +1,10 @@
 import { randomBytes } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { google } from "googleapis";
 
 const SESSION_TTL_MS = 10 * 60 * 1000;
+const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 
 type GoogleOAuthSessionInput = {
   projectId: string;
@@ -15,11 +19,45 @@ export type GoogleOAuthSession = GoogleOAuthSessionInput & {
 
 const sessions = new Map<string, GoogleOAuthSession>();
 
+export class GoogleOAuthTokenStore {
+  constructor(private readonly path = "data/google-oauth.json") {}
+
+  async getRefreshToken(): Promise<string> {
+    try {
+      const parsed = JSON.parse(await readFile(this.path, "utf8")) as { refreshToken?: unknown };
+      return typeof parsed.refreshToken === "string" ? parsed.refreshToken.trim() : "";
+    } catch (error: any) {
+      if (error?.code === "ENOENT") return "";
+      throw error;
+    }
+  }
+
+  async saveRefreshToken(refreshToken: string): Promise<void> {
+    await mkdir(dirname(this.path), { recursive: true });
+    await writeFile(this.path, JSON.stringify({ refreshToken: refreshToken.trim() }, null, 2) + "\n", "utf8");
+  }
+}
+
 export function buildGoogleOAuthRedirectUri(publicBaseUrl: string, configuredRedirectUri: string): string {
   const configured = configuredRedirectUri.trim();
   if (configured) return configured;
   const base = publicBaseUrl.trim().replace(/\/+$/, "");
   return base ? `${base}/google/oauth/callback` : "";
+}
+
+export function buildGoogleAuthorizationUrl(input: {
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  state: string;
+}): string {
+  const oauth = new google.auth.OAuth2(input.clientId, input.clientSecret, input.redirectUri);
+  return oauth.generateAuthUrl({
+    access_type: "offline",
+    prompt: "consent",
+    scope: [CALENDAR_SCOPE],
+    state: input.state,
+  });
 }
 
 export function resolveGoogleRefreshToken(envRefreshToken: string, storedRefreshToken: string): string {
