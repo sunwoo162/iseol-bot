@@ -17,6 +17,11 @@ import {
   projectHubAdvancedMessage,
   projectHubMessage,
 } from "../src/services/project-experience/project-hub.js";
+import {
+  buildProjectConnectId,
+  parseProjectConnectId,
+  projectQuickConnectPanel,
+} from "../src/services/project-experience/project-connect.js";
 import type { StoredProject } from "../src/services/projects.js";
 
 const projectFixture: StoredProject = {
@@ -48,6 +53,15 @@ const connectedHealthFixture: ProjectHealth = {
   figma: "connected",
 };
 
+const incompleteHealthFixture: ProjectHealth = {
+  github: "repair",
+  review: "checking",
+  calendar: "needs_setup",
+  scrum: "connected",
+  notion: "connected",
+  figma: "connected",
+};
+
 test("project hub custom ids round-trip", () => {
   const id = buildProjectHubId("calendar", "abc123");
   assert.equal(id, "project_hub:calendar:abc123");
@@ -66,6 +80,7 @@ test("project health uses short user-facing states", () => {
     figma: "needs_setup",
   });
 
+  assert.ok(lines.some((line) => line.includes("GitHub 프로젝트") && line.includes("연결됨")));
   assert.ok(lines.some((line) => line.includes("Code Review") && line.includes("관리자 설정 필요")));
   assert.ok(lines.some((line) => line.includes("Google Calendar") && line.includes("설정 필요")));
   assert.ok(lines.every((line) => !line.includes("403")));
@@ -128,6 +143,45 @@ test("project hub primary row is task first", () => {
     "project_hub:github:abc123",
     "project_hub:more:abc123",
   ]);
+});
+
+test("project hub exposes one quick integration button only when action is needed", () => {
+  const incomplete = projectHubMessage(projectFixture, incompleteHealthFixture);
+  const incompleteIds = incomplete.components.flatMap((row) =>
+    row.components.map((component) => component.data.custom_id),
+  );
+  assert.ok(incompleteIds.includes("project_connect:open:abc123"));
+
+  const connected = projectHubMessage(projectFixture, connectedHealthFixture);
+  const connectedIds = connected.components.flatMap((row) =>
+    row.components.map((component) => component.data.custom_id),
+  );
+  assert.ok(!connectedIds.includes("project_connect:open:abc123"));
+});
+
+test("quick integration panel keeps all setup actions in one place", () => {
+  assert.equal(buildProjectConnectId("auto", "abc123"), "project_connect:auto:abc123");
+  assert.deepEqual(parseProjectConnectId("project_connect:calendar:abc123"), {
+    action: "calendar",
+    projectId: "abc123",
+  });
+
+  const payload = projectQuickConnectPanel(projectFixture, incompleteHealthFixture);
+  const ids = payload.components.flatMap((row) =>
+    row.components
+      .map((component) => component.data.custom_id)
+      .filter((value): value is string => Boolean(value)),
+  );
+
+  assert.deepEqual(ids, [
+    "project_connect:auto:abc123",
+    "project_connect:github:abc123",
+    "project_connect:calendar:abc123",
+    "project_settings:notion:abc123",
+    "project_settings:figma:abc123",
+  ]);
+  assert.match(payload.embeds[0]?.data.description ?? "", /GitHub 프로젝트/);
+  assert.match(payload.embeds[0]?.data.description ?? "", /Google Calendar/);
 });
 
 test("advanced hub keeps calendar review refresh and admin compatibility", () => {
