@@ -5,7 +5,6 @@ import {
   EmbedBuilder,
 } from "discord.js";
 import type { StoredProject } from "../projects.js";
-import { buildProjectSettingsId } from "./project-settings.js";
 import { projectHealthLines, type ProjectHealth } from "./project-health.js";
 
 export type ProjectConnectAction = "open" | "auto" | "github" | "calendar";
@@ -52,12 +51,12 @@ export function projectQuickConnectPanel(project: StoredProject, health: Project
       .setEmoji("📅")
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId(buildProjectSettingsId("notion", project.id))
+      .setCustomId(`project_settings:notion:${project.id}`)
       .setLabel("Notion 설정")
       .setEmoji("📄")
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId(buildProjectSettingsId("figma", project.id))
+      .setCustomId(`project_settings:figma:${project.id}`)
       .setLabel("Figma 설정")
       .setEmoji("🎨")
       .setStyle(ButtonStyle.Secondary),
