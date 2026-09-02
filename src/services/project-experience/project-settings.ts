@@ -13,6 +13,7 @@ import {
 import { parseFigmaFile } from "../figma.js";
 import { parseNotionPage } from "../notion.js";
 import { findProject, updateProject, type StoredProject } from "../projects.js";
+import { refreshProjectHubForProject } from "./project-hub.js";
 
 export type ProjectSettingKind = "notion" | "figma";
 
@@ -69,7 +70,7 @@ export function projectSettingsPanel(project: StoredProject) {
     `📄 Notion · ${project.notionUrl ? "연결됨" : "설정 필요"}`,
     `🎨 Figma · ${project.figmaUrl ? "연결됨" : "설정 필요"}`,
     "",
-    "링크만 관리합니다. GitHub PAT, Google OAuth, Discord secret 같은 전역 비밀값은 여기서 입력하지 않습니다.",
+    "링크 하나만 붙여넣으면 이설이 저장하고 프로젝트 허브 상태까지 자동으로 갱신합니다.",
     "입력값을 비우고 저장하면 해당 선택 연동을 해제합니다.",
   ].join("\n");
 
@@ -166,16 +167,17 @@ export async function handleProjectSettingsModal(interaction: ModalSubmitInterac
     return true;
   }
 
+  let updated: StoredProject | null;
   if (parsed.kind === "notion") {
     const notion = value && "notionPageId" in value ? value : null;
-    await updateProject(project.id, {
+    updated = await updateProject(project.id, {
       notionUrl: notion?.url,
       notionPageId: notion?.notionPageId,
       notionLastEditedTime: undefined,
     });
   } else {
     const figma = value && "figmaFileKey" in value ? value : null;
-    await updateProject(project.id, {
+    updated = await updateProject(project.id, {
       figmaUrl: figma?.url,
       figmaFileKey: figma?.figmaFileKey,
       figmaWebhookId: undefined,
@@ -184,11 +186,20 @@ export async function handleProjectSettingsModal(interaction: ModalSubmitInterac
     });
   }
 
+  if (!updated) {
+    await interaction.reply({ content: "❌ 프로젝트 연동 정보를 저장하지 못했습니다.", ephemeral: true });
+    return true;
+  }
+
+  const refreshed = await refreshProjectHubForProject(interaction.client, updated).catch(() => false);
   const serviceName = parsed.kind === "notion" ? "Notion" : "Figma";
   await interaction.reply({
-    content: value
-      ? `✅ ${serviceName} 링크를 저장했습니다. 프로젝트 상태를 새로고침하면 반영된 상태를 확인할 수 있습니다.`
-      : `✅ ${serviceName} 선택 연동을 해제했습니다.`,
+    content: [
+      value
+        ? `✅ ${serviceName} 링크를 저장했습니다.`
+        : `✅ ${serviceName} 선택 연동을 해제했습니다.`,
+      refreshed ? "프로젝트 허브 상태도 자동으로 갱신했습니다." : "허브 상태는 다음 재시작 때 다시 갱신합니다.",
+    ].join("\n"),
     ephemeral: true,
   });
   return true;
