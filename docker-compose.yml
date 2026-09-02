@@ -1,0 +1,18 @@
+services:
+  iseol:
+    build:
+      context: .
+    image: iseol-bot:local
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      WEBHOOK_PORT: "8787"
+    ports:
+      - "${ISEOL_PORT:-8787}:8787"
+    volumes:
+      - iseol-data:/app/data
+
+volumes:
+  iseol-data:
