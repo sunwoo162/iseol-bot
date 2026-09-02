@@ -1,11 +1,22 @@
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
   ButtonInteraction,
+  ButtonStyle,
   ChannelType,
   PermissionFlagsBits,
   TextChannel,
 } from "discord.js";
 import { config } from "../../config.js";
 import { GoogleCalendarService } from "../calendar/google-calendar.js";
+import {
+  GoogleOAuthTokenStore,
+  buildGoogleAuthorizationUrl,
+  buildGoogleOAuthRedirectUri,
+  createGoogleOAuthSession,
+  googleCalendarConnectAction,
+  resolveGoogleRefreshToken,
+} from "../calendar/google-oauth.js";
 import { GitHubWebhookService, type RepositoryRef } from "../github.js";
 import { findProject, updateProject, type StoredProject } from "../projects.js";
 import { ensureProjectReviewWorkflows } from "../review/review-workflow-install.js";
@@ -21,6 +32,7 @@ export type QuickConnectResult = {
   unchanged: string[];
   needsAdmin: string[];
   failed: string[];
+  needsAction?: string[];
 };
 
 export function calendarQuickConnectPlan(
@@ -41,13 +53,10 @@ export function formatQuickConnectResult(result: QuickConnectResult): string {
     "⚡ **빠른 연동 결과**",
     section("연결됨", result.connected),
     section("변경 없음", result.unchanged),
+    section("연결 필요", result.needsAction ?? []),
     section("관리자 설정 필요", result.needsAdmin),
     section("실패", result.failed),
   ].filter((value): value is string => Boolean(value)).join("\n\n");
-}
-
-function googleOauthReady(): boolean {
-  return Boolean(config.googleClientId && config.googleClientSecret && config.googleRefreshToken);
 }
 
 function looksLikeAdminPermissionError(error: string): boolean {
@@ -195,36 +204,63 @@ async function ensureReview(
 }
 
 async function ensureCalendar(
+  interaction: ButtonInteraction,
   project: StoredProject,
   result: QuickConnectResult,
-): Promise<StoredProject> {
-  const plan = calendarQuickConnectPlan(project, googleOauthReady());
-  if (plan === "already_connected") {
+): Promise<{ project: StoredProject; authorizationUrl?: string }> {
+  const storedToken = await new GoogleOAuthTokenStore().getRefreshToken().catch(() => "");
+  const refreshToken = resolveGoogleRefreshToken(config.googleRefreshToken, storedToken);
+  const redirectUri = buildGoogleOAuthRedirectUri(config.publicBaseUrl, config.googleRedirectUri);
+  const action = googleCalendarConnectAction({
+    hasCalendar: Boolean(project.calendarId),
+    clientId: config.googleClientId,
+    clientSecret: config.googleClientSecret,
+    publicBaseUrl: redirectUri,
+    refreshToken,
+  });
+
+  if (action === "connected") {
     result.unchanged.push("Google Calendar");
-    return project;
+    return { project };
   }
-  if (plan === "needs_admin") {
-    result.needsAdmin.push("Google Calendar");
-    return project;
+  if (action === "needs_admin") {
+    result.needsAdmin.push("Google Calendar · OAuth Client/공개 URL 설정");
+    return { project };
+  }
+  if (action === "authorize") {
+    const session = createGoogleOAuthSession({
+      projectId: project.id,
+      guildId: project.guildId,
+      userId: interaction.user.id,
+    });
+    const authorizationUrl = buildGoogleAuthorizationUrl({
+      clientId: config.googleClientId,
+      clientSecret: config.googleClientSecret,
+      redirectUri,
+      state: session.state,
+    });
+    result.needsAction ??= [];
+    result.needsAction.push("Google Calendar · Google 로그인 1회");
+    return { project, authorizationUrl };
   }
 
   try {
     const created = await new GoogleCalendarService(
       config.googleClientId,
       config.googleClientSecret,
-      config.googleRefreshToken,
-      config.googleRedirectUri,
+      refreshToken,
+      redirectUri,
     ).createProjectCalendar(project.name);
     const updated = await updateProject(project.id, {
       calendarId: created.id,
       calendarUrl: created.url,
     }) ?? project;
     result.connected.push("Google Calendar");
-    return updated;
+    return { project: updated };
   } catch (error) {
     console.error(`빠른 Google Calendar 연동 실패 (${project.name})`, error);
     result.failed.push("Google Calendar");
-    return project;
+    return { project };
   }
 }
 
@@ -290,6 +326,7 @@ export async function handleProjectConnectButton(interaction: ButtonInteraction)
     failed: [],
   };
   const github = new GitHubWebhookService(config.githubToken);
+  let authorizationUrl: string | undefined;
 
   if (parsed.action === "auto") {
     project = await ensureDiscordExperience(interaction, project, result);
@@ -301,14 +338,29 @@ export async function handleProjectConnectButton(interaction: ButtonInteraction)
   }
 
   if (parsed.action === "auto" || parsed.action === "calendar") {
-    project = await ensureCalendar(project, result);
+    const calendar = await ensureCalendar(interaction, project, result);
+    project = calendar.project;
+    authorizationUrl = calendar.authorizationUrl;
   }
 
   const latest = await findProject(project.id) ?? project;
   const hubRefreshed = await refreshProjectHubForProject(interaction.client, latest).catch(() => false);
-  await interaction.editReply([
+  const content = [
     formatQuickConnectResult(result),
+    authorizationUrl ? "아래 버튼으로 Google 계정 권한을 승인하면 Calendar가 자동 생성됩니다." : null,
     hubRefreshed ? "✅ 프로젝트 허브 상태도 갱신했습니다." : "⚠️ 허브 상태 갱신은 다음 재시작 때 다시 시도합니다.",
-  ].join("\n\n"));
+  ].filter((value): value is string => Boolean(value)).join("\n\n");
+
+  const components = authorizationUrl
+    ? [new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setLabel("Google Calendar 연결")
+        .setEmoji("📅")
+        .setStyle(ButtonStyle.Link)
+        .setURL(authorizationUrl),
+    )]
+    : [];
+
+  await interaction.editReply({ content, components });
   return true;
 }
