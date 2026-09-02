@@ -28,3 +28,21 @@ jobs:
       - run: npm run build
       - run: git diff --check
       - run: docker build -t iseol-bot:health-test .
+      - name: Start integration server from production image
+        run: |
+          docker run -d --name iseol-health -p 18787:8787 \
+            -e DISCORD_TOKEN -e DISCORD_CLIENT_ID -e GITHUB_TOKEN -e FIGMA_TOKEN -e NOTION_TOKEN \
+            iseol-bot:health-test \
+            node --input-type=module -e "import('./dist/services/webhook-server.js').then(m=>m.startWebhookServer({channels:{fetch:async()=>null}}))"
+      - name: Verify health endpoint
+        run: |
+          for i in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:18787/healthz | tee /tmp/health.json; then
+              grep -q '"ok":true' /tmp/health.json
+              grep -q '"service":"iseol"' /tmp/health.json
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs iseol-health
+          exit 1
