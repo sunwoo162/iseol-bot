@@ -60,6 +60,21 @@ export function buildGoogleAuthorizationUrl(input: {
   });
 }
 
+export async function exchangeGoogleAuthorizationCode(input: {
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  code: string;
+}): Promise<string> {
+  const oauth = new google.auth.OAuth2(input.clientId, input.clientSecret, input.redirectUri);
+  const { tokens } = await oauth.getToken(input.code);
+  const refreshToken = tokens.refresh_token?.trim() ?? "";
+  if (!refreshToken) {
+    throw new Error("Google Calendar refresh token이 발급되지 않았습니다.");
+  }
+  return refreshToken;
+}
+
 export function resolveGoogleRefreshToken(envRefreshToken: string, storedRefreshToken: string): string {
   return envRefreshToken.trim() || storedRefreshToken.trim();
 }
