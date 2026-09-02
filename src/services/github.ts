@@ -27,6 +27,17 @@ export function normalizeIssueMutation(input: IssueMutation): IssueMutation {
   return mutation;
 }
 
+export function discordGitHubWebhookTarget(discordWebhookUrl: string): string {
+  return `${discordWebhookUrl.replace(/\/+$/, "")}/github`;
+}
+
+export function findExistingWebhookId(
+  hooks: Array<{ id: number; url?: string | null }>,
+  target: string,
+): number | null {
+  return hooks.find((hook) => hook.url === target)?.id ?? null;
+}
+
 const GITHUB_AUTOMATION_EVENTS = ["pull_request", "milestone"] as const;
 
 export function buildAutomationWebhookUrl(publicBaseUrl: string): string {
@@ -95,9 +106,34 @@ export class GitHubWebhookService {
       name: "web",
       active: true,
       events: [...GITHUB_EVENTS],
-      config: { url: `${discordWebhookUrl}/github`, content_type: "json", insecure_ssl: "0" },
+      config: {
+        url: discordGitHubWebhookTarget(discordWebhookUrl),
+        content_type: "json",
+        insecure_ssl: "0",
+      },
     });
     return data.id;
+  }
+
+  async ensureDiscordWebhook(
+    repository: RepositoryRef,
+    discordWebhookUrl: string,
+  ): Promise<{ id: number; created: boolean }> {
+    const target = discordGitHubWebhookTarget(discordWebhookUrl);
+    const { data: hooks } = await this.octokit.rest.repos.listWebhooks({
+      owner: repository.owner,
+      repo: repository.repo,
+      per_page: 100,
+    });
+    const existingId = findExistingWebhookId(
+      hooks.map((hook) => ({
+        id: hook.id,
+        url: typeof hook.config.url === "string" ? hook.config.url : null,
+      })),
+      target,
+    );
+    if (existingId !== null) return { id: existingId, created: false };
+    return { id: await this.createDiscordWebhook(repository, discordWebhookUrl), created: true };
   }
 
   async createAutomationWebhook(repository: RepositoryRef, endpoint: string, secret: string): Promise<number> {
