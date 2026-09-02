@@ -3,6 +3,7 @@ import {
   ButtonBuilder,
   ButtonInteraction,
   ButtonStyle,
+  Client,
   EmbedBuilder,
   PermissionFlagsBits,
   TextChannel,
@@ -14,6 +15,10 @@ import { findGitHubAccount } from "../github-user.js";
 import { buildProjectTaskId } from "../project-task-discord.js";
 import { findProject, type StoredProject } from "../projects.js";
 import { projectAdminPanel } from "./project-admin.js";
+import {
+  buildProjectConnectId,
+  hasQuickConnectIssue,
+} from "./project-connect.js";
 import {
   buildProjectHubId,
   parseProjectHubId,
@@ -69,6 +74,17 @@ export function projectHubMessage(project: StoredProject, health: ProjectHealth)
       .setStyle(ButtonStyle.Secondary),
   );
 
+  const components: ActionRowBuilder<ButtonBuilder>[] = [memberRow];
+  if (hasQuickConnectIssue(health)) {
+    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(buildProjectConnectId("open", project.id))
+        .setLabel("연동 도우미")
+        .setEmoji("⚡")
+        .setStyle(ButtonStyle.Success),
+    ));
+  }
+
   const embed = new EmbedBuilder()
     .setTitle(`📌 ${project.name}`)
     .setDescription([
@@ -82,7 +98,7 @@ export function projectHubMessage(project: StoredProject, health: ProjectHealth)
 
   return {
     embeds: [embed],
-    components: [memberRow],
+    components,
   };
 }
 
@@ -172,12 +188,13 @@ export async function ensureProjectHubGuide(
   return created.id;
 }
 
-async function refreshHub(interaction: ButtonInteraction, project: StoredProject): Promise<void> {
-  const guild = interaction.guild;
-  if (!guild) {
-    await interaction.reply({ content: "연결 정보를 찾을 수 없습니다.", ephemeral: true });
-    return;
-  }
+export async function refreshProjectHubForProject(
+  client: Client,
+  project: StoredProject,
+): Promise<boolean> {
+  const guild = client.guilds.cache.get(project.guildId)
+    ?? await client.guilds.fetch(project.guildId).catch(() => null);
+  if (!guild) return false;
 
   const channels = await guild.channels.fetch();
   const overview = channels.find((channel) =>
@@ -185,15 +202,22 @@ async function refreshHub(interaction: ButtonInteraction, project: StoredProject
     && channel.parentId === project.categoryId
     && channel.name === "📌・프로젝트",
   );
-  if (!(overview instanceof TextChannel)) {
+  if (!(overview instanceof TextChannel)) return false;
+
+  await ensureProjectHub(overview, project, storedProjectHealth(project));
+  return true;
+}
+
+async function refreshHub(interaction: ButtonInteraction, project: StoredProject): Promise<void> {
+  const refreshed = await refreshProjectHubForProject(interaction.client, project);
+  if (!refreshed) {
     await interaction.reply({
-      content: "프로젝트 허브 채널을 찾을 수 없습니다. 관리자에게 자동 복구를 요청해주세요.",
+      content: "프로젝트 허브를 찾을 수 없습니다. 관리자에게 자동 복구를 요청해주세요.",
       ephemeral: true,
     });
     return;
   }
 
-  await ensureProjectHub(overview, project, storedProjectHealth(project));
   await interaction.reply({ content: "✅ 프로젝트 상태를 새로고침했습니다.", ephemeral: true });
 }
 
