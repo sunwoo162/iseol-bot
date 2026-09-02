@@ -20,6 +20,10 @@ import { GitHubReviewService } from "./review/github-review.js";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
+export function integrationHealthPayload(): { ok: true; service: "iseol" } {
+  return { ok: true, service: "iseol" };
+}
+
 async function getFigmaChannel(client: Client, project: StoredProject): Promise<TextChannel | null> {
   if (!project.figmaChannelId) return null;
 
@@ -320,10 +324,6 @@ function startIntegrationHttpServer(client: Client): void {
   const redirectUri = buildGoogleOAuthRedirectUri(config.publicBaseUrl, config.googleRedirectUri);
   const googleEnabled = Boolean(config.googleClientId && config.googleClientSecret && redirectUri);
   const githubEnabled = Boolean(config.githubWebhookSecret);
-  if (!googleEnabled && !githubEnabled) {
-    console.log("Integration HTTP 서버 비활성: Google OAuth/GitHub webhook 설정 없음");
-    return;
-  }
 
   let googleCallbackPath = "/google/oauth/callback";
   if (redirectUri) {
@@ -333,6 +333,15 @@ function startIntegrationHttpServer(client: Client): void {
   const port = Number(process.env.WEBHOOK_PORT || process.env.PORT || "8787");
   const server = createServer((req, res) => {
     const path = req.url?.split("?")[0] ?? "/";
+    if (req.method === "GET" && path === "/healthz") {
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      res.end(JSON.stringify(integrationHealthPayload()));
+      return;
+    }
+
     if (req.method === "GET" && googleEnabled && path === googleCallbackPath) {
       void handleGoogleOAuthCallback(client, req, res);
       return;
@@ -371,6 +380,7 @@ function startIntegrationHttpServer(client: Client): void {
 
   server.listen(port, () => {
     const routes = [
+      "/healthz",
       githubEnabled ? "/github/events" : null,
       googleEnabled ? googleCallbackPath : null,
     ].filter(Boolean).join(", ");
