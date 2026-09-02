@@ -39,7 +39,7 @@ export function storedProjectHealth(project: StoredProject): ProjectHealth {
 
 export function projectHealthLines(health: ProjectHealth): string[] {
   return [
-    `🐙 GitHub · ${stateCopy[health.github]}`,
+    `🐙 GitHub 프로젝트 · ${stateCopy[health.github]}`,
     `🔍 Code Review · ${stateCopy[health.review]}`,
     `📅 Google Calendar · ${stateCopy[health.calendar]}`,
     `📋 Scrum · ${stateCopy[health.scrum]}`,
@@ -50,8 +50,8 @@ export function projectHealthLines(health: ProjectHealth): string[] {
 
 export function projectHealthIssues(health: ProjectHealth): string[] {
   const issues: string[] = [];
-  if (health.github === "repair") issues.push("🐙 GitHub 연동 복구가 필요합니다.");
-  if (health.github === "needs_admin") issues.push("🐙 GitHub 관리자 설정이 필요합니다.");
+  if (health.github === "repair") issues.push("🐙 GitHub 프로젝트 연동 복구가 필요합니다.");
+  if (health.github === "needs_admin") issues.push("🐙 GitHub 프로젝트 관리자 설정이 필요합니다.");
   if (health.review === "repair") issues.push("🔍 Code Review 복구가 필요합니다.");
   if (health.review === "needs_admin") issues.push("🔍 Code Review 관리자 설정이 필요합니다.");
   if (health.calendar === "needs_setup") issues.push("📅 Google Calendar 설정이 필요합니다.");
