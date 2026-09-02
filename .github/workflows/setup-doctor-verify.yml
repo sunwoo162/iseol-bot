@@ -27,3 +27,18 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: git diff --check
+      - name: Validate Docker Compose
+        run: |
+          cp .env.example .env
+          docker compose config >/dev/null
+      - name: Build production image
+        run: docker build -t iseol-bot:test .
+      - name: Run setup doctor inside production image
+        run: |
+          docker run --rm \
+            -e DISCORD_TOKEN \
+            -e DISCORD_CLIENT_ID \
+            -e GITHUB_TOKEN \
+            -e FIGMA_TOKEN \
+            -e NOTION_TOKEN \
+            iseol-bot:test npm run doctor:prod
