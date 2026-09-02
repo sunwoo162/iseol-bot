@@ -37,10 +37,11 @@ jobs:
       - name: Verify health endpoint
         run: |
           for i in {1..20}; do
-            if curl --fail --silent http://127.0.0.1:18787/healthz | tee /tmp/health.json; then
-              grep -q '"ok":true' /tmp/health.json
-              grep -q '"service":"iseol"' /tmp/health.json
-              exit 0
+            if curl --fail --silent --show-error http://127.0.0.1:18787/healthz -o /tmp/health.json; then
+              if grep -q '"ok":true' /tmp/health.json && grep -q '"service":"iseol"' /tmp/health.json; then
+                cat /tmp/health.json
+                exit 0
+              fi
             fi
             sleep 1
           done
