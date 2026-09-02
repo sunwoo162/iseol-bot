@@ -74,6 +74,19 @@ export function googleOAuthConnectionState(input: {
   return input.refreshToken.trim() ? "ready" : "needs_authorization";
 }
 
+export function googleCalendarConnectAction(input: {
+  hasCalendar: boolean;
+  clientId: string;
+  clientSecret: string;
+  publicBaseUrl: string;
+  refreshToken: string;
+}): "connected" | "needs_admin" | "authorize" | "create" {
+  if (input.hasCalendar) return "connected";
+  const state = googleOAuthConnectionState(input);
+  if (state === "needs_admin") return "needs_admin";
+  return state === "needs_authorization" ? "authorize" : "create";
+}
+
 export function createGoogleOAuthSession(input: GoogleOAuthSessionInput, now = Date.now()): GoogleOAuthSession {
   const session: GoogleOAuthSession = {
     ...input,
