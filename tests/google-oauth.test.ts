@@ -9,6 +9,7 @@ import {
   buildGoogleOAuthRedirectUri,
   createGoogleOAuthSession,
   consumeGoogleOAuthSession,
+  googleCalendarConnectAction,
   googleOAuthConnectionState,
   resolveGoogleRefreshToken,
 } from "../src/services/calendar/google-oauth.js";
@@ -35,6 +36,13 @@ test("google oauth state distinguishes admin setup from user authorization", () 
   assert.equal(googleOAuthConnectionState({ clientId: "id", clientSecret: "secret", publicBaseUrl: "", refreshToken: "" }), "needs_admin");
   assert.equal(googleOAuthConnectionState({ clientId: "id", clientSecret: "secret", publicBaseUrl: "https://iseol.example.com", refreshToken: "" }), "needs_authorization");
   assert.equal(googleOAuthConnectionState({ clientId: "id", clientSecret: "secret", publicBaseUrl: "https://iseol.example.com", refreshToken: "token" }), "ready");
+});
+
+test("calendar connect action prefers existing calendar then auth setup", () => {
+  assert.equal(googleCalendarConnectAction({ hasCalendar: true, clientId: "", clientSecret: "", publicBaseUrl: "", refreshToken: "" }), "connected");
+  assert.equal(googleCalendarConnectAction({ hasCalendar: false, clientId: "", clientSecret: "secret", publicBaseUrl: "https://iseol.example.com", refreshToken: "" }), "needs_admin");
+  assert.equal(googleCalendarConnectAction({ hasCalendar: false, clientId: "id", clientSecret: "secret", publicBaseUrl: "https://iseol.example.com", refreshToken: "" }), "authorize");
+  assert.equal(googleCalendarConnectAction({ hasCalendar: false, clientId: "id", clientSecret: "secret", publicBaseUrl: "https://iseol.example.com", refreshToken: "token" }), "create");
 });
 
 test("google oauth session is one-time and expires", () => {
