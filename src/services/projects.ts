@@ -13,15 +13,29 @@ export type StoredProject = {
   backend: RepositoryRef;
   frontendHookId?: number;
   backendHookId?: number;
+  frontendAutomationHookId?: number;
+  backendAutomationHookId?: number;
+  frontendLogChannelId?: string;
+  backendLogChannelId?: string;
+  calendarId?: string;
+  calendarUrl?: string;
+  calendarChannelId?: string;
+  calendarPanelMessageId?: string;
+  hubPanelMessageId?: string;
+  hubGuideMessageId?: string;
+  scrumChannelId?: string;
+  scrumPanelMessageId?: string;
   figmaUrl?: string;
   figmaFileKey?: string;
   figmaChannelId?: string;
+  figmaGuideMessageId?: string;
   figmaWebhookId?: string;
   figmaLastVersionId?: string;
   figmaKnownCommentIds?: string[];
   notionUrl?: string;
   notionPageId?: string;
   notionChannelId?: string;
+  notionGuideMessageId?: string;
   notionLastEditedTime?: string;
 };
 
@@ -39,6 +53,13 @@ async function readProjects(): Promise<StoredProject[]> {
 async function writeProjects(projects: StoredProject[]): Promise<void> {
   await mkdir(dirname(DATA_FILE), { recursive: true });
   await writeFile(DATA_FILE, JSON.stringify(projects, null, 2), "utf8");
+}
+
+export function normalizeRepositoryPair(frontend: RepositoryRef, backend: RepositoryRef): string {
+  return [frontend, backend]
+    .map((repository) => `${repository.owner}/${repository.repo}`.toLowerCase())
+    .sort()
+    .join("|");
 }
 
 export async function listProjects(): Promise<StoredProject[]> {
@@ -78,6 +99,19 @@ export async function findProjectByName(guildId: string, name: string): Promise<
   return projects.find((project) => project.guildId === guildId && project.name.trim().toLowerCase() === normalized) ?? null;
 }
 
+export async function findProjectByRepositories(
+  guildId: string,
+  frontend: RepositoryRef,
+  backend: RepositoryRef,
+): Promise<StoredProject | null> {
+  const target = normalizeRepositoryPair(frontend, backend);
+  const projects = await readProjects();
+  return projects.find((project) =>
+    project.guildId === guildId
+    && normalizeRepositoryPair(project.frontend, project.backend) === target,
+  ) ?? null;
+}
+
 export async function findProjectByFigmaWebhook(webhookId: string, fileKey: string): Promise<StoredProject | null> {
   const projects = await readProjects();
   const exact = projects.find((project) => project.figmaWebhookId === webhookId);
@@ -90,7 +124,6 @@ export async function deleteProject(id: string): Promise<boolean> {
   const projects = await readProjects();
   const next = projects.filter((project) => project.id !== id);
   if (next.length === projects.length) return false;
-
   await writeProjects(next);
   return true;
 }
