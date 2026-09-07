@@ -76,7 +76,13 @@ export type ProjectHistoryEventType =
   | "genesis-run-imported"
   | "tree-node-added"
   | "tree-node-status-changed"
-  | "run-attached";
+  | "run-attached"
+  | "discord-project-bound"
+  | "discord-action-recorded"
+  | "integration-action-recorded"
+  | "review-recorded";
+
+export type ProjectHistorySource = "discord" | "github" | "figma" | "notion" | "calendar";
 
 export type ProjectHistoryEvent = {
   version: 1;
@@ -88,6 +94,9 @@ export type ProjectHistoryEvent = {
   prototypeId?: string;
   runId?: string;
   nodeId?: string;
+  source?: ProjectHistorySource;
+  action?: string;
+  reference?: string;
 };
 
 export type ProjectWorkContext = {

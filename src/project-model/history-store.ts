@@ -34,3 +34,19 @@ export async function loadProjectHistory(
     throw error;
   }
 }
+
+export async function appendProjectHistoryEventOnce(
+  root: string,
+  event: ProjectHistoryEvent,
+): Promise<boolean> {
+  const existing = (await loadProjectHistory(root, event.projectId))
+    .find((item) => item.id === event.id);
+  if (existing) {
+    if (JSON.stringify(existing) !== JSON.stringify(event)) {
+      throw new Error(`Project history event identity mismatch: ${event.id}`);
+    }
+    return false;
+  }
+  await appendProjectHistoryEvent(root, event);
+  return true;
+}
