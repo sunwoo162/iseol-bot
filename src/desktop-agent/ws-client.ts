@@ -1,0 +1,89 @@
+import WebSocket from "ws";
+import type { DesktopAgentHello, DesktopJobResult, DesktopTaskPack } from "./contracts.js";
+
+export type ConnectDesktopAgentWebSocketClientOptions = {
+  url: string;
+  hello: DesktopAgentHello;
+  heartbeatIntervalMs: number;
+  onTask(pack: DesktopTaskPack): Promise<DesktopJobResult>;
+  now?: () => string;
+};
+
+export async function connectDesktopAgentWebSocketClient(
+  options: ConnectDesktopAgentWebSocketClientOptions,
+) {
+  const now = options.now ?? (() => new Date().toISOString());
+  const socket = new WebSocket(options.url);
+  let heartbeat: NodeJS.Timeout | undefined;
+  let accepted = false;
+
+  const ready = new Promise<void>((resolveReady, rejectReady) => {
+    socket.once("open", () => {
+      socket.send(JSON.stringify({ type: "hello", hello: options.hello }));
+    });
+    socket.once("error", rejectReady);
+    socket.on("message", async (data) => {
+      let frame: any;
+      try {
+        frame = JSON.parse(data.toString());
+      } catch {
+        socket.close(4002, "invalid json frame");
+        return;
+      }
+      if (!accepted && frame?.type === "accepted") {
+        accepted = true;
+        heartbeat = setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: "heartbeat", at: now() }));
+          }
+        }, options.heartbeatIntervalMs);
+        resolveReady();
+        return;
+      }
+      if (frame?.type !== "task") return;
+      const pack = frame.pack as DesktopTaskPack;
+      try {
+        const result = await options.onTask(pack);
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: "result", result }));
+        }
+      } catch (error) {
+        const result: DesktopJobResult = {
+          version: 1,
+          jobId: pack.jobId,
+          runId: pack.runId,
+          agentId: options.hello.agentId,
+          status: "retryable-failure",
+          completedAt: now(),
+          operations: [{
+            operationId: "__task__",
+            ok: false,
+            summary: error instanceof Error ? error.message : String(error),
+          }],
+        };
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: "result", result }));
+        }
+      }
+    });
+    socket.once("close", (code, reason) => {
+      if (!accepted) rejectReady(new Error(`Desktop Agent WebSocket closed before acceptance: ${code} ${reason}`));
+    });
+  });
+
+  socket.on("close", () => {
+    if (heartbeat) clearInterval(heartbeat);
+  });
+
+  await ready;
+  return {
+    close: () => new Promise<void>((resolveClose) => {
+      if (socket.readyState === WebSocket.CLOSED) {
+        resolveClose();
+        return;
+      }
+      socket.once("close", () => resolveClose());
+      socket.close(1000, "client close");
+    }),
+  };
+}
