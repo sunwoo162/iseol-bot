@@ -4,12 +4,12 @@ import { assertDesktopProtocolVersion, assertDesktopTaskPack } from "./contracts
 import { heartbeatDesktopAgent, registerDesktopAgent } from "./agent-registry.js";
 
 export type DesktopServerMessage =
-  | { type: "task"; pack: DesktopTaskPack }
-  | { type: "accepted"; sessionId: string };
+  | { version: 1; type: "task"; pack: DesktopTaskPack }
+  | { version: 1; type: "accepted"; sessionId: string };
 
 export type DesktopClientMessage =
-  | { type: "heartbeat"; at: string }
-  | { type: "result"; result: DesktopJobResult };
+  | { version: 1; type: "heartbeat"; at: string }
+  | { version: 1; type: "result"; result: DesktopJobResult };
 
 export interface DesktopAgentWire {
   send(message: DesktopServerMessage): void;
@@ -72,6 +72,7 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
   }
 
   async function handleMessage(sessionId: string, message: DesktopClientMessage): Promise<void> {
+    assertDesktopProtocolVersion(message.version);
     const session = sessionsById.get(sessionId);
     if (!session) throw new Error(`Desktop Agent session not found: ${sessionId}`);
     if (message.type === "heartbeat") {
@@ -116,7 +117,7 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
     let resolveResult!: (result: DesktopJobResult) => void;
     const promise = new Promise<DesktopJobResult>((resolve) => { resolveResult = resolve; });
     pending.set(pack.jobId, { promise, resolve: resolveResult });
-    session.wire.send({ type: "task", pack });
+    session.wire.send({ version: 1, type: "task", pack });
   }
 
   async function awaitResult(jobId: string, timeoutMs: number): Promise<DesktopJobResult> {

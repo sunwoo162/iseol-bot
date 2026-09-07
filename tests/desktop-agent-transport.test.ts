@@ -84,10 +84,10 @@ test("task/result correlation rejects unknown results and disconnect only drops 
   await transport.acceptHello("session-1", hello, wire);
   transport.sendTask("agent-001", task());
   const waiting = transport.awaitResult("job-001", 1_000);
-  await transport.handleMessage("session-1", { type: "result", result: result() });
+  await transport.handleMessage("session-1", { version: 1, type: "result", result: result() });
   assert.deepEqual(await waiting, result());
   await assert.rejects(
-    transport.handleMessage("session-1", { type: "result", result: result("job-unknown") }),
+    transport.handleMessage("session-1", { version: 1, type: "result", result: result("job-unknown") }),
     /unknown desktop job result/i,
   );
   transport.disconnect("session-1");
@@ -137,4 +137,23 @@ test("loopback WebSocket supports outbound connect task result disconnect and re
   } finally {
     await server.close();
   }
+});
+
+test("transport frames require the supported protocol version", async () => {
+  const registryRoot = await root();
+  const transport = createDesktopAgentTransport({ registryRoot, expectedToken: "secret-token" });
+  const wire = new FakeWire();
+  await transport.acceptHello("session-1", hello, wire);
+
+  await assert.rejects(
+    transport.handleMessage("session-1", {
+      version: 99,
+      type: "heartbeat",
+      at: "2026-09-08T02:00:00.000Z",
+    } as any),
+    /unsupported iseol desktop protocol version/i,
+  );
+
+  transport.sendTask("agent-001", task("job-versioned"));
+  assert.equal((wire.messages[0] as any)?.version, 1);
 });

@@ -34,4 +34,8 @@ export const config = {
   iseolWebToken: optional("ISEOL_WEB_TOKEN"),
   iseolModelRoot: optional("ISEOL_MODEL_ROOT"),
   iseolRunRoot: optional("ISEOL_RUN_ROOT"),
+  iseolDesktopAgentHost: optional("ISEOL_DESKTOP_AGENT_HOST"),
+  iseolDesktopAgentPort: optional("ISEOL_DESKTOP_AGENT_PORT"),
+  iseolDesktopAgentToken: optional("ISEOL_DESKTOP_AGENT_TOKEN"),
+  iseolDesktopAgentRoot: optional("ISEOL_DESKTOP_AGENT_ROOT"),
 };

@@ -20,7 +20,7 @@ export async function connectFakeDesktopAgent(options: ConnectFakeDesktopAgentOp
 
   const ready = new Promise<void>((resolveReady, rejectReady) => {
     socket.once("open", () => {
-      socket.send(JSON.stringify({ type: "hello", hello: options.hello }));
+      socket.send(JSON.stringify({ version: 1, type: "hello", hello: options.hello }));
     });
     socket.once("error", rejectReady);
     socket.on("message", async (data) => {
@@ -36,7 +36,7 @@ export async function connectFakeDesktopAgent(options: ConnectFakeDesktopAgentOp
         const interval = options.heartbeatIntervalMs ?? 1_000;
         heartbeat = setInterval(() => {
           if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type: "heartbeat", at: now() }));
+            socket.send(JSON.stringify({ version: 1, type: "heartbeat", at: now() }));
           }
         }, interval);
         resolveReady();
@@ -51,7 +51,7 @@ export async function connectFakeDesktopAgent(options: ConnectFakeDesktopAgentOp
         return;
       }
       if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "result", result }));
+        socket.send(JSON.stringify({ version: 1, type: "result", result }));
       }
     });
     socket.once("close", (code, reason) => {

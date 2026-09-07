@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { DesktopAgentHello } from "./contracts.js";
+import { assertDesktopProtocolVersion, type DesktopAgentHello } from "./contracts.js";
 import type { DesktopAgentTransport, DesktopAgentWire, DesktopClientMessage } from "./transport.js";
 
 export type StartDesktopAgentWebSocketServerOptions = {
@@ -38,10 +38,11 @@ export async function startDesktopAgentWebSocketServer(
           if (!frame || typeof frame !== "object" || (frame as any).type !== "hello") {
             throw new Error("Desktop Agent first WebSocket frame must be hello");
           }
+          assertDesktopProtocolVersion((frame as { version?: number }).version ?? 0);
           const hello = (frame as { hello: DesktopAgentHello }).hello;
           await options.transport.acceptHello(sessionId, hello, wire);
           accepted = true;
-          socket.send(JSON.stringify({ type: "accepted", sessionId }));
+          socket.send(JSON.stringify({ version: 1, type: "accepted", sessionId }));
           return;
         }
         await options.transport.handleMessage(sessionId, frame as DesktopClientMessage);

@@ -36,6 +36,7 @@ import {
 } from "./services/voice-time.js";
 import { startWebhookServer } from "./services/webhook-server.js";
 import { resolveWebControlPlaneConfig, startWebControlPlaneServer } from "./web-control-plane/server.js";
+import { resolveDesktopAgentCoreConfig, startDesktopAgentCoreService } from "./desktop-agent/core-service.js";
 
 const client = new Client({
   intents: [
@@ -84,6 +85,21 @@ client.once(Events.ClientReady, async (readyClient) => {
       .catch((error) => console.error("Iseol Web Control Plane 시작 실패", error));
   } catch (error) {
     console.error("Iseol Web Control Plane 설정 거부", error);
+  }
+  try {
+    const desktopConfig = resolveDesktopAgentCoreConfig({
+      ISEOL_DESKTOP_AGENT_HOST: config.iseolDesktopAgentHost,
+      ISEOL_DESKTOP_AGENT_PORT: config.iseolDesktopAgentPort,
+      ISEOL_DESKTOP_AGENT_TOKEN: config.iseolDesktopAgentToken,
+      ISEOL_DESKTOP_AGENT_ROOT: config.iseolDesktopAgentRoot,
+    });
+    if (desktopConfig.enabled) {
+      void startDesktopAgentCoreService(desktopConfig)
+        .then((service) => console.log(`Iseol Desktop Agent Core listening: ${service.url}`))
+        .catch((error) => console.error("Iseol Desktop Agent Core 시작 실패", error));
+    }
+  } catch (error) {
+    console.error("Iseol Desktop Agent Core 설정 거부", error);
   }
   startContestFeedPolling(client);
   startContestAudienceFeedPolling(client);

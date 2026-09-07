@@ -1,5 +1,5 @@
 import WebSocket from "ws";
-import type { DesktopAgentHello, DesktopJobResult, DesktopTaskPack } from "./contracts.js";
+import { assertDesktopProtocolVersion, type DesktopAgentHello, type DesktopJobResult, type DesktopTaskPack } from "./contracts.js";
 
 export type ConnectDesktopAgentWebSocketClientOptions = {
   url: string;
@@ -16,10 +16,12 @@ export async function connectDesktopAgentWebSocketClient(
   const socket = new WebSocket(options.url);
   let heartbeat: NodeJS.Timeout | undefined;
   let accepted = false;
+  let resolveClosed!: () => void;
+  const closed = new Promise<void>((resolveDone) => { resolveClosed = resolveDone; });
 
   const ready = new Promise<void>((resolveReady, rejectReady) => {
     socket.once("open", () => {
-      socket.send(JSON.stringify({ type: "hello", hello: options.hello }));
+      socket.send(JSON.stringify({ version: 1, type: "hello", hello: options.hello }));
     });
     socket.once("error", rejectReady);
     socket.on("message", async (data) => {
@@ -30,11 +32,12 @@ export async function connectDesktopAgentWebSocketClient(
         socket.close(4002, "invalid json frame");
         return;
       }
+      try { assertDesktopProtocolVersion(frame?.version ?? 0); } catch { socket.close(4003, "unsupported protocol version"); return; }
       if (!accepted && frame?.type === "accepted") {
         accepted = true;
         heartbeat = setInterval(() => {
           if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type: "heartbeat", at: now() }));
+            socket.send(JSON.stringify({ version: 1, type: "heartbeat", at: now() }));
           }
         }, options.heartbeatIntervalMs);
         resolveReady();
@@ -45,7 +48,7 @@ export async function connectDesktopAgentWebSocketClient(
       try {
         const result = await options.onTask(pack);
         if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: "result", result }));
+          socket.send(JSON.stringify({ version: 1, type: "result", result }));
         }
       } catch (error) {
         const result: DesktopJobResult = {
@@ -62,7 +65,7 @@ export async function connectDesktopAgentWebSocketClient(
           }],
         };
         if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: "result", result }));
+          socket.send(JSON.stringify({ version: 1, type: "result", result }));
         }
       }
     });
@@ -73,17 +76,16 @@ export async function connectDesktopAgentWebSocketClient(
 
   socket.on("close", () => {
     if (heartbeat) clearInterval(heartbeat);
+    resolveClosed();
   });
 
   await ready;
   return {
-    close: () => new Promise<void>((resolveClose) => {
-      if (socket.readyState === WebSocket.CLOSED) {
-        resolveClose();
-        return;
-      }
-      socket.once("close", () => resolveClose());
+    closed,
+    close: async () => {
+      if (socket.readyState === WebSocket.CLOSED) return;
       socket.close(1000, "client close");
-    }),
+      await closed;
+    },
   };
 }
