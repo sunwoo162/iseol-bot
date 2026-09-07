@@ -1,6 +1,6 @@
 # Iseol Web Control Plane Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add a secure first Iseol Web surface that exposes Idea Lab prototypes and promoted Project Workspaces from the same durable Core state.
 
@@ -46,11 +46,11 @@
 **Interfaces:**
 - Produces: `listPrototypeCandidates(root)`, `listProjectWorkspaces(root)`.
 
-- [ ] Write failing tests proving deterministic listing, missing directories returning `[]`, and malformed unrelated files being ignored only when they are not JSON candidates/workspaces.
-- [ ] Run focused tests and confirm RED.
-- [ ] Implement sorted listing by `createdAt` then ID while retaining exact stored snapshots.
-- [ ] Run focused tests plus build and confirm PASS.
-- [ ] Commit as `feat: list iseol web project state`.
+- [x] Write failing tests proving deterministic listing, missing directories returning `[]`, and malformed unrelated files being ignored only when they are not JSON candidates/workspaces.
+- [x] Run focused tests and confirm RED.
+- [x] Implement sorted listing by `createdAt` then ID while retaining exact stored snapshots.
+- [x] Run focused tests plus build and confirm PASS.
+- [x] Commit as `feat: list iseol web project state`.
 
 ### Task 2: Browser-safe Web view models
 
@@ -62,12 +62,12 @@
 **Interfaces:**
 - Produces: `buildIdeaLabView(modelRoot)`, `buildProjectWorkspaceView(modelRoot, harnessRoot, projectId)`.
 
-- [ ] Write failing tests for prototype cards, deployment links, project tree/history, Genesis Runs, and missing-project `null`.
-- [ ] Prove view models expose no policy source contents, environment variables, or credentials.
-- [ ] Run focused tests and confirm RED.
-- [ ] Implement view models using Project Model stores/history and Harness Run snapshots only where needed.
-- [ ] Run focused tests plus build and confirm PASS.
-- [ ] Commit as `feat: build iseol web view models`.
+- [x] Write failing tests for prototype cards, deployment links, project tree/history, Genesis Runs, and missing-project `null`.
+- [x] Prove view models expose no policy source contents, environment variables, or credentials.
+- [x] Run focused tests and confirm RED.
+- [x] Implement view models using Project Model stores/history and Harness Run snapshots only where needed.
+- [x] Run focused tests plus build and confirm PASS.
+- [x] Commit as `feat: build iseol web view models`.
 ### Task 3: Pure Web API router and promotion auth
 
 **Files:**
@@ -78,13 +78,13 @@
 - Produces: `routeWebControlPlaneRequest(request, deps)` returning status, headers, and JSON/text body without opening a socket.
 - Routes: `GET /api/idea-lab`, `GET /api/projects/:id`, `POST /api/prototypes/:id/promote`.
 
-- [ ] Write failing tests for Idea Lab read, Project Workspace read, 404s, method rejection, and prototype promotion.
-- [ ] Require a matching bearer token for mutation when a configured token exists; reject missing/incorrect tokens with `401`.
-- [ ] Run focused tests and confirm RED.
-- [ ] Implement route parsing with decoded single-segment IDs and no path traversal.
-- [ ] Promotion calls existing `promotePrototype` and returns the canonical workspace.
-- [ ] Run focused tests plus build and confirm PASS.
-- [ ] Commit as `feat: route iseol web control plane api`.
+- [x] Write failing tests for Idea Lab read, Project Workspace read, 404s, method rejection, and prototype promotion.
+- [x] Require a matching bearer token for mutation when a configured token exists; reject missing/incorrect tokens with `401`.
+- [x] Run focused tests and confirm RED.
+- [x] Implement route parsing with decoded single-segment IDs and no path traversal.
+- [x] Promotion calls existing `promotePrototype` and returns the canonical workspace.
+- [x] Run focused tests plus build and confirm PASS.
+- [x] Commit as `feat: route iseol web control plane api`.
 
 ### Task 4: Secure HTTP server adapter
 
@@ -97,13 +97,13 @@
 **Interfaces:**
 - Produces: `resolveWebControlPlaneConfig(env)`, `startWebControlPlaneServer(options)`.
 
-- [ ] Write failing tests proving default host is `127.0.0.1`, public bind without token is rejected, and public bind with token is accepted.
-- [ ] Test HTTP adapter response size limits, JSON request parsing, API delegation, and static-file content types without touching the GitHub webhook server.
-- [ ] Run focused tests and confirm RED.
-- [ ] Add optional `ISEOL_WEB_HOST`, `ISEOL_WEB_PORT`, `ISEOL_WEB_TOKEN`, `ISEOL_MODEL_ROOT`, and `ISEOL_RUN_ROOT` config values.
-- [ ] Start the control plane from `ClientReady` independently of GitHub webhook secret configuration.
-- [ ] Run focused tests plus build and confirm PASS.
-- [ ] Commit as `feat: serve secure iseol web control plane`.
+- [x] Write failing tests proving default host is `127.0.0.1`, public bind without token is rejected, and public bind with token is accepted.
+- [x] Test HTTP adapter response size limits, JSON request parsing, API delegation, and static-file content types without touching the GitHub webhook server.
+- [x] Run focused tests and confirm RED.
+- [x] Add optional `ISEOL_WEB_HOST`, `ISEOL_WEB_PORT`, `ISEOL_WEB_TOKEN`, `ISEOL_MODEL_ROOT`, and `ISEOL_RUN_ROOT` config values.
+- [x] Start the control plane from `ClientReady` independently of GitHub webhook secret configuration.
+- [x] Run focused tests plus build and confirm PASS.
+- [x] Commit as `feat: serve secure iseol web control plane`.
 
 ### Task 5: Two-mode browser dashboard
 
@@ -117,26 +117,45 @@
 - Consumes the Task 3 APIs.
 - Produces two visible surfaces: `Idea Lab` and `Project Workspace`.
 
-- [ ] Write static contract tests for both top-level modes, prototype deployment links, project tree/history containers, token input, and promotion control.
-- [ ] Run focused tests and confirm RED.
-- [ ] Implement Idea Lab cards with title/concept/deployment status/open link/promote action.
-- [ ] Implement Project Workspace with Genesis summary, product tree, Run references, and chronological history.
-- [ ] Store an explicitly entered web token only in browser local storage and send it as bearer auth for mutation; never embed a server token in static assets.
-- [ ] Add loading, empty, unauthorized, and error states.
-- [ ] Run focused tests plus build and confirm PASS.
-- [ ] Commit as `feat: add iseol web project dashboard`.
+- [x] Write static contract tests for both top-level modes, prototype deployment links, project tree/history containers, token input, and promotion control.
+- [x] Run focused tests and confirm RED.
+- [x] Implement Idea Lab cards with title/concept/deployment status/open link/promote action.
+- [x] Implement Project Workspace with Genesis summary, product tree, Run references, and chronological history.
+- [x] Store an explicitly entered web token only in browser local storage and send it as bearer auth for mutation; never embed a server token in static assets.
+- [x] Add loading, empty, unauthorized, and error states.
+- [x] Run focused tests plus build and confirm PASS.
+- [x] Commit as `feat: add iseol web project dashboard`.
 
 ## Phase verification
 
-- [ ] Re-read `docs/HARNESS_ENGINEERING.md`.
-- [ ] Run all `tests/web-control-plane-*.test.ts` tests.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Run `git diff --check`.
-- [ ] Confirm existing webhook, Discord command, provider, and legacy project-store files only changed where explicitly planned (`src/config.ts`, `src/index.ts`).
-- [ ] Start the server on loopback with temporary roots and verify `/`, `/api/idea-lab`, and a missing project response manually.
-- [ ] Record verification counts and execution notes in this plan.
+- [x] Re-read `docs/HARNESS_ENGINEERING.md`.
+- [x] Run all `tests/web-control-plane-*.test.ts` tests.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Run `git diff --check`.
+- [x] Confirm existing webhook, Discord command, provider, and legacy project-store files only changed where explicitly planned (`src/config.ts`, `src/index.ts`).
+- [x] Start the server on loopback with temporary roots and verify `/`, `/api/idea-lab`, and a missing project response manually.
+- [x] Record verification counts and execution notes in this plan.
 
 ## Phase completion gate
 
 The phase is complete only when the browser can switch between Idea Lab and Project Workspace, open deployed prototype URLs, promote a prototype through an authenticated API, render the promoted project's Genesis/Tree/History from durable Core state, and the server refuses unsafe public exposure without a token.
+
+## Execution notes
+
+- Implemented the Web Control Plane in isolated branch `feat/iseol-web-control-plane`.
+- Added deterministic prototype/project listing over the durable Project Model stores.
+- Added sanitized Web view models that expose policy digests but never Harness policy contents, source paths, environment values, tokens, or credentials.
+- Added API routes for Idea Lab, Project Workspace lookup, and authenticated idempotent prototype promotion.
+- Added an independent Node HTTP server with loopback default binding, mandatory token for non-loopback binding, 64 KiB mutation body limit, JSON validation, and static-root traversal protection.
+- Added the two-mode browser dashboard for Idea Lab and Project Workspace with deployment links, promotion, Genesis, Project Tree, Run state, History, token storage, and responsive states.
+
+### Verification evidence
+
+- Web Control Plane focused tests: **19/19 passed**.
+- Full repository tests: **117/117 passed**.
+- `npm run build`: **passed**.
+- `git diff --check`: **passed**.
+- Unplanned changes under existing `src/services`, `src/commands`, `src/interactions`, and `data/projects.json`: **0**.
+- Loopback smoke: `/` = **200**, `/api/idea-lab` = **200**, missing project = **404**, seeded prototype count = **1**, dashboard HTML contained `Idea Lab`.
+- Public binding without `ISEOL_WEB_TOKEN` is rejected by both config resolution and direct server startup.
