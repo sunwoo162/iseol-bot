@@ -18,7 +18,7 @@ export type DesktopJobRecord = {
   stage: DesktopTaskPack["stage"];
   idempotencyKey: string;
   pack: DesktopTaskPack;
-  status: "pending" | "leased" | "completed" | "cancelled";
+  status: "pending" | "leased" | "indeterminate" | "completed" | "cancelled";
   attempts: number;
   createdAt: string;
   updatedAt: string;
@@ -213,6 +213,25 @@ export async function completeDesktopJob(
     result: structuredClone(result),
     updatedAt: result.completedAt,
   };
+  await saveJob(root, next);
+  return next;
+}
+
+export async function markDesktopJobIndeterminate(
+  root: string,
+  jobId: string,
+  owner: string,
+  at: string,
+): Promise<DesktopJobRecord> {
+  const job = await loadDesktopJob(root, jobId);
+  if (!job) throw new Error(`Desktop Job not found: ${jobId}`);
+  if (job.status === "completed" || job.status === "cancelled") {
+    throw new Error(`Desktop Job is terminal: ${jobId}`);
+  }
+  if (!job.lease || job.lease.owner !== owner) {
+    throw new Error(`Desktop Job lease owner mismatch: ${jobId}`);
+  }
+  const next: DesktopJobRecord = { ...job, status: "indeterminate", updatedAt: at };
   await saveJob(root, next);
   return next;
 }

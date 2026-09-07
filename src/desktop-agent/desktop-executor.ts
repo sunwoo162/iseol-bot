@@ -3,11 +3,13 @@ import { isAbsolute, relative, resolve } from "node:path";
 import type { HarnessEvidenceKind, HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import type { HarnessStageExecutor, HarnessStageExecutionResult } from "../harness/run-supervisor.js";
 import type { DesktopJobResult, DesktopTaskPack } from "./contracts.js";
+import { desktopTaskPackMutates } from "./contracts.js";
 import { listOnlineDesktopAgents } from "./agent-registry.js";
 import {
   acquireDesktopJobLease,
   completeDesktopJob,
   createDesktopJob,
+  markDesktopJobIndeterminate,
   requeueDesktopJob,
 } from "./job-store.js";
 
@@ -110,6 +112,9 @@ export function createDesktopStageExecutor(
 
       const job = await createDesktopJob(input.jobRoot, compiled, at);
       if (job.status === "completed" && job.result) return completedResult(run, job.result);
+      if (job.status === "indeterminate") {
+        return { type: "waiting-agent", reason: `Desktop Job ${job.jobId} requires reality reconciliation` };
+      }
       const sessionId = input.transport.getAgentSessionId(agent.agentId);
       if (!sessionId) return { type: "waiting-agent", reason: "Desktop Agent session is unavailable" };
       const leased = await acquireDesktopJobLease(
@@ -131,6 +136,10 @@ export function createDesktopStageExecutor(
         result = await input.transport.awaitResult(job.jobId, resultTimeoutMs);
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
+        if (desktopTaskPackMutates(dispatchPack)) {
+          await markDesktopJobIndeterminate(input.jobRoot, job.jobId, sessionId, now());
+          return { type: "waiting-agent", reason: `Desktop mutation result is indeterminate: ${reason}` };
+        }
         await requeueDesktopJob(input.jobRoot, job.jobId, sessionId, now());
         return { type: "retryable-failure", reason };
       }

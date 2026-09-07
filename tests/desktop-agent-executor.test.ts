@@ -144,3 +144,29 @@ test("retryable and protected desktop results map to Harness meanings", async ()
   });
   assert.equal((await blockedExecutor.execute(run(targetRoot))).type, "blocked-user");
 });
+
+test("lost result for a mutating task becomes indeterminate instead of requeueing", async () => {
+  const { registryRoot, jobRoot, targetRoot } = await roots();
+  await register(registryRoot, targetRoot);
+  class LostResultTransport extends FakeTransport {
+    async awaitResult(): Promise<DesktopJobResult> { throw new Error("result lost"); }
+  }
+  const transport = new LostResultTransport();
+  const executor = createDesktopStageExecutor({
+    registryRoot,
+    jobRoot,
+    transport,
+    compileTaskPack: async () => ({
+      ...task(targetRoot, "COMMIT"),
+      jobId: "job-lost-commit",
+      idempotencyKey: "commit:lost",
+      policyDigest: "digest",
+      policySources: [{ kind: "project-harness", path: targetRoot, sha256: "hash", required: true }],
+      operations: [{ id: "commit", type: "GIT_COMMIT", cwd: ".", message: "feat: maybe committed", expectedHead: "abc" }],
+    }),
+    now: () => "2026-09-08T03:00:10.000Z",
+  });
+  const result = await executor.execute(run(targetRoot, "COMMIT"));
+  assert.equal(result.type, "waiting-agent");
+  assert.equal((await loadDesktopJob(jobRoot, "job-lost-commit"))?.status, "indeterminate");
+});
