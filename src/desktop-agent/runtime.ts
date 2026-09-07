@@ -228,6 +228,28 @@ async function executeOperation(
     return commandOperationResult(operation.id, command, "Read Git branch");
   }
 
+  if (operation.type === "GIT_INSPECT") {
+    const cwd = await assertWorkspaceAccess(deps.allowedRoots, workspace, operation.cwd);
+    const head = await gitCommand(workspace, cwd, ["rev-parse", "HEAD"], maxOutputBytes);
+    if (head.code !== 0) return commandOperationResult(operation.id, head, "Inspect Git HEAD");
+    const parent = await gitCommand(workspace, cwd, ["rev-parse", "HEAD^"], maxOutputBytes);
+    const subject = await gitCommand(workspace, cwd, ["show", "-s", "--format=%s", "HEAD"], maxOutputBytes);
+    const branch = await gitCommand(workspace, cwd, ["branch", "--show-current"], maxOutputBytes);
+    const status = await gitCommand(workspace, cwd, ["status", "--short"], maxOutputBytes);
+    if (subject.code !== 0 || branch.code !== 0 || status.code !== 0) {
+      const failed = subject.code !== 0 ? subject : branch.code !== 0 ? branch : status;
+      return commandOperationResult(operation.id, failed, "Inspect Git identity");
+    }
+    const identity = {
+      head: head.stdout.trim(),
+      parent: parent.code === 0 ? parent.stdout.trim() : "",
+      subject: subject.stdout.trim(),
+      branch: branch.stdout.trim(),
+      status: status.stdout,
+    };
+    return { operationId: operation.id, ok: true, summary: "Inspected Git identity", stdout: JSON.stringify(identity), reference: identity.head };
+  }
+
   if (operation.type === "GIT_COMMIT") {
     const cwd = await assertWorkspaceAccess(deps.allowedRoots, workspace, operation.cwd);
     const add = await gitCommand(workspace, cwd, ["add", "-A"], maxOutputBytes);

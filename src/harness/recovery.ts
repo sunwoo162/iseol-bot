@@ -18,6 +18,7 @@ export type HarnessRealitySnapshot = {
   agentAvailable: boolean;
   currentBranch?: string;
   currentCommit?: string;
+  desktopCommit?: { key: string; reference: string; jobId: string };
   pullRequest?: { key: string; reference: string };
   deployment?: { key: string; reference: string; commit: string };
 };
@@ -161,6 +162,27 @@ export async function recoverHarnessRun(
 
   let evidence = [...run.evidence];
   let reconciledCurrentStage = false;
+
+  if (run.state.stage === "COMMIT" && reality.desktopCommit) {
+    await reconcileSideEffect({
+      storeRoot: input.storeRoot,
+      runId: input.runId,
+      key: reality.desktopCommit.key,
+      kind: "commit",
+      at: input.at,
+      reference: reality.desktopCommit.reference,
+      summary: "Recovered existing desktop Git commit",
+    });
+    evidence = addEvidence(evidence, {
+      kind: "commit",
+      stage: "COMMIT",
+      at: input.at,
+      summary: "Existing Git commit reconciled during Desktop Agent recovery",
+      provider: "git",
+      reference: reality.desktopCommit.reference,
+    });
+    reconciledCurrentStage = true;
+  }
 
   if (run.state.stage === "PR" && reality.pullRequest) {
     await reconcileSideEffect({

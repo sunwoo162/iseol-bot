@@ -39,7 +39,8 @@ export type RunProcessOperation = {
 export type GitStatusOperation = { id: string; type: "GIT_STATUS"; cwd: string };
 export type GitDiffOperation = { id: string; type: "GIT_DIFF"; cwd: string };
 export type GitBranchOperation = { id: string; type: "GIT_BRANCH"; cwd: string };
-export type GitCommitOperation = { id: string; type: "GIT_COMMIT"; cwd: string; message: string };
+export type GitInspectOperation = { id: string; type: "GIT_INSPECT"; cwd: string };
+export type GitCommitOperation = { id: string; type: "GIT_COMMIT"; cwd: string; message: string; expectedHead?: string };
 export type CheckHttpOperation = { id: string; type: "CHECK_HTTP"; url: string; timeoutMs: number };
 
 export type DesktopOperation =
@@ -50,6 +51,7 @@ export type DesktopOperation =
   | GitStatusOperation
   | GitDiffOperation
   | GitBranchOperation
+  | GitInspectOperation
   | GitCommitOperation
   | CheckHttpOperation;
 
@@ -103,6 +105,7 @@ const OPERATION_TYPES = new Set<DesktopOperation["type"]>([
   "GIT_STATUS",
   "GIT_DIFF",
   "GIT_BRANCH",
+  "GIT_INSPECT",
   "GIT_COMMIT",
   "CHECK_HTTP",
 ]);

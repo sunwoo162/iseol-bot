@@ -96,6 +96,11 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
     }
   }
 
+  function getAgentSessionId(agentId: string): string | null {
+    const sessionId = sessionByAgent.get(agentId);
+    return sessionId && sessionsById.has(sessionId) ? sessionId : null;
+  }
+
   function isAgentConnected(agentId: string): boolean {
     const sessionId = sessionByAgent.get(agentId);
     return sessionId !== undefined && sessionsById.has(sessionId);
@@ -137,6 +142,7 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
     handleMessage,
     disconnect,
     isAgentConnected,
+    getAgentSessionId,
     sendTask,
     awaitResult,
   };

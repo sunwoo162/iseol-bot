@@ -69,7 +69,7 @@ function semanticTaskIdentity(pack: DesktopTaskPack): string {
   });
 }
 
-async function listJobRecords(root: string): Promise<DesktopJobRecord[]> {
+export async function listDesktopJobs(root: string): Promise<DesktopJobRecord[]> {
   const directory = resolve(root, "jobs");
   let entries: Dirent<string>[];
   try {
@@ -92,7 +92,7 @@ export async function findDesktopJobByIdempotencyKey(
   root: string,
   key: string,
 ): Promise<DesktopJobRecord | null> {
-  const jobs = await listJobRecords(root);
+  const jobs = await listDesktopJobs(root);
   return jobs.find((job) => job.idempotencyKey === key) ?? null;
 }
 
@@ -217,12 +217,32 @@ export async function completeDesktopJob(
   return next;
 }
 
+export async function requeueDesktopJob(
+  root: string,
+  jobId: string,
+  owner: string,
+  at: string,
+): Promise<DesktopJobRecord> {
+  const job = await loadDesktopJob(root, jobId);
+  if (!job) throw new Error(`Desktop Job not found: ${jobId}`);
+  if (job.status === "completed" || job.status === "cancelled") {
+    throw new Error(`Desktop Job is terminal: ${jobId}`);
+  }
+  if (!job.lease || job.lease.owner !== owner) {
+    throw new Error(`Desktop Job lease owner mismatch: ${jobId}`);
+  }
+  const { lease: _lease, result: _result, ...rest } = job;
+  const next: DesktopJobRecord = { ...rest, status: "pending", updatedAt: at };
+  await saveJob(root, next);
+  return next;
+}
+
 export async function listRecoverableDesktopJobs(
   root: string,
   now: string,
 ): Promise<DesktopJobRecord[]> {
   const nowMs = Date.parse(now);
-  const jobs = await listJobRecords(root);
+  const jobs = await listDesktopJobs(root);
   return jobs.filter((job) => {
     if (job.status === "completed" || job.status === "cancelled") return false;
     if (!job.lease) return true;
