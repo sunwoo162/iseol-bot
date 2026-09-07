@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { resolveBoundActionContext } from "./action-context.js";
+import type { ProjectContext } from "../services/project-context.js";
 import type {
   ProjectHistoryEvent,
   ProjectHistoryEventType,
@@ -82,4 +84,45 @@ export async function recordDiscordProjectHistory(
     reference: input.reference,
   };
   return (deps.appendOnce ?? appendProjectHistoryEventOnce)(input.modelRoot, event);
+}
+
+export type StoredProjectActionFact = {
+  eventType: RecordDiscordProjectHistoryInput["eventType"];
+  source: ProjectHistorySource;
+  action: string;
+  reference: string;
+  summary: string;
+};
+
+export type RecordStoredProjectActionInput = {
+  modelRoot: string;
+  bindingRoot: string;
+  guildId: string;
+  storedProjectId: string;
+  fact: StoredProjectActionFact;
+  at: string;
+  nodeId?: string;
+  runId?: string;
+  resolveLegacy?: (projectId: string, guildId: string) => Promise<ProjectContext | null>;
+};
+
+export async function recordStoredProjectAction(
+  input: RecordStoredProjectActionInput,
+): Promise<boolean> {
+  const context = await resolveBoundActionContext({
+    modelRoot: input.modelRoot,
+    bindingRoot: input.bindingRoot,
+    guildId: input.guildId,
+    storedProjectId: input.storedProjectId,
+    ...(input.nodeId === undefined ? {} : { nodeId: input.nodeId }),
+    ...(input.runId === undefined ? {} : { runId: input.runId }),
+    ...(input.resolveLegacy === undefined ? {} : { resolveLegacy: input.resolveLegacy }),
+  });
+  if (!context?.nodeId) return false;
+  return recordDiscordProjectHistory({
+    modelRoot: input.modelRoot,
+    context: { ...context, nodeId: context.nodeId },
+    ...input.fact,
+    at: input.at,
+  });
 }

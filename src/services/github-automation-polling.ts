@@ -1,5 +1,7 @@
 import { Client, TextChannel } from "discord.js";
+import { resolve } from "node:path";
 import { config } from "../config.js";
+import { recordStoredProjectAction, type StoredProjectActionFact } from "../discord-project/history-recorder.js";
 import { CalendarStateStore } from "./calendar/calendar-state.js";
 import { GoogleCalendarService } from "./calendar/google-calendar.js";
 import { GitHubAutomationPollStateStore } from "./github-automation-poll-state.js";
@@ -79,6 +81,10 @@ async function syncPullRequests(
       const result = await reviewer.reviewCiArtifact(fullName, pull.number, pull.headSha, artifact);
       if (!result.skipped) {
         await notify(client, project, side, `🤖 PR #${pull.number} 이설 코드리뷰 완료 · inline ${result.findings}개`);
+        await recordReviewProjectHistory(
+          project,
+          githubReviewHistoryFact(fullName, pull.number, pull.headSha),
+        );
       }
     } catch (error) {
       console.error(`PR CI 코드리뷰 폴링 실패 (${fullName}#${pull.number})`, error);
@@ -174,4 +180,37 @@ export function startGitHubAutomationPolling(client: Client): NodeJS.Timeout {
   const calendarEnabled = Boolean(config.googleClientId && config.googleClientSecret && config.googleRefreshToken);
   for (const message of reviewRuntimeMessages(calendarEnabled)) console.log(message);
   return timer;
+}
+
+export function githubReviewHistoryFact(
+  repository: string,
+  pullNumber: number,
+  headSha: string,
+): StoredProjectActionFact {
+  return {
+    eventType: "review-recorded",
+    source: "github",
+    action: "pr-review-recorded",
+    reference: `github:${repository}:pr:${pullNumber}:${headSha}`,
+    summary: `PR #${pullNumber} Iseol review completed`,
+  };
+}
+
+async function recordReviewProjectHistory(
+  project: StoredProject,
+  fact: StoredProjectActionFact,
+): Promise<void> {
+  const modelRoot = config.iseolModelRoot || resolve(process.cwd(), "data", "iseol");
+  try {
+    await recordStoredProjectAction({
+      modelRoot,
+      bindingRoot: modelRoot,
+      guildId: project.guildId,
+      storedProjectId: project.id,
+      fact,
+      at: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.warn(`Discord project review history failed (${project.name})`, error);
+  }
 }

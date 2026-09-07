@@ -42,7 +42,15 @@ export async function appendProjectHistoryEventOnce(
   const existing = (await loadProjectHistory(root, event.projectId))
     .find((item) => item.id === event.id);
   if (existing) {
-    if (JSON.stringify(existing) !== JSON.stringify(event)) {
+    const sameIdentity = existing.projectId === event.projectId
+      && existing.type === event.type
+      && existing.prototypeId === event.prototypeId
+      && existing.nodeId === event.nodeId
+      && existing.runId === event.runId
+      && existing.source === event.source
+      && existing.action === event.action
+      && existing.reference === event.reference;
+    if (!sameIdentity) {
       throw new Error(`Project history event identity mismatch: ${event.id}`);
     }
     return false;

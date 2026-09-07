@@ -9,8 +9,10 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
+import { resolve } from "node:path";
 import { config } from "../../config.js";
-import { findProject } from "../projects.js";
+import { recordStoredProjectAction, type StoredProjectActionFact } from "../../discord-project/history-recorder.js";
+import { findProject, type StoredProject } from "../projects.js";
 import { GitHubWebhookService } from "../github.js";
 import { GitHubScheduleSyncService } from "../github-schedule-sync.js";
 import { CalendarStateStore } from "./calendar-state.js";
@@ -157,6 +159,10 @@ export async function handleCalendarModal(interaction: ModalSubmitInteraction): 
       { title, body, start, end },
       { createIssue: (_repository, issueTitle, issueBody) => github.createIssue(repository, issueTitle, issueBody) },
     );
+    await recordCalendarProjectHistory(
+      project,
+      githubIssueCalendarHistoryFact(linked.issueUrl, linked.issueNumber),
+    );
     await interaction.editReply(`✅ GitHub Issue #${linked.issueNumber} + Google Calendar 일정 생성 완료\n${linked.issueUrl}`);
     return true;
   }
@@ -164,6 +170,7 @@ export async function handleCalendarModal(interaction: ModalSubmitInteraction): 
   if (action === "delete") {
     const eventId = interaction.fields.getTextInputValue("event_id").trim();
     await service.deleteEvent(project.calendarId, eventId);
+    await recordCalendarProjectHistory(project, calendarHistoryFact("deleted", eventId));
     await interaction.editReply(`✅ 일정 \`${eventId}\` 삭제 완료`);
     return true;
   }
@@ -173,11 +180,59 @@ export async function handleCalendarModal(interaction: ModalSubmitInteraction): 
   if (new Date(end).getTime() <= new Date(start).getTime()) throw new Error("종료 시간은 시작 시간보다 뒤여야 합니다.");
   if (action === "add") {
     const event = await service.createEvent(project.calendarId, { summary: title, start, end, metadata: { iseolProjectId: project.id, source: "discord" } });
+    await recordCalendarProjectHistory(project, calendarHistoryFact("created", event.id));
     await interaction.editReply(`✅ **${title}** 일정 추가 완료\nEvent ID: \`${event.id}\``);
     return true;
   }
   const eventId = interaction.fields.getTextInputValue("event_id").trim();
   await service.updateEvent(project.calendarId, eventId, { summary: title, start, end, metadata: { iseolProjectId: project.id, source: "discord" } });
+  await recordCalendarProjectHistory(project, calendarHistoryFact("updated", eventId));
   await interaction.editReply(`✅ **${title}** 일정 수정 완료`);
   return true;
+}
+
+export function calendarHistoryFact(
+  action: "created" | "updated" | "deleted",
+  eventId: string,
+): StoredProjectActionFact {
+  const actionName = `calendar-event-${action}`;
+  return {
+    eventType: "integration-action-recorded",
+    source: "calendar",
+    action: actionName,
+    reference: `calendar:event:${eventId}`,
+    summary: `Calendar event ${action}`,
+  };
+}
+
+async function recordCalendarProjectHistory(
+  project: StoredProject,
+  fact: StoredProjectActionFact,
+): Promise<void> {
+  const modelRoot = config.iseolModelRoot || resolve(process.cwd(), "data", "iseol");
+  try {
+    await recordStoredProjectAction({
+      modelRoot,
+      bindingRoot: modelRoot,
+      guildId: project.guildId,
+      storedProjectId: project.id,
+      fact,
+      at: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.warn(`Discord project history record failed (${project.name}/${fact.action})`, error);
+  }
+}
+
+export function githubIssueCalendarHistoryFact(
+  issueUrl: string,
+  issueNumber: number,
+): StoredProjectActionFact {
+  return {
+    eventType: "integration-action-recorded",
+    source: "github",
+    action: "github-issue-calendar-created",
+    reference: `github:issue:${issueUrl}`,
+    summary: `GitHub issue #${issueNumber} linked to Calendar`,
+  };
 }
