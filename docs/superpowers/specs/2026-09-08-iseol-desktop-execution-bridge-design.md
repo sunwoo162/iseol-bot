@@ -151,6 +151,7 @@ RUN_PROCESS
 GIT_STATUS
 GIT_DIFF
 GIT_BRANCH
+GIT_INSPECT
 GIT_COMMIT
 CHECK_HTTP
 ```
@@ -309,6 +310,8 @@ Existing PR/deployment reconciliation remains owned by the current Harness side-
 
 The selected transport is WebSocket initiated by the Desktop Agent to Iseol Core.
 
+The first production bootstrap binds Core to loopback only. Public Internet access is expected to terminate TLS at a reverse proxy and forward to the loopback WebSocket server; the Agent rejects non-loopback `ws://` endpoints and requires `wss://` for public connections. A direct public plain-WebSocket bind is rejected.
+
 Core-to-agent message families are:
 
 ```text
@@ -378,23 +381,19 @@ Failures map to existing Harness meanings:
 The first implementation stays in the current Iseol repository:
 
 ```text
-src/desktop-bridge/
+src/desktop-agent/
   contracts.ts
   agent-registry.ts
   job-store.ts
-  lease-manager.ts
-  task-compiler.ts
+  workspace-guard.ts
+  runtime.ts
+  transport.ts
+  ws-server.ts
+  ws-client.ts
   desktop-executor.ts
   reality-inspector.ts
-  websocket-server.ts
-
-src/desktop-agent/
-  config.ts
-  client.ts
-  workspace-guard.ts
-  operation-executor.ts
-  process-adapter.ts
-  git-adapter.ts
+  core-service.ts
+  agent-service.ts
   main.ts
 ```
 

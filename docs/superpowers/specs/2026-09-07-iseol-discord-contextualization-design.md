@@ -165,6 +165,8 @@ Provider mutation의 성공 여부와 History append는 분리한다. 예를 들
 
 이 metadata는 secret/token/raw provider payload를 저장하지 않는다. 사용자에게 의미 있는 요약과 provider reference만 남긴다.
 
+후속 lineage invariant: GitHub commit/PR은 단순 History append 시각만 저장하지 않고 provider가 제공하는 실제 lifecycle timestamp도 보존한다. commit은 `committedAt`, PR은 가능한 경우 `openedAt`, `mergedAt`, `closedAt`을 유지하며, Project Tree/History UI는 이 시간 정보를 해당 commit/PR lineage와 함께 표시한다.
+
 History event ID는 같은 외부 action을 재처리해도 중복 append되지 않도록 deterministic key에서 생성하거나 append 전에 중복 검사한다.
 
 ## 10. Node and Run context rules
