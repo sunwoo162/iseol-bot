@@ -80,14 +80,14 @@ function ensureMutable(state: HarnessRunState): void {
     completedStages.push(state.stage);
   }
 
+  const { reason: _reason, ...withoutReason } = state;
   return {
-    ...state,
+    ...withoutReason,
     stage: next,
     status: next === "DONE" ? "DONE" : "RUNNING",
     completedStages,
     skippedStages,
     updatedAt: at,
-    reason: undefined,
   };
 }
 
@@ -102,21 +102,39 @@ export function transitionRunState(
       if (state.status !== "READY" && state.status !== "FAILED_RETRYABLE") {
         throw new Error(`Run start requires READY or FAILED_RETRYABLE status, got ${state.status}`);
       }
-      return { ...state, status: "RUNNING", updatedAt: command.at, reason: undefined };
+      {
+        const { reason: _reason, ...withoutReason } = state;
+        return { ...withoutReason, status: "RUNNING", updatedAt: command.at };
+      }
     case "complete-stage":
       return advanceStage(state, command.at);
     case "skip-stage":
       return advanceStage(state, command.at, command.reason);
-    case "pause":
+    case "pause": {
       if (state.status !== "RUNNING" && state.status !== "READY") {
         throw new Error(`Run pause requires RUNNING or READY status, got ${state.status}`);
       }
-      return { ...state, status: "PAUSED", updatedAt: command.at, reason: command.reason };
-    case "resume":
-      if (state.status !== "PAUSED" && state.status !== "WAITING_EXTERNAL" && state.status !== "WAITING_AGENT" && state.status !== "BLOCKED_USER") {
+      const { reason: _reason, ...withoutReason } = state;
+      return {
+        ...withoutReason,
+        status: "PAUSED",
+        updatedAt: command.at,
+        ...(command.reason === undefined ? {} : { reason: command.reason }),
+      };
+    }
+    case "resume": {
+      if (
+        state.status !== "PAUSED"
+        && state.status !== "WAITING_EXTERNAL"
+        && state.status !== "WAITING_AGENT"
+        && state.status !== "BLOCKED_USER"
+        && state.status !== "RECOVERING"
+      ) {
         throw new Error(`Run resume is not allowed from ${state.status}`);
       }
-      return { ...state, status: "READY", updatedAt: command.at, reason: undefined };
+      const { reason: _reason, ...withoutReason } = state;
+      return { ...withoutReason, status: "READY", updatedAt: command.at };
+    }
     default:
       break;
   }
@@ -134,5 +152,11 @@ export function transitionRunState(
 
   const status = statusByType[command.type];
   if (!status) throw new Error(`Unsupported Run transition: ${String(command.type)}`);
-  return { ...state, status, updatedAt: command.at, reason };
+  const { reason: _reason, ...withoutReason } = state;
+  return {
+    ...withoutReason,
+    status,
+    updatedAt: command.at,
+    ...(reason === undefined ? {} : { reason }),
+  };
 }
