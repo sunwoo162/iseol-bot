@@ -161,3 +161,11 @@ export function assertDesktopTaskPack(value: unknown): asserts value is DesktopT
     throw new Error("Desktop Task Pack policySources are required for mutation");
   }
 }
+
+export function desktopOperationMutates(operation: DesktopOperation): boolean {
+  return MUTATION_TYPES.has(operation.type);
+}
+
+export function desktopTaskPackMutates(pack: DesktopTaskPack): boolean {
+  return pack.operations.some(desktopOperationMutates);
+}
