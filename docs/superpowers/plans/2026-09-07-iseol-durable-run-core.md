@@ -1,6 +1,6 @@
 # Iseol Durable Run Core Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make an Iseol development Run durable, stage-driven, automatically advancing, recoverable after interruption, and protected against duplicate external side effects.
 
@@ -50,25 +50,25 @@
 
 **Interfaces:**
 - Produces: `HarnessRunStage`, `HarnessRunStatus`, `HarnessRunState`, `HARNESS_STAGE_ORDER`, `createInitialRunState(preflight, now)`, `nextHarnessStage(stage)`, `transitionRunState(state, command)`.
-- Consumes: existing `HarnessPreflightRecord`.- [ ] **Step 1: Write failing state-machine tests**
+- Consumes: existing `HarnessPreflightRecord`.- [x] **Step 1: Write failing state-machine tests**
 
 Cover: successful preflight starts at `CONTEXT/READY`; blocked preflight starts `PREFLIGHT/BLOCKED_USER`; `start` moves READY to RUNNING; `complete-stage` advances one stage; `pause/resume` preserves stage; illegal transitions throw; `DONE` is terminal.
 
-- [ ] **Step 2: Run focused test and confirm RED**
+- [x] **Step 2: Run focused test and confirm RED**
 
 Run: `node --import tsx --test tests/harness-state-machine.test.ts`
 Expected: FAIL because the state-machine module does not exist.
 
-- [ ] **Step 3: Implement minimal runtime contracts and state machine**
+- [x] **Step 3: Implement minimal runtime contracts and state machine**
 
 Use the exact stage order from the product spec: `PREFLIGHT`, `CONTEXT`, `ANALYZE`, `PLAN`, `IMPLEMENT`, `TEST`, `SELF_REVIEW`, `COMMIT`, `PR`, `CI`, `MERGE`, `DEPLOY`, `PRODUCTION_VERIFY`, `DONE`. Runtime statuses are `READY`, `RUNNING`, `WAITING_EXTERNAL`, `WAITING_AGENT`, `RECOVERING`, `BLOCKED_USER`, `FAILED_RETRYABLE`, `FAILED_FINAL`, `PAUSED`, `CANCELLED`, `DONE`.
 
-- [ ] **Step 4: Run focused test and build**
+- [x] **Step 4: Run focused test and build**
 
 Run: `node --import tsx --test tests/harness-state-machine.test.ts && npm run build`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `git commit -m "feat: add durable run state machine"`
 
@@ -81,24 +81,24 @@ Expected: PASS.
 
 **Interfaces:**
 - Produces: `HarnessEvidenceRecord`, `requiredEvidenceForStage(stage)`, `assertStageCompletionEvidence(stage, evidence)`, `assertRunCompletionEvidence(evidence)`.
-- Consumes: `HarnessRunStage`.- [ ] **Step 1: Write failing completion-gate tests**
+- Consumes: `HarnessRunStage`.- [x] **Step 1: Write failing completion-gate tests**
 
 Require `test` evidence for TEST, `review` for SELF_REVIEW, `commit` for COMMIT, `pull-request` for PR, `ci` for CI, `deployment` for DEPLOY, and `production-verification` for PRODUCTION_VERIFY. Prove DONE rejects missing configured delivery evidence.
 
-- [ ] **Step 2: Run focused test and confirm RED**
+- [x] **Step 2: Run focused test and confirm RED**
 
 Run: `node --import tsx --test tests/harness-completion-gates.test.ts`
 Expected: FAIL because completion gates do not exist.
 
-- [ ] **Step 3: Implement structured evidence checks**
+- [x] **Step 3: Implement structured evidence checks**
 
 Evidence records contain `id`, `kind`, `stage`, `recordedAt`, and `summary`, with optional provider/reference metadata. Gate functions inspect evidence kinds only; they do not trust free-form worker completion claims.
 
-- [ ] **Step 4: Run focused test and build**
+- [x] **Step 4: Run focused test and build**
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `git commit -m "feat: enforce run completion evidence"`
 
@@ -115,28 +115,28 @@ Expected: PASS.
 
 **Interfaces:**
 - Produces: `appendHarnessRunEvent`, `loadHarnessRunEvents`, `saveHarnessCheckpoint`, `loadLatestHarnessCheckpoint`; `loadHarnessRun` always returns an envelope with runtime state.
-- Consumes: state-machine initial-state helper.- [ ] **Step 1: Write failing event/migration tests**
+- Consumes: state-machine initial-state helper.- [x] **Step 1: Write failing event/migration tests**
 
 Prove JSONL events reload in append order, latest checkpoint reloads exactly, new Runs persist state immediately, and a legacy envelope without `state` is normalized from preflight when loaded.
 
-- [ ] **Step 2: Run focused tests and confirm RED**
+- [x] **Step 2: Run focused tests and confirm RED**
 
 Run: `node --import tsx --test tests/harness-event-store.test.ts tests/harness-run-store.test.ts tests/harness-run-service.test.ts`
 Expected: FAIL on missing runtime/event behavior.
 
-- [ ] **Step 3: Implement append-only event/checkpoint persistence**
+- [x] **Step 3: Implement append-only event/checkpoint persistence**
 
 Store events at `<root>/<runId>/events.jsonl` and checkpoints under `<root>/<runId>/checkpoints/`. Never rewrite historical events. Keep `run.json` as the latest durable state snapshot using the existing atomic rename pattern.
 
-- [ ] **Step 4: Implement legacy normalization**
+- [x] **Step 4: Implement legacy normalization**
 
 When `run.json` lacks `state`, derive it with `createInitialRunState(preflight, updatedAt)` in memory. The next save writes the normalized shape. Do not mutate unrelated legacy fields.
 
-- [ ] **Step 5: Run focused tests and build**
+- [x] **Step 5: Run focused tests and build**
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 `git commit -m "feat: persist run events and checkpoints"`
 
@@ -148,24 +148,24 @@ Expected: PASS.
 
 **Interfaces:**
 - Produces: `reserveHarnessSideEffect(root, input)`, `completeHarnessSideEffect(root, input)`, `loadHarnessSideEffect(root, runId, key)`.
-- Side-effect keys use `<kind>:<stable-target>` and kinds initially support `commit`, `pull-request`, `merge`, and `deployment`.- [ ] **Step 1: Write failing ledger tests**
+- Side-effect keys use `<kind>:<stable-target>` and kinds initially support `commit`, `pull-request`, `merge`, and `deployment`.- [x] **Step 1: Write failing ledger tests**
 
 Prove the first reservation returns `reserved`, the same key cannot be reserved twice while in progress, a completed receipt is returned on retry instead of requesting another side effect, and keys cannot escape the Run directory.
 
-- [ ] **Step 2: Run focused test and confirm RED**
+- [x] **Step 2: Run focused test and confirm RED**
 
 Run: `node --import tsx --test tests/harness-side-effect-ledger.test.ts`
 Expected: FAIL because the ledger module does not exist.
 
-- [ ] **Step 3: Implement atomic receipt persistence**
+- [x] **Step 3: Implement atomic receipt persistence**
 
 Store each receipt as JSON under `<root>/<runId>/effects/` using a SHA-256 filename derived from the idempotency key. Persist `status: reserved | completed`, timestamps, kind, key, and optional external reference. Never persist provider credentials.
 
-- [ ] **Step 4: Run focused test and build**
+- [x] **Step 4: Run focused test and build**
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `git commit -m "feat: prevent duplicate run side effects"`
 
@@ -179,24 +179,24 @@ Expected: PASS.
 - Produces: `recoverHarnessRun(input)` and `HarnessRealityInspector`.
 - `HarnessRealityInspector` returns current branch/commit, existing PR/CI/deployment references, and worker availability without mutating them.
 
-- [ ] **Step 1: Write failing recovery tests**
+- [x] **Step 1: Write failing recovery tests**
 
 Cover: interrupted PR stage reuses an existing PR receipt/reference; deployment stage skips deployment when the current commit is already deployed; unavailable Desktop Agent yields `WAITING_AGENT`; recoverable session loss moves through `RECOVERING` back to the same unfinished stage.
 
-- [ ] **Step 2: Run focused test and confirm RED**
+- [x] **Step 2: Run focused test and confirm RED**
 
 Run: `node --import tsx --test tests/harness-recovery.test.ts`
 Expected: FAIL because recovery orchestration does not exist.
 
-- [ ] **Step 3: Implement reconciliation-first recovery**
+- [x] **Step 3: Implement reconciliation-first recovery**
 
 Recovery loads the Run, enters `RECOVERING`, invokes the read-only inspector, reconciles completed external reality into receipts/evidence, persists a checkpoint/event, and returns the first unfinished safe stage. It never blindly repeats an external side effect.
 
-- [ ] **Step 4: Run focused test and build**
+- [x] **Step 4: Run focused test and build**
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `git commit -m "feat: recover interrupted development runs"`### Task 6: Bounded automatic Run Supervisor
 
@@ -208,37 +208,48 @@ Expected: PASS.
 - Produces: `superviseHarnessRun(input)` and `HarnessStageExecutor`.
 - `HarnessStageExecutor` receives the durable Run envelope and returns one of: `completed` with evidence, `waiting-external`, `waiting-agent`, `blocked-user`, `retryable-failure`, or `final-failure`.
 
-- [ ] **Step 1: Write failing supervisor tests**
+- [x] **Step 1: Write failing supervisor tests**
 
 Prove a successful fake executor advances multiple stages without a user `continue`; waiting/blocking results stop immediately with persisted state; retryable failures are bounded by `maxSteps`; DONE requires completion gates; every completed stage appends an event/checkpoint before the next executor call.
 
-- [ ] **Step 2: Run focused test and confirm RED**
+- [x] **Step 2: Run focused test and confirm RED**
 
 Run: `node --import tsx --test tests/harness-run-supervisor.test.ts`
 Expected: FAIL because the supervisor module does not exist.
 
-- [ ] **Step 3: Implement bounded autonomous continuation**
+- [x] **Step 3: Implement bounded autonomous continuation**
 
 The supervisor loads durable state, asserts preflight readiness, starts/resumes the Run, executes one stage at a time, validates returned evidence, persists state/event/checkpoint, and immediately continues while status remains runnable. Default `maxSteps` is finite; exhaustion returns `FAILED_RETRYABLE` with an explicit reason rather than looping forever.
 
-- [ ] **Step 4: Run focused test and build**
+- [x] **Step 4: Run focused test and build**
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `git commit -m "feat: supervise runs through delivery stages"`
 
 ## Phase verification
 
-- [ ] Re-read `docs/HARNESS_ENGINEERING.md`.
-- [ ] `node --import tsx --test tests/harness-*.test.ts`
-- [ ] `npm test`
-- [ ] `npm run build`
-- [ ] `git diff --check`
-- [ ] Confirm no Discord command, provider API, or deployment path was mutated directly in this phase.
-- [ ] Record execution notes and test counts in this plan.
+- [x] Re-read `docs/HARNESS_ENGINEERING.md`.
+- [x] `node --import tsx --test tests/harness-*.test.ts`
+- [x] `npm test`
+- [x] `npm run build`
+- [x] `git diff --check`
+- [x] Confirm no Discord command, provider API, or deployment path was mutated directly in this phase.
+- [x] Record execution notes and test counts in this plan.
 
 ## Phase completion gate
 
 The phase is complete only when a preflighted Run can be loaded after restart, automatically advance through multiple fake stages without repeated user prompts, stop durably on wait/block/failure conditions, reconcile interrupted external effects before retry, and reject DONE when required evidence is absent.
+## Execution notes
+
+- Implemented in isolated worktree branch `feat/iseol-durable-run-core`.
+- Every implementation task re-read `docs/HARNESS_ENGINEERING.md` before mutation.
+- Added deterministic Run stages/statuses, evidence-backed completion gates, append-only events/checkpoints, legacy Run normalization, idempotent external side-effect receipts, reconciliation-first recovery, and a bounded automatic Run Supervisor.
+- Recovery reuses existing PR/deployment reality instead of blindly repeating provider mutations and moves unavailable Desktop Agent work into `WAITING_AGENT`.
+- Supervisor advances multiple stages without repeated user `continue` input, stops durably on waiting/blocking/final-failure states, and bounds retry loops through `maxSteps`.
+- Harness-focused verification: 39/39 tests passed.
+- Full project verification: 81/81 tests passed.
+- TypeScript build passed and `git diff --check` reported no whitespace errors.
+- Phase changes are restricted to harness core/tests, the implementation plan, and package test registration; existing Discord/GitHub/Figma/Calendar execution paths were not directly modified.
