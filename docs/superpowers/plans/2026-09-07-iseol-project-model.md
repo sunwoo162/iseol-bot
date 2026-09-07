@@ -1,6 +1,6 @@
 # Iseol Project Model Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Promote one deployed Idea Lab prototype into a durable Project Workspace that preserves its Genesis history and provides stable Project/Tree context for all future Iseol work.
 
@@ -43,12 +43,12 @@
 **Interfaces:**
 - Produces: `PrototypeCandidate`, `PrototypeRepositorySnapshot`, `PrototypeDeploymentSnapshot`, `ProjectWorkspace`, `ProjectGenesis`, `GenesisRunSnapshot`, `ProjectTreeNode`, `ProjectHistoryEvent`, `ProjectWorkContext`, `assertProjectModelId(id)`.
 
-- [ ] Write failing tests proving IDs reject path traversal/whitespace and valid contract fixtures retain exact repository branch/commit/deployment identity.
-- [ ] Run the focused test and confirm RED because the module does not exist.
-- [ ] Implement version `1` contracts with prototype status `candidate | promoted | archived`, tree kinds `root | area | feature | task`, and node status `planned | in-progress | blocked | done`.
-- [ ] Require promotion-capable repository snapshots to contain `url`, `branch`, and `commitSha`; deployment snapshots contain at least `url`.
-- [ ] Run focused test plus `npm run build` and confirm PASS.
-- [ ] Commit as `feat: define iseol project model contracts`.
+- [x] Write failing tests proving IDs reject path traversal/whitespace and valid contract fixtures retain exact repository branch/commit/deployment identity.
+- [x] Run the focused test and confirm RED because the module does not exist.
+- [x] Implement version `1` contracts with prototype status `candidate | promoted | archived`, tree kinds `root | area | feature | task`, and node status `planned | in-progress | blocked | done`.
+- [x] Require promotion-capable repository snapshots to contain `url`, `branch`, and `commitSha`; deployment snapshots contain at least `url`.
+- [x] Run focused test plus `npm run build` and confirm PASS.
+- [x] Commit as `feat: define iseol project model contracts`.
 ### Task 2: Prototype, Workspace, and History stores
 
 **Files:**
@@ -60,12 +60,12 @@
 **Interfaces:**
 - Produces: `savePrototypeCandidate`, `loadPrototypeCandidate`, `updatePrototypeCandidate`, `saveProjectWorkspace`, `loadProjectWorkspace`, `appendProjectHistoryEvent`, `loadProjectHistory`.
 
-- [ ] Write failing tests for atomic prototype/workspace round trips, missing IDs returning `null`, append-order history reload, and safe ID boundaries.
-- [ ] Run the focused test and confirm RED.
-- [ ] Store prototypes under `<root>/prototypes/<id>.json`, workspaces under `<root>/projects/<id>/project.json`, and history under `<root>/projects/<id>/history.jsonl`.
-- [ ] Use temp-file + rename for JSON snapshots and append-only writes for history; never persist secrets or environment variables.
-- [ ] Run focused tests plus build and confirm PASS.
-- [ ] Commit as `feat: persist project model state`.
+- [x] Write failing tests for atomic prototype/workspace round trips, missing IDs returning `null`, append-order history reload, and safe ID boundaries.
+- [x] Run the focused test and confirm RED.
+- [x] Store prototypes under `<root>/prototypes/<id>.json`, workspaces under `<root>/projects/<id>/project.json`, and history under `<root>/projects/<id>/history.jsonl`.
+- [x] Use temp-file + rename for JSON snapshots and append-only writes for history; never persist secrets or environment variables.
+- [x] Run focused tests plus build and confirm PASS.
+- [x] Commit as `feat: persist project model state`.
 
 ### Task 3: Idempotent prototype promotion and Genesis import
 
@@ -77,14 +77,14 @@
 - Consumes: prototype/workspace/history stores, `loadHarnessRun`, `loadHarnessRunEvents`.
 - Produces: `promotePrototype(input): Promise<ProjectWorkspace>`.
 
-- [ ] Write failing tests proving promotion freezes the candidate repository/deployment snapshots, imports every listed Harness Run and its events/evidence, marks the candidate promoted, and returns the same workspace when retried.
-- [ ] Add a failure case proving a missing Genesis Run aborts promotion before marking the candidate promoted.
-- [ ] Run focused tests and confirm RED.
-- [ ] Implement deterministic workspace ID `project-<prototypeId>` and root tree node `root`; snapshot Harness Run objective/stage/status/policy digest/evidence/events into `genesis.runs`.
-- [ ] Persist the workspace before marking the prototype promoted; retry reconciles an already-created workspace instead of creating a duplicate.
-- [ ] Append `project-promoted` and `genesis-run-imported` history events with stable project/prototype/run references.
-- [ ] Run focused tests plus build and confirm PASS.
-- [ ] Commit as `feat: promote prototypes into project workspaces`.
+- [x] Write failing tests proving promotion freezes the candidate repository/deployment snapshots, imports every listed Harness Run and its events/evidence, marks the candidate promoted, and returns the same workspace when retried.
+- [x] Add a failure case proving a missing Genesis Run aborts promotion before marking the candidate promoted.
+- [x] Run focused tests and confirm RED.
+- [x] Implement deterministic workspace ID `project-<prototypeId>` and root tree node `root`; snapshot Harness Run objective/stage/status/policy digest/evidence/events into `genesis.runs`.
+- [x] Persist the workspace before marking the prototype promoted; retry reconciles an already-created workspace instead of creating a duplicate.
+- [x] Append `project-promoted` and `genesis-run-imported` history events with stable project/prototype/run references.
+- [x] Run focused tests plus build and confirm PASS.
+- [x] Commit as `feat: promote prototypes into project workspaces`.
 ### Task 4: Project Tree operations
 
 **Files:**
@@ -94,13 +94,13 @@
 **Interfaces:**
 - Produces: `addProjectTreeNode(workspace, input)`, `updateProjectTreeNodeStatus(workspace, nodeId, status, at)`, `attachRunToProjectTreeNode(workspace, nodeId, runId, at)`, `findProjectTreeNode(workspace, nodeId)`.
 
-- [ ] Write failing tests for adding area/feature/task nodes, rejecting missing parents/duplicate IDs, updating status, and attaching a Run once without duplicates.
-- [ ] Prove the root node cannot be deleted/reparented in this first model and that tree operations do not mutate the input workspace object.
-- [ ] Run focused tests and confirm RED.
-- [ ] Implement a flat parent-linked node list so Web and Discord can render different tree UIs from the same structure.
-- [ ] Keep destructive reparent/delete operations out of scope until an explicit approval workflow exists.
-- [ ] Run focused tests plus build and confirm PASS.
-- [ ] Commit as `feat: structure project work with tree nodes`.
+- [x] Write failing tests for adding area/feature/task nodes, rejecting missing parents/duplicate IDs, updating status, and attaching a Run once without duplicates.
+- [x] Prove the root node cannot be deleted/reparented in this first model and that tree operations do not mutate the input workspace object.
+- [x] Run focused tests and confirm RED.
+- [x] Implement a flat parent-linked node list so Web and Discord can render different tree UIs from the same structure.
+- [x] Keep destructive reparent/delete operations out of scope until an explicit approval workflow exists.
+- [x] Run focused tests plus build and confirm PASS.
+- [x] Commit as `feat: structure project work with tree nodes`.
 
 ### Task 5: Shared Project Work context
 
@@ -111,22 +111,32 @@
 **Interfaces:**
 - Produces: `resolveProjectWorkContext(input)` returning `{ projectId, nodeId?, runId? }` only when referenced workspace/node/run relationships are valid.
 
-- [ ] Write failing tests for project-only context, valid node context, valid node+attached-run context, missing node rejection, and run/node mismatch rejection.
-- [ ] Run focused tests and confirm RED.
-- [ ] Implement validation using `loadProjectWorkspace`, `findProjectTreeNode`, and the node's attached `runIds`; do not read legacy `projects.json` directly.
-- [ ] Run focused tests plus build and confirm PASS.
-- [ ] Commit as `feat: resolve shared project work context`.
+- [x] Write failing tests for project-only context, valid node context, valid node+attached-run context, missing node rejection, and run/node mismatch rejection.
+- [x] Run focused tests and confirm RED.
+- [x] Implement validation using `loadProjectWorkspace`, `findProjectTreeNode`, and the node's attached `runIds`; do not read legacy `projects.json` directly.
+- [x] Run focused tests plus build and confirm PASS.
+- [x] Commit as `feat: resolve shared project work context`.
 
 ## Phase verification
 
-- [ ] Re-read `docs/HARNESS_ENGINEERING.md`.
-- [ ] Run all `tests/project-model-*.test.ts` tests.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Run `git diff --check`.
-- [ ] Confirm `src/services/projects.ts`, Discord commands, providers, and `data/projects.json` were not modified.
-- [ ] Record verification counts and execution notes in this plan.
+- [x] Re-read `docs/HARNESS_ENGINEERING.md`.
+- [x] Run all `tests/project-model-*.test.ts` tests.
+- [x] Run `npm test`.
+- [x] Run `npm run build`.
+- [x] Run `git diff --check`.
+- [x] Confirm `src/services/projects.ts`, Discord commands, providers, and `data/projects.json` were not modified.
+- [x] Record verification counts and execution notes in this plan.
 
 ## Phase completion gate
 
 The phase is complete only when a deployed prototype can be promoted idempotently into one canonical Project Workspace, its prior Harness Runs are permanently represented as Genesis, future work can attach to stable Project Tree nodes, and Web/Discord can later share the same validated project/node/run coordinates without changing the existing Discord project store.
+
+## Execution notes
+
+- Implemented on isolated branch eat/iseol-project-model.
+- Project Model focused suite passes 17/17 tests.
+- Full project suite passes 98/98 tests.
+- TypeScript build and git diff --check pass.
+- Existing src/services/projects.ts, Discord command/provider paths, and data/projects.json were not modified.
+- Prototype promotion freezes the selected repository branch/commit and deployment snapshot, imports prior Harness Runs as Genesis, and is idempotent on retry.
+- Project Tree operations are immutable and destructive delete/reparent operations remain intentionally unavailable in this phase.
