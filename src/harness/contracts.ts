@@ -31,10 +31,37 @@ export type HarnessPreflightRecord = {
   reason?: string;
 };
 
+export type HarnessRunStage =
+  | "PREFLIGHT" | "CONTEXT" | "ANALYZE" | "PLAN" | "IMPLEMENT"
+  | "TEST" | "SELF_REVIEW" | "COMMIT" | "PR" | "CI" | "MERGE"
+  | "DEPLOY" | "PRODUCTION_VERIFY" | "DONE";
+
+export type HarnessRunStatus =
+  | "READY" | "RUNNING" | "WAITING_EXTERNAL" | "WAITING_AGENT"
+  | "RECOVERING" | "BLOCKED_USER" | "FAILED_RETRYABLE" | "FAILED_FINAL"
+  | "PAUSED" | "CANCELLED" | "DONE";
+
+export type HarnessSkippedStage = {
+  stage: HarnessRunStage;
+  reason: string;
+  at: string;
+};
+
+export type HarnessRunState = {
+  version: 1;
+  stage: HarnessRunStage;
+  status: HarnessRunStatus;
+  completedStages: HarnessRunStage[];
+  skippedStages: HarnessSkippedStage[];
+  updatedAt: string;
+  reason?: string;
+};
+
 export type HarnessRunEnvelope = {
   version: 1;
   request: DevelopmentRunRequest;
   preflight: HarnessPreflightRecord;
+  state?: HarnessRunState;
   updatedAt: string;
 };
 
