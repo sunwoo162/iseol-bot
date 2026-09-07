@@ -12,3 +12,4 @@ data/music-playlists.json
 node_modules/
 dist/
 *.log
+.worktrees/
