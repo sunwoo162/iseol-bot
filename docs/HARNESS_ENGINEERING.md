@@ -31,6 +31,17 @@ Missing mandatory global guidance fails closed. A Run must never silently contin
 
 Routine reversible work should continue automatically. Iseol pauses only for material product decisions, missing authorization, destructive or irreversible operations, paid actions, or other explicitly protected boundaries.
 
+## Git, commit, and pull request policy
+
+- Commit messages created by Iseol must be written in English and should use a concise Conventional Commit-style prefix such as `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, or `chore:`.
+- Before push or PR creation, read the target repository's Git/PR rules and `.github/pull_request_template.md` when present.
+- If a repository PR template exists, preserve its headings, order, and language instead of replacing it with an Iseol-specific format.
+- If no repository PR contract exists, use a concise title in the form `<type> : <short English description>` and a body covering changes, reason, implementation, impact, verification, and target branch.
+- Normal development targets the repository's configured base branch; when no stricter project rule exists, prefer `develop`. Direct `main` integration is reserved for explicit release/hotfix policy.
+- Push or PR creation must not happen while required harness verification is failing. Merge and deployment require their configured completion gates to pass.
+- Existing CI/CD remains authoritative. Do not add or duplicate a Harness-only workflow merely to satisfy Iseol when the repository already has an appropriate pipeline.
+- A Run may authorize routine push, PR, merge, and deployment up front; Iseol must not ask for repetitive approval at every stage unless project-local policy or a protected human-intervention boundary requires it.
+
 ## Project-specific policy
 
 A target project's harness document contains repository-specific invariants such as build commands, supported surfaces, protected directories, deployment boundaries, and quality gates. Those rules remain owned by that project.
