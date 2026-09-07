@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { PrototypeCandidate } from "./contracts.js";
 import { assertProjectModelId } from "./contracts.js";
@@ -47,4 +47,26 @@ export async function updatePrototypeCandidate(
   const updated: PrototypeCandidate = { ...current, ...updates, id, version: 1 };
   await savePrototypeCandidate(root, updated);
   return updated;
+}
+
+export async function listPrototypeCandidates(
+  root: string,
+): Promise<PrototypeCandidate[]> {
+  const directory = resolve(root, "prototypes");
+  let names: string[];
+  try {
+    names = await readdir(directory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+
+  const candidates: PrototypeCandidate[] = [];
+  for (const name of names.filter((entry) => entry.endsWith(".json")).sort()) {
+    const content = await readFile(resolve(directory, name), "utf8");
+    candidates.push(JSON.parse(content) as PrototypeCandidate);
+  }
+  return candidates.sort((a, b) =>
+    a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+  );
 }

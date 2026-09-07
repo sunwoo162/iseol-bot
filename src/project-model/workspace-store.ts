@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ProjectWorkspace } from "./contracts.js";
 import { assertProjectModelId } from "./contracts.js";
@@ -32,4 +33,29 @@ export async function loadProjectWorkspace(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function listProjectWorkspaces(
+  root: string,
+): Promise<ProjectWorkspace[]> {
+  const directory = resolve(root, "projects");
+  let entries: Dirent<string>[];
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+
+  const workspaces: ProjectWorkspace[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const id = entry.name;
+    try { assertProjectModelId(id); } catch { continue; }
+    const workspace = await loadProjectWorkspace(root, id);
+    if (workspace) workspaces.push(workspace);
+  }
+  return workspaces.sort((a, b) =>
+    a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+  );
 }
