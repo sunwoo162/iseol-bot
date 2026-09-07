@@ -72,6 +72,32 @@ export type HarnessEvidenceRecord = {
   reference?: string;
 };
 
+export type HarnessRunEventType =
+  | "run-created" | "stage-started" | "stage-completed" | "stage-skipped"
+  | "status-changed" | "evidence-recorded" | "side-effect" | "recovered";
+
+export type HarnessRunEvent = {
+  version: 1;
+  id: string;
+  runId: string;
+  type: HarnessRunEventType;
+  at: string;
+  stage: HarnessRunStage;
+  status: HarnessRunStatus;
+  summary: string;
+  evidenceIds?: string[];
+};
+
+export type HarnessCheckpoint = {
+  version: 1;
+  id: string;
+  runId: string;
+  recordedAt: string;
+  state: HarnessRunState;
+  evidence: HarnessEvidenceRecord[];
+  summary?: string;
+};
+
 export type HarnessRunEnvelope = {
   version: 1;
   request: DevelopmentRunRequest;
@@ -79,6 +105,11 @@ export type HarnessRunEnvelope = {
   state?: HarnessRunState;
   evidence?: HarnessEvidenceRecord[];
   updatedAt: string;
+};
+
+export type HarnessRuntimeRunEnvelope = HarnessRunEnvelope & {
+  state: HarnessRunState;
+  evidence: HarnessEvidenceRecord[];
 };
 
 export function assertHarnessContractVersion(version: number): asserts version is 1 {

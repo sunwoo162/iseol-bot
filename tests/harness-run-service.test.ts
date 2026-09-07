@@ -41,6 +41,9 @@ test("createDevelopmentRun preflights and persists a ready run", async () => {
 
   assert.equal(run.preflight.status, "ready");
   assert.doesNotThrow(() => assertPreflightReady(run.preflight));
+  assert.equal(run.state?.stage, "CONTEXT");
+  assert.equal(run.state?.status, "READY");
+  assert.deepEqual(run.evidence, []);
   assert.deepEqual(await loadHarnessRun(storeRoot, "run-001"), run);
 });
 
