@@ -11,14 +11,21 @@ import {
   SlashCommandBuilder,
   TextChannel,
 } from "discord.js";
+import { resolve } from "node:path";
 import { config } from "../config.js";
+import { createDiscordProjectBinding, deleteDiscordProjectBinding } from "../discord-project/binding-store.js";
+import { resolveDiscordProjectContext } from "../discord-project/context-resolver.js";
+import { bindDiscordProjectWorkspace, listDiscordProjectBindingChoices } from "../discord-project/project-command-actions.js";
+import { buildDiscordProjectStatus } from "../discord-project/status-card.js";
+import { loadHarnessRun } from "../harness/run-store.js";
+import { listProjectWorkspaces, loadProjectWorkspace } from "../project-model/workspace-store.js";
 import { calendarPanel } from "../services/calendar/calendar-discord.js";
 import { CalendarStateStore } from "../services/calendar/calendar-state.js";
 import { GoogleCalendarService } from "../services/calendar/google-calendar.js";
 import { FigmaWebhookService, parseFigmaFile } from "../services/figma.js";
 import { buildAutomationWebhookUrl, GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
 import { NotionService, parseNotionPage } from "../services/notion.js";
-import { deleteProject, listProjects, saveProject, updateProject } from "../services/projects.js";
+import { deleteProject, findProject, listProjects, saveProject, updateProject } from "../services/projects.js";
 
 export const projectCommand = new SlashCommandBuilder()
   .setName("project")
@@ -43,6 +50,19 @@ export const projectCommand = new SlashCommandBuilder()
         .setDescription("삭제할 프로젝트 방 선택")
         .setRequired(true)
         .setAutocomplete(true)),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName("bind")
+      .setDescription("Bind a Discord project to an Iseol Project Workspace.")
+      .addStringOption((option) => option.setName("project").setDescription("Discord project").setRequired(true).setAutocomplete(true))
+      .addStringOption((option) => option.setName("workspace").setDescription("Target Project Workspace").setRequired(true).setAutocomplete(true)),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName("status")
+      .setDescription("Show Discord integration and Project Workspace status.")
+      .addStringOption((option) => option.setName("project").setDescription("Discord project to inspect").setRequired(true).setAutocomplete(true)),
   );
 
 type GitHubHook = { repository: RepositoryRef; id: number };
@@ -57,29 +77,42 @@ function linkButton(label: string, url: string) {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setLabel(label).setStyle(ButtonStyle.Link).setURL(url));
 }
 
+function iseolModelRoot(): string {
+  return config.iseolModelRoot || resolve(process.cwd(), "data", "iseol");
+}
+
+function iseolRunRoot(): string {
+  return config.iseolRunRoot || resolve(process.cwd(), "data", "runs");
+}
+
 export async function handleProjectAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
   if (!interaction.inGuild() || !interaction.guild || interaction.commandName !== "project") return;
-
   let subcommand: string;
-  try {
-    subcommand = interaction.options.getSubcommand();
-  } catch {
+  try { subcommand = interaction.options.getSubcommand(); } catch { return; }
+
+  const focusedOption = interaction.options.getFocused(true);
+  const focused = focusedOption.value.toString().trim().toLowerCase();
+  if (subcommand === "delete") {
+    const projects = (await listProjects()).filter((project) => project.guildId === interaction.guild!.id);
+    const choices = projects
+      .filter((project) => !focused || project.name.toLowerCase().includes(focused))
+      .slice(0, 25)
+      .map((project) => ({ name: project.name.slice(0, 100), value: project.categoryId }));
+    await interaction.respond(choices);
     return;
   }
 
-  if (subcommand !== "delete") return;
-
-  const focused = interaction.options.getFocused().toString().trim().toLowerCase();
-  const projects = (await listProjects()).filter((project) => project.guildId === interaction.guild!.id);
-  const choices = projects
-    .filter((project) => !focused || project.name.toLowerCase().includes(focused))
-    .slice(0, 25)
-    .map((project) => ({
-      name: project.name.slice(0, 100),
-      value: project.categoryId,
-    }));
-
-  await interaction.respond(choices);
+  if (subcommand !== "bind" && subcommand !== "status") return;
+  const choices = await listDiscordProjectBindingChoices(interaction.guild.id, {
+    listStoredProjects: listProjects,
+    listWorkspaces: () => listProjectWorkspaces(iseolModelRoot()),
+  });
+  const source = subcommand === "bind" && focusedOption.name === "workspace"
+    ? choices.workspaces
+    : choices.projects;
+  await interaction.respond(source
+    .filter((choice) => !focused || choice.name.toLowerCase().includes(focused) || choice.value.toLowerCase().includes(focused))
+    .slice(0, 25));
 }
 
 async function resolveProjectCategory(interaction: ChatInputCommandInteraction, target: string) {
@@ -196,6 +229,13 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
     const deleted = await deleteProject(project.id);
     if (!deleted) throw new Error("프로젝트 저장 정보를 삭제하지 못했습니다.");
 
+    try {
+      await deleteDiscordProjectBinding(iseolModelRoot(), project.guildId, project.id);
+    } catch (error) {
+      console.warn(`Discord Project Workspace binding cleanup failed (${project.name}):`, error);
+      warnings.push("Iseol Project Workspace binding");
+    }
+
     const warningText = warnings.length > 0
       ? `\n⚠️ 외부 연동 정리 실패: ${warnings.join(", ")} (서버 로그 확인)`
       : "";
@@ -215,6 +255,14 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
   const subcommand = interaction.options.getSubcommand();
   if (subcommand === "delete") {
     await handleDeleteProject(interaction);
+    return;
+  }
+  if (subcommand === "bind") {
+    await handleBindProject(interaction);
+    return;
+  }
+  if (subcommand === "status") {
+    await handleProjectStatus(interaction);
     return;
   }
   if (subcommand !== "create") return;
@@ -397,5 +445,88 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
   } catch (error) {
     const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
     await interaction.editReply(`❌ 프로젝트 생성에 실패했습니다.\n\`${message}\``);
+  }
+}
+
+async function handleBindProject(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!interaction.guildId) return;
+  await interaction.deferReply({ ephemeral: true });
+  const storedProjectId = interaction.options.getString("project", true).trim();
+  const projectId = interaction.options.getString("workspace", true).trim();
+
+  try {
+    const binding = await bindDiscordProjectWorkspace(
+      {
+        guildId: interaction.guildId,
+        storedProjectId,
+        projectId,
+        at: new Date().toISOString(),
+      },
+      {
+        findStoredProject: findProject,
+        loadWorkspace: (id) => loadProjectWorkspace(iseolModelRoot(), id),
+        createBinding: (input) => createDiscordProjectBinding(iseolModelRoot(), input),
+      },
+    );
+    await interaction.editReply(`✅ **${binding.projectId}** Project Workspace에 연결했습니다.`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await interaction.editReply(`❌ Project Workspace 연결 실패\n\`${message}\``);
+  }
+}
+
+function integrationMark(value: boolean): string {
+  return value ? "✅" : "❌";
+}
+
+async function handleProjectStatus(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (!interaction.guildId) return;
+  await interaction.deferReply({ ephemeral: true });
+  const storedProjectId = interaction.options.getString("project", true).trim();
+  const modelRoot = iseolModelRoot();
+
+  try {
+    const context = await resolveDiscordProjectContext({
+      modelRoot,
+      bindingRoot: modelRoot,
+      guildId: interaction.guildId,
+      storedProjectId,
+    });
+    if (!context) {
+      await interaction.editReply("❌ 프로젝트 정보를 찾을 수 없습니다.");
+      return;
+    }
+    const view = await buildDiscordProjectStatus(context, {
+      loadWorkspace: (id) => loadProjectWorkspace(modelRoot, id),
+      loadRun: (id) => loadHarnessRun(iseolRunRoot(), id),
+    });
+    const workspaceText = view.workspace.state === "unbound"
+      ? "Project Workspace 연결 필요"
+      : view.workspace.state === "stale"
+        ? `⚠️ stale binding\n${view.workspace.reason ?? "연결 정보를 확인해주세요."}`
+        : [
+            `**${view.workspace.projectName}** · ${view.workspace.projectStatus}`,
+            view.workspace.node ? `Node: **${view.workspace.node.title}** · ${view.workspace.node.status}` : null,
+            view.workspace.runs.length
+              ? view.workspace.runs.map((run) => `Run \`${run.runId}\` · ${run.stage}/${run.status}`).join("\n")
+              : "Attached Run 없음",
+            view.workspace.deploymentUrl ? `[Genesis Deploy](${view.workspace.deploymentUrl})` : null,
+          ].filter(Boolean).join("\n");
+
+    const embed = new EmbedBuilder()
+      .setTitle(`📦 ${view.legacy.name}`)
+      .addFields(
+        { name: "Frontend", value: view.legacy.frontend },
+        { name: "Backend", value: view.legacy.backend },
+        {
+          name: "Integrations",
+          value: `Calendar ${integrationMark(view.integrations.calendar)} · Figma ${integrationMark(view.integrations.figma)} · Notion ${integrationMark(view.integrations.notion)}`,
+        },
+        { name: "Project Workspace", value: workspaceText.slice(0, 1024) },
+      );
+    await interaction.editReply({ embeds: [embed] });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await interaction.editReply(`❌ 프로젝트 상태 조회 실패\n\`${message}\``);
   }
 }
