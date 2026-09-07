@@ -112,6 +112,20 @@ export type HarnessRuntimeRunEnvelope = HarnessRunEnvelope & {
   evidence: HarnessEvidenceRecord[];
 };
 
+export type HarnessSideEffectKind = "commit" | "pull-request" | "merge" | "deployment";
+
+export type HarnessSideEffectReceipt = {
+  version: 1;
+  runId: string;
+  key: string;
+  kind: HarnessSideEffectKind;
+  status: "reserved" | "completed";
+  reservedAt: string;
+  completedAt?: string;
+  externalReference?: string;
+  summary?: string;
+};
+
 export function assertHarnessContractVersion(version: number): asserts version is 1 {
   if (version !== ISEOL_HARNESS_CONTRACT_VERSION) {
     throw new Error(`Unsupported Iseol Harness contract version: ${version}`);
