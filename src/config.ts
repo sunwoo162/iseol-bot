@@ -1,4 +1,4 @@
-﻿import "dotenv/config";
+import "dotenv/config";
 
 function required(name: string): string {
   const value = process.env[name]?.trim();
@@ -29,4 +29,9 @@ export const config = {
   googleRedirectUri: optional("GOOGLE_REDIRECT_URI"),
   geminiApiKey: optional("GEMINI_API_KEY"),
   githubWebhookSecret: optional("GITHUB_WEBHOOK_SECRET"),
+  iseolWebHost: optional("ISEOL_WEB_HOST"),
+  iseolWebPort: optional("ISEOL_WEB_PORT"),
+  iseolWebToken: optional("ISEOL_WEB_TOKEN"),
+  iseolModelRoot: optional("ISEOL_MODEL_ROOT"),
+  iseolRunRoot: optional("ISEOL_RUN_ROOT"),
 };

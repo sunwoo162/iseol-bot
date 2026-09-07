@@ -35,6 +35,7 @@ import {
   stopStudySession,
 } from "./services/voice-time.js";
 import { startWebhookServer } from "./services/webhook-server.js";
+import { resolveWebControlPlaneConfig, startWebControlPlaneServer } from "./web-control-plane/server.js";
 
 const client = new Client({
   intents: [
@@ -70,6 +71,20 @@ const interactionRouterDependencies: InteractionRouterDependencies = {
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`${readyClient.user.tag} 로그인 완료 · 연결 서버 ${readyClient.guilds.cache.size}개`);
   startWebhookServer(client);
+  try {
+    const webConfig = resolveWebControlPlaneConfig({
+      ISEOL_WEB_HOST: config.iseolWebHost,
+      ISEOL_WEB_PORT: config.iseolWebPort,
+      ISEOL_WEB_TOKEN: config.iseolWebToken,
+      ISEOL_MODEL_ROOT: config.iseolModelRoot,
+      ISEOL_RUN_ROOT: config.iseolRunRoot,
+    });
+    void startWebControlPlaneServer(webConfig)
+      .then(() => console.log(`Iseol Web Control Plane listening: http://${webConfig.host}:${webConfig.port}`))
+      .catch((error) => console.error("Iseol Web Control Plane 시작 실패", error));
+  } catch (error) {
+    console.error("Iseol Web Control Plane 설정 거부", error);
+  }
   startContestFeedPolling(client);
   startContestAudienceFeedPolling(client);
   startJobFeedPolling(client);

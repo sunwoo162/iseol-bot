@@ -12,14 +12,24 @@ process.env.GOOGLE_REFRESH_TOKEN = "";
 process.env.GOOGLE_REDIRECT_URI = "";
 process.env.GEMINI_API_KEY = "";
 process.env.GITHUB_WEBHOOK_SECRET = "";
+process.env.ISEOL_WEB_HOST = "";
+process.env.ISEOL_WEB_PORT = "";
+process.env.ISEOL_WEB_TOKEN = "";
+process.env.ISEOL_MODEL_ROOT = "";
+process.env.ISEOL_RUN_ROOT = "";
 
 const { config } = await import("../src/config.js");
 
-test("optional calendar and review secrets default to empty strings", () => {
+test("optional calendar review and web settings default to empty strings", () => {
   assert.equal(config.googleClientId, "");
   assert.equal(config.googleClientSecret, "");
   assert.equal(config.googleRefreshToken, "");
   assert.equal(config.googleRedirectUri, "");
   assert.equal(config.geminiApiKey, "");
   assert.equal(config.githubWebhookSecret, "");
+  assert.equal(config.iseolWebHost, "");
+  assert.equal(config.iseolWebPort, "");
+  assert.equal(config.iseolWebToken, "");
+  assert.equal(config.iseolModelRoot, "");
+  assert.equal(config.iseolRunRoot, "");
 });
