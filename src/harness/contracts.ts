@@ -57,11 +57,27 @@ export type HarnessRunState = {
   reason?: string;
 };
 
+export type HarnessEvidenceKind =
+  | "command" | "build" | "file-change" | "test" | "review"
+  | "commit" | "pull-request" | "ci" | "deployment" | "production-verification";
+
+export type HarnessEvidenceRecord = {
+  version: 1;
+  id: string;
+  kind: HarnessEvidenceKind;
+  stage: HarnessRunStage;
+  recordedAt: string;
+  summary: string;
+  provider?: string;
+  reference?: string;
+};
+
 export type HarnessRunEnvelope = {
   version: 1;
   request: DevelopmentRunRequest;
   preflight: HarnessPreflightRecord;
   state?: HarnessRunState;
+  evidence?: HarnessEvidenceRecord[];
   updatedAt: string;
 };
 
