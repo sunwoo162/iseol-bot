@@ -15,8 +15,9 @@ import { resolve } from "node:path";
 import { config } from "../config.js";
 import { createDiscordProjectBinding, deleteDiscordProjectBinding } from "../discord-project/binding-store.js";
 import { resolveDiscordProjectContext } from "../discord-project/context-resolver.js";
-import { bindDiscordProjectWorkspace, listDiscordProjectBindingChoices } from "../discord-project/project-command-actions.js";
+import { bindDiscordProjectWorkspace, discordProjectBindingHistoryFact, listDiscordProjectBindingChoices } from "../discord-project/project-command-actions.js";
 import { buildDiscordProjectStatus } from "../discord-project/status-card.js";
+import { recordStoredProjectAction } from "../discord-project/history-recorder.js";
 import { loadHarnessRun } from "../harness/run-store.js";
 import { listProjectWorkspaces, loadProjectWorkspace } from "../project-model/workspace-store.js";
 import { calendarPanel } from "../services/calendar/calendar-discord.js";
@@ -455,19 +456,33 @@ async function handleBindProject(interaction: ChatInputCommandInteraction): Prom
   const projectId = interaction.options.getString("workspace", true).trim();
 
   try {
+    const at = new Date().toISOString();
+    const modelRoot = iseolModelRoot();
     const binding = await bindDiscordProjectWorkspace(
       {
         guildId: interaction.guildId,
         storedProjectId,
         projectId,
-        at: new Date().toISOString(),
+        at,
       },
       {
         findStoredProject: findProject,
-        loadWorkspace: (id) => loadProjectWorkspace(iseolModelRoot(), id),
-        createBinding: (input) => createDiscordProjectBinding(iseolModelRoot(), input),
+        loadWorkspace: (id) => loadProjectWorkspace(modelRoot, id),
+        createBinding: (input) => createDiscordProjectBinding(modelRoot, input),
       },
     );
+    try {
+      await recordStoredProjectAction({
+        modelRoot,
+        bindingRoot: modelRoot,
+        guildId: interaction.guildId,
+        storedProjectId,
+        fact: discordProjectBindingHistoryFact(binding),
+        at,
+      });
+    } catch (historyError) {
+      console.warn(`Discord project binding history record failed (${storedProjectId})`, historyError);
+    }
     await interaction.editReply(`✅ **${binding.projectId}** Project Workspace에 연결했습니다.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

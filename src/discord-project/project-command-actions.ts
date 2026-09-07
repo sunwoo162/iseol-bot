@@ -1,6 +1,7 @@
 import type { ProjectWorkspace } from "../project-model/contracts.js";
 import type { StoredProject } from "../services/projects.js";
 import type { DiscordProjectBinding } from "./contracts.js";
+import type { StoredProjectActionFact } from "./history-recorder.js";
 
 export type ProjectChoice = { name: string; value: string };
 
@@ -55,4 +56,16 @@ export async function bindDiscordProjectWorkspace(
   const root = workspace.tree.find((node) => node.kind === "root");
   if (!root) throw new Error("Active Project Workspace root node is required");
   return deps.createBinding({ ...input, defaultNodeId: root.id });
+}
+
+export function discordProjectBindingHistoryFact(
+  binding: DiscordProjectBinding,
+): StoredProjectActionFact {
+  return {
+    eventType: "discord-project-bound",
+    source: "discord",
+    action: "project-bound",
+    reference: `discord-binding:${binding.guildId}:${binding.storedProjectId}:${binding.projectId}`,
+    summary: "Discord project bound to Project Workspace",
+  };
 }

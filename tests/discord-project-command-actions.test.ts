@@ -5,6 +5,7 @@ import type { StoredProject } from "../src/services/projects.js";
 import { projectCommand } from "../src/commands/project.js";
 import {
   bindDiscordProjectWorkspace,
+  discordProjectBindingHistoryFact,
   listDiscordProjectBindingChoices,
 } from "../src/discord-project/project-command-actions.js";
 
@@ -95,4 +96,19 @@ test("project command preserves create/delete and adds bind/status", () => {
   const json = projectCommand.toJSON();
   const names = (json.options ?? []).map((option: any) => option.name).sort();
   assert.deepEqual(names, ["bind", "create", "delete", "status"]);
+});
+
+test("binding history fact is stable and project-scoped", () => {
+  const fact = discordProjectBindingHistoryFact({
+    version: 1,
+    guildId: "guild-1",
+    storedProjectId: "legacy-1",
+    projectId: "project-1",
+    defaultNodeId: "root",
+    createdAt: "2026-09-08T00:00:00.000Z",
+    updatedAt: "2026-09-08T00:00:00.000Z",
+  });
+  assert.equal(fact.eventType, "discord-project-bound");
+  assert.equal(fact.source, "discord");
+  assert.equal(fact.reference, "discord-binding:guild-1:legacy-1:project-1");
 });
