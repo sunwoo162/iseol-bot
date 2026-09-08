@@ -44,6 +44,8 @@ export type RecordDiscordProjectHistoryInput = {
   reference: string;
   summary: string;
   at: string;
+  occurredAt?: string;
+  lifecycle?: ProjectHistoryEvent["lifecycle"];
 };
 
 export type RecordDiscordProjectHistoryDependencies = {
@@ -76,6 +78,8 @@ export async function recordDiscordProjectHistory(
     projectId: input.context.projectId,
     type: input.eventType,
     at: input.at,
+    ...(input.occurredAt === undefined ? {} : { occurredAt: input.occurredAt }),
+    ...(input.lifecycle === undefined ? {} : { lifecycle: input.lifecycle }),
     summary: input.summary,
     nodeId: input.context.nodeId,
     ...(input.context.runId === undefined ? {} : { runId: input.context.runId }),
@@ -92,6 +96,8 @@ export type StoredProjectActionFact = {
   action: string;
   reference: string;
   summary: string;
+  occurredAt?: string;
+  lifecycle?: ProjectHistoryEvent["lifecycle"];
 };
 
 export type RecordStoredProjectActionInput = {

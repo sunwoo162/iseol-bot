@@ -49,7 +49,9 @@ export async function appendProjectHistoryEventOnce(
       && existing.runId === event.runId
       && existing.source === event.source
       && existing.action === event.action
-      && existing.reference === event.reference;
+      && existing.reference === event.reference
+      && existing.occurredAt === event.occurredAt
+      && existing.lifecycle === event.lifecycle;
     if (!sameIdentity) {
       throw new Error(`Project history event identity mismatch: ${event.id}`);
     }

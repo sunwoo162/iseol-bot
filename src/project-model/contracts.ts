@@ -92,12 +92,21 @@ export type ProjectHistoryEventType =
 
 export type ProjectHistorySource = "discord" | "github" | "figma" | "notion" | "calendar";
 
+export type ProjectHistoryLifecycle =
+  | "commit-recorded"
+  | "pull-request-opened"
+  | "pull-request-merged"
+  | "deployment-created"
+  | "production-verified";
+
 export type ProjectHistoryEvent = {
   version: 1;
   id: string;
   projectId: string;
   type: ProjectHistoryEventType;
   at: string;
+  occurredAt?: string;
+  lifecycle?: ProjectHistoryLifecycle;
   summary: string;
   prototypeId?: string;
   runId?: string;
