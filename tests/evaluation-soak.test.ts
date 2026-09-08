@@ -119,3 +119,21 @@ test("soak time budget fails deterministically before starting work beyond the b
   assert.match(report.summary, /time budget/i);
   assert.deepEqual(await loadEvaluationReport(root, report.evaluationId), report);
 });
+test("soak time budget failure still reports evaluation-owned resource leaks", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-eval-soak-budget-resource-"));
+  await writeFile(join(root, "leaked.tmp"), "temporary", "utf8");
+  let calls = 0;
+  const clockMs = () => (calls++ === 0 ? 0 : 11);
+  const report = await runSoakEvaluation({
+    root,
+    iterations: 2,
+    seeds: ["budget-resource-seed"],
+    maxDurationMs: 10,
+    now: () => "2026-09-08T13:20:00.000Z",
+    clockMs,
+  });
+
+  const resource = report.invariants.find((item) => item.id === "soak-resource-end-state");
+  assert.equal(resource?.status, "failed");
+  assert.match(resource?.actual ?? "", /temp=1/);
+});

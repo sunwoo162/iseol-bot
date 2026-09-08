@@ -111,13 +111,18 @@ async function saveBudgetFailure(input: {
   scenarios: EvaluationReport["scenarios"];
 }): Promise<EvaluationReport> {
   const invariant = budgetInvariant(input.elapsedMs, input.budgetMs);
+  const resources = await observeEvaluationResources({
+    evaluationRoot: input.root,
+    now: input.completedAt,
+  });
+  const resource = resourceInvariant(resources);
   const report = buildEvaluationReport({
     evaluationId: input.evaluationId,
     suiteId: "soak-evaluation",
     startedAt: input.startedAt,
     completedAt: input.completedAt,
     metrics: aggregateMetrics(input.metrics),
-    invariants: [...input.invariants, invariant],
+    invariants: [...input.invariants, invariant, resource],
     scenarios: input.scenarios,
     liveBlockers: [],
     summary: `Soak evaluation failed: time budget ${input.budgetMs}ms exhausted`,
