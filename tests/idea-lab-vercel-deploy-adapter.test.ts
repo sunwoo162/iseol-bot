@@ -1,0 +1,115 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import type { PrototypeProduction } from "../src/idea-lab/contracts.js";
+import {
+  createVercelPrototypeDeployAdapter,
+  resolveVercelPrototypeDeployAdapter,
+} from "../src/idea-lab/vercel-deploy-adapter.js";
+import { deployPrototypeProduction } from "../src/idea-lab/production-service.js";
+
+const NOW = "2026-09-08T12:00:00.000Z";
+const COMMIT = "a".repeat(40);
+const KEY = `prototype:camp-1:prod-1:${COMMIT}`;
+
+function production(): PrototypeProduction {
+  return {
+    version: 1,
+    id: "prod-1",
+    campaignId: "camp-1",
+    proposalId: "proposal-1",
+    runId: "run-1",
+    repositoryUrl: "https://github.com/acme/prototype.git",
+    sandboxRoot: "C:/sandbox",
+    worktreeRoot: "C:/sandbox/worktrees/prod-1",
+    branch: "idea/camp-1/prod-1",
+    baseRef: "main",
+    commitSha: COMMIT,
+    status: "deploying",
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+}
+
+test("lost Vercel create response reconciles by stable deployment metadata", async () => {
+  const deployments: any[] = [];
+  let createCalls = 0;
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (init?.method === "POST" && url.pathname === "/v13/deployments") {
+      createCalls += 1;
+      const body = JSON.parse(String(init.body));
+      assert.equal(body.project, "prj_test");
+      assert.equal(body.target, "preview");
+      assert.equal(body.meta.iseolDeploymentKey, KEY);
+      assert.equal(body.gitSource.org, "acme");
+      assert.equal(body.gitSource.repo, "prototype");
+      assert.equal(body.gitSource.sha, COMMIT);
+      deployments.push({
+        uid: "dpl_1", url: "prod-1.vercel.app", state: "BUILDING", createdAt: Date.parse(NOW),
+        meta: body.meta,
+      });
+      throw new TypeError("simulated response loss");
+    }
+    if (url.pathname === "/v6/deployments") {
+      assert.equal(url.searchParams.get("projectId"), "prj_test");
+      assert.equal(url.searchParams.get("meta-iseolDeploymentKey"), null);
+      return Response.json({ deployments });
+    }
+    throw new Error(`unexpected request ${url}`);
+  };
+  const adapter = createVercelPrototypeDeployAdapter({
+    token: "vercel-token",
+    projectId: "prj_test",
+    teamId: "team_test",
+    fetch: fetchImpl,
+    now: () => NOW,  });
+  await assert.rejects(() => deployPrototypeProduction(production(), adapter), /response loss/i);
+  const recovered = await deployPrototypeProduction(production(), adapter);
+  assert.equal(createCalls, 1);
+  assert.equal(recovered.provider, "vercel");
+  assert.equal(recovered.deploymentId, "dpl_1");
+  assert.equal(recovered.url, "https://prod-1.vercel.app");
+  assert.equal(recovered.commitSha, COMMIT);
+});
+
+test("Vercel verification requires READY provider state and exact Iseol identity", async () => {
+  let state = "READY";
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = new URL(String(input));
+    assert.equal(url.pathname, "/v13/deployments/dpl_1");
+    return Response.json({
+      id: "dpl_1", url: "prod-1.vercel.app", readyState: state, createdAt: Date.parse(NOW),
+      meta: { iseolDeploymentKey: KEY, iseolCommitSha: COMMIT, iseolProductionId: "prod-1" },
+    });
+  };
+  const adapter = createVercelPrototypeDeployAdapter({
+    token: "vercel-token",
+    projectId: "prj_test",
+    fetch: fetchImpl,
+    now: () => NOW,  });
+  const deployment = {
+    provider: "vercel", deploymentId: "dpl_1", url: "https://prod-1.vercel.app",
+    commitSha: COMMIT, deployedAt: NOW,
+  };
+  const verified = await adapter.verify({
+    key: KEY, campaignId: "camp-1", productionId: "prod-1",
+    repositoryUrl: "https://github.com/acme/prototype.git", branch: "idea/camp-1/prod-1",
+    commitSha: COMMIT, deployment,
+  });
+  assert.equal(verified.verifiedAt, NOW);
+  state = "ERROR";
+  await assert.rejects(() => adapter.verify({
+    key: KEY, campaignId: "camp-1", productionId: "prod-1",
+    repositoryUrl: "https://github.com/acme/prototype.git", branch: "idea/camp-1/prod-1",
+    commitSha: COMMIT, deployment,
+  }), /not ready.*ERROR/i);
+});
+
+test("Vercel adapter resolver is fail-closed when credentials are incomplete", () => {
+  assert.equal(resolveVercelPrototypeDeployAdapter({}), null);
+  assert.equal(resolveVercelPrototypeDeployAdapter({ VERCEL_TOKEN: "token" }), null);
+  const resolved = resolveVercelPrototypeDeployAdapter({
+    VERCEL_TOKEN: "token",
+    ISEOL_VERCEL_PROJECT_ID: "prj_test",  });
+  assert.ok(resolved);
+});

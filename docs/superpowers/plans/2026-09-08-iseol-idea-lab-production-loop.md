@@ -302,5 +302,5 @@ Record exact counts only after fresh committed-branch verification. Required evi
 - Restart/recovery proved browser generation replacement and a lost preview deployment response reuse the same production/deployment identity with exactly one deploy side effect.
 - Desktop disconnect recovery proved a lost result after patch + Git commit is reconciled after reconnect without a duplicate mutation or commit.
 - Live ChatGPT smoke is intentionally blocked: `npm run chatgpt:web:smoke` exits **2** because no authenticated production `ChatGptBrowserDriver` is bundled/configured.
-- Live preview deployment smoke is intentionally blocked: only the deterministic fake `PrototypeDeployAdapter` exists in this phase; no real provider adapter/authorization is configured.
+- Live preview deployment smoke remains intentionally **blocked-external**: a production Vercel `PrototypeDeployAdapter` now exists, but no Vercel token/project authorization is configured and no live Campaign orchestration path selects it yet; no fake deployment is counted as live success.
 - Security boundary scan: `src/idea-lab` contains no direct child-process/shell execution; credential-word scan found only the bounded redaction regex in `campaign-supervisor.ts`.

@@ -276,7 +276,7 @@ Evaluation events remain in evaluation storage. They are never forwarded into `a
 - Concurrent recovery characterization was repeated **20/20** times successfully on the committed branch.
 - Provider delayed-ingestion proof remains covered by `evaluation-timestamps`: provider occurrence time survives storage/Web round-trip, same occurrence dedupes despite different ingestion `at`, and conflicting lifecycle identity fails closed.
 - ChatGPT Web live smoke is **blocked-external**: `npm run chatgpt:web:smoke` exited **2** because no authenticated `ChatGptBrowserDriver` is installed in Iseol Core.
-- Real preview deployment live smoke is **blocked-external**: only the test-support fake `PrototypeDeployAdapter` exists; no production preview deploy adapter is configured.
+- Real preview deployment live smoke remains **blocked-external**: a production Vercel `PrototypeDeployAdapter` exists, but Vercel token/project authorization and the live orchestration binding are not configured, so no real provider smoke has been claimed.
 - Raw HEAD scan produced two credential-shaped and seven traversal-shaped matches; inspection showed the credential matches were deliberate redaction-test fixtures and traversal matches were TypeScript `../` imports. Re-running the scan over production-added lines with imports/test fixtures excluded produced **0 credential literals, 0 raw shell/command fields, 0 runtime traversal literals, 0 absolute Windows paths**.
 
 ### Production hardening defects proven by RED tests
