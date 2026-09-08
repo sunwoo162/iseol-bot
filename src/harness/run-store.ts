@@ -20,6 +20,17 @@ function runFile(root: string, runId: string): string {
   return resolve(root, runId, "run.json");
 }
 
+const runWriteQueues = new Map<string, Promise<unknown>>();
+
+async function serializeRunWrite<T>(root: string, runId: string, action: () => Promise<T>): Promise<T> {
+  const key = runFile(root, runId);
+  const previous = runWriteQueues.get(key) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(action);
+  runWriteQueues.set(key, current);
+  try { return await current; }
+  finally { if (runWriteQueues.get(key) === current) runWriteQueues.delete(key); }
+}
+
 function normalizeHarnessRunEnvelope(
   envelope: HarnessRunEnvelope,
 ): HarnessRuntimeRunEnvelope {
@@ -28,17 +39,20 @@ function normalizeHarnessRunEnvelope(
     state: envelope.state ?? createInitialRunState(envelope.preflight, envelope.updatedAt),
     evidence: envelope.evidence ?? [],
   };
-}export async function saveHarnessRun(
-  root: string,
-  envelope: HarnessRunEnvelope,
-): Promise<void> {
-  const normalized = normalizeHarnessRunEnvelope(envelope);
+}
+
+async function writeNormalizedRun(root: string, normalized: HarnessRuntimeRunEnvelope): Promise<void> {
   const destination = runFile(root, normalized.request.runId);
   const directory = resolve(root, normalized.request.runId);
   await mkdir(directory, { recursive: true });
   const temporary = `${destination}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   await writeFile(temporary, JSON.stringify(normalized, null, 2), "utf8");
   await rename(temporary, destination);
+}
+
+export async function saveHarnessRun(root: string, envelope: HarnessRunEnvelope): Promise<void> {
+  const normalized = normalizeHarnessRunEnvelope(envelope);
+  await serializeRunWrite(root, normalized.request.runId, () => writeNormalizedRun(root, normalized));
 }
 
 export async function loadHarnessRun(
@@ -53,4 +67,22 @@ export async function loadHarnessRun(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function saveHarnessRunIfUnchanged(
+  root: string,
+  expected: HarnessRunEnvelope,
+  next: HarnessRunEnvelope,
+): Promise<boolean> {
+  const expectedRun = normalizeHarnessRunEnvelope(expected);
+  const nextRun = normalizeHarnessRunEnvelope(next);
+  if (expectedRun.request.runId !== nextRun.request.runId) {
+    throw new Error("Harness Run compare-and-save runId mismatch");
+  }
+  return serializeRunWrite(root, expectedRun.request.runId, async () => {
+    const current = await loadHarnessRun(root, expectedRun.request.runId);
+    if (!current || JSON.stringify(current) !== JSON.stringify(expectedRun)) return false;
+    await writeNormalizedRun(root, nextRun);
+    return true;
+  });
 }

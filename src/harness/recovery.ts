@@ -7,7 +7,7 @@ import type {
 } from "./contracts.js";
 import { assertStageCompletionEvidence } from "./completion-gates.js";
 import { appendHarnessRunEvent, saveHarnessCheckpoint } from "./event-store.js";
-import { loadHarnessRun, saveHarnessRun } from "./run-store.js";
+import { loadHarnessRun, saveHarnessRunIfUnchanged } from "./run-store.js";
 import {
   completeHarnessSideEffect,
   reserveHarnessSideEffect,
@@ -90,11 +90,17 @@ async function reconcileSideEffect(input: {
 }
 async function persistRecovery(
   storeRoot: string,
+  expected: HarnessRuntimeRunEnvelope,
   run: HarnessRuntimeRunEnvelope,
   at: string,
   summary: string,
-): Promise<void> {
-  await saveHarnessRun(storeRoot, run);
+): Promise<HarnessRuntimeRunEnvelope> {
+  const saved = await saveHarnessRunIfUnchanged(storeRoot, expected, run);
+  if (!saved) {
+    const current = await loadHarnessRun(storeRoot, run.request.runId);
+    if (!current) throw new Error(`Harness Run disappeared during recovery: ${run.request.runId}`);
+    return current;
+  }
   await appendHarnessRunEvent(storeRoot, {
     version: 1,
     id: randomUUID(),
@@ -115,6 +121,7 @@ async function persistRecovery(
     evidence: run.evidence,
     summary,
   });
+  return run;
 }
 
 export async function recoverHarnessRun(
@@ -133,7 +140,13 @@ export async function recoverHarnessRun(
     state: recoveringState,
     updatedAt: input.at,
   };
-  await saveHarnessRun(input.storeRoot, run);
+  const recoveryStarted = await saveHarnessRunIfUnchanged(input.storeRoot, existing, run);
+  if (!recoveryStarted) {
+    const current = await loadHarnessRun(input.storeRoot, input.runId);
+    if (!current) throw new Error(`Harness Run disappeared during recovery: ${input.runId}`);
+    return current;
+  }
+  const recoveryBase = run;
   await appendHarnessRunEvent(input.storeRoot, {
     version: 1,
     id: randomUUID(),
@@ -156,8 +169,7 @@ export async function recoverHarnessRun(
       }),
       updatedAt: input.at,
     };
-    await persistRecovery(input.storeRoot, run, input.at, "Recovery is waiting for Desktop Agent");
-    return run;
+    return persistRecovery(input.storeRoot, recoveryBase, run, input.at, "Recovery is waiting for Desktop Agent");
   }
 
   let evidence = [...run.evidence];
@@ -241,13 +253,13 @@ export async function recoverHarnessRun(
     evidence,
     updatedAt: input.at,
   };
-  await persistRecovery(
+  return persistRecovery(
     input.storeRoot,
+    recoveryBase,
     run,
     input.at,
     reconciledCurrentStage
       ? "Recovery reconciled completed external work and advanced the Run"
       : "Recovery resumed the unfinished stage",
   );
-  return run;
 }
