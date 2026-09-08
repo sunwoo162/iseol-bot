@@ -1,5 +1,9 @@
 import type { ChatGptWebBrowserAdapter, ChatGptWebSessionProbe } from "./browser-adapter.js";
-import { ChatGptWebAuthenticationRequiredError, ChatGptWebSessionLostError } from "./browser-adapter.js";
+import {
+  ChatGptWebAuthenticationRequiredError,
+  ChatGptWebSessionLostError,
+  ChatGptWebStructuredResultError,
+} from "./browser-adapter.js";
 import type { CompiledWebPrompt } from "./prompt-compiler.js";
 
 export interface ChatGptBrowserDriver {
@@ -11,7 +15,9 @@ export interface ChatGptBrowserDriver {
 }
 
 function safeRef(value: unknown): string {
-  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(value)) throw new ChatGptWebSessionLostError("Browser returned an unsafe conversation reference");
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(value)) {
+    throw new ChatGptWebSessionLostError("Browser returned an unsafe conversation reference");
+  }
   return value;
 }
 function requireRef(value?: string): string {
@@ -19,7 +25,11 @@ function requireRef(value?: string): string {
   return safeRef(value);
 }
 function classify(error: unknown): never {
-  if (error instanceof ChatGptWebAuthenticationRequiredError || error instanceof ChatGptWebSessionLostError) throw error;
+  if (
+    error instanceof ChatGptWebAuthenticationRequiredError
+    || error instanceof ChatGptWebSessionLostError
+    || error instanceof ChatGptWebStructuredResultError
+  ) throw error;
   const message = error instanceof Error ? error.message : String(error);
   if (/auth|login|sign.?in/i.test(message)) throw new ChatGptWebAuthenticationRequiredError(message);
   throw new ChatGptWebSessionLostError(message);

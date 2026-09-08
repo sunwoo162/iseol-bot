@@ -10,6 +10,9 @@ export class ChatGptWebSessionLostError extends Error {
 export class ChatGptWebAuthenticationRequiredError extends Error {
   constructor(message: string) { super(message); this.name = "ChatGptWebAuthenticationRequiredError"; }
 }
+export class ChatGptWebStructuredResultError extends Error {
+  constructor(message: string) { super(message); this.name = "ChatGptWebStructuredResultError"; }
+}
 
 export interface ChatGptWebBrowserAdapter {
   openOrResumeSession(session: WebWorkerSession, prompt: CompiledWebPrompt): Promise<ChatGptWebOpenResult>;
