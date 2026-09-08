@@ -113,3 +113,53 @@ test("Vercel adapter resolver is fail-closed when credentials are incomplete", (
     ISEOL_VERCEL_PROJECT_ID: "prj_test",  });
   assert.ok(resolved);
 });
+
+test("Vercel reconciliation follows pagination before creating another deployment", async () => {
+  let listCalls = 0;
+  let createCalls = 0;
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/v6/deployments") {
+      listCalls += 1;
+      assert.equal(url.searchParams.get("projectId"), "prj_test");
+      assert.equal(url.searchParams.get("sha"), COMMIT);
+      if (listCalls === 1) {
+        assert.equal(url.searchParams.get("until"), null);
+        return Response.json({
+          deployments: Array.from({ length: 100 }, (_, index) => ({
+            uid: `other-${index}`, url: `other-${index}.vercel.app`, createdAt: 2_000 - index,
+            meta: { iseolDeploymentKey: `other-${index}` },
+          })),
+          pagination: { count: 100, next: 1_000, prev: 2_000 },
+        });
+      }
+      assert.equal(url.searchParams.get("until"), "1000");
+      return Response.json({
+        deployments: [{
+          uid: "dpl_old", url: "old.vercel.app", createdAt: 900,
+          meta: { iseolDeploymentKey: KEY, iseolProductionId: "prod-1", iseolCommitSha: COMMIT },
+        }],
+        pagination: { count: 1, next: 800, prev: 1_000 },
+      });
+    }
+    if (init?.method === "POST") {
+      createCalls += 1;
+      return Response.json({
+        uid: "dpl_duplicate", url: "duplicate.vercel.app", createdAt: Date.parse(NOW),
+        meta: { iseolDeploymentKey: KEY, iseolProductionId: "prod-1", iseolCommitSha: COMMIT },
+      });
+    }
+    throw new Error(`unexpected request ${url}`);
+  };
+  const adapter = createVercelPrototypeDeployAdapter({
+    token: "vercel-token",
+    projectId: "prj_test",
+    fetch: fetchImpl,
+    now: () => NOW,
+  });
+  const recovered = await deployPrototypeProduction(production(), adapter);
+  assert.equal(listCalls, 2);
+  assert.equal(createCalls, 0);
+  assert.equal(recovered.deploymentId, "dpl_old");
+  assert.equal(recovered.commitSha, COMMIT);
+});

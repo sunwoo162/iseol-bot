@@ -107,15 +107,32 @@ export function createVercelPrototypeDeployAdapter(
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
   async function reconcile(input: PrototypeDeployRequest): Promise<PrototypeDeploymentReceipt | null> {
-    const url = apiUrl("/v6/deployments", options.teamId, {
-      projectId,
-      limit: "100",
-    });
-    const response = await fetchImpl(url, { headers });
-    const body = await jsonOrThrow<{ deployments?: VercelDeployment[] }>(response, "deployment reconciliation");
-    const matching = (body.deployments ?? []).filter((item) => matchesIdentity(item, input));
-    if (matching.length > 1) throw new Error("Vercel deployment identity is ambiguous");
-    return matching[0] ? receipt(matching[0], input, now) : null;
+    let until: number | undefined;
+    const seenCursors = new Set<number>();
+    for (let page = 0; page < 1_000; page += 1) {
+      const url = apiUrl("/v6/deployments", options.teamId, {
+        projectId,
+        limit: "100",
+        sha: input.commitSha,
+        ...(until === undefined ? {} : { until: String(until) }),
+      });
+      const response = await fetchImpl(url, { headers });
+      const body = await jsonOrThrow<{
+        deployments?: VercelDeployment[];
+        pagination?: { next?: number | null };
+      }>(response, "deployment reconciliation");
+      const deployments = body.deployments ?? [];
+      const matching = deployments.filter((item) => matchesIdentity(item, input));
+      if (matching.length > 1) throw new Error("Vercel deployment identity is ambiguous");
+      if (matching[0]) return receipt(matching[0], input, now);
+      if (deployments.length === 0) return null;
+      const next = body.pagination?.next;
+      if (typeof next !== "number" || !Number.isFinite(next) || next <= 0) return null;
+      if (seenCursors.has(next)) throw new Error("Vercel deployment pagination cycle detected");
+      seenCursors.add(next);
+      until = next;
+    }
+    throw new Error("Vercel deployment reconciliation exceeded pagination limit");
   }
   async function deploy(input: PrototypeDeployRequest): Promise<PrototypeDeploymentReceipt> {
     const repository = githubOwnerRepo(input.repositoryUrl);
