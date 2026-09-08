@@ -93,3 +93,24 @@ export async function replaceLostWebWorkerSession(
     return structuredClone(replacement);
   });
 }
+
+export async function updateWebWorkerSession(
+  root: string,
+  session: WebWorkerSession,
+): Promise<WebWorkerSession> {
+  assertWebWorkerSession(session);
+  const key = activeFile(root, session.runId, session.stage);
+  return serialized(key, async () => {
+    const current = await loadWebWorkerSession(root, session.sessionId);
+    if (!current) throw new Error(`Web worker session not found: ${session.sessionId}`);
+    if (current.runId !== session.runId || current.stage !== session.stage || current.generation !== session.generation) {
+      throw new Error(`Web worker session identity mismatch: ${session.sessionId}`);
+    }
+    const active = await getActiveWebWorkerSession(root, session.runId, session.stage);
+    if (!active || active.sessionId !== session.sessionId || active.generation !== session.generation) {
+      throw new Error(`Web worker session is not active: ${session.sessionId}`);
+    }
+    await atomicJson(sessionFile(root, session.sessionId), session);
+    return structuredClone(session);
+  });
+}

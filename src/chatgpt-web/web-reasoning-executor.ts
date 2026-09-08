@@ -1,0 +1,210 @@
+import { createHash } from "node:crypto";
+import type { HarnessEvidenceRecord, HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
+import type { HarnessStageExecutor, HarnessStageExecutionResult } from "../harness/run-supervisor.js";
+import type { DesktopIntent, ReasoningTurn, WebWorkerSession } from "./contracts.js";
+import { assertReasoningTurnResult } from "./contracts.js";
+import type { ChatGptWebBrowserAdapter } from "./browser-adapter.js";
+import { ChatGptWebSessionLostError } from "./browser-adapter.js";
+import { compileWebPrompt, type CompiledWebPrompt, type WebPromptEvidence } from "./prompt-compiler.js";
+import { createWebWorkerSession, getActiveWebWorkerSession, updateWebWorkerSession } from "./session-store.js";
+import { appendReasoningTurn, listReasoningTurns } from "./turn-store.js";
+import { recordDesktopIntent } from "./intent-store.js";
+import { validateDesktopIntent } from "./intent-compiler.js";
+import { assertActiveWebWorkerResult, recoverWebWorkerSession } from "./recovery.js";
+
+export type WebDesktopIntentRunnerInput = {
+  run: HarnessRuntimeRunEnvelope;
+  session: WebWorkerSession;
+  intent: DesktopIntent;
+};
+export type WebDesktopIntentRunner = (input: WebDesktopIntentRunnerInput) => Promise<HarnessStageExecutionResult>;
+
+export type CreateWebReasoningExecutorInput = {
+  workerRoot: string;
+  adapter: ChatGptWebBrowserAdapter;
+  runDesktopIntent: WebDesktopIntentRunner;
+  now?: () => string;
+  resultTimeoutMs?: number;
+  maxTurnsPerStage?: number;
+  maxRejectedIntents?: number;
+  commitAuthorized?: boolean;
+};
+function digest(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+function sessionId(runId: string, stage: string, generation: number): string {
+  return `web-${digest(`${runId}\n${stage}\n${generation}`).slice(0, 24)}`;
+}
+function turnId(session: WebWorkerSession, prompt: CompiledWebPrompt, responseSha256: string): string {
+  return `turn-${digest(`${session.sessionId}\n${prompt.sha256}\n${responseSha256}`).slice(0, 24)}`;
+}
+function reasoningEvidence(turn: ReasoningTurn): HarnessEvidenceRecord {
+  return {
+    version: 1,
+    id: `web-${turn.turnId}`,
+    kind: turn.stage === "SELF_REVIEW" ? "review" : "command",
+    stage: turn.stage,
+    recordedAt: turn.recordedAt,
+    summary: turn.summary,
+    provider: "chatgpt-web",
+    reference: `reasoning-turn:${turn.turnId}`,
+  };
+}
+function feedbackEvidence(records: HarnessEvidenceRecord[]): WebPromptEvidence[] {
+  return records.map((item) => ({ kind: item.kind, summary: item.summary, ...(item.reference ? { reference: item.reference } : {}) }));
+}
+async function ensureSession(input: CreateWebReasoningExecutorInput, run: HarnessRuntimeRunEnvelope, at: string): Promise<WebWorkerSession> {
+  const existing = await getActiveWebWorkerSession(input.workerRoot, run.request.runId, run.state.stage);
+  if (existing) return existing;
+  const policy = run.preflight.policy;
+  if (run.preflight.status !== "ready" || !policy) throw new Error("Web reasoning requires ready Harness policy");
+  return createWebWorkerSession(input.workerRoot, {
+    version: 1,
+    sessionId: sessionId(run.request.runId, run.state.stage, 1),
+    runId: run.request.runId,
+    stage: run.state.stage,
+    generation: 1,
+    policySha256: policy.effectiveSha256,
+    status: "ready",
+    createdAt: at,
+  });
+}
+export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInput): HarnessStageExecutor {
+  const now = input.now ?? (() => new Date().toISOString());
+  const resultTimeoutMs = input.resultTimeoutMs ?? 120_000;
+  const maxTurns = input.maxTurnsPerStage ?? 8;
+  const maxRejected = input.maxRejectedIntents ?? 3;
+  if (!Number.isInteger(maxTurns) || maxTurns <= 0) throw new Error("maxTurnsPerStage must be a positive integer");
+  if (!Number.isInteger(maxRejected) || maxRejected <= 0) throw new Error("maxRejectedIntents must be a positive integer");
+
+  return {
+    async execute(run): Promise<HarnessStageExecutionResult> {
+      if (!["ANALYZE", "PLAN", "IMPLEMENT", "SELF_REVIEW"].includes(run.state.stage)) {
+        return { type: "waiting-external", reason: `${run.state.stage} is not owned by ChatGPT Web reasoning` };
+      }
+      let session = await ensureSession(input, run, now());
+      let priorTurns = (await listReasoningTurns(input.workerRoot, run.request.runId))
+        .filter((turn) => turn.stage === run.state.stage);
+      const accumulatedEvidence: HarnessEvidenceRecord[] = [];
+      let desktopEvidence: WebPromptEvidence[] = [];
+      let prompt = compileWebPrompt({
+        kind: priorTurns.length === 0 ? "initial" : "feedback",
+        run, session, priorTurns, desktopEvidence,
+      });
+      let openedSessionId: string | null = null;
+      let acceptedTurns = 0;
+      let rejectedCount = 0;
+      let recoveries = 0;
+
+      while (acceptedTurns < maxTurns) {
+        let rawResult: unknown;
+        try {
+          if (openedSessionId !== session.sessionId) {
+            const opened = await input.adapter.openOrResumeSession(session, prompt);
+            if (opened.conversationRef && opened.conversationRef !== session.conversationRef) {
+              session = await updateWebWorkerSession(input.workerRoot, { ...session, conversationRef: opened.conversationRef });
+            }
+            openedSessionId = session.sessionId;
+          }
+          await input.adapter.submitTurn(session, prompt);
+          rawResult = await input.adapter.awaitStructuredResult(session, resultTimeoutMs);
+        } catch (error) {
+          if (!(error instanceof ChatGptWebSessionLostError)) {
+            return { type: "retryable-failure", reason: error instanceof Error ? error.message : String(error) };
+          }
+          recoveries += 1;
+          if (recoveries > maxTurns) return { type: "retryable-failure", reason: "ChatGPT Web session recovery budget exhausted" };
+          const recovered = await recoverWebWorkerSession({
+            workerRoot: input.workerRoot, run, session, priorTurns, desktopEvidence, at: now(),
+          });
+          session = recovered.session;
+          prompt = recovered.prompt;
+          openedSessionId = null;
+          continue;
+        }
+
+        let result;
+        try {
+          assertReasoningTurnResult(rawResult);
+          result = await assertActiveWebWorkerResult(input.workerRoot, run, session, rawResult);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          if (/policy|stale|generation|active session/i.test(reason)) return { type: "retryable-failure", reason };
+          rejectedCount += 1;
+          if (rejectedCount >= maxRejected) return { type: "retryable-failure", reason: `Rejected reasoning result budget exhausted: ${reason}` };
+          desktopEvidence = [...desktopEvidence, { kind: "reasoning-rejection", summary: reason }];
+          prompt = compileWebPrompt({ kind: "feedback", run, session, priorTurns, desktopEvidence });
+          continue;
+        }
+        const turnDesktopEvidence: HarnessEvidenceRecord[] = [];
+        const rejectedFeedback: WebPromptEvidence[] = [];
+        for (const intent of result.intents) {
+          try {
+            validateDesktopIntent({
+              run,
+              session,
+              resultGeneration: result.generation,
+              commitAuthorized: input.commitAuthorized ?? false,
+            }, intent);
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            await recordDesktopIntent(input.workerRoot, { intent, status: "rejected", reason, recordedAt: now() });
+            rejectedCount += 1;
+            rejectedFeedback.push({ kind: "reasoning-rejection", summary: reason, reference: `intent:${intent.intentId}` });
+            if (rejectedCount >= maxRejected) {
+              return { type: "retryable-failure", reason: `Rejected intent budget exhausted: ${reason}` };
+            }
+            continue;
+          }
+
+          await recordDesktopIntent(input.workerRoot, { intent, status: "accepted", recordedAt: now() });
+          let desktopResult: HarnessStageExecutionResult;
+          try {
+            desktopResult = await input.runDesktopIntent({ run, session, intent });
+          } catch (error) {
+            return { type: "retryable-failure", reason: error instanceof Error ? error.message : String(error) };
+          }
+          if (desktopResult.type !== "completed") return desktopResult;
+          accumulatedEvidence.push(...desktopResult.evidence);
+          turnDesktopEvidence.push(...desktopResult.evidence);
+        }
+
+        const responseSha256 = digest(JSON.stringify(result));
+        const turn: ReasoningTurn = {
+          version: 1,
+          turnId: turnId(session, prompt, responseSha256),
+          sessionId: session.sessionId,
+          runId: run.request.runId,
+          stage: run.state.stage,
+          generation: session.generation,
+          promptSha256: prompt.sha256,
+          responseSha256,
+          summary: result.summary,
+          decisions: [...result.decisions],
+          desktopIntentIds: result.intents.map((intent) => intent.intentId),
+          outcome: result.outcome,
+          recordedAt: now(),
+        };
+        await appendReasoningTurn(input.workerRoot, turn);
+        priorTurns = [...priorTurns, turn];
+        session = await updateWebWorkerSession(input.workerRoot, { ...session, lastTurnAt: turn.recordedAt, status: "ready" });
+        acceptedTurns += 1;
+
+        if (result.outcome === "blocked-user") return { type: "blocked-user", reason: result.blockerReason! };
+        if (result.outcome === "retryable") return { type: "retryable-failure", reason: result.summary };
+        if (result.outcome === "stage-complete") {
+          return { type: "completed", evidence: [...accumulatedEvidence, reasoningEvidence(turn)] };
+        }
+
+        desktopEvidence = [
+          ...desktopEvidence,
+          ...feedbackEvidence(turnDesktopEvidence),
+          ...rejectedFeedback,
+        ];
+        prompt = compileWebPrompt({ kind: "feedback", run, session, priorTurns, desktopEvidence });
+      }
+
+      return { type: "retryable-failure", reason: `ChatGPT Web turn budget exhausted after ${maxTurns} turns` };
+    },
+  };
+}
