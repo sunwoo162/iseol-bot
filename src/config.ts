@@ -4,7 +4,7 @@ function required(name: string): string {
   const value = process.env[name]?.trim();
 
   if (!value) {
-    throw new Error(`${name} 환경변수가 필요합니다.`);
+    throw new Error(`${name} ?�경변?��? ?�요?�니??`);
   }
 
   return value;
@@ -40,4 +40,8 @@ export const config = {
   iseolDesktopAgentRoot: optional("ISEOL_DESKTOP_AGENT_ROOT"),
   iseolChatGptWebEnabled: optional("ISEOL_CHATGPT_WEB_ENABLED"),
   iseolChatGptWebRoot: optional("ISEOL_CHATGPT_WEB_ROOT"),
+  iseolChatGptBrowserEnabled: optional("ISEOL_CHATGPT_BROWSER_ENABLED"),
+  iseolChatGptBrowserProfileRoot: optional("ISEOL_CHATGPT_BROWSER_PROFILE_ROOT"),
+  iseolChatGptBrowserExecutable: optional("ISEOL_CHATGPT_BROWSER_EXECUTABLE"),
+  iseolChatGptBrowserHeadless: optional("ISEOL_CHATGPT_BROWSER_HEADLESS"),
 };

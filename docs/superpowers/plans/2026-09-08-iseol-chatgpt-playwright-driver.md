@@ -34,7 +34,7 @@
 - Produces: `PlaywrightBrowserDriverConfig` and `resolvePlaywrightBrowserDriverConfig(env, roots)`.
 - Produces: `{ enabled: false } | { enabled: true; profileRoot: string; executablePath?: string; headless: boolean }`.
 
-- [ ] **Step 1: Write failing config tests** for disabled defaults, strict booleans, required profile root, and repository/model/run/web root rejection.
+- [x] **Step 1: Write failing config tests** for disabled defaults, strict booleans, required profile root, and repository/model/run/web root rejection.
 
 ```ts
 assert.deepEqual(resolvePlaywrightBrowserDriverConfig({}, roots), { enabled: false });
@@ -42,16 +42,16 @@ assert.throws(() => resolvePlaywrightBrowserDriverConfig({ ISEOL_CHATGPT_BROWSER
 assert.throws(() => resolvePlaywrightBrowserDriverConfig({ ISEOL_CHATGPT_BROWSER_ENABLED: "true", ISEOL_CHATGPT_BROWSER_PROFILE_ROOT: roots.runRoot }, roots), /outside/i);
 ```
 
-- [ ] **Step 2: Run the new test and verify RED.**
+- [x] **Step 2: Run the new test and verify RED.**
 
 Run: `node --import tsx --test tests/chatgpt-web-playwright-config.test.ts`
 Expected: module/function missing.
 
-- [ ] **Step 3: Add exact dependency `playwright-core@1.63.0` and implement strict config resolution.** Use `resolve()`/`relative()` path checks; no credential fields are accepted.
+- [x] **Step 3: Add exact dependency `playwright-core@1.63.0` and implement strict config resolution.** Use `resolve()`/`relative()` path checks; no credential fields are accepted.
 
-- [ ] **Step 4: Register optional env values in `src/config.ts` and `.env.example`.**
+- [x] **Step 4: Register optional env values in `src/config.ts` and `.env.example`.**
 
-- [ ] **Step 5: Run focused config tests + build, then commit.**
+- [x] **Step 5: Run focused config tests + build, then commit.**
 
 Commit: `feat: configure chatgpt playwright browser`r`n`r`n
 

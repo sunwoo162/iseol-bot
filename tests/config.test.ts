@@ -19,6 +19,10 @@ process.env.ISEOL_MODEL_ROOT = "";
 process.env.ISEOL_RUN_ROOT = "";
 process.env.ISEOL_CHATGPT_WEB_ENABLED = "";
 process.env.ISEOL_CHATGPT_WEB_ROOT = "";
+process.env.ISEOL_CHATGPT_BROWSER_ENABLED = "";
+process.env.ISEOL_CHATGPT_BROWSER_PROFILE_ROOT = "";
+process.env.ISEOL_CHATGPT_BROWSER_EXECUTABLE = "";
+process.env.ISEOL_CHATGPT_BROWSER_HEADLESS = "";
 
 const { config } = await import("../src/config.js");
 
@@ -36,4 +40,8 @@ test("optional calendar review web and chatgpt bridge settings default to empty 
   assert.equal(config.iseolRunRoot, "");
   assert.equal(config.iseolChatGptWebEnabled, "");
   assert.equal(config.iseolChatGptWebRoot, "");
+  assert.equal(config.iseolChatGptBrowserEnabled, "");
+  assert.equal(config.iseolChatGptBrowserProfileRoot, "");
+  assert.equal(config.iseolChatGptBrowserExecutable, "");
+  assert.equal(config.iseolChatGptBrowserHeadless, "");
 });
