@@ -14,6 +14,12 @@ export type PrototypeDeploymentSnapshot = {
 
 export type PrototypeCandidateStatus = "candidate" | "promoted" | "archived";
 
+export type IdeaLabPrototypeOrigin = {
+  campaignId: string;
+  proposalId: string;
+  productionId: string;
+};
+
 export type PrototypeCandidate = {
   version: 1;
   id: string;
@@ -24,6 +30,7 @@ export type PrototypeCandidate = {
   runIds: string[];
   status: PrototypeCandidateStatus;
   promotedProjectId?: string;
+  ideaLabOrigin?: IdeaLabPrototypeOrigin;
   createdAt: string;
   updatedAt: string;
 };
