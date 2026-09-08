@@ -49,6 +49,7 @@ export type ProjectGenesis = {
   prototypeId: string;
   repository: PrototypeRepositorySnapshot;
   deployment: PrototypeDeploymentSnapshot;
+  ideaLabOrigin?: IdeaLabPrototypeOrigin;
   runs: GenesisRunSnapshot[];
   promotedAt: string;
 };
@@ -129,6 +130,7 @@ export function assertPromotionReadyPrototype(candidate: PrototypeCandidate): vo
     throw new Error(`Unsupported Iseol Project Model version: ${candidate.version}`);
   }
   assertProjectModelId(candidate.id);
+  if (candidate.status === "archived") throw new Error(`Archived prototype cannot be promoted: ${candidate.id}`);
   assertRequired(candidate.repository.url, "repository url");
   assertRequired(candidate.repository.branch, "repository branch");
   assertRequired(candidate.repository.commitSha, "repository commit");

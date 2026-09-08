@@ -57,6 +57,7 @@ function createWorkspace(
       prototypeId: candidate.id,
       repository: { ...candidate.repository },
       deployment: { ...candidate.deployment },
+      ...(candidate.ideaLabOrigin ? { ideaLabOrigin: { ...candidate.ideaLabOrigin } } : {}),
       runs,
       promotedAt,
     },
