@@ -261,3 +261,39 @@ export type ProjectHistoryProviderLifecycle = {
 `ProjectHistoryEvent.at` remains Iseol recording time. Add optional `providerLifecycle?: ProjectHistoryProviderLifecycle`; history idempotency compares supplied lifecycle fields so a conflicting timestamp for the same event ID fails closed rather than being silently ignored.
 
 Evaluation events remain in evaluation storage. They are never forwarded into `appendProjectHistoryEvent*()` merely because a benchmark observed a product Run.
+
+## Execution Notes
+
+### Final committed feature-branch gate — 2026-09-08
+
+- Branch: `feat/iseol-evaluation-hardening`; implementation HEAD before these notes: `d59f15a feat: add evaluation web summary`.
+- Evaluation focused suite: **43/43 passed**, 0 failed.
+- Quick gate: **31 passed / 0 failed / 0 blocked**, report `quick-20260908T095913489Z`, recovery latency p95 **60000 ms**.
+- Bounded soak: **2 iterations**, seeds `soak-final-a` and `soak-final-b`; **62 passed / 0 failed / 0 blocked**, report `soak-20260908T095915540Z`, wall time **3361 ms**, recovery latency p95 **60000 ms**.
+- Soak resource end state: `orphan=0, expiredLease=0, indeterminate=0, staleSession=0, temp=0`.
+- Full repository suite: **316/316 passed**, 0 failed; TypeScript build exited 0; `git diff --check` exited 0.
+- Quick and soak invariant actuals were all **0** for duplicate commit, duplicate PR, duplicate merge, duplicate deployment, workspace escape, secret leakage, policy bypass, and unverified completion.
+- Concurrent recovery characterization was repeated **20/20** times successfully on the committed branch.
+- Provider delayed-ingestion proof remains covered by `evaluation-timestamps`: provider occurrence time survives storage/Web round-trip, same occurrence dedupes despite different ingestion `at`, and conflicting lifecycle identity fails closed.
+- ChatGPT Web live smoke is **blocked-external**: `npm run chatgpt:web:smoke` exited **2** because no authenticated `ChatGptBrowserDriver` is installed in Iseol Core.
+- Real preview deployment live smoke is **blocked-external**: only the test-support fake `PrototypeDeployAdapter` exists; no production preview deploy adapter is configured.
+- Raw HEAD scan produced two credential-shaped and seven traversal-shaped matches; inspection showed the credential matches were deliberate redaction-test fixtures and traversal matches were TypeScript `../` imports. Re-running the scan over production-added lines with imports/test fixtures excluded produced **0 credential literals, 0 raw shell/command fields, 0 runtime traversal literals, 0 absolute Windows paths**.
+
+### Production hardening defects proven by RED tests
+
+- `ce55914 test: add deterministic recovery evaluation scenarios`
+  - Desktop operation contracts accepted unknown execution fields and destructive Git through generic `RUN_PROCESS`; RED contract/security scenarios now reject both before execution.
+  - ChatGPT Web reasoning results could carry credential-shaped durable string values; RED contract/security scenarios now fail closed before persistence.
+  - Desktop Job completion accepted mismatched Run/agent identity; RED job-store/security scenarios now reject mismatched result identity before mutation.
+- `6a6462c feat: preserve provider lifecycle timestamps`
+  - Project History could not preserve provider occurrence time separately from Iseol ingestion time, and same-ID conflicting lifecycle identity could silently dedupe; delayed-ingestion/idempotency RED tests drove additive `providerLifecycle` identity checks while retaining legacy `at` semantics.
+- `a707c3f fix: harden evaluation soak side effects`
+  - Side-effect receipt replacement did not retry transient Windows `EPERM`/`EBUSY`/`EACCES` rename failures and ignored the injected rename dependency; deterministic RED probes drove bounded transient retry and temporary-file cleanup while non-transient errors still fail immediately.
+- `4625a40 fix: prevent stale recovery run overwrite`
+  - Explicit barrier race reproduced a late older recovery overwriting canonical `run.json` from newer `CI` back to `PR` while the latest checkpoint remained `CI`; Run-level serialized compare-and-save prevents stale recovery writes without globally locking unrelated Runs.
+- `d59f15a feat: add evaluation web summary`
+  - Added a read-only `/api/evaluation` view and third Web mode for bounded latest quick/soak summaries, replay tuples, invariant metrics, and distinct live blockers; mutation methods remain unavailable.
+
+### Evaluation hardening commit sequence
+
+`5015300` → `f1fc9cd` → `9742328` → `ce55914` → `6a6462c` → `dc473b1` → `a707c3f` → `4625a40` → `d59f15a`.
