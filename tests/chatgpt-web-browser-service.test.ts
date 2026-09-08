@@ -172,3 +172,22 @@ test("production browser resolver rejects a profile inside the ChatGPT worker ro
   }, browserRoots as any, { createDriver: async () => { calls += 1; return productionDriver; } }), /outside/i);
   assert.equal(calls, 0);
 });
+
+test("controlled smoke submits before reading and persists a ref assigned by first submit", async () => {
+  const calls: string[] = [];
+  const driver: ChatGptBrowserDriver = {
+    openOrResumeConversation: async () => { calls.push("open"); return {}; },
+    submitPrompt: async () => { calls.push("submit"); return { conversationRef: "smoke-created" }; },
+    readStructuredResult: async ({ conversationRef }) => {
+      calls.push(`read:${conversationRef}`);
+      return { version: 1, runId: "smoke-run", stage: "ANALYZE", generation: 1,
+        summary: "smoke", decisions: [], outcome: "continue", intents: [] };
+    },
+    probeConversation: async () => "ready",
+    closeConversation: async (conversationRef) => { calls.push(`close:${conversationRef}`); },
+  };
+  const { runChatGptWebControlledSmoke } = await import("../src/chatgpt-web/smoke.js");
+  const result = await runChatGptWebControlledSmoke({ driver });
+  assert.equal(result.conversationRef, "smoke-created");
+  assert.deepEqual(calls, ["open", "submit", "read:smoke-created", "close:smoke-created"]);
+});

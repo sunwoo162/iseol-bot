@@ -1,5 +1,3 @@
-import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import type { ChatGptBrowserDriver } from "./production-browser-adapter.js";
 import { createProductionChatGptWebAdapter } from "./production-browser-adapter.js";
 import { assertReasoningTurnResult, type WebWorkerSession } from "./contracts.js";
@@ -22,7 +20,9 @@ export async function runChatGptWebControlledSmoke(input: {
   };
   const adapter = createProductionChatGptWebAdapter(input.driver);
   const opened = await adapter.openOrResumeSession(session, prompt);
-  const active = { ...session, ...opened };
+  let active = { ...session, ...opened };
+  const submitted = await adapter.submitTurn(active, prompt);
+  active = { ...active, ...(submitted ?? {}) };
   const result = await adapter.awaitStructuredResult(active, input.timeoutMs ?? 30_000);
   assertReasoningTurnResult(result);
   if (result.intents.length > 0) {
@@ -32,15 +32,9 @@ export async function runChatGptWebControlledSmoke(input: {
   }
   await adapter.closeSession(active).catch(() => undefined);
   return {
-    conversationRef: opened.conversationRef ?? null,
+    conversationRef: active.conversationRef ?? null,
     outcome: result.outcome,
     summary: result.summary,
     intentCount: result.intents.length,
   };
-}
-
-const cliPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
-if (cliPath && import.meta.url === cliPath) {
-  console.error("ChatGPT Web live smoke requires an installed authenticated ChatGptBrowserDriver; none is bundled with Iseol Core.");
-  process.exitCode = 2;
 }

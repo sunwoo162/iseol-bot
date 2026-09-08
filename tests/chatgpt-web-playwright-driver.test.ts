@@ -276,3 +276,27 @@ test("concurrent duplicate submissions share one in-flight browser send", async 
   assert.deepEqual(first, { conversationRef: "conv-1" });
   assert.deepEqual(second, { conversationRef: "conv-1" });
 });
+
+test("restart resumes the exact persisted conversation without creating a replacement", async () => {
+  const shared = { url: "https://chatgpt.com/", sends: 0 };
+  const first = fakeBackend({
+    currentUrl: async () => shared.url,
+    navigate: async (url) => { shared.url = url; },
+    sendPrompt: async () => { shared.sends += 1; shared.url = "https://chatgpt.com/c/conv-persisted"; },
+  });
+  const driverA = await createPlaywrightChatGptBrowserDriver(config, { backend: first.backend });
+  await driverA.openOrResumeConversation({ prompt: "payload", promptSha256: "restart-sha" });
+  const submitted = await driverA.submitPrompt({ prompt: "payload", promptSha256: "restart-sha" });
+  assert.deepEqual(submitted, { conversationRef: "conv-persisted" });
+
+  const resumeUrls: string[] = [];
+  const second = fakeBackend({
+    currentUrl: async () => shared.url,
+    navigate: async (url) => { resumeUrls.push(url); shared.url = url; },
+  });
+  const driverB = await createPlaywrightChatGptBrowserDriver(config, { backend: second.backend });
+  const resumed = await driverB.openOrResumeConversation({ conversationRef: "conv-persisted", prompt: "payload", promptSha256: "restart-sha" });
+  assert.deepEqual(resumed, { conversationRef: "conv-persisted" });
+  assert.deepEqual(resumeUrls, ["https://chatgpt.com/c/conv-persisted"]);
+  assert.equal(shared.sends, 1);
+});
