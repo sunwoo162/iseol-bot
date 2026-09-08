@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { resolve } from "node:path";
 import type { WebWorkerSession } from "../src/chatgpt-web/contracts.js";
 import type { CompiledWebPrompt } from "../src/chatgpt-web/prompt-compiler.js";
 import {
@@ -8,6 +9,8 @@ import {
 } from "../src/chatgpt-web/production-browser-adapter.js";
 import {
   resolveChatGptWebBridgeConfig,
+  resolveChatGptWebBridgeRuntime,
+  resolveProductionChatGptBrowserDriver,
   startChatGptWebBridgeService,
 } from "../src/chatgpt-web/browser-service.js";
 import { ChatGptWebAuthenticationRequiredError, ChatGptWebSessionLostError } from "../src/chatgpt-web/browser-adapter.js";
@@ -102,4 +105,70 @@ test("production adapter propagates a canonical conversation ref assigned after 
 
   assert.deepEqual(await adapter.openOrResumeSession(session, prompt), {});
   assert.deepEqual(await adapter.submitTurn(session, prompt), { conversationRef: "conv-after-submit" });
+});
+
+const browserRoots = {
+  repositoryRoot: resolve("C:/iseol/repo"),
+  modelRoot: resolve("C:/iseol/data/model"),
+  runRoot: resolve("C:/iseol/data/runs"),
+  webRoot: resolve("C:/iseol/repo/web"),
+  chatGptWebRoot: resolve("C:/iseol/chatgpt-runs"),
+};
+const productionDriver: ChatGptBrowserDriver = {
+  openOrResumeConversation: async () => ({ conversationRef: "prod-conv" }),
+  submitPrompt: async () => undefined,
+  readStructuredResult: async () => ({ version: 1 }),
+  probeConversation: async () => "ready",
+  closeConversation: async () => undefined,
+};
+
+test("production browser resolver is opt-in and constructs only the configured real-driver factory", async () => {
+  let calls = 0;
+  const createDriver = async () => { calls += 1; return productionDriver; };
+  assert.equal(await resolveProductionChatGptBrowserDriver({}, browserRoots as any, { createDriver }), null);
+  assert.equal(calls, 0);
+
+  const resolved = await resolveProductionChatGptBrowserDriver({
+    ISEOL_CHATGPT_BROWSER_ENABLED: "true",
+    ISEOL_CHATGPT_BROWSER_PROFILE_ROOT: resolve("C:/iseol-chatgpt-profile"),
+  }, browserRoots as any, { createDriver });
+  assert.equal(resolved, productionDriver);
+  assert.equal(calls, 1);
+});
+
+test("bridge runtime never launches a browser when bridge is disabled and fails closed without browser enablement", async () => {
+  let calls = 0;
+  const createDriver = async () => { calls += 1; return productionDriver; };
+  const disabled = await resolveChatGptWebBridgeRuntime({
+    ISEOL_CHATGPT_BROWSER_ENABLED: "true",
+    ISEOL_CHATGPT_BROWSER_PROFILE_ROOT: resolve("C:/iseol-chatgpt-profile"),
+  }, browserRoots as any, { createDriver });
+  assert.equal(disabled.config.enabled, false);
+  assert.equal(disabled.driver, null);
+  assert.equal(calls, 0);
+
+  const bridgeOnly = await resolveChatGptWebBridgeRuntime({ ISEOL_CHATGPT_WEB_ENABLED: "true" }, browserRoots as any, { createDriver });
+  assert.equal(bridgeOnly.config.enabled, true);
+  assert.equal(bridgeOnly.driver, null);
+  await assert.rejects(startChatGptWebBridgeService(bridgeOnly.config, bridgeOnly.driver ?? undefined), /browser driver.*required/i);
+});
+
+test("bridge runtime selects the production browser only when both capabilities are enabled", async () => {
+  const runtime = await resolveChatGptWebBridgeRuntime({
+    ISEOL_CHATGPT_WEB_ENABLED: "true",
+    ISEOL_CHATGPT_WEB_ROOT: "data/chatgpt-runs",
+    ISEOL_CHATGPT_BROWSER_ENABLED: "true",
+    ISEOL_CHATGPT_BROWSER_PROFILE_ROOT: resolve("C:/iseol-chatgpt-profile"),
+  }, browserRoots as any, { createDriver: async () => productionDriver });
+  assert.equal(runtime.config.enabled, true);
+  assert.equal(runtime.driver, productionDriver);
+});
+
+test("production browser resolver rejects a profile inside the ChatGPT worker root before launch", async () => {
+  let calls = 0;
+  await assert.rejects(resolveProductionChatGptBrowserDriver({
+    ISEOL_CHATGPT_BROWSER_ENABLED: "true",
+    ISEOL_CHATGPT_BROWSER_PROFILE_ROOT: browserRoots.chatGptWebRoot,
+  }, browserRoots as any, { createDriver: async () => { calls += 1; return productionDriver; } }), /outside/i);
+  assert.equal(calls, 0);
 });

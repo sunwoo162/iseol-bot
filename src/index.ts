@@ -1,4 +1,5 @@
 import "./services/fetch-fallback.js";
+import { resolve } from "node:path";
 import {
   Client,
   Events,
@@ -37,7 +38,7 @@ import {
 import { startWebhookServer } from "./services/webhook-server.js";
 import { resolveWebControlPlaneConfig, startWebControlPlaneServer } from "./web-control-plane/server.js";
 import { resolveDesktopAgentCoreConfig, startDesktopAgentCoreService } from "./desktop-agent/core-service.js";
-import { resolveChatGptWebBridgeConfig, startChatGptWebBridgeService } from "./chatgpt-web/browser-service.js";
+import { resolveChatGptWebBridgeRuntime, startChatGptWebBridgeService } from "./chatgpt-web/browser-service.js";
 
 const client = new Client({
   intents: [
@@ -103,18 +104,31 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.error("Iseol Desktop Agent Core 설정 거부", error);
   }
   try {
-    const chatGptWebConfig = resolveChatGptWebBridgeConfig({
+    const cwd = process.cwd();
+    const chatGptWebEnv = {
       ISEOL_CHATGPT_WEB_ENABLED: config.iseolChatGptWebEnabled,
       ISEOL_CHATGPT_WEB_ROOT: config.iseolChatGptWebRoot,
+      ISEOL_CHATGPT_BROWSER_ENABLED: config.iseolChatGptBrowserEnabled,
+      ISEOL_CHATGPT_BROWSER_PROFILE_ROOT: config.iseolChatGptBrowserProfileRoot,
+      ISEOL_CHATGPT_BROWSER_EXECUTABLE: config.iseolChatGptBrowserExecutable,
+      ISEOL_CHATGPT_BROWSER_HEADLESS: config.iseolChatGptBrowserHeadless,
+    };
+    const runtime = await resolveChatGptWebBridgeRuntime(chatGptWebEnv, {
+      repositoryRoot: cwd,
+      modelRoot: resolve(config.iseolModelRoot || resolve(cwd, "data", "iseol")),
+      runRoot: resolve(config.iseolRunRoot || resolve(cwd, "data", "runs")),
+      webRoot: resolve(cwd, "web"),
+      chatGptWebRoot: resolve(config.iseolChatGptWebRoot || resolve(cwd, "data", "runs")),
     });
-    if (chatGptWebConfig.enabled) {
-      void startChatGptWebBridgeService(chatGptWebConfig)
+    if (runtime.config.enabled) {
+      void startChatGptWebBridgeService(runtime.config, runtime.driver ?? undefined)
         .then(() => console.log("Iseol ChatGPT Web Bridge started"))
-        .catch((error) => console.error("Iseol ChatGPT Web Bridge 시작 실패", error));
+        .catch((error) => console.error("Iseol ChatGPT Web Bridge \uC2DC\uC791 \uC2E4\uD328", error));
     }
   } catch (error) {
-    console.error("Iseol ChatGPT Web Bridge 설정 거부", error);
-  }  startContestFeedPolling(client);
+    console.error("Iseol ChatGPT Web Bridge \uC124\uC815 \uAC70\uBD80", error);
+  }
+  startContestFeedPolling(client);
   startContestAudienceFeedPolling(client);
   startJobFeedPolling(client);
   startGitHubCommitFeedPolling(client);

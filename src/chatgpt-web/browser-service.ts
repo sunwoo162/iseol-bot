@@ -1,4 +1,12 @@
 import type { ChatGptWebBrowserAdapter } from "./browser-adapter.js";
+import {
+  createPlaywrightChatGptBrowserDriver,
+} from "./playwright-browser-driver.js";
+import {
+  resolvePlaywrightBrowserDriverConfig,
+  type PlaywrightBrowserDriverConfig,
+  type PlaywrightBrowserRoots,
+} from "./playwright-browser-config.js";
 import { createProductionChatGptWebAdapter, type ChatGptBrowserDriver } from "./production-browser-adapter.js";
 
 export type ChatGptWebBridgeConfig = {
@@ -13,6 +21,31 @@ export function resolveChatGptWebBridgeConfig(env: Record<string, string | undef
     enabled: raw === "true",
     workerRoot: env.ISEOL_CHATGPT_WEB_ROOT?.trim() || "data/runs",
   };
+}
+
+type EnabledBrowserConfig = Extract<PlaywrightBrowserDriverConfig, { enabled: true }>;
+type BrowserDriverFactory = (config: EnabledBrowserConfig) => Promise<ChatGptBrowserDriver>;
+
+export async function resolveProductionChatGptBrowserDriver(
+  env: Record<string, string | undefined>,
+  roots: PlaywrightBrowserRoots,
+  deps?: { createDriver?: BrowserDriverFactory },
+): Promise<ChatGptBrowserDriver | null> {
+  const browserConfig = resolvePlaywrightBrowserDriverConfig(env, roots);
+  if (!browserConfig.enabled) return null;
+  const createDriver = deps?.createDriver ?? createPlaywrightChatGptBrowserDriver;
+  return createDriver(browserConfig);
+}
+
+export async function resolveChatGptWebBridgeRuntime(
+  env: Record<string, string | undefined>,
+  roots: PlaywrightBrowserRoots,
+  deps?: { createDriver?: BrowserDriverFactory },
+): Promise<{ config: ChatGptWebBridgeConfig; driver: ChatGptBrowserDriver | null }> {
+  const config = resolveChatGptWebBridgeConfig(env);
+  if (!config.enabled) return { config, driver: null };
+  const driver = await resolveProductionChatGptBrowserDriver(env, roots, deps);
+  return { config, driver };
 }
 
 export type ChatGptWebBridgeService =

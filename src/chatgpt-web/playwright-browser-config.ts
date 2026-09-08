@@ -7,6 +7,7 @@ export type PlaywrightBrowserRoots = {
   modelRoot: string;
   runRoot: string;
   webRoot: string;
+  chatGptWebRoot?: string;
 };
 
 export type PlaywrightBrowserDriverConfig =
@@ -39,6 +40,7 @@ function isInsideOrEqual(root: string, target: string): boolean {
 
 function assertSafeProfileRoot(profileRoot: string, roots: PlaywrightBrowserRoots): void {
   for (const [label, root] of Object.entries(roots)) {
+    if (!root) continue;
     if (isInsideOrEqual(root, profileRoot)) {
       throw new Error(`ISEOL_CHATGPT_BROWSER_PROFILE_ROOT must be outside ${label}`);
     }
