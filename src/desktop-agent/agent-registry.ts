@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { DesktopAgentHello, DesktopAgentPresence } from "./contracts.js";
 import { assertDesktopProtocolVersion } from "./contracts.js";
+import { renameWithTransientRetry } from "./atomic-file.js";
 
 export type ResolvedDesktopAgentPresence = DesktopAgentPresence & {
   status: "online" | "offline";
@@ -44,7 +45,8 @@ async function saveRawPresence(root: string, presence: DesktopAgentPresence): Pr
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   await writeFile(temp, JSON.stringify(presence, null, 2), "utf8");
-  await rename(temp, path);
+  try { await renameWithTransientRetry(temp, path); }
+  catch (error) { await unlink(temp).catch(() => undefined); throw error; }
 }
 
 function normalizeRoots(roots: string[]): string[] {
