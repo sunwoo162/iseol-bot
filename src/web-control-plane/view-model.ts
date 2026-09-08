@@ -1,3 +1,5 @@
+import { loadEvaluationReport } from "../evaluation/report-store.js";
+import { evaluationDirectory, listEvaluationJsonFiles } from "../evaluation/store-utils.js";
 import { loadHarnessRun } from "../harness/run-store.js";
 import { listIdeaLabCampaigns } from "../idea-lab/campaign-store.js";
 import { listPrototypeProductions } from "../idea-lab/production-store.js";
@@ -5,8 +7,10 @@ import { loadProjectHistory } from "../project-model/history-store.js";
 import { listPrototypeCandidates } from "../project-model/prototype-store.js";
 import { loadProjectWorkspace } from "../project-model/workspace-store.js";
 import type {
+  EvaluationView,
   IdeaLabView,
   ProjectWorkspaceView,
+  WebEvaluationReportSummary,
   WebIdeaLabCampaignSummary,
   WebIdeaLabProductionSummary,
   WebPrototypeCard,
@@ -138,5 +142,65 @@ export async function buildProjectWorkspaceView(
     tree: workspace.tree.map((node) => ({ ...node, runIds: [...node.runIds] })),
     history: history.map((event) => ({ ...event })),
     runs,
+  };
+}
+const EVALUATION_SECRET_ASSIGNMENT = /\b(token|cookie|secret|password)\s*[:=]\s*[^\s,;]+/gi;
+const EVALUATION_BEARER_SECRET = /\bBearer\s+[^\s,;]+/gi;
+
+function safeEvaluationText(value: string, maxLength = 240): string {
+  return value
+    .replace(EVALUATION_BEARER_SECRET, "Bearer [REDACTED]")
+    .replace(EVALUATION_SECRET_ASSIGNMENT, (_match, key: string) => `${key}=[REDACTED]`)
+    .slice(0, maxLength);
+}
+
+function toEvaluationSummary(
+  report: NonNullable<Awaited<ReturnType<typeof loadEvaluationReport>>>,
+): WebEvaluationReportSummary {
+  let passed = 0;
+  let failed = 0;
+  let blocked = 0;
+  for (const scenario of report.scenarios) {
+    if (scenario.status === "passed") passed += 1;
+    else if (scenario.status === "blocked-external") blocked += 1;
+    else failed += 1;
+  }
+  return {
+    evaluationId: report.evaluationId,
+    suiteId: report.suiteId,
+    status: report.status,
+    completedAt: report.completedAt,
+    counts: { passed, failed, blocked },
+    duplicateSideEffectCount: report.metrics.duplicateSideEffectCount,
+    unexpectedMutationCount: report.metrics.unexpectedMutationCount,
+    recoveryLatencyMs: report.metrics.recoveryLatencyMs,
+    failedInvariantIds: report.invariants
+      .filter((item) => item.status === "failed")
+      .map((item) => item.id)
+      .slice(0, 20),
+    failedScenarios: report.scenarios
+      .filter((item) => item.status !== "passed" && item.status !== "blocked-external")
+      .slice(0, 25)
+      .map((item) => ({
+        scenarioId: item.scenarioId,
+        evaluationId: item.evaluationId,
+        seed: item.seed,
+        status: item.status,
+      })),
+    liveBlockers: report.liveBlockers.slice(0, 10).map((item) => safeEvaluationText(item)),
+  };
+}
+export async function buildEvaluationView(root: string): Promise<EvaluationView> {
+  const reports = [];
+  for (const name of await listEvaluationJsonFiles(evaluationDirectory(root, "reports"))) {
+    const report = await loadEvaluationReport(root, name.slice(0, -5));
+    if (report) reports.push(report);
+  }
+  reports.sort((a, b) => a.completedAt.localeCompare(b.completedAt) || a.evaluationId.localeCompare(b.evaluationId));
+  const latestQuick = reports.filter((item) => item.suiteId === "quick-evaluation").at(-1) ?? null;
+  const latestSoak = reports.filter((item) => item.suiteId === "soak-evaluation").at(-1) ?? null;
+  return {
+    quick: latestQuick ? toEvaluationSummary(latestQuick) : null,
+    soak: latestSoak ? toEvaluationSummary(latestSoak) : null,
   };
 }

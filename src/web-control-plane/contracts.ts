@@ -1,3 +1,4 @@
+import type { EvaluationRunStatus } from "../evaluation/contracts.js";
 import type {
   ProjectGenesis,
   ProjectHistoryEvent,
@@ -79,4 +80,29 @@ export type ProjectWorkspaceView = {
   tree: ProjectTreeNode[];
   history: ProjectHistoryEvent[];
   runs: WebRunSummary[];
+};
+export type WebEvaluationFailedScenario = {
+  scenarioId: string;
+  evaluationId: string;
+  seed: string;
+  status: EvaluationRunStatus;
+};
+
+export type WebEvaluationReportSummary = {
+  evaluationId: string;
+  suiteId: string;
+  status: "passed" | "failed" | "blocked-external";
+  completedAt: string;
+  counts: { passed: number; failed: number; blocked: number };
+  duplicateSideEffectCount: number;
+  unexpectedMutationCount: number;
+  recoveryLatencyMs: number;
+  failedInvariantIds: string[];
+  failedScenarios: WebEvaluationFailedScenario[];
+  liveBlockers: string[];
+};
+
+export type EvaluationView = {
+  quick: WebEvaluationReportSummary | null;
+  soak: WebEvaluationReportSummary | null;
 };

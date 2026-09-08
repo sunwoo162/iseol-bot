@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { assertProjectModelId } from "../project-model/contracts.js";
 import { archivePrototypeCandidate } from "../idea-lab/prototype-actions.js";
 import { promotePrototype } from "../project-model/promotion.js";
@@ -7,6 +8,7 @@ import {
   WebIdeaLabActionError,
 } from "./idea-lab-actions.js";
 import {
+  buildEvaluationView,
   buildIdeaLabView,
   buildProjectWorkspaceView,
 } from "./view-model.js";
@@ -27,6 +29,7 @@ export type WebControlPlaneResponse = {
 export type WebControlPlaneRouterDependencies = {
   modelRoot: string;
   harnessRoot: string;
+  evaluationRoot?: string;
   token?: string;
   now?: () => string;
   campaignIdFactory?: () => string;
@@ -71,6 +74,14 @@ export async function routeWebControlPlaneRequest(
   deps: WebControlPlaneRouterDependencies,
 ): Promise<WebControlPlaneResponse> {
   const path = request.path.split("?", 1)[0] ?? request.path;
+
+  if (path === "/api/evaluation") {
+    if (request.method !== "GET") return methodNotAllowed();
+    const configuredRoot = process.env.ISEOL_EVALUATION_ROOT?.trim();
+    const evaluationRoot = deps.evaluationRoot
+      ?? (configuredRoot ? resolve(configuredRoot) : resolve(process.cwd(), "data", "iseol-evaluation"));
+    return response(200, await buildEvaluationView(evaluationRoot));
+  }
 
   if (path === "/api/idea-lab") {
     if (request.method !== "GET") return methodNotAllowed();

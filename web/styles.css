@@ -225,3 +225,16 @@ button:hover, .primary-link:hover, .text-link:hover { filter: brightness(1.13); 
 @media (max-width: 680px) {
   .campaign-create-panel, .production-grid { grid-template-columns: 1fr; }
 }
+
+.evaluation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.evaluation-card { padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: rgba(17,23,32,.82); }
+.evaluation-card > p:last-child { margin-bottom: 0; }
+.evaluation-metrics { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+.evaluation-metrics span { padding: 5px 8px; border: 1px solid rgba(38,49,64,.85); border-radius: 999px; color: var(--muted); font-size: 11px; }
+.evaluation-invariant { color: var(--danger); font-size: 12px; }
+.evaluation-failure { margin: 8px 0; padding: 9px 10px; border-left: 3px solid var(--danger); background: rgba(251,113,133,.06); font-size: 11px; }
+.evaluation-live-blocker { margin: 8px 0; padding: 9px 10px; border-left: 3px solid var(--warn); background: rgba(250,204,21,.05); color: #fde68a; font-size: 11px; }
+
+@media (max-width: 680px) {
+  .evaluation-grid { grid-template-columns: 1fr; }
+}

@@ -2,6 +2,7 @@ const TOKEN_KEY = "iseol.web.token";
 const state = {
   mode: "idea-lab",
   ideaLab: { prototypes: [], campaigns: [], productions: [] },
+  evaluation: { quick: null, soak: null },
   selectedProjectId: "",
   project: null,
   loading: false,
@@ -274,7 +275,9 @@ function switchMode(mode) {
   });
   $("#idea-lab-view").hidden = mode !== "idea-lab";
   $("#project-workspace-view").hidden = mode !== "project-workspace";
+  $("#evaluation-view").hidden = mode !== "evaluation";
   if (mode === "project-workspace") refreshProjectOptions();
+  if (mode === "evaluation") void loadEvaluation();
 }
 
 function clearProjectView() {
@@ -445,6 +448,7 @@ function bindEvents() {
   $("#create-campaign").addEventListener("click", () => createCampaign(false));
   $("#make-more").addEventListener("click", () => createCampaign(true));
   $("#refresh-project").addEventListener("click", () => selectProject(state.selectedProjectId));
+  $("#refresh-evaluation").addEventListener("click", () => loadEvaluation());
   $("#project-select").addEventListener("change", (event) => selectProject(event.target.value));
 }
 
@@ -457,3 +461,47 @@ async function init() {
 }
 
 init().catch((error) => setStatus("error", error.message));
+function evaluationCard(label, summary) {
+  const card = element("article", "evaluation-card");
+  const head = element("div", "run-head");
+  head.append(element("strong", "", label));
+  head.append(element("span", `prototype-state state-${summary.status}`, summary.status));
+  card.append(head);
+  card.append(element("p", "mono muted", `${summary.evaluationId} · ${new Date(summary.completedAt).toLocaleString()}`));
+  const metrics = element("div", "evaluation-metrics");
+  metrics.append(element("span", "", `${summary.counts.passed} passed`));
+  metrics.append(element("span", "", `${summary.counts.failed} failed`));
+  metrics.append(element("span", "", `${summary.counts.blocked} blocked`));
+  metrics.append(element("span", "", `recovery p95 ${summary.recoveryLatencyMs}ms`));
+  card.append(metrics);
+  if (summary.failedInvariantIds?.length) {
+    card.append(element("p", "evaluation-invariant", `Failed invariants: ${summary.failedInvariantIds.join(", ")}`));
+  }
+  for (const item of summary.failedScenarios ?? []) {
+    card.append(element("p", "evaluation-failure mono", `${item.scenarioId} · seed ${item.seed} · ${item.status}`));
+  }
+  for (const blocker of summary.liveBlockers ?? []) {
+    card.append(element("p", "evaluation-live-blocker", `Live blocker · ${blocker}`));
+  }
+  return card;
+}
+function renderEvaluation() {
+  const grid = $("#evaluation-grid");
+  const reports = [["Quick", state.evaluation.quick], ["Soak", state.evaluation.soak]].filter(([, value]) => value);
+  $("#evaluation-empty").hidden = reports.length > 0;
+  $("#evaluation-content").hidden = reports.length === 0;
+  grid.replaceChildren(...reports.map(([label, summary]) => evaluationCard(label, summary)));
+}
+
+async function loadEvaluation() {
+  setLoading(true, "Loading Evaluation reports…");
+  try {
+    state.evaluation = await fetchJson("/api/evaluation");
+    renderEvaluation();
+    setStatus("success", "Evaluation reports loaded.");
+  } catch (error) {
+    setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message);
+  } finally {
+    setLoading(false);
+  }
+}
