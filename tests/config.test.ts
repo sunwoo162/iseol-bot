@@ -45,3 +45,21 @@ test("optional calendar review web and chatgpt bridge settings default to empty 
   assert.equal(config.iseolChatGptBrowserExecutable, "");
   assert.equal(config.iseolChatGptBrowserHeadless, "");
 });
+
+test("missing required environment reports a readable configuration error", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const result = spawnSync(process.execPath, ["--import", "tsx", "-e", "import('./src/config.ts')"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      DISCORD_TOKEN: "",
+      DISCORD_CLIENT_ID: "client",
+      GITHUB_TOKEN: "github",
+      FIGMA_TOKEN: "figma",
+      NOTION_TOKEN: "notion",
+    },
+    encoding: "utf8",
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(`${result.stdout}${result.stderr}`, /DISCORD_TOKEN 환경변수가 필요합니다\./);
+});
