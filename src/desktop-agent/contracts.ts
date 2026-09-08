@@ -40,6 +40,7 @@ export type GitStatusOperation = { id: string; type: "GIT_STATUS"; cwd: string }
 export type GitDiffOperation = { id: string; type: "GIT_DIFF"; cwd: string };
 export type GitBranchOperation = { id: string; type: "GIT_BRANCH"; cwd: string };
 export type GitInspectOperation = { id: string; type: "GIT_INSPECT"; cwd: string };
+export type GitWorktreeCreateOperation = { id: string; type: "GIT_WORKTREE_CREATE"; cwd: string; branch: string; worktreePath: string; baseRef: string };
 export type GitCommitOperation = { id: string; type: "GIT_COMMIT"; cwd: string; message: string; expectedHead?: string };
 export type CheckHttpOperation = { id: string; type: "CHECK_HTTP"; url: string; timeoutMs: number };
 
@@ -52,6 +53,7 @@ export type DesktopOperation =
   | GitDiffOperation
   | GitBranchOperation
   | GitInspectOperation
+  | GitWorktreeCreateOperation
   | GitCommitOperation
   | CheckHttpOperation;
 
@@ -106,6 +108,7 @@ const OPERATION_TYPES = new Set<DesktopOperation["type"]>([
   "GIT_DIFF",
   "GIT_BRANCH",
   "GIT_INSPECT",
+  "GIT_WORKTREE_CREATE",
   "GIT_COMMIT",
   "CHECK_HTTP",
 ]);
@@ -113,6 +116,7 @@ const OPERATION_TYPES = new Set<DesktopOperation["type"]>([
 const MUTATION_TYPES = new Set<DesktopOperation["type"]>([
   "APPLY_PATCH",
   "RUN_PROCESS",
+  "GIT_WORKTREE_CREATE",
   "GIT_COMMIT",
 ]);
 
@@ -128,6 +132,21 @@ export function assertDesktopProtocolVersion(version: number): asserts version i
   }
 }
 
+function assertRelativeWorktreePath(value: unknown, field: string): asserts value is string {
+  requireText(value, field);
+  if (/^(?:[A-Za-z]:[\\/]|[\\/])/.test(value) || value.split(/[\\/]+/).includes("..")) {
+    throw new Error(`Desktop worktree ${field} must be a relative path inside the workspace`);
+  }
+}
+
+function assertGitRef(value: unknown, field: string): asserts value is string {
+  requireText(value, field);
+  if (value.startsWith("-") || value.includes("..") || value.includes("//") || value.includes("@{")
+      || /[\\~^:?*\[\]\s]/.test(value) || value.endsWith("/") || value.endsWith(".") || value.endsWith(".lock")) {
+    throw new Error(`Desktop worktree ${field} is unsafe: ${value}`);
+  }
+}
+
 function assertOperation(value: unknown): asserts value is DesktopOperation {
   if (!value || typeof value !== "object") throw new Error("Desktop operation must be an object");
   const operation = value as Record<string, unknown>;
@@ -135,6 +154,15 @@ function assertOperation(value: unknown): asserts value is DesktopOperation {
   requireText(operation.type, "operation type");
   if (!OPERATION_TYPES.has(operation.type as DesktopOperation["type"])) {
     throw new Error(`Unsupported Desktop operation type: ${operation.type}`);
+  }
+  if (operation.type === "GIT_WORKTREE_CREATE") {
+    const allowed = new Set(["id", "type", "cwd", "branch", "worktreePath", "baseRef"]);
+    const unknown = Object.keys(operation).filter((key) => !allowed.has(key));
+    if (unknown.length) throw new Error(`Desktop worktree operation has unknown field: ${unknown[0]}`);
+    assertRelativeWorktreePath(operation.cwd, "cwd");
+    assertRelativeWorktreePath(operation.worktreePath, "worktreePath");
+    assertGitRef(operation.branch, "branch");
+    assertGitRef(operation.baseRef, "baseRef");
   }
 }
 

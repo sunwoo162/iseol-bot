@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { basename, relative } from "node:path";
-import { readFile, readdir } from "node:fs/promises";
+import { basename, dirname, relative, resolve } from "node:path";
+import { mkdir, readFile, readdir } from "node:fs/promises";
 import type {
   DesktopJobResult,
   DesktopOperation,
@@ -161,6 +161,23 @@ async function gitCommand(
   });
 }
 
+type GitWorktreeEntry = { path: string; branch?: string };
+
+function parseGitWorktrees(output: string): GitWorktreeEntry[] {
+  return output.trim().split(/\r?\n\r?\n/).filter(Boolean).map((block) => {
+    const lines = block.split(/\r?\n/);
+    const path = lines.find((line) => line.startsWith("worktree "))?.slice(9) ?? "";
+    const branch = lines.find((line) => line.startsWith("branch "))?.slice(7);
+    return { path, ...(branch ? { branch } : {}) };
+  }).filter((entry) => entry.path);
+}
+
+function sameFilesystemPath(left: string, right: string): boolean {
+  const a = resolve(left);
+  const b = resolve(right);
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
 async function executeOperation(
   pack: DesktopTaskPack,
   operation: DesktopOperation,
@@ -209,6 +226,31 @@ async function executeOperation(
       maxOutputBytes,
     });
     return commandOperationResult(operation.id, command, `Ran ${basename(operation.executable)}`);
+  }
+
+  if (operation.type === "GIT_WORKTREE_CREATE") {
+    const cwd = await assertWorkspaceAccess(deps.allowedRoots, workspace, operation.cwd);
+    const target = await assertWorkspaceAccess(deps.allowedRoots, workspace, operation.worktreePath);
+    const listed = await gitCommand(workspace, cwd, ["worktree", "list", "--porcelain"], maxOutputBytes);
+    if (listed.code !== 0) return commandOperationResult(operation.id, listed, "Inspect Git worktrees");
+    const existing = parseGitWorktrees(listed.stdout).find((entry) => sameFilesystemPath(entry.path, target));
+    const expectedBranch = `refs/heads/${operation.branch}`;
+    if (existing) {
+      if (existing.branch !== expectedBranch) {
+        throw new Error(`Desktop worktree identity mismatch at ${operation.worktreePath}`);
+      }
+      return { operationId: operation.id, ok: true, summary: `Reused Git worktree ${operation.branch}`, reference: target };
+    }
+    await mkdir(dirname(target), { recursive: true });
+    const created = await gitCommand(
+      workspace,
+      cwd,
+      ["worktree", "add", "-b", operation.branch, target, operation.baseRef],
+      maxOutputBytes,
+    );
+    const result = commandOperationResult(operation.id, created, `Created Git worktree ${operation.branch}`);
+    if (result.ok) result.reference = target;
+    return result;
   }
 
   if (operation.type === "GIT_STATUS") {

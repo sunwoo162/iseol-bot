@@ -9,6 +9,7 @@ import { resolveHarnessPolicy } from "./policy-resolver.js";
 export type PrepareDevelopmentRunOptions = {
   iseolRoot: string;
   loadedAt?: string;
+  policyRoot?: string;
 };
 
 function validateRequest(request: DevelopmentRunRequest): void {
@@ -29,7 +30,7 @@ export async function prepareDevelopmentRun(
   try {
     const policy = await resolveHarnessPolicy({
       iseolRoot: options.iseolRoot,
-      targetRoot: request.targetRoot,
+      targetRoot: options.policyRoot ?? request.targetRoot,
       loadedAt: options.loadedAt,
     });
     return { version: 1, runId: request.runId, status: "ready", policy };
