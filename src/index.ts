@@ -37,6 +37,7 @@ import {
 import { startWebhookServer } from "./services/webhook-server.js";
 import { resolveWebControlPlaneConfig, startWebControlPlaneServer } from "./web-control-plane/server.js";
 import { resolveDesktopAgentCoreConfig, startDesktopAgentCoreService } from "./desktop-agent/core-service.js";
+import { resolveChatGptWebBridgeConfig, startChatGptWebBridgeService } from "./chatgpt-web/browser-service.js";
 
 const client = new Client({
   intents: [
@@ -101,7 +102,19 @@ client.once(Events.ClientReady, async (readyClient) => {
   } catch (error) {
     console.error("Iseol Desktop Agent Core 설정 거부", error);
   }
-  startContestFeedPolling(client);
+  try {
+    const chatGptWebConfig = resolveChatGptWebBridgeConfig({
+      ISEOL_CHATGPT_WEB_ENABLED: config.iseolChatGptWebEnabled,
+      ISEOL_CHATGPT_WEB_ROOT: config.iseolChatGptWebRoot,
+    });
+    if (chatGptWebConfig.enabled) {
+      void startChatGptWebBridgeService(chatGptWebConfig)
+        .then(() => console.log("Iseol ChatGPT Web Bridge started"))
+        .catch((error) => console.error("Iseol ChatGPT Web Bridge 시작 실패", error));
+    }
+  } catch (error) {
+    console.error("Iseol ChatGPT Web Bridge 설정 거부", error);
+  }  startContestFeedPolling(client);
   startContestAudienceFeedPolling(client);
   startJobFeedPolling(client);
   startGitHubCommitFeedPolling(client);

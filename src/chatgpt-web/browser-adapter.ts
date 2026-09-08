@@ -5,10 +5,10 @@ export type ChatGptWebSessionProbe = "ready" | "lost" | "auth-required";
 export type ChatGptWebOpenResult = { conversationRef?: string };
 
 export class ChatGptWebSessionLostError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ChatGptWebSessionLostError";
-  }
+  constructor(message: string) { super(message); this.name = "ChatGptWebSessionLostError"; }
+}
+export class ChatGptWebAuthenticationRequiredError extends Error {
+  constructor(message: string) { super(message); this.name = "ChatGptWebAuthenticationRequiredError"; }
 }
 
 export interface ChatGptWebBrowserAdapter {

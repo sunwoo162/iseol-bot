@@ -38,4 +38,6 @@ export const config = {
   iseolDesktopAgentPort: optional("ISEOL_DESKTOP_AGENT_PORT"),
   iseolDesktopAgentToken: optional("ISEOL_DESKTOP_AGENT_TOKEN"),
   iseolDesktopAgentRoot: optional("ISEOL_DESKTOP_AGENT_ROOT"),
+  iseolChatGptWebEnabled: optional("ISEOL_CHATGPT_WEB_ENABLED"),
+  iseolChatGptWebRoot: optional("ISEOL_CHATGPT_WEB_ROOT"),
 };

@@ -17,10 +17,12 @@ process.env.ISEOL_WEB_PORT = "";
 process.env.ISEOL_WEB_TOKEN = "";
 process.env.ISEOL_MODEL_ROOT = "";
 process.env.ISEOL_RUN_ROOT = "";
+process.env.ISEOL_CHATGPT_WEB_ENABLED = "";
+process.env.ISEOL_CHATGPT_WEB_ROOT = "";
 
 const { config } = await import("../src/config.js");
 
-test("optional calendar review and web settings default to empty strings", () => {
+test("optional calendar review web and chatgpt bridge settings default to empty strings", () => {
   assert.equal(config.googleClientId, "");
   assert.equal(config.googleClientSecret, "");
   assert.equal(config.googleRefreshToken, "");
@@ -32,4 +34,6 @@ test("optional calendar review and web settings default to empty strings", () =>
   assert.equal(config.iseolWebToken, "");
   assert.equal(config.iseolModelRoot, "");
   assert.equal(config.iseolRunRoot, "");
+  assert.equal(config.iseolChatGptWebEnabled, "");
+  assert.equal(config.iseolChatGptWebRoot, "");
 });
