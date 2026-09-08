@@ -297,3 +297,11 @@ Evaluation events remain in evaluation storage. They are never forwarded into `a
 ### Evaluation hardening commit sequence
 
 `5015300` → `f1fc9cd` → `9742328` → `ce55914` → `6a6462c` → `dc473b1` → `a707c3f` → `4625a40` → `d59f15a`.
+
+### Independent review fixes — 2026-09-08
+
+- Codex review against `feat/calendar-code-review` found two valid gaps before merge.
+- P1: generic Git `RUN_PROCESS` policy only inspected `args[0]`, so valid global options could hide a destructive subcommand (`git -C C:/repo reset --hard`, `git -c core.autocrlf=false clean -fd`). RED regression reproduced the bypass; `af4dce2 fix: reject option-prefixed destructive git` now resolves the real subcommand after value-taking global options. Focused desktop contract test: **6/6 passed**.
+- P2: soak time-budget early exit built a report without calling the resource observer, so evaluator-owned leaks could be omitted. RED regression placed `leaked.tmp` under the evaluation root and observed no `soak-resource-end-state`; `28a1976 fix: observe resources on soak budget failure` now records the resource invariant on budget exhaustion. Focused soak test: **4/4 passed**.
+- Review-fix regression gate: desktop contracts + evaluation security + soak **12/12 passed**; TypeScript build exited 0; `git diff --check` exited 0.
+- Both fixes followed RED → minimal production change → GREEN and were committed separately for traceability.
