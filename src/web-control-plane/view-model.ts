@@ -1,10 +1,14 @@
 import { loadHarnessRun } from "../harness/run-store.js";
+import { listIdeaLabCampaigns } from "../idea-lab/campaign-store.js";
+import { listPrototypeProductions } from "../idea-lab/production-store.js";
 import { loadProjectHistory } from "../project-model/history-store.js";
 import { listPrototypeCandidates } from "../project-model/prototype-store.js";
 import { loadProjectWorkspace } from "../project-model/workspace-store.js";
 import type {
   IdeaLabView,
   ProjectWorkspaceView,
+  WebIdeaLabCampaignSummary,
+  WebIdeaLabProductionSummary,
   WebPrototypeCard,
   WebRunSummary,
 } from "./contracts.js";
@@ -32,11 +36,50 @@ function toPrototypeCard(
   };
 }
 
+function safeIdeaLabSummary(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value
+    .replace(/\b(token|cookie|secret|password)\s*[:=]\s*\S+/gi, "$1=[redacted]")
+    .slice(0, 240);
+}
+
 export async function buildIdeaLabView(
   modelRoot: string,
+  harnessRoot = modelRoot,
 ): Promise<IdeaLabView> {
   const prototypes = await listPrototypeCandidates(modelRoot);
-  return { prototypes: prototypes.map(toPrototypeCard) };
+  const campaigns = await listIdeaLabCampaigns(modelRoot);
+  const productions = await listPrototypeProductions(modelRoot);
+  const campaignViews: WebIdeaLabCampaignSummary[] = campaigns.map((campaign) => ({
+    id: campaign.id,
+    seed: campaign.seed,
+    status: campaign.status,
+    targetReadyCount: campaign.targetReadyCount,
+    readyCount: productions.filter((item) => item.campaignId === campaign.id && item.status === "ready").length,
+    productionCount: productions.filter((item) => item.campaignId === campaign.id).length,
+    productionConcurrency: campaign.productionConcurrency,
+    ...(safeIdeaLabSummary(campaign.blockerSummary) ? { blockerSummary: safeIdeaLabSummary(campaign.blockerSummary) } : {}),
+    createdAt: campaign.createdAt,
+    updatedAt: campaign.updatedAt,
+  }));
+  const productionViews: WebIdeaLabProductionSummary[] = [];
+  for (const production of productions) {
+    const run = await buildRunSummary(harnessRoot, production.runId);
+    productionViews.push({
+      id: production.id,
+      campaignId: production.campaignId,
+      proposalId: production.proposalId,
+      runId: production.runId,
+      status: production.status,
+      branch: production.branch,
+      ...(production.commitSha ? { commitSha: production.commitSha } : {}),
+      ...(production.deployment?.url ? { deploymentUrl: production.deployment.url } : {}),
+      ...(safeIdeaLabSummary(production.blockerSummary) ? { blockerSummary: safeIdeaLabSummary(production.blockerSummary) } : {}),
+      updatedAt: production.updatedAt,
+      ...(run ? { run } : {}),
+    });
+  }
+  return { prototypes: prototypes.map(toPrototypeCard), campaigns: campaignViews, productions: productionViews };
 }
 
 function collectAttachedRunIds(

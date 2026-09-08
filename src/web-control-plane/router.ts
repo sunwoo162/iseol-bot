@@ -1,5 +1,11 @@
 import { assertProjectModelId } from "../project-model/contracts.js";
+import { archivePrototypeCandidate } from "../idea-lab/prototype-actions.js";
 import { promotePrototype } from "../project-model/promotion.js";
+import {
+  cancelWebIdeaLabCampaign,
+  createWebIdeaLabCampaign,
+  WebIdeaLabActionError,
+} from "./idea-lab-actions.js";
 import {
   buildIdeaLabView,
   buildProjectWorkspaceView,
@@ -23,6 +29,7 @@ export type WebControlPlaneRouterDependencies = {
   harnessRoot: string;
   token?: string;
   now?: () => string;
+  campaignIdFactory?: () => string;
 };
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
@@ -67,7 +74,22 @@ export async function routeWebControlPlaneRequest(
 
   if (path === "/api/idea-lab") {
     if (request.method !== "GET") return methodNotAllowed();
-    return response(200, await buildIdeaLabView(deps.modelRoot));
+    return response(200, await buildIdeaLabView(deps.modelRoot, deps.harnessRoot));
+  }
+
+  if (path === "/api/idea-lab/campaigns") {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    try {
+      const campaign = await createWebIdeaLabCampaign({
+        root: deps.modelRoot, body: request.body ?? {},
+        at: (deps.now ?? (() => new Date().toISOString()))(), idFactory: deps.campaignIdFactory,
+      });
+      return response(201, campaign);
+    } catch (error) {
+      if (error instanceof WebIdeaLabActionError) return response(error.status, { error: error.message });
+      throw error;
+    }
   }
 
   const projectMatch = /^\/api\/projects\/([^/]+)$/.exec(path);
@@ -81,6 +103,39 @@ export async function routeWebControlPlaneRequest(
       projectId,
     );
     return view ? response(200, view) : response(404, { error: "not found" });
+  }
+
+  const cancelCampaignMatch = /^\/api\/idea-lab\/campaigns\/([^/]+)\/cancel$/.exec(path);
+  if (cancelCampaignMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    const campaignId = decodeId(cancelCampaignMatch[1] ?? "");
+    if (!campaignId) return response(404, { error: "not found" });
+    try {
+      return response(200, await cancelWebIdeaLabCampaign(
+        deps.modelRoot, campaignId, (deps.now ?? (() => new Date().toISOString()))(),
+      ));
+    } catch (error) {
+      if (error instanceof WebIdeaLabActionError) return response(error.status, { error: error.message });
+      throw error;
+    }
+  }
+
+  const archiveMatch = /^\/api\/prototypes\/([^/]+)\/archive$/.exec(path);
+  if (archiveMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    const prototypeId = decodeId(archiveMatch[1] ?? "");
+    if (!prototypeId) return response(404, { error: "not found" });
+    try {
+      return response(200, await archivePrototypeCandidate(
+        deps.modelRoot, prototypeId, (deps.now ?? (() => new Date().toISOString()))(),
+      ));
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Prototype not found:")) return response(404, { error: "not found" });
+      if (error instanceof Error && error.message.includes("cannot be archived")) return response(409, { error: error.message });
+      throw error;
+    }
   }
 
   const promotionMatch = /^\/api\/prototypes\/([^/]+)\/promote$/.exec(path);

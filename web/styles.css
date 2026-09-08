@@ -197,3 +197,31 @@ button:hover, .primary-link:hover, .text-link:hover { filter: brightness(1.13); 
   .history-top { flex-direction: column; gap: 4px; }
   .prototype-actions > * { flex: 1 1 100%; }
 }
+
+.campaign-create-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(260px, 2fr) 110px auto auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(17,23,32,.72);
+}
+.idea-progress-section { margin-bottom: 22px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; }
+.campaign-list { display: grid; gap: 10px; margin-bottom: 12px; }
+.campaign-card, .production-card { padding: 13px; border: 1px solid rgba(38,49,64,.85); border-radius: 12px; background: #0d1219; }
+.campaign-card .ghost-button { margin-top: 8px; }
+.campaign-seed { margin: 10px 0 5px; font-weight: 800; }
+.campaign-blocker { margin: 8px 0 0; color: var(--danger); font-size: 12px; }
+.production-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.production-card .primary-link { margin-top: 10px; }
+
+@media (max-width: 980px) {
+  .campaign-create-panel { grid-template-columns: 1fr 1fr; }
+  .production-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 680px) {
+  .campaign-create-panel, .production-grid { grid-template-columns: 1fr; }
+}

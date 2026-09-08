@@ -24,8 +24,37 @@ export type WebPrototypeCard = {
   updatedAt: string;
 };
 
+export type WebIdeaLabCampaignSummary = {
+  id: string;
+  seed: string;
+  status: string;
+  targetReadyCount: number;
+  readyCount: number;
+  productionCount: number;
+  productionConcurrency: number;
+  blockerSummary?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WebIdeaLabProductionSummary = {
+  id: string;
+  campaignId: string;
+  proposalId: string;
+  runId: string;
+  status: string;
+  branch: string;
+  commitSha?: string;
+  deploymentUrl?: string;
+  blockerSummary?: string;
+  updatedAt: string;
+  run?: WebRunSummary;
+};
+
 export type IdeaLabView = {
   prototypes: WebPrototypeCard[];
+  campaigns: WebIdeaLabCampaignSummary[];
+  productions: WebIdeaLabProductionSummary[];
 };
 
 export type WebRunSummary = {

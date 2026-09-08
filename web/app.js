@@ -1,7 +1,7 @@
 const TOKEN_KEY = "iseol.web.token";
 const state = {
   mode: "idea-lab",
-  ideaLab: { prototypes: [] },
+  ideaLab: { prototypes: [], campaigns: [], productions: [] },
   selectedProjectId: "",
   project: null,
   loading: false,
@@ -97,6 +97,10 @@ function prototypeCard(prototype, index) {
     promote.type = "button";
     promote.addEventListener("click", () => promotePrototype(prototype.id));
     actions.append(promote);
+    const archive = element("button", "ghost-button", "Archive");
+    archive.type = "button";
+    archive.addEventListener("click", () => archivePrototype(prototype.id));
+    actions.append(archive);
   } else if (prototype.promotedProjectId) {
     const openProject = element("button", "secondary-button", "Open workspace");
     openProject.type = "button";
@@ -110,22 +114,66 @@ function prototypeCard(prototype, index) {
   return card;
 }
 
+function campaignCard(campaign) {
+  const card = element("article", "campaign-card");
+  const head = element("div", "run-head");
+  head.append(element("strong", "", "Campaign progress"));
+  head.append(element("span", `prototype-state state-${campaign.status}`, campaign.status));
+  card.append(head);
+  card.append(element("p", "campaign-seed", campaign.seed));
+  card.append(element("p", "muted", `${campaign.readyCount}/${campaign.targetReadyCount} ready · ${campaign.productionCount} productions · concurrency ${campaign.productionConcurrency}`));
+  if (campaign.blockerSummary) card.append(element("p", "campaign-blocker", campaign.blockerSummary));
+  if (!["complete", "cancelled"].includes(campaign.status)) {
+    const cancel = element("button", "ghost-button", "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => cancelCampaign(campaign.id));
+    card.append(cancel);
+  }
+  return card;
+}
+
+function productionCard(production) {
+  const card = element("article", "production-card");
+  const head = element("div", "run-head");
+  head.append(element("strong", "mono", production.id));
+  head.append(element("span", `prototype-state state-${production.status}`, production.status));
+  card.append(head);
+  card.append(element("p", "muted", `Run ${production.runId} · ${production.run?.stage ?? "pending"}`));
+  card.append(element("p", "mono muted", `${production.branch} · ${shortSha(production.commitSha)}`));
+  if (production.blockerSummary) card.append(element("p", "campaign-blocker", production.blockerSummary));
+  if (production.deploymentUrl) {
+    const open = element("a", "primary-link", "Open prototype ↗");
+    open.href = production.deploymentUrl;
+    open.target = "_blank";
+    open.rel = "noopener noreferrer";
+    card.append(open);
+  }
+  return card;
+}
+
 function renderIdeaLab() {
   const prototypes = state.ideaLab.prototypes ?? [];
+  const campaigns = state.ideaLab.campaigns ?? [];
+  const productions = state.ideaLab.productions ?? [];
+  const campaignList = $("#campaign-list");
+  const productionGrid = $("#production-grid");
+  campaignList.replaceChildren(...campaigns.map(campaignCard));
+  productionGrid.replaceChildren(...productions.map(productionCard));
+  if (!campaigns.length) campaignList.append(element("p", "muted", "No active Campaigns."));
+  if (!productions.length) productionGrid.append(element("p", "muted", "No production Runs yet."));
   const grid = $("#prototype-grid");
   grid.replaceChildren();
   $("#prototype-count").textContent = String(prototypes.length);
   $("#promoted-count").textContent = String(prototypes.filter((item) => item.status === "promoted").length);
   $("#candidate-count").textContent = String(prototypes.filter((item) => item.status === "candidate").length);
-
-  if (prototypes.length === 0) {
+  if (!prototypes.length) {
     const empty = element("div", "empty-state empty-card");
     empty.append(element("strong", "", "Idea Lab is empty."));
-    empty.append(element("span", "", "새 Harness prototype이 생성되면 여기에 표시됩니다."));
+    empty.append(element("span", "", "READY prototypes appear here after verified preview deployment."));
     grid.append(empty);
-    return;
+  } else {
+    prototypes.forEach((prototype, index) => grid.append(prototypeCard(prototype, index)));
   }
-  prototypes.forEach((prototype, index) => grid.append(prototypeCard(prototype, index)));
 }
 
 function refreshProjectOptions() {
@@ -151,6 +199,47 @@ async function loadIdeaLab({ quiet = false } = {}) {
   } finally {
     setLoading(false);
   }
+}
+
+async function createCampaign(makeMore = false) {
+  const latestSeed = state.ideaLab.campaigns?.at(-1)?.seed ?? "";
+  const seed = $("#campaign-seed").value.trim() || (makeMore ? latestSeed : "");
+  const targetReadyCount = Number($("#campaign-target").value || 3);
+  if (!seed) { setStatus("error", "Enter a Campaign seed first."); return; }
+  setLoading(true, makeMore ? "Creating another Idea Lab Campaign…" : "Creating Idea Lab Campaign…");
+  try {
+    await fetchJson("/api/idea-lab/campaigns", {
+      method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ seed, targetReadyCount, productionConcurrency: 1 }),
+    });
+    await loadIdeaLab({ quiet: true });
+    setStatus("success", makeMore ? "New Campaign queued for more candidates." : "Campaign created.");
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+  finally { setLoading(false); }
+}
+
+async function cancelCampaign(campaignId) {
+  setLoading(true, "Cancelling Campaign…");
+  try {
+    await fetchJson(`/api/idea-lab/campaigns/${encodeURIComponent(campaignId)}/cancel`, {
+      method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({}),
+    });
+    await loadIdeaLab({ quiet: true });
+    setStatus("success", `Campaign cancelled: ${campaignId}`);
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+  finally { setLoading(false); }
+}
+
+async function archivePrototype(prototypeId) {
+  setLoading(true, "Archiving prototype…");
+  try {
+    await fetchJson(`/api/prototypes/${encodeURIComponent(prototypeId)}/archive`, {
+      method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({}),
+    });
+    await loadIdeaLab({ quiet: true });
+    setStatus("success", `Archived ${prototypeId}.`);
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+  finally { setLoading(false); }
 }
 
 async function promotePrototype(prototypeId) {
@@ -353,6 +442,8 @@ function bindEvents() {
   );
   $("#save-token").addEventListener("click", saveToken);
   $("#refresh-ideas").addEventListener("click", () => loadIdeaLab());
+  $("#create-campaign").addEventListener("click", () => createCampaign(false));
+  $("#make-more").addEventListener("click", () => createCampaign(true));
   $("#refresh-project").addEventListener("click", () => selectProject(state.selectedProjectId));
   $("#project-select").addEventListener("change", (event) => selectProject(event.target.value));
 }
