@@ -80,3 +80,26 @@ test("blocked-user is the only result outcome that carries blockerReason", () =>
   assert.throws(() => assertReasoningTurnResult({ ...base, outcome: "stage-complete", blockerReason: "not allowed" }), /blockerReason/i);
   assert.throws(() => assertReasoningTurnResult({ ...base, outcome: "done" }), /outcome/i);
 });
+
+test("reasoning results reject credential-shaped durable data", () => {
+  const base = {
+    version: 1,
+    runId: "run-1",
+    stage: "IMPLEMENT",
+    generation: 1,
+    decisions: [],
+    intents: [],
+    outcome: "stage-complete",
+  };
+  for (const summary of [
+    "token=super-secret-token",
+    "password=hunter2",
+    "cookie=raw-cookie",
+    "Bearer abcdef123456",
+  ]) {
+    assert.throws(
+      () => assertReasoningTurnResult({ ...base, summary }),
+      /credential-shaped/i,
+    );
+  }
+});

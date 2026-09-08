@@ -1,4 +1,5 @@
 import type { HarnessRunStage } from "../harness/contracts.js";
+import { assertNoCredentialShapedWebData } from "./credential-safety.js";
 
 export const ISEOL_CHATGPT_WEB_PROTOCOL_VERSION = 1 as const;
 
@@ -162,6 +163,7 @@ export function assertReasoningTurn(value: unknown): asserts value is ReasoningT
 }
 
 export function assertReasoningTurnResult(value: unknown): asserts value is ReasoningTurnResult {
+  assertNoCredentialShapedWebData(value);
   const item = record(value, "Reasoning result");
   version(item.version); const runId = id(item.runId, "runId"); const activeStage = stage(item.stage); generation(item.generation);
   text(item.summary, "summary"); stringArray(item.decisions, "decisions");

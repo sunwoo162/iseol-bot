@@ -1,4 +1,5 @@
 import type { HarnessRunStage } from "../harness/contracts.js";
+import { assertDesktopOperationPolicy } from "./operation-policy.js";
 
 export const ISEOL_DESKTOP_PROTOCOL_VERSION = 1 as const;
 
@@ -154,7 +155,8 @@ function assertOperation(value: unknown): asserts value is DesktopOperation {
   requireText(operation.type, "operation type");
   if (!OPERATION_TYPES.has(operation.type as DesktopOperation["type"])) {
     throw new Error(`Unsupported Desktop operation type: ${operation.type}`);
-  }
+  }  assertDesktopOperationPolicy(operation);
+
   if (operation.type === "GIT_WORKTREE_CREATE") {
     const allowed = new Set(["id", "type", "cwd", "branch", "worktreePath", "baseRef"]);
     const unknown = Object.keys(operation).filter((key) => !allowed.has(key));

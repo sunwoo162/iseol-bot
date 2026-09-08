@@ -87,3 +87,24 @@ test("mutation-capable task packs require policy provenance", () => {
 test("read-only task packs do not require policy provenance", () => {
   assert.doesNotThrow(() => assertDesktopTaskPack(basePack()));
 });
+
+test("desktop operations reject unknown fields and destructive Git through RUN_PROCESS", () => {
+  assert.throws(
+    () => assertDesktopTaskPack({
+      ...basePack(),
+      policyDigest: "a".repeat(64),
+      policySources: [{ kind: "project-harness", path: "C:/repo/docs/HARNESS_ENGINEERING.md", sha256: "b".repeat(64), required: true }],
+      operations: [{ id: "op-1", type: "RUN_PROCESS", cwd: ".", executable: "git", args: ["status"], timeoutMs: 1_000, shell: true }],
+    }),
+    /unknown field/i,
+  );
+  assert.throws(
+    () => assertDesktopTaskPack({
+      ...basePack(),
+      policyDigest: "a".repeat(64),
+      policySources: [{ kind: "project-harness", path: "C:/repo/docs/HARNESS_ENGINEERING.md", sha256: "b".repeat(64), required: true }],
+      operations: [{ id: "op-1", type: "RUN_PROCESS", cwd: ".", executable: "git", args: ["reset", "--hard", "HEAD~1"], timeoutMs: 1_000 }],
+    }),
+    /destructive Git process/i,
+  );
+});

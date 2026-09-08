@@ -120,3 +120,26 @@ test("only unfinished jobs without a live lease are recoverable", async () => {
     ["job-001"],
   );
 });
+
+test("completed Desktop Job results must match job run and agent identity", async () => {
+  const store = await root();
+  await createDesktopJob(store, pack(), "2026-09-08T01:00:00.000Z");
+  await acquireDesktopJobLease(store, "job-001", "session-a", "2026-09-08T01:00:10.000Z", 60_000);
+  const baseResult = {
+    version: 1 as const,
+    jobId: "job-001",
+    runId: "run-001",
+    agentId: "agent-001",
+    status: "completed" as const,
+    completedAt: "2026-09-08T01:00:20.000Z",
+    operations: [{ operationId: "op-1", ok: true, summary: "read" }],
+  };
+  await assert.rejects(
+    completeDesktopJob(store, "job-001", "session-a", { ...baseResult, runId: "run-other" }),
+    /runId mismatch/i,
+  );
+  await assert.rejects(
+    completeDesktopJob(store, "job-001", "session-a", { ...baseResult, agentId: "agent-other" }),
+    /agentId mismatch/i,
+  );
+});

@@ -199,6 +199,9 @@ export async function completeDesktopJob(
 ): Promise<DesktopJobRecord> {
   const job = await loadDesktopJob(root, jobId);
   if (!job) throw new Error(`Desktop Job not found: ${jobId}`);
+  if (result.jobId !== job.jobId) throw new Error(`Desktop Job result jobId mismatch: ${result.jobId}`);
+  if (result.runId !== job.runId) throw new Error(`Desktop Job result runId mismatch: ${result.runId}`);
+  if (result.agentId !== job.pack.agentId) throw new Error(`Desktop Job result agentId mismatch: ${result.agentId}`);
   if (job.status === "completed") {
     if (JSON.stringify(job.result) === JSON.stringify(result)) return job;
     throw new Error(`Desktop completed job is immutable: ${jobId}`);
