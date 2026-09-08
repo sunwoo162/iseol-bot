@@ -19,6 +19,17 @@ function agentFile(root: string, agentId: string): string {
   return resolve(root, "agents", `${agentId}.json`);
 }
 
+const agentWriteQueues = new Map<string, Promise<unknown>>();
+
+async function serializeAgentWrite<T>(root: string, agentId: string, action: () => Promise<T>): Promise<T> {
+  const key = agentFile(root, agentId);
+  const previous = agentWriteQueues.get(key) ?? Promise.resolve();
+  const run = previous.catch(() => undefined).then(action);
+  agentWriteQueues.set(key, run);
+  try { return await run; }
+  finally { if (agentWriteQueues.get(key) === run) agentWriteQueues.delete(key); }
+}
+
 async function loadRawPresence(root: string, agentId: string): Promise<DesktopAgentPresence | null> {
   const path = agentFile(root, agentId);
   try {
@@ -49,21 +60,18 @@ export async function registerDesktopAgent(
   hello: DesktopAgentHello,
   at: string,
 ): Promise<DesktopAgentPresence> {
-  assertDesktopProtocolVersion(hello.version);
-  assertDesktopAgentId(hello.agentId);
-  const existing = await loadRawPresence(root, hello.agentId);
-  const presence: DesktopAgentPresence = {
-    version: 1,
-    agentId: hello.agentId,
-    agentVersion: hello.agentVersion,
-    os: hello.os,
-    capabilities: [...hello.capabilities],
-    workspaceRoots: normalizeRoots(hello.workspaceRoots),
-    registeredAt: existing?.registeredAt ?? at,
-    lastHeartbeatAt: at,
-  };
-  await saveRawPresence(root, presence);
-  return presence;
+  return serializeAgentWrite(root, hello.agentId, async () => {
+    assertDesktopProtocolVersion(hello.version);
+    assertDesktopAgentId(hello.agentId);
+    const existing = await loadRawPresence(root, hello.agentId);
+    const presence: DesktopAgentPresence = {
+      version: 1, agentId: hello.agentId, agentVersion: hello.agentVersion, os: hello.os,
+      capabilities: [...hello.capabilities], workspaceRoots: normalizeRoots(hello.workspaceRoots),
+      registeredAt: existing?.registeredAt ?? at, lastHeartbeatAt: at,
+    };
+    await saveRawPresence(root, presence);
+    return presence;
+  });
 }
 
 export async function heartbeatDesktopAgent(
@@ -71,11 +79,13 @@ export async function heartbeatDesktopAgent(
   agentId: string,
   at: string,
 ): Promise<DesktopAgentPresence> {
-  const presence = await loadRawPresence(root, agentId);
-  if (!presence) throw new Error(`Desktop Agent not registered: ${agentId}`);
-  const next = { ...presence, lastHeartbeatAt: at };
-  await saveRawPresence(root, next);
-  return next;
+  return serializeAgentWrite(root, agentId, async () => {
+    const presence = await loadRawPresence(root, agentId);
+    if (!presence) throw new Error(`Desktop Agent not registered: ${agentId}`);
+    const next = { ...presence, lastHeartbeatAt: at };
+    await saveRawPresence(root, next);
+    return next;
+  });
 }
 
 export async function getDesktopAgentPresence(

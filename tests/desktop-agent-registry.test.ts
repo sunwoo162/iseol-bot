@@ -82,3 +82,24 @@ test("registry rejects unsafe ids and empty workspace roots", async () => {
     /workspace root/i,
   );
 });
+
+test("concurrent heartbeats serialize durable presence writes", async () => {
+  const store = await root();
+  await registerDesktopAgent(store, hello, "2026-09-08T01:00:00.000Z");
+  const timestamps = Array.from({ length: 32 }, (_, index) =>
+    new Date(Date.parse("2026-09-08T01:00:00.000Z") + index * 1000).toISOString(),
+  );
+
+  const results = await Promise.allSettled(
+    timestamps.map((at) => heartbeatDesktopAgent(store, "agent-001", at)),
+  );
+
+  assert.equal(results.filter((item) => item.status === "rejected").length, 0);
+  const loaded = await getDesktopAgentPresence(
+    store,
+    "agent-001",
+    "2026-09-08T01:01:00.000Z",
+    120_000,
+  );
+  assert.equal(loaded?.lastHeartbeatAt, timestamps.at(-1));
+});
