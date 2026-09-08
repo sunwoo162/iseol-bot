@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readdir, rename as fsRename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -65,4 +65,61 @@ test("side effect run ids cannot escape the ledger", async () => {
     }),
     /Invalid Iseol Run id/,
   );
+});
+test("side effect completion retries transient atomic rename failures and cleans temp files", async () => {
+  for (const code of ["EPERM", "EBUSY", "EACCES"] as const) {
+    const root = await mkdtemp(join(tmpdir(), `iseol-effects-${code.toLowerCase()}-`));
+    const input = {
+      runId: "run-atomic",
+      key: `deployment:${code.toLowerCase()}`,
+      kind: "deployment" as const,
+      at: "2026-09-08T13:00:00.000Z",
+    };
+    await reserveHarnessSideEffect(root, input);
+    let attempts = 0;
+    const completed = await completeHarnessSideEffect(root, {
+      runId: input.runId,
+      key: input.key,
+      at: "2026-09-08T13:00:01.000Z",
+      externalReference: `deploy-${code.toLowerCase()}`,
+    }, {
+      rename: async (source: string, target: string) => {
+        attempts += 1;
+        if (attempts === 1) throw Object.assign(new Error("locked"), { code });
+        await fsRename(source, target);
+      },
+      sleep: async () => undefined,
+      maxAttempts: 3,
+    });
+    assert.equal(attempts, 2, `${code} should retry exactly once`);
+    assert.equal(completed.status, "completed");
+    const files = await readdir(root, { recursive: true });
+    assert.equal(files.some((name) => String(name).endsWith(".tmp")), false, `${code} left a temp receipt`);
+  }
+});
+
+test("side effect completion does not retry non-transient rename failures and cleans temp files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-effects-nontransient-"));
+  const input = {
+    runId: "run-atomic",
+    key: "deployment:nontransient",
+    kind: "deployment" as const,
+    at: "2026-09-08T13:00:00.000Z",
+  };
+  await reserveHarnessSideEffect(root, input);
+  let attempts = 0;
+  await assert.rejects(completeHarnessSideEffect(root, {
+    runId: input.runId,
+    key: input.key,
+    at: "2026-09-08T13:00:01.000Z",
+  }, {
+    rename: async () => {
+      attempts += 1;
+      throw Object.assign(new Error("bad path"), { code: "ENOENT" });
+    },
+    sleep: async () => undefined,
+  }), /bad path/);
+  assert.equal(attempts, 1);
+  const files = await readdir(root, { recursive: true });
+  assert.equal(files.some((name) => String(name).endsWith(".tmp")), false);
 });
