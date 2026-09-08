@@ -1,8 +1,10 @@
 import type {
+  DevelopmentRunMode,
   HarnessEvidenceKind,
   HarnessEvidenceRecord,
   HarnessRunStage,
 } from "./contracts.js";
+import { completionProfileForMode } from "../idea-lab/completion-profile.js";
 
 const STAGE_EVIDENCE: Partial<Record<HarnessRunStage, HarnessEvidenceKind[]>> = {
   TEST: ["test"],
@@ -14,19 +16,11 @@ const STAGE_EVIDENCE: Partial<Record<HarnessRunStage, HarnessEvidenceKind[]>> = 
   PRODUCTION_VERIFY: ["production-verification"],
 };
 
-const DEFAULT_DELIVERY_STAGES: HarnessRunStage[] = [
-  "TEST",
-  "SELF_REVIEW",
-  "COMMIT",
-  "PR",
-  "CI",
-  "DEPLOY",
-  "PRODUCTION_VERIFY",
-];
-
 export function requiredEvidenceForStage(stage: HarnessRunStage): HarnessEvidenceKind[] {
   return [...(STAGE_EVIDENCE[stage] ?? [])];
-}function hasEvidence(
+}
+
+function hasEvidence(
   evidence: HarnessEvidenceRecord[],
   stage: HarnessRunStage,
   kind: HarnessEvidenceKind,
@@ -44,12 +38,12 @@ export function assertStageCompletionEvidence(
     throw new Error(`Stage ${stage} is missing required evidence: ${missing.join(", ")}`);
   }
 }
-
 export function assertRunCompletionEvidence(
   evidence: HarnessEvidenceRecord[],
+  mode: DevelopmentRunMode = "project-workspace",
 ): void {
   const missing: string[] = [];
-  for (const stage of DEFAULT_DELIVERY_STAGES) {
+  for (const stage of completionProfileForMode(mode).requiredEvidenceStages) {
     for (const kind of requiredEvidenceForStage(stage)) {
       if (!hasEvidence(evidence, stage, kind)) missing.push(kind);
     }

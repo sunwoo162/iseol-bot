@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   HarnessEvidenceRecord,
   HarnessRuntimeRunEnvelope,
+  HarnessRunStage,
   HarnessRunStatus,
 } from "./contracts.js";
 import {
@@ -12,6 +13,7 @@ import { appendHarnessRunEvent, saveHarnessCheckpoint } from "./event-store.js";
 import { assertPreflightReady } from "./preflight.js";
 import { loadHarnessRun, saveHarnessRun } from "./run-store.js";
 import { nextHarnessStage, transitionRunState } from "./state-machine.js";
+import { ideaLabSkipReason } from "../idea-lab/completion-profile.js";
 
 export type HarnessStageExecutionResult =
   | { type: "completed"; evidence: HarnessEvidenceRecord[] }
@@ -61,7 +63,8 @@ async function persistRunTransition(
   run: HarnessRuntimeRunEnvelope,
   input: {
     at: string;
-    type: "stage-started" | "stage-completed" | "status-changed";
+    type: "stage-started" | "stage-completed" | "stage-skipped" | "status-changed";
+    eventStage?: HarnessRunStage;
     summary: string;
     evidenceIds?: string[];
   },
@@ -73,7 +76,7 @@ async function persistRunTransition(
     runId: run.request.runId,
     type: input.type,
     at: input.at,
-    stage: run.state.stage,
+    stage: input.eventStage ?? run.state.stage,
     status: run.state.status,
     summary: input.summary,
     ...(input.evidenceIds === undefined ? {} : { evidenceIds: input.evidenceIds }),
@@ -156,6 +159,25 @@ export async function superviseHarnessRun(
       throw new Error(`Harness Run is not executable from ${run.state.status}`);
     }
 
+    const skipReason = run.request.mode === "idea-lab" ? ideaLabSkipReason(run.state.stage) : null;
+    if (skipReason) {
+      const skippedStage = run.state.stage;
+      const at = now();
+      run = updateRun(
+        run,
+        transitionRunState(run.state, { type: "skip-stage", at, reason: skipReason }),
+        at,
+      );
+      steps += 1;
+      await persistRunTransition(input.storeRoot, run, {
+        at,
+        type: "stage-skipped",
+        summary: `Skipped ${skippedStage}: ${skipReason}`,
+        eventStage: skippedStage,
+      });
+      continue;
+    }
+
     const stage = run.state.stage;
     const result = await input.executor.execute(run);
     steps += 1;
@@ -166,7 +188,7 @@ export async function superviseHarnessRun(
       try {
         assertStageCompletionEvidence(stage, combinedEvidence);
         if (nextHarnessStage(stage) === "DONE") {
-          assertRunCompletionEvidence(combinedEvidence);
+          assertRunCompletionEvidence(combinedEvidence, run.request.mode);
         }
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
