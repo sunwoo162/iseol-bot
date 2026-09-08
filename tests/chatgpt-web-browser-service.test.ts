@@ -90,3 +90,16 @@ test("controlled smoke rejects mutation intents unless an explicit workspace is 
   const allowed = await runChatGptWebControlledSmoke({ driver: smokeDriver, mutationWorkspace: "C:/tmp/smoke" });
   assert.equal(allowed.intentCount, 1);
 });
+test("production adapter propagates a canonical conversation ref assigned after first submit", async () => {
+  const driver = {
+    openOrResumeConversation: async () => ({}),
+    submitPrompt: async () => ({ conversationRef: "conv-after-submit" }),
+    readStructuredResult: async () => ({ version: 1 }),
+    probeConversation: async () => "ready",
+    closeConversation: async () => undefined,
+  } as unknown as ChatGptBrowserDriver;
+  const adapter = createProductionChatGptWebAdapter(driver);
+
+  assert.deepEqual(await adapter.openOrResumeSession(session, prompt), {});
+  assert.deepEqual(await adapter.submitTurn(session, prompt), { conversationRef: "conv-after-submit" });
+});

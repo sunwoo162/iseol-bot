@@ -113,3 +113,24 @@ test("malformed structured results use the same bounded rejection budget", async
   assert.match(result.reason, /rejected reasoning result budget/i);
   assert.equal(fake.submittedPrompts.length, 2);
 });
+test("reasoning executor persists a conversation ref assigned by first submit before reading the result", async () => {
+  const { root, run } = await fixture();
+  const adapter = {
+    openOrResumeSession: async () => ({}),
+    submitTurn: async () => ({ conversationRef: "conv-after-submit" }),
+    awaitStructuredResult: async () => ({
+      version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1,
+      summary: "done", decisions: [], intents: [], outcome: "stage-complete",
+    }),
+    probeSession: async () => "ready",
+    closeSession: async () => undefined,
+  } as any;
+  const executor = createWebReasoningExecutor({
+    workerRoot: root,
+    adapter,
+    now: () => "2026-09-08T01:05:00.000Z",
+    runDesktopIntent: async () => { throw new Error("unused"); },
+  });
+  assert.equal((await executor.execute(run)).type, "completed");
+  assert.equal((await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"))?.conversationRef, "conv-after-submit");
+});

@@ -106,7 +106,10 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
             }
             openedSessionId = session.sessionId;
           }
-          await input.adapter.submitTurn(session, prompt);
+          const submitted = await input.adapter.submitTurn(session, prompt);
+          if (submitted?.conversationRef && submitted.conversationRef !== session.conversationRef) {
+            session = await updateWebWorkerSession(input.workerRoot, { ...session, conversationRef: submitted.conversationRef });
+          }
           rawResult = await input.adapter.awaitStructuredResult(session, resultTimeoutMs);
         } catch (error) {
           if (!(error instanceof ChatGptWebSessionLostError)) {

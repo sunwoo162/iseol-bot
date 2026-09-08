@@ -74,7 +74,7 @@ The driver owns one persistent browser context per process. It may reuse pages f
 
 Canonical conversation references use only the ChatGPT conversation identifier, not a full arbitrary URL. A resumed conversation must resolve to `https://chatgpt.com/c/<conversationRef>` and the resulting page URL must still identify the same reference before prompt submission.
 
-For a new conversation, the driver opens the canonical ChatGPT start page, proves an authenticated composer exists, and records the conversation reference only after ChatGPT assigns a canonical `/c/<id>` URL.
+For a new conversation, the driver opens the canonical ChatGPT start page and proves an authenticated composer exists. ChatGPT may not assign a canonical `/c/<id>` URL until the first prompt is submitted, so the open result may omit `conversationRef`; the first successful submit must capture the assigned canonical reference and return it to the adapter for immediate durable session persistence.
 
 If the expected conversation cannot be proven, the driver throws `ChatGptWebSessionLostError`; it never silently creates a replacement conversation while resuming an existing one.
 
@@ -91,7 +91,7 @@ The driver must never:
 - log prompt bodies or complete assistant payloads on errors.
 ## 8. Turn submission and result extraction
 
-`openOrResumeConversation` prepares and validates the page; it does not count a prompt as submitted. `submitPrompt` re-validates conversation identity, fills the authenticated composer, and performs exactly one send action for the supplied prompt SHA.
+`openOrResumeConversation` prepares and validates the page; it does not count a prompt as submitted. For a resumed conversation it returns the proven canonical reference; for a new conversation it may return no reference until ChatGPT assigns one. `submitPrompt` re-validates any existing identity, fills the authenticated composer, performs exactly one send action for the supplied prompt SHA, then captures and returns the canonical reference when the first submit creates it.
 
 The driver keeps only bounded in-memory turn state needed to prevent accidental duplicate submission within the process. Durable duplicate/recovery guarantees remain owned by the existing ChatGPT Web session/run stores and prompt SHA contract.
 

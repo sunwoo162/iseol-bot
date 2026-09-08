@@ -13,7 +13,7 @@ export class ChatGptWebAuthenticationRequiredError extends Error {
 
 export interface ChatGptWebBrowserAdapter {
   openOrResumeSession(session: WebWorkerSession, prompt: CompiledWebPrompt): Promise<ChatGptWebOpenResult>;
-  submitTurn(session: WebWorkerSession, prompt: CompiledWebPrompt): Promise<void>;
+  submitTurn(session: WebWorkerSession, prompt: CompiledWebPrompt): Promise<ChatGptWebOpenResult | void>;
   awaitStructuredResult(session: WebWorkerSession, timeoutMs: number): Promise<unknown>;
   probeSession(session: WebWorkerSession): Promise<ChatGptWebSessionProbe>;
   closeSession(session: WebWorkerSession): Promise<void>;

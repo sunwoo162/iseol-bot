@@ -3,15 +3,15 @@ import { ChatGptWebAuthenticationRequiredError, ChatGptWebSessionLostError } fro
 import type { CompiledWebPrompt } from "./prompt-compiler.js";
 
 export interface ChatGptBrowserDriver {
-  openOrResumeConversation(input: { conversationRef?: string; prompt: string; promptSha256: string }): Promise<{ conversationRef: string }>;
-  submitPrompt(input: { conversationRef: string; prompt: string; promptSha256: string }): Promise<void>;
+  openOrResumeConversation(input: { conversationRef?: string; prompt: string; promptSha256: string }): Promise<{ conversationRef?: string }>;
+  submitPrompt(input: { conversationRef?: string; prompt: string; promptSha256: string }): Promise<{ conversationRef?: string } | void>;
   readStructuredResult(input: { conversationRef: string; timeoutMs: number }): Promise<unknown>;
   probeConversation(conversationRef: string): Promise<ChatGptWebSessionProbe>;
   closeConversation(conversationRef: string): Promise<void>;
 }
 
-function safeRef(value: string): string {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(value)) throw new ChatGptWebSessionLostError("Browser returned an unsafe conversation reference");
+function safeRef(value: unknown): string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(value)) throw new ChatGptWebSessionLostError("Browser returned an unsafe conversation reference");
   return value;
 }
 function requireRef(value?: string): string {
@@ -34,12 +34,17 @@ export function createProductionChatGptWebAdapter(driver: ChatGptBrowserDriver):
           ...(session.conversationRef ? { conversationRef: safeRef(session.conversationRef) } : {}),
           ...promptInput(prompt),
         });
-        return { conversationRef: safeRef(result.conversationRef) };
+        return result.conversationRef ? { conversationRef: safeRef(result.conversationRef) } : {};
       } catch (error) { return classify(error); }
     },
     async submitTurn(session, prompt) {
-      try { await driver.submitPrompt({ conversationRef: requireRef(session.conversationRef), ...promptInput(prompt) }); }
-      catch (error) { classify(error); }
+      try {
+        const result = await driver.submitPrompt({
+          ...(session.conversationRef ? { conversationRef: safeRef(session.conversationRef) } : {}),
+          ...promptInput(prompt),
+        });
+        return result?.conversationRef ? { conversationRef: safeRef(result.conversationRef) } : {};
+      } catch (error) { return classify(error); }
     },
     async awaitStructuredResult(session, timeoutMs) {
       try { return await driver.readStructuredResult({ conversationRef: requireRef(session.conversationRef), timeoutMs }); }
