@@ -150,7 +150,7 @@ function assertNonNegative(value: unknown, label: string): asserts value is numb
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error(`${label} must be a non-negative number`);
 }
 
-function assertFaultPlanEntry(value: unknown): asserts value is FaultPlanEntry {
+export function assertFaultPlanEntry(value: unknown): asserts value is FaultPlanEntry {
   assertObject(value, "Evaluation fault");
   assertExactKeys(value, ["boundary", "point", "occurrence", "action"], "Evaluation fault");
   if (!FAULT_BOUNDARIES.has(value.boundary as EvaluationFaultBoundary)) throw new Error(`Unsupported evaluation fault boundary: ${String(value.boundary)}`);
