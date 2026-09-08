@@ -100,6 +100,7 @@ export type EvaluationScenarioSummary = {
   evaluationId: string;
   seed: string;
   status: EvaluationRunStatus;
+  diagnostic?: string;
 };
 
 export type EvaluationReport = {
@@ -266,11 +267,12 @@ export function assertEvaluationReport(value: unknown): asserts value is Evaluat
   if (!Array.isArray(value.scenarios)) throw new Error("Evaluation report scenarios must be an array");
   for (const item of value.scenarios) {
     assertObject(item, "Evaluation scenario summary");
-    assertExactKeys(item, ["scenarioId", "evaluationId", "seed", "status"], "Evaluation scenario summary");
+    assertExactKeys(item, ["scenarioId", "evaluationId", "seed", "status", "diagnostic"], "Evaluation scenario summary");
     assertEvaluationId(String(item.scenarioId));
     assertEvaluationId(String(item.evaluationId));
     assertRequiredString(item.seed, "Evaluation scenario seed");
     if (!RUN_STATUSES.has(item.status as EvaluationRunStatus)) throw new Error("Invalid evaluation scenario status");
+    if (item.diagnostic !== undefined) assertRequiredString(item.diagnostic, "Evaluation scenario diagnostic");
   }
   assertStringArray(value.liveBlockers, "Evaluation report liveBlockers");
   assertRequiredString(value.summary, "Evaluation report summary");
