@@ -20,6 +20,28 @@ const UNSUPPORTED_GIT_PROCESS_COMMANDS = new Set([
 function executableName(value: string): string {
   return value.split(/[\\/]/).at(-1)?.toLowerCase() ?? value.toLowerCase();
 }
+
+const GIT_GLOBAL_OPTIONS_WITH_VALUE = new Set([
+  "-c", "-C", "--config-env", "--git-dir", "--namespace", "--super-prefix", "--work-tree",
+]);
+const GIT_GLOBAL_OPTIONS_WITH_ATTACHED_VALUE = [
+  "-c", "-C", "--config-env=", "--git-dir=", "--namespace=", "--super-prefix=", "--work-tree=",
+];
+
+function gitSubcommand(args: unknown[]): string {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (typeof arg !== "string") return "";
+    if (GIT_GLOBAL_OPTIONS_WITH_VALUE.has(arg)) {
+      index += 1;
+      continue;
+    }
+    if (GIT_GLOBAL_OPTIONS_WITH_ATTACHED_VALUE.some((option) => arg.startsWith(option) && arg !== option)) continue;
+    if (arg.startsWith("-")) continue;
+    return arg.toLowerCase();
+  }
+  return "";
+}
 export function assertDesktopOperationPolicy(operation: Record<string, unknown>): void {
   const type = String(operation.type);
   const allowedKeys = OPERATION_KEYS[type];
@@ -31,7 +53,7 @@ export function assertDesktopOperationPolicy(operation: Record<string, unknown>)
   if (type !== "RUN_PROCESS") return;
   if (typeof operation.executable !== "string" || !Array.isArray(operation.args)) return;
   const name = executableName(operation.executable);
-  const firstArg = typeof operation.args[0] === "string" ? operation.args[0].toLowerCase() : "";
+  const firstArg = gitSubcommand(operation.args);
   if ((name === "git" || name === "git.exe") && UNSUPPORTED_GIT_PROCESS_COMMANDS.has(firstArg)) {
     throw new Error(`Desktop destructive Git process is not allowed: git ${firstArg}`);
   }

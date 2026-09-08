@@ -107,4 +107,18 @@ test("desktop operations reject unknown fields and destructive Git through RUN_P
     }),
     /destructive Git process/i,
   );
+  for (const args of [
+    ["-C", "C:/repo", "reset", "--hard"],
+    ["-c", "core.autocrlf=false", "clean", "-fd"],
+  ]) {
+    assert.throws(
+      () => assertDesktopTaskPack({
+        ...basePack(),
+        policyDigest: "a".repeat(64),
+        policySources: [{ kind: "project-harness", path: "C:/repo/docs/HARNESS_ENGINEERING.md", sha256: "b".repeat(64), required: true }],
+        operations: [{ id: "op-1", type: "RUN_PROCESS", cwd: ".", executable: "git", args, timeoutMs: 1_000 }],
+      }),
+      /destructive Git process/i,
+    );
+  }
 });
