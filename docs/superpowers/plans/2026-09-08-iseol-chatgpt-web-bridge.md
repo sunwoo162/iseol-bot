@@ -210,10 +210,17 @@
 - Full repository verification after the Windows presence-write fix: `232/232 PASS`.
 - TypeScript build and `git diff --check`: PASS.
 - Fake-worker + real Desktop temporary-repository E2E proves `IMPLEMENT -> Desktop patch/test -> SELF_REVIEW -> TEST -> COMMIT -> PR waiting` and reuses one mutation job across browser generation recovery.
-- Production browser bridge is opt-in and fail-closed. `npm run chatgpt:web:smoke` exits `2` because no authenticated `ChatGptBrowserDriver` is currently installed; authentication or browser capability was not bypassed.
+- Production browser bridge is opt-in and fail-closed. A concrete Playwright-backed `ChatGptBrowserDriver` is now implemented and wired; `npm run chatgpt:web:smoke` exits `2` in the current environment because the dedicated browser/profile capability is not configured. Authentication was not bypassed and no fake result is counted as live.
 - Implementation deviation: full parallel verification exposed transient Windows `EPERM/EBUSY/EACCES` rename failures in Desktop Agent presence writes. Added bounded atomic rename retry plus temp cleanup and a dedicated regression test; ChatGPT Web E2E then passed five consecutive runs and the full suite.
 - Security scans found no unrestricted `command`, `shell`, `env`, `token`, `force`, cookie, or profile-path field in Web reasoning contracts, and no Harness/Project/Desktop store dependency in the production browser adapter/service.
 - GitHub lifecycle timestamp requirement remains a recorded Project History follow-up: preserve commit `committedAt` and PR `openedAt`/`mergedAt`/`closedAt` provider times. This phase records the requirement but does not extend the Project History schema/UI for those fields.
 ## Phase completion gate
 
 The deterministic bridge is complete when a preflight-ready reasoning stage can create a durable Web worker session, compile a policy-bound prompt, accept a structured fake-Web result, validate/record Desktop intents, execute mutation only through the existing Desktop Agent, feed Desktop evidence into a later reasoning turn, survive generation replacement without duplicate mutation, and leave all existing Iseol capabilities green. Production live-browser smoke additionally requires an authenticated configured browser driver; missing external authentication/driver availability is surfaced as a blocker and never bypassed.
+
+
+### Playwright production-driver follow-up ? 2026-09-09
+
+- Production driver/config/resolver, exact conversation resume, bounded submit/result extraction, and controlled smoke CLI are implemented behind the existing adapter.
+- Focused production-driver/bridge/recovery E2E verification: **43/43 passed**; full repository: **337/337 passed**; build and diff-check passed.
+- Live ChatGPT browser remains **blocked-external** only because no dedicated authenticated profile/browser env is configured on this machine; the adapter itself is no longer the missing capability.

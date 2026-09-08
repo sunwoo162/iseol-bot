@@ -275,7 +275,7 @@ Evaluation events remain in evaluation storage. They are never forwarded into `a
 - Quick and soak invariant actuals were all **0** for duplicate commit, duplicate PR, duplicate merge, duplicate deployment, workspace escape, secret leakage, policy bypass, and unverified completion.
 - Concurrent recovery characterization was repeated **20/20** times successfully on the committed branch.
 - Provider delayed-ingestion proof remains covered by `evaluation-timestamps`: provider occurrence time survives storage/Web round-trip, same occurrence dedupes despite different ingestion `at`, and conflicting lifecycle identity fails closed.
-- ChatGPT Web live smoke is **blocked-external**: `npm run chatgpt:web:smoke` exited **2** because no authenticated `ChatGptBrowserDriver` is installed in Iseol Core.
+- ChatGPT Web live smoke is **blocked-external**: a production Playwright `ChatGptBrowserDriver` is now installed in Iseol Core, but `npm run chatgpt:web:smoke` exits **2** because the dedicated browser/profile capability is not configured/authenticated in this environment.
 - Real preview deployment live smoke remains **blocked-external**: a production Vercel `PrototypeDeployAdapter` exists, but Vercel token/project authorization and the live orchestration binding are not configured, so no real provider smoke has been claimed.
 - Raw HEAD scan produced two credential-shaped and seven traversal-shaped matches; inspection showed the credential matches were deliberate redaction-test fixtures and traversal matches were TypeScript `../` imports. Re-running the scan over production-added lines with imports/test fixtures excluded produced **0 credential literals, 0 raw shell/command fields, 0 runtime traversal literals, 0 absolute Windows paths**.
 
@@ -305,3 +305,10 @@ Evaluation events remain in evaluation storage. They are never forwarded into `a
 - P2: soak time-budget early exit built a report without calling the resource observer, so evaluator-owned leaks could be omitted. RED regression placed `leaked.tmp` under the evaluation root and observed no `soak-resource-end-state`; `28a1976 fix: observe resources on soak budget failure` now records the resource invariant on budget exhaustion. Focused soak test: **4/4 passed**.
 - Review-fix regression gate: desktop contracts + evaluation security + soak **12/12 passed**; TypeScript build exited 0; `git diff --check` exited 0.
 - Both fixes followed RED → minimal production change → GREEN and were committed separately for traceability.
+
+
+### ChatGPT Playwright follow-up ? 2026-09-09
+
+- The prior missing-driver blocker is resolved in code: production Playwright driver + resolver + bootstrap wiring now exist.
+- Deterministic ChatGPT/Playwright focused verification is **43/43 passed** and current full repository verification is **337/337 passed**.
+- Live status remains **blocked-external** because no dedicated browser/profile environment is configured/authenticated; no fake smoke was promoted to live success.

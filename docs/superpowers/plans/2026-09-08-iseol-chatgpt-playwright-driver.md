@@ -66,7 +66,7 @@ Commit: `feat: configure chatgpt playwright browser`r`n`r`n
 - Produces backend operations for persistent-context launch, canonical navigation, authenticated composer lookup, URL read, semantic click/fill, assistant text read, generation-state probe, and owned-page close.
 - Produces `createPlaywrightChatGptBrowserDriver(config, deps?) : Promise<ChatGptBrowserDriver>`.
 
-- [ ] **Step 1: Write RED tests for new conversation and exact resume.** Fake backend must show that new conversations begin at `https://chatgpt.com/`, resume uses only `https://chatgpt.com/c/<ref>`, and wrong post-navigation refs throw `ChatGptWebSessionLostError`.
+- [x] **Step 1: Write RED tests for new conversation and exact resume.** Fake backend must show that new conversations begin at `https://chatgpt.com/`, resume uses only `https://chatgpt.com/c/<ref>`, and wrong post-navigation refs throw `ChatGptWebSessionLostError`.
 
 ```ts
 const driver = await createPlaywrightChatGptBrowserDriver(config, { backend });
@@ -75,13 +75,13 @@ assert.equal(opened.conversationRef, "conv-1");
 await assert.rejects(() => driver.openOrResumeConversation({ conversationRef: "conv-2", prompt: "x", promptSha256: SHA }), ChatGptWebSessionLostError);
 ```
 
-- [ ] **Step 2: Run driver tests and verify RED.**
+- [x] **Step 2: Run driver tests and verify RED.**
 
-- [ ] **Step 3: Implement canonical ref parsing and authenticated-surface proof.** Login/sign-up surfaces map to `ChatGptWebAuthenticationRequiredError`; ambiguous/missing composer or URL mismatch maps to `ChatGptWebSessionLostError`.
+- [x] **Step 3: Implement canonical ref parsing and authenticated-surface proof.** Login/sign-up surfaces map to `ChatGptWebAuthenticationRequiredError`; ambiguous/missing composer or URL mismatch maps to `ChatGptWebSessionLostError`.
 
-- [ ] **Step 4: Implement the default backend with `playwright-core.chromium.launchPersistentContext`.** The backend exposes no raw `Page`/`BrowserContext` outside its module and never reads cookies.
+- [x] **Step 4: Implement the default backend with `playwright-core.chromium.launchPersistentContext`.** The backend exposes no raw `Page`/`BrowserContext` outside its module and never reads cookies.
 
-- [ ] **Step 5: Run focused tests + build, then commit.**
+- [x] **Step 5: Run focused tests + build, then commit.**
 
 Commit: `feat: open exact chatgpt conversations with playwright`r`n`r`n
 
@@ -96,7 +96,7 @@ Commit: `feat: open exact chatgpt conversations with playwright`r`n`r`n
 - Implements all five `ChatGptBrowserDriver` methods.
 - Keeps only in-memory `{ conversationRef, promptSha256, submitted }` turn guards; durable recovery remains outside this driver.
 
-- [ ] **Step 1: Add RED tests** for exact-one submit, URL revalidation before mutation, JSON fence stripping, prose/multiple JSON rejection, bounded output size, generation settle/timeout, probe states, and close isolation.
+- [x] **Step 1: Add RED tests** for exact-one submit, URL revalidation before mutation, JSON fence stripping, prose/multiple JSON rejection, bounded output size, generation settle/timeout, probe states, and close isolation.
 
 ```ts
 await driver.submitPrompt({ conversationRef: "conv-1", prompt: "payload", promptSha256: SHA });
@@ -105,15 +105,15 @@ assert.equal(backend.sendCalls, 1);
 assert.deepEqual(await driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 1000 }), { version: 1 });
 ```
 
-- [ ] **Step 2: Verify RED for duplicate-send/result/probe cases.**
+- [x] **Step 2: Verify RED for duplicate-send/result/probe cases.**
 
-- [ ] **Step 3: Implement conservative semantic selectors and turn state.** Never fall back to coordinate clicks or arbitrary text matches.
+- [x] **Step 3: Implement conservative semantic selectors and turn state.** Never fall back to coordinate clicks or arbitrary text matches.
 
-- [ ] **Step 4: Implement result settling and strict JSON extraction.** Accept one JSON value or one fenced JSON block only; reject surrounding prose, multiple values, malformed JSON, and payloads above 262,144 UTF-8 bytes. Poll generation state at 100 ms and require 750 ms of stable final assistant text before parsing.
+- [x] **Step 4: Implement result settling and strict JSON extraction.** Accept one JSON value or one fenced JSON block only; reject surrounding prose, multiple values, malformed JSON, and payloads above 262,144 UTF-8 bytes. Poll generation state at 100 ms and require 750 ms of stable final assistant text before parsing.
 
-- [ ] **Step 5: Implement probe and owned-page close behavior.** Close must not sign out, delete chats, clear profile state, or close unrelated pages.
+- [x] **Step 5: Implement probe and owned-page close behavior.** Close must not sign out, delete chats, clear profile state, or close unrelated pages.
 
-- [ ] **Step 6: Run focused driver suite + build, then commit.**
+- [x] **Step 6: Run focused driver suite + build, then commit.**
 
 Commit: `feat: execute bounded chatgpt browser turns`r`n`r`n
 
@@ -130,15 +130,15 @@ Commit: `feat: execute bounded chatgpt browser turns`r`n`r`n
 - Produces `resolveProductionChatGptBrowserDriver(config, roots, deps?)` returning `null` when disabled and a concrete driver when enabled.
 - Existing `startChatGptWebBridgeService(config, driver?)` remains fail-closed and receives only the resolved real driver.
 
-- [ ] **Step 1: Write RED bootstrap tests.** Prove bridge-only enablement still fails without a driver, browser enablement constructs the real driver, unsafe browser config rejects only this capability, and no fake is selected in production.
+- [x] **Step 1: Write RED bootstrap tests.** Prove bridge-only enablement still fails without a driver, browser enablement constructs the real driver, unsafe browser config rejects only this capability, and no fake is selected in production.
 
-- [ ] **Step 2: Run focused bootstrap tests and verify RED.**
+- [x] **Step 2: Run focused bootstrap tests and verify RED.**
 
-- [ ] **Step 3: Implement resolver and wire `src/index.ts`.** Build roots from repo/model/run/web configuration; resolve the Playwright driver before starting the bridge and preserve the existing guarded startup behavior so Discord/Web continue if the browser capability is rejected.
+- [x] **Step 3: Implement resolver and wire `src/index.ts`.** Build roots from repo/model/run/web configuration; resolve the Playwright driver before starting the bridge and preserve the existing guarded startup behavior so Discord/Web continue if the browser capability is rejected.
 
-- [ ] **Step 4: Run focused browser-service/config tests + build.**
+- [x] **Step 4: Run focused browser-service/config tests + build.**
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 Commit: `feat: wire production chatgpt browser driver`
 
@@ -153,15 +153,15 @@ Commit: `feat: wire production chatgpt browser driver`
 
 **Interfaces:**
 - `npm run chatgpt:web:smoke` resolves the real driver from env and runs `runChatGptWebControlledSmoke` only when capability is configured.
-- Missing profile/browser/auth returns external-blocker exit code `2`; domain failure remains nonzero failure and is never labeled pass.- [ ] **Step 1: Add RED restart/resume test.** Construct driver A, capture `conversationRef`, dispose process-owned state, construct driver B against the same fake persistent backend state, and prove resume targets the same `/c/<ref>` without creating a replacement.
+- Missing profile/browser/auth returns external-blocker exit code `2`; domain failure remains nonzero failure and is never labeled pass.- [x] **Step 1: Add RED restart/resume test.** Construct driver A, capture `conversationRef`, dispose process-owned state, construct driver B against the same fake persistent backend state, and prove resume targets the same `/c/<ref>` without creating a replacement.
 
-- [ ] **Step 2: Add smoke CLI tests** for disabled/unconfigured capability -> exit `2`, auth-required -> exit `2`, and deterministic fake-driver success through the reusable smoke function.
+- [x] **Step 2: Add smoke CLI tests** for disabled/unconfigured capability -> exit `2`, auth-required -> exit `2`, and deterministic fake-driver success through the reusable smoke function.
 
-- [ ] **Step 3: Implement smoke CLI resolver.** It must never auto-login, print credentials/profile contents, or use a fake production driver.
+- [x] **Step 3: Implement smoke CLI resolver.** It must never auto-login, print credentials/profile contents, or use a fake production driver.
 
-- [ ] **Step 4: Run smoke-focused tests.** Do not run real ChatGPT unless the dedicated profile is already authenticated and explicit browser env is present.
+- [x] **Step 4: Run smoke-focused tests.** Do not run real ChatGPT unless the dedicated profile is already authenticated and explicit browser env is present.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 Commit: `feat: add chatgpt browser live smoke`
 
@@ -175,17 +175,30 @@ Commit: `feat: add chatgpt browser live smoke`
 **Interfaces:**
 - No new runtime interface; records accurate capability state and blockers.
 
-- [ ] **Step 1: Run focused ChatGPT Web suites.**
+- [x] **Step 1: Run focused ChatGPT Web suites.**
 
 Run: `node --import tsx --test tests/chatgpt-web-browser-service.test.ts tests/chatgpt-web-playwright-config.test.ts tests/chatgpt-web-playwright-driver.test.ts tests/chatgpt-web-recovery.test.ts tests/chatgpt-web-e2e.test.ts`
 Expected: all pass.
 
-- [ ] **Step 2: Run full repository suite, TypeScript build, and `git diff --check`.**
+- [x] **Step 2: Run full repository suite, TypeScript build, and `git diff --check`.**
 
-- [ ] **Step 3: Scan production additions for credential literals, cookie access, unrestricted navigation, coordinate clicks, and profile-path logging.** Expected: zero unsafe production hits.
+- [x] **Step 3: Scan production additions for credential literals, cookie access, unrestricted navigation, coordinate clicks, and profile-path logging.** Expected: zero unsafe production hits.
 
-- [ ] **Step 4: Run controlled live smoke only if explicit browser env exists.** Otherwise record `blocked-external`; never count a fake result as live success.
+- [x] **Step 4: Run controlled live smoke only if explicit browser env exists.** Otherwise record `blocked-external`; never count a fake result as live success.
 
 - [ ] **Step 5: Commit verification docs and request independent Codex review against the branch base.** Fix actionable defects with RED/GREEN regression tests before integration.
 
 Commit: `docs: record chatgpt playwright verification`
+
+## Execution Evidence ? 2026-09-09
+
+- Feature branch: `feat/chatgpt-playwright-driver`; implementation through live-smoke commit `f57fa17`.
+- Focused ChatGPT Web/Playwright verification: **43/43 passed**, 0 failed.
+- Full repository verification: **337/337 passed**, 0 failed.
+- TypeScript build: exit **0**. `git diff --check`: exit **0**.
+- Restart/resume proof creates a conversation with driver A and resumes the exact same `/c/<conversationRef>` with driver B without another send.
+- Controlled smoke now performs `open -> submit -> persist assigned conversationRef -> read structured result -> close owned conversation page`.
+- Smoke CLI semantics are covered deterministically: disabled/missing profile/auth -> exit **2**; domain failure -> exit **1**; fake deterministic success is test-only and never counted as live.
+- Production security scan over feature additions: **0 credential/cookie access hits, 0 coordinate-click hits, 0 profile-path log hits**. The only production browser navigation call targets canonical `https://chatgpt.com/` or exact `https://chatgpt.com/c/<ref>`.
+- Live command `npm run chatgpt:web:smoke` exited **2** with `blocked-external` because `ISEOL_CHATGPT_BROWSER_ENABLED`, dedicated profile root, and browser capability are not configured in this environment. No real ChatGPT turn was claimed.
+- Review-driven hardening in Task 3 added per-conversation concurrent-submit serialization and fail-closed result reads when no pending turn baseline exists; both have deterministic regression tests.
