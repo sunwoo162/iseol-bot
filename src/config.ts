@@ -44,4 +44,13 @@ export const config = {
   iseolChatGptBrowserProfileRoot: optional("ISEOL_CHATGPT_BROWSER_PROFILE_ROOT"),
   iseolChatGptBrowserExecutable: optional("ISEOL_CHATGPT_BROWSER_EXECUTABLE"),
   iseolChatGptBrowserHeadless: optional("ISEOL_CHATGPT_BROWSER_HEADLESS"),
+  iseolIdeaLabRuntimeEnabled: optional("ISEOL_IDEA_LAB_RUNTIME_ENABLED"),
+  iseolIdeaLabRepositoryRoot: optional("ISEOL_IDEA_LAB_REPOSITORY_ROOT"),
+  iseolIdeaLabRepositoryUrl: optional("ISEOL_IDEA_LAB_REPOSITORY_URL"),
+  iseolIdeaLabBaseRef: optional("ISEOL_IDEA_LAB_BASE_REF"),
+  iseolIdeaLabSandboxRoot: optional("ISEOL_IDEA_LAB_SANDBOX_ROOT"),
+  iseolIdeaLabAgentId: optional("ISEOL_IDEA_LAB_AGENT_ID"),
+  iseolIdeaLabTestExecutable: optional("ISEOL_IDEA_LAB_TEST_EXECUTABLE"),
+  iseolIdeaLabTestArgsJson: optional("ISEOL_IDEA_LAB_TEST_ARGS_JSON"),
+  iseolIdeaLabTestTimeoutMs: optional("ISEOL_IDEA_LAB_TEST_TIMEOUT_MS"),
 };
