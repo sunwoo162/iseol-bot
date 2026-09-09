@@ -12,6 +12,7 @@ export interface ChatGptBrowserDriver {
   readStructuredResult(input: { conversationRef: string; timeoutMs: number }): Promise<unknown>;
   probeConversation(conversationRef: string): Promise<ChatGptWebSessionProbe>;
   closeConversation(conversationRef: string): Promise<void>;
+  dispose?(): Promise<void>;
 }
 
 function safeRef(value: unknown): string {

@@ -69,18 +69,30 @@ export async function runChatGptWebBrowserSmokeCli(
     return 2;
   }
 
+  let result: SmokeResult | undefined;
+  let resultCode = 1;
   try {
-    const result = await (deps.runSmoke ?? runChatGptWebControlledSmoke)({ driver });
-    stdout(`ChatGPT browser smoke passed: outcome=${result.outcome}; conversation=${result.conversationRef ?? "none"}`);
-    return 0;
+    result = await (deps.runSmoke ?? runChatGptWebControlledSmoke)({ driver });
+    resultCode = 0;
   } catch (error) {
     if (isExternalBlocker(error)) {
       stderr("ChatGPT browser smoke blocked-external: authentication or browser prerequisite is unavailable.");
-      return 2;
+      resultCode = 2;
+    } else {
+      stderr("ChatGPT browser smoke failed.");
     }
-    stderr("ChatGPT browser smoke failed.");
+  }
+
+  try {
+    await driver.dispose?.();
+  } catch {
+    stderr("ChatGPT browser smoke failed during driver disposal.");
     return 1;
   }
+  if (result) {
+    stdout(`ChatGPT browser smoke passed: outcome=${result.outcome}; conversation=${result.conversationRef ?? "none"}`);
+  }
+  return resultCode;
 }
 
 const cliPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";

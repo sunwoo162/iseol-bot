@@ -73,3 +73,28 @@ test("smoke CLI returns domain-failure code 1 and never labels it passed", async
   assert.equal(code, 1);
   assert.equal(output.some((line) => /passed/i.test(line)), false);
 });
+
+test("smoke CLI disposes the production driver on both success and domain failure", async () => {
+  for (const shouldFail of [false, true]) {
+    let disposeCalls = 0;
+    const disposableDriver: ChatGptBrowserDriver = {
+      ...fakeDriver,
+      async dispose() { disposeCalls += 1; },
+    };
+    const code = await runChatGptWebBrowserSmokeCli({
+      ISEOL_CHATGPT_BROWSER_ENABLED: "true",
+      ISEOL_CHATGPT_BROWSER_PROFILE_ROOT: resolve("C:/iseol-chatgpt-profile"),
+    }, {
+      roots,
+      resolveDriver: async () => disposableDriver,
+      runSmoke: async () => {
+        if (shouldFail) throw new Error("domain failure");
+        return { conversationRef: "smoke-conv", outcome: "continue", summary: "ok", intentCount: 0 };
+      },
+      stdout: () => undefined,
+      stderr: () => undefined,
+    });
+    assert.equal(code, shouldFail ? 1 : 0);
+    assert.equal(disposeCalls, 1);
+  }
+});

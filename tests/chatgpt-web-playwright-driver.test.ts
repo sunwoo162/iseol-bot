@@ -23,6 +23,7 @@ function fakeBackend(overrides: Partial<PlaywrightBrowserBackend> = {}) {
     latestAssistantText: async () => assistantText,
     generationControlCount: async () => generatingCount,
     closeOwnedPage: async () => { closed += 1; },
+    dispose: async () => undefined,
     ...overrides,
   };
   return { backend, urls, closed: () => closed, sends: () => sends, filled: () => filled, setAssistant: (text: string | null, count = 1) => { assistantText = text; assistantCount = count; }, setGenerating: (count: number) => { generatingCount = count; }, setUrl: (url: string) => { currentUrl = url; } };

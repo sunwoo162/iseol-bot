@@ -191,3 +191,17 @@ test("controlled smoke submits before reading and persists a ref assigned by fir
   assert.equal(result.conversationRef, "smoke-created");
   assert.deepEqual(calls, ["open", "submit", "read:smoke-created", "close:smoke-created"]);
 });
+
+test("enabled bridge service exposes an explicit driver disposal handle", async () => {
+  let disposeCalls = 0;
+  const driver: ChatGptBrowserDriver = {
+    ...productionDriver,
+    async dispose() { disposeCalls += 1; },
+  };
+  const service = await startChatGptWebBridgeService({ enabled: true, workerRoot: "data/runs" }, driver);
+  assert.equal(service.enabled, true);
+  if (!service.enabled) throw new Error("bridge unexpectedly disabled");
+  assert.equal(typeof (service as any).dispose, "function");
+  await (service as any).dispose();
+  assert.equal(disposeCalls, 1);
+});

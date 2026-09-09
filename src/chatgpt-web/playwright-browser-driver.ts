@@ -228,5 +228,6 @@ export async function createPlaywrightChatGptBrowserDriver(
       if (!REF.test(conversationRef)) lost("Conversation identity is invalid");
       await backend.closeOwnedPage();
     },
+    async dispose() { await backend.dispose(); },
   };
 }
