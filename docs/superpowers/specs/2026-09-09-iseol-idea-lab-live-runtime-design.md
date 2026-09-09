@@ -140,10 +140,15 @@ The live runtime is opt-in and requires explicit target settings. Add configurat
 - `ISEOL_IDEA_LAB_BASE_REF`
 - `ISEOL_IDEA_LAB_SANDBOX_ROOT`
 - `ISEOL_IDEA_LAB_AGENT_ID`
+- `ISEOL_IDEA_LAB_TEST_EXECUTABLE`
+- `ISEOL_IDEA_LAB_TEST_ARGS_JSON` (JSON string array)
+- `ISEOL_IDEA_LAB_TEST_TIMEOUT_MS` (optional; defaults to 120000)
 
 When runtime is enabled, repository root, repository URL, sandbox root, base ref, and agent id are required and must be validated before campaign execution starts.
 
 Repository URL must be a supported Git remote URL for the existing sandbox/deploy path. Repository root and sandbox root must resolve to safe explicit paths; sandbox root must not equal or contain the Iseol repository/model/run/web/browser-profile roots.
+
+The test executable and arguments are configuration-owned and are compiled into the canonical `TEST` Desktop Task Pack; the runtime must not guess `npm test`, a package manager, or any repository-specific command. `CONTEXT` uses bounded Git inspection and `COMMIT` uses one deterministic Git commit operation in the isolated production worktree.
 
 Vercel credentials/project configuration continue to use the existing Vercel resolver. ChatGPT browser settings continue to use the existing browser resolver. Desktop Agent connection/configuration continues to use the existing Desktop Agent Core settings.
 
@@ -336,6 +341,7 @@ Likely new modules:
 - `src/idea-lab/runtime-config.ts`
 - `src/idea-lab/runtime-service.ts`
 - `src/idea-lab/production-runtime-driver.ts`
+- `src/idea-lab/production-desktop-compiler.ts`
 - optionally `src/runtime/iseol-runtime-services.ts` for testable process composition
 - controlled runtime smoke script only if useful after deterministic wiring is complete
 
