@@ -4,6 +4,7 @@
     "private":  true,
     "type":  "module",
     "scripts":  {
+                    "test:idea-lab-production-desktop-compiler":  "node --import tsx --test tests/idea-lab-production-desktop-compiler.test.ts tests/desktop-agent-contracts.test.ts tests/desktop-agent-executor.test.ts",
                     "dev":  "node --use-system-ca --watch --import tsx src/index.ts",
                     "register":  "tsx src/register-commands.ts",
                     "build":  "tsc -p tsconfig.json",
