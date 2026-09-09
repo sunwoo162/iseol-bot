@@ -222,5 +222,12 @@ The deterministic bridge is complete when a preflight-ready reasoning stage can 
 ### Playwright production-driver follow-up ? 2026-09-09
 
 - Production driver/config/resolver, exact conversation resume, bounded submit/result extraction, and controlled smoke CLI are implemented behind the existing adapter.
-- Focused production-driver/bridge/recovery E2E verification: **43/43 passed**; full repository: **337/337 passed**; build and diff-check passed.
+- Focused production-driver/bridge/recovery/lifecycle verification: **46/46 passed**; full repository: **340/340 passed**; build and diff-check passed.
 - Live ChatGPT browser remains **blocked-external** only because no dedicated authenticated profile/browser env is configured on this machine; the adapter itself is no longer the missing capability.
+
+
+### ChatGPT browser lifecycle review fix ? 2026-09-09
+
+- Independent review found that closing the only owned Playwright page made the singleton driver unusable for later conversations and that the persistent context lacked explicit disposal.
+- `5715765 fix: preserve chatgpt browser lifecycle` recreates the owned page lazily after per-conversation close and exposes explicit disposal through backend/driver/service; the smoke CLI disposes in both success and failure paths.
+- Final focused verification: **46/46 passed**; full repository: **340/340 passed**; build and `git diff --check` passed; re-review found no actionable regression.

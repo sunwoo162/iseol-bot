@@ -310,5 +310,12 @@ Evaluation events remain in evaluation storage. They are never forwarded into `a
 ### ChatGPT Playwright follow-up ? 2026-09-09
 
 - The prior missing-driver blocker is resolved in code: production Playwright driver + resolver + bootstrap wiring now exist.
-- Deterministic ChatGPT/Playwright focused verification is **43/43 passed** and current full repository verification is **337/337 passed**.
+- Deterministic ChatGPT/Playwright focused verification is **46/46 passed** and current full repository verification is **340/340 passed**.
 - Live status remains **blocked-external** because no dedicated browser/profile environment is configured/authenticated; no fake smoke was promoted to live success.
+
+
+### ChatGPT browser lifecycle review fix ? 2026-09-09
+
+- Independent review found that closing the only owned Playwright page made the singleton driver unusable for later conversations and that the persistent context lacked explicit disposal.
+- `5715765 fix: preserve chatgpt browser lifecycle` recreates the owned page lazily after per-conversation close and exposes explicit disposal through backend/driver/service; the smoke CLI disposes in both success and failure paths.
+- Final focused verification: **46/46 passed**; full repository: **340/340 passed**; build and `git diff --check` passed; re-review found no actionable regression.

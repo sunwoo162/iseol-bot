@@ -186,15 +186,15 @@ Expected: all pass.
 
 - [x] **Step 4: Run controlled live smoke only if explicit browser env exists.** Otherwise record `blocked-external`; never count a fake result as live success.
 
-- [ ] **Step 5: Commit verification docs and request independent Codex review against the branch base.** Fix actionable defects with RED/GREEN regression tests before integration.
+- [x] **Step 5: Commit verification docs and request independent Codex review against the branch base.** Fix actionable defects with RED/GREEN regression tests before integration.
 
 Commit: `docs: record chatgpt playwright verification`
 
 ## Execution Evidence ? 2026-09-09
 
-- Feature branch: `feat/chatgpt-playwright-driver`; implementation through live-smoke commit `f57fa17`.
-- Focused ChatGPT Web/Playwright verification: **43/43 passed**, 0 failed.
-- Full repository verification: **337/337 passed**, 0 failed.
+- Feature branch: `feat/chatgpt-playwright-driver`; implementation plus lifecycle review fix through `5715765`.
+- Focused ChatGPT Web/Playwright verification: **46/46 passed**, 0 failed.
+- Full repository verification after lifecycle hardening: **340/340 passed**, 0 failed.
 - TypeScript build: exit **0**. `git diff --check`: exit **0**.
 - Restart/resume proof creates a conversation with driver A and resumes the exact same `/c/<conversationRef>` with driver B without another send.
 - Controlled smoke now performs `open -> submit -> persist assigned conversationRef -> read structured result -> close owned conversation page`.
@@ -202,3 +202,13 @@ Commit: `docs: record chatgpt playwright verification`
 - Production security scan over feature additions: **0 credential/cookie access hits, 0 coordinate-click hits, 0 profile-path log hits**. The only production browser navigation call targets canonical `https://chatgpt.com/` or exact `https://chatgpt.com/c/<ref>`.
 - Live command `npm run chatgpt:web:smoke` exited **2** with `blocked-external` because `ISEOL_CHATGPT_BROWSER_ENABLED`, dedicated profile root, and browser capability are not configured in this environment. No real ChatGPT turn was claimed.
 - Review-driven hardening in Task 3 added per-conversation concurrent-submit serialization and fail-closed result reads when no pending turn baseline exists; both have deterministic regression tests.
+
+
+## Independent review fixes
+
+- First full-branch Codex review found two valid lifecycle defects before merge: closing the only owned page made the singleton driver unusable for later conversations, and the persistent browser context had no explicit disposal path.
+- `5715765 fix: preserve chatgpt browser lifecycle` adds lazy owned-page recreation after conversation close, explicit backend/driver/service disposal, and smoke disposal on success/failure.
+- Lifecycle RED/GREEN gate: **37/37 passed** plus TypeScript build and `git diff --check`.
+- Final focused gate including backend/smoke lifecycle coverage: **46/46 passed**. Final full repository gate: **340/340 passed**.
+- Re-review against parent base `4e61ee6` reported **no discrete actionable regressions**.
+- Live ChatGPT smoke remains `blocked-external` with exit **2** because the dedicated browser/profile capability is not configured; no fake result is reported as live.
