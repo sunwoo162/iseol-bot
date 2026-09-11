@@ -122,3 +122,30 @@ test("server rejects invalid and oversized JSON mutation bodies", async () => {
     );
   }
 });
+
+
+test("server passes ready Idea Lab runtime capability through to campaign creation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-web-runtime-"));
+  const modelRoot = join(root, "model");
+  const harnessRoot = join(root, "runs");
+  const webRoot = join(root, "web");
+  await mkdir(webRoot, { recursive: true });
+  await writeFile(join(webRoot, "index.html"), "<h1>Iseol</h1>", "utf8");
+  const enqueued: string[] = [];
+  const server = await startWebControlPlaneServer({
+    host: "127.0.0.1", port: 0, token: "secret-token", modelRoot, harnessRoot, webRoot,
+    ideaLabRuntime: { state: "ready", enqueue: (id: string) => enqueued.push(id) },
+  });
+  try {
+    const address = server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/idea-lab/campaigns`, {
+      method: "POST", headers: { authorization: "Bearer secret-token", "content-type": "application/json" },
+      body: JSON.stringify({ seed: "server live runtime" }),
+    });
+    assert.equal(response.status, 201);
+    const campaign = await response.json() as { id: string };
+    assert.deepEqual(enqueued, [campaign.id]);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});

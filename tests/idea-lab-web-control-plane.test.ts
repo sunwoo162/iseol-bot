@@ -138,3 +138,54 @@ test("Idea Lab static UI exposes Campaign controls and keeps Promote on prototyp
   const productionRenderer = script.slice(script.indexOf("function productionCard"), script.indexOf("function renderIdeaLab"));
   assert.equal(productionRenderer.includes("Promote to project"), false);
 });
+
+
+test("ready Idea Lab runtime persists then enqueues exactly once without awaiting worker completion", async () => {
+  const deps = await fixture();
+  const enqueued: string[] = [];
+  let workerResolved = false;
+  const worker = new Promise<void>(() => { /* intentionally never resolves */ });
+  const response = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/idea-lab/campaigns", headers: auth(), body: { seed: "live focus" },
+  }, {
+    ...deps, now: () => NOW, campaignIdFactory: () => "camp-live-1",
+    ideaLabRuntime: { state: "ready", enqueue: (id: string) => { enqueued.push(id); void worker.then(() => { workerResolved = true; }); } },
+  });
+  assert.equal(response.status, 201);
+  assert.deepEqual(enqueued, ["camp-live-1"]);
+  assert.equal((await loadIdeaLabCampaign(deps.modelRoot, "camp-live-1"))?.status, "generating");
+  assert.equal(workerResolved, false);
+});
+
+test("disabled Idea Lab runtime preserves storage-only campaign creation", async () => {
+  const deps = await fixture();
+  const response = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/idea-lab/campaigns", headers: auth(), body: { seed: "offline focus" },
+  }, { ...deps, campaignIdFactory: () => "camp-disabled-1", ideaLabRuntime: { state: "disabled" } });
+  assert.equal(response.status, 201);
+  assert.equal((await loadIdeaLabCampaign(deps.modelRoot, "camp-disabled-1"))?.status, "generating");
+});
+
+test("blocked Idea Lab runtime returns 503 before persistence", async () => {
+  const deps = await fixture();
+  const response = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/idea-lab/campaigns", headers: auth(), body: { seed: "blocked focus" },
+  }, { ...deps, campaignIdFactory: () => "camp-blocked-1", ideaLabRuntime: { state: "blocked" } });
+  assert.equal(response.status, 503);
+  assert.deepEqual(response.body, { error: "idea lab runtime unavailable" });
+  assert.equal(await loadIdeaLabCampaign(deps.modelRoot, "camp-blocked-1"), null);
+});
+
+test("unauthorized campaign creation never persists or enqueues", async () => {
+  const deps = await fixture();
+  const enqueued: string[] = [];
+  const response = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/idea-lab/campaigns", headers: {}, body: { seed: "private focus" },
+  }, {
+    ...deps, campaignIdFactory: () => "camp-unauthorized-1",
+    ideaLabRuntime: { state: "ready", enqueue: (id: string) => enqueued.push(id) },
+  });
+  assert.equal(response.status, 401);
+  assert.deepEqual(enqueued, []);
+  assert.equal(await loadIdeaLabCampaign(deps.modelRoot, "camp-unauthorized-1"), null);
+});

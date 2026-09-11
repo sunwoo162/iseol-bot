@@ -26,6 +26,11 @@ export type WebControlPlaneResponse = {
   body: unknown;
 };
 
+export type IdeaLabRuntimeCapability = {
+  state: "disabled" | "ready" | "blocked";
+  enqueue?: (campaignId: string) => void;
+};
+
 export type WebControlPlaneRouterDependencies = {
   modelRoot: string;
   harnessRoot: string;
@@ -33,6 +38,7 @@ export type WebControlPlaneRouterDependencies = {
   token?: string;
   now?: () => string;
   campaignIdFactory?: () => string;
+  ideaLabRuntime?: IdeaLabRuntimeCapability;
 };
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
@@ -91,11 +97,13 @@ export async function routeWebControlPlaneRequest(
   if (path === "/api/idea-lab/campaigns") {
     if (request.method !== "POST") return methodNotAllowed();
     if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    if (deps.ideaLabRuntime?.state === "blocked") return response(503, { error: "idea lab runtime unavailable" });
     try {
       const campaign = await createWebIdeaLabCampaign({
         root: deps.modelRoot, body: request.body ?? {},
         at: (deps.now ?? (() => new Date().toISOString()))(), idFactory: deps.campaignIdFactory,
       });
+      if (deps.ideaLabRuntime?.state === "ready") deps.ideaLabRuntime.enqueue?.(campaign.id);
       return response(201, campaign);
     } catch (error) {
       if (error instanceof WebIdeaLabActionError) return response(error.status, { error: error.message });

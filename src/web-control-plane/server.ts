@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { extname, relative, resolve, sep } from "node:path";
 import {
   routeWebControlPlaneRequest,
+  type IdeaLabRuntimeCapability,
   type WebControlPlaneRequest,
 } from "./router.js";
 
@@ -20,6 +21,7 @@ export type WebControlPlaneConfig = {
 
 export type StartWebControlPlaneOptions = WebControlPlaneConfig & {
   port: number;
+  ideaLabRuntime?: IdeaLabRuntimeCapability;
 };
 
 function isLoopbackHost(host: string): boolean {
