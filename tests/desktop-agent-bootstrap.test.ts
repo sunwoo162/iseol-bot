@@ -93,9 +93,11 @@ test("persistent Agent reconnect uses bounded exponential backoff", async () => 
 
 test("production entrypoints wire Core startup and Desktop Agent scripts", async () => {
   const index = await readFile(new URL("../src/index.ts", import.meta.url), "utf8");
+  const runtime = await readFile(new URL("../src/runtime/iseol-runtime-services.ts", import.meta.url), "utf8");
   const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-  assert.match(index, /startDesktopAgentCoreService/);
-  assert.match(index, /resolveDesktopAgentCoreConfig/);
+  assert.match(index, /startIseolRuntimeServices/);
+  assert.match(runtime, /startDesktopAgentCoreService/);
+  assert.match(runtime, /resolveDesktopAgentCoreConfig/);
   assert.equal(pkg.scripts["desktop:agent"], "tsx src/desktop-agent/main.ts");
   assert.equal(pkg.scripts["desktop:agent:start"], "node dist/desktop-agent/main.js");
 });

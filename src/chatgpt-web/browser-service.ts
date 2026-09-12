@@ -55,6 +55,7 @@ export type ChatGptWebBridgeService =
 export async function startChatGptWebBridgeService(
   config: ChatGptWebBridgeConfig,
   driver?: ChatGptBrowserDriver,
+  options: { ownsDriver?: boolean } = {},
 ): Promise<ChatGptWebBridgeService> {
   if (!config.enabled) return { enabled: false };
   if (!driver) throw new Error("ChatGPT Web browser driver is required when the bridge is enabled");
@@ -62,6 +63,6 @@ export async function startChatGptWebBridgeService(
     enabled: true,
     workerRoot: config.workerRoot,
     adapter: createProductionChatGptWebAdapter(driver),
-    async dispose() { await driver.dispose?.(); },
+    async dispose() { if (options.ownsDriver ?? true) await driver.dispose?.(); },
   };
 }

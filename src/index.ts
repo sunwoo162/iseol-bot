@@ -1,5 +1,4 @@
 import "./services/fetch-fallback.js";
-import { resolve } from "node:path";
 import {
   Client,
   Events,
@@ -36,9 +35,7 @@ import {
   stopStudySession,
 } from "./services/voice-time.js";
 import { startWebhookServer } from "./services/webhook-server.js";
-import { resolveWebControlPlaneConfig, startWebControlPlaneServer } from "./web-control-plane/server.js";
-import { resolveDesktopAgentCoreConfig, startDesktopAgentCoreService } from "./desktop-agent/core-service.js";
-import { resolveChatGptWebBridgeRuntime, startChatGptWebBridgeService } from "./chatgpt-web/browser-service.js";
+import { startIseolRuntimeServices } from "./runtime/iseol-runtime-services.js";
 
 const client = new Client({
   intents: [
@@ -50,6 +47,27 @@ const client = new Client({
   ],
 });
 const github = new GitHubWebhookService(config.githubToken);
+let iseolRuntimeServices: Awaited<ReturnType<typeof startIseolRuntimeServices>> | null = null;
+let iseolRuntimeStartup: Promise<Awaited<ReturnType<typeof startIseolRuntimeServices>>> | null = null;
+
+let shuttingDown = false;
+async function shutdownIseolRuntime(signal: "SIGINT" | "SIGTERM"): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try {
+    const services = iseolRuntimeServices ?? await iseolRuntimeStartup?.catch(() => null);
+    await services?.dispose();
+  } catch (error) {
+    console.error("Iseol runtime shutdown failed", error);
+    process.exitCode = 1;
+  } finally {
+    process.exitCode ??= signal === "SIGINT" ? 130 : 143;
+    client.destroy();
+  }
+}
+process.once("SIGINT", () => { void shutdownIseolRuntime("SIGINT"); });
+process.once("SIGTERM", () => { void shutdownIseolRuntime("SIGTERM"); });
+
 
 const interactionRouterDependencies: InteractionRouterDependencies = {
   handleProjectAutocomplete,
@@ -74,60 +92,12 @@ const interactionRouterDependencies: InteractionRouterDependencies = {
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`${readyClient.user.tag} 로그인 완료 · 연결 서버 ${readyClient.guilds.cache.size}개`);
   startWebhookServer(client);
-  try {
-    const webConfig = resolveWebControlPlaneConfig({
-      ISEOL_WEB_HOST: config.iseolWebHost,
-      ISEOL_WEB_PORT: config.iseolWebPort,
-      ISEOL_WEB_TOKEN: config.iseolWebToken,
-      ISEOL_MODEL_ROOT: config.iseolModelRoot,
-      ISEOL_RUN_ROOT: config.iseolRunRoot,
-    });
-    void startWebControlPlaneServer(webConfig)
-      .then(() => console.log(`Iseol Web Control Plane listening: http://${webConfig.host}:${webConfig.port}`))
-      .catch((error) => console.error("Iseol Web Control Plane 시작 실패", error));
-  } catch (error) {
-    console.error("Iseol Web Control Plane 설정 거부", error);
-  }
-  try {
-    const desktopConfig = resolveDesktopAgentCoreConfig({
-      ISEOL_DESKTOP_AGENT_HOST: config.iseolDesktopAgentHost,
-      ISEOL_DESKTOP_AGENT_PORT: config.iseolDesktopAgentPort,
-      ISEOL_DESKTOP_AGENT_TOKEN: config.iseolDesktopAgentToken,
-      ISEOL_DESKTOP_AGENT_ROOT: config.iseolDesktopAgentRoot,
-    });
-    if (desktopConfig.enabled) {
-      void startDesktopAgentCoreService(desktopConfig)
-        .then((service) => console.log(`Iseol Desktop Agent Core listening: ${service.url}`))
-        .catch((error) => console.error("Iseol Desktop Agent Core 시작 실패", error));
-    }
-  } catch (error) {
-    console.error("Iseol Desktop Agent Core 설정 거부", error);
-  }
-  try {
-    const cwd = process.cwd();
-    const chatGptWebEnv = {
-      ISEOL_CHATGPT_WEB_ENABLED: config.iseolChatGptWebEnabled,
-      ISEOL_CHATGPT_WEB_ROOT: config.iseolChatGptWebRoot,
-      ISEOL_CHATGPT_BROWSER_ENABLED: config.iseolChatGptBrowserEnabled,
-      ISEOL_CHATGPT_BROWSER_PROFILE_ROOT: config.iseolChatGptBrowserProfileRoot,
-      ISEOL_CHATGPT_BROWSER_EXECUTABLE: config.iseolChatGptBrowserExecutable,
-      ISEOL_CHATGPT_BROWSER_HEADLESS: config.iseolChatGptBrowserHeadless,
-    };
-    const runtime = await resolveChatGptWebBridgeRuntime(chatGptWebEnv, {
-      repositoryRoot: cwd,
-      modelRoot: resolve(config.iseolModelRoot || resolve(cwd, "data", "iseol")),
-      runRoot: resolve(config.iseolRunRoot || resolve(cwd, "data", "runs")),
-      webRoot: resolve(cwd, "web"),
-      chatGptWebRoot: resolve(config.iseolChatGptWebRoot || resolve(cwd, "data", "runs")),
-    });
-    if (runtime.config.enabled) {
-      void startChatGptWebBridgeService(runtime.config, runtime.driver ?? undefined)
-        .then(() => console.log("Iseol ChatGPT Web Bridge started"))
-        .catch((error) => console.error("Iseol ChatGPT Web Bridge \uC2DC\uC791 \uC2E4\uD328", error));
-    }
-  } catch (error) {
-    console.error("Iseol ChatGPT Web Bridge \uC124\uC815 \uAC70\uBD80", error);
-  }
+  iseolRuntimeStartup = startIseolRuntimeServices({ env: process.env });
+  void iseolRuntimeStartup
+    .then((services) => {
+      if (!shuttingDown) iseolRuntimeServices = services;
+    })
+    .catch((error) => console.error("Iseol runtime composition failed", error));
   startContestFeedPolling(client);
   startContestAudienceFeedPolling(client);
   startJobFeedPolling(client);
