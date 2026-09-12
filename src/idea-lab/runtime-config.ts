@@ -57,7 +57,8 @@ export function resolveIdeaLabRuntimeConfig(env: EnvLike, roots: IdeaLabRuntimeR
   let testArgs: unknown;
   try { testArgs = JSON.parse(required(env, "ISEOL_IDEA_LAB_TEST_ARGS_JSON")); } catch { throw new Error("ISEOL_IDEA_LAB_TEST_ARGS_JSON must be valid JSON string array"); }
   if (!Array.isArray(testArgs) || testArgs.some((arg) => typeof arg !== "string")) throw new Error("ISEOL_IDEA_LAB_TEST_ARGS_JSON must be a string array");
-  const testTimeoutMs = Number(required(env, "ISEOL_IDEA_LAB_TEST_TIMEOUT_MS"));
+  const timeoutText = env.ISEOL_IDEA_LAB_TEST_TIMEOUT_MS?.trim() || "120000";
+  const testTimeoutMs = Number(timeoutText);
   if (!Number.isInteger(testTimeoutMs) || testTimeoutMs <= 0) throw new Error("ISEOL_IDEA_LAB_TEST_TIMEOUT_MS must be positive");
   return { enabled: true, repositoryRoot, repositoryUrl, baseRef: required(env, "ISEOL_IDEA_LAB_BASE_REF"), sandboxRoot, agentId: required(env, "ISEOL_IDEA_LAB_AGENT_ID"), testExecutable: required(env, "ISEOL_IDEA_LAB_TEST_EXECUTABLE"), testArgs, testTimeoutMs };
 }

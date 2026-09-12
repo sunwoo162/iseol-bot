@@ -37,7 +37,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
     deps: {
       resolveBrowser: async () => browserDriver(),
       startDesktop: async () => ({
-        transport: { sendTask() {}, awaitResult: async () => { throw new Error("unused"); } },
+        transport: { isAgentConnected: () => true, sendTask() {}, awaitResult: async () => { throw new Error("unused"); } },
         close: async () => { events.push("desktop"); },
       }),
       startWeb: async (options: any) => {
@@ -127,9 +127,32 @@ for (const [name, configure] of [
   });
 }
 
+test("live dependency startup failure leaves Web available with Idea Lab blocked", async () => {
+  for (const failing of ["desktop", "browser"] as const) {
+    let constructed = 0;
+    let recovered = 0;
+    const value = fixture({ ideaLabConfig: liveConfig() });
+    value.deps.resolveDeploy = async () => ({});
+    value.deps.createProductionDriver = () => { constructed += 1; return {}; };
+    value.deps.createRuntime = () => ({
+      recover: async () => { recovered += 1; },
+      dispose: async () => undefined,
+    });
+    if (failing === "desktop") value.deps.startDesktop = async () => { throw new Error("desktop unavailable"); };
+    if (failing === "browser") value.deps.resolveBrowser = async () => { throw new Error("browser unavailable"); };
+
+    const services = await startIseolRuntimeServices(value);
+    assert.equal(services.ideaLabCapability.state, "blocked");
+    assert.equal(constructed, 0);
+    assert.equal(recovered, 0);
+    assert.ok(value.events.includes("web:blocked"));
+    await services.dispose();
+  }
+});
+
 test("production driver receives the shared Desktop transport and a real sandbox adapter", async () => {
   let productionInput: any;
-  const transport = { sendTask() {}, awaitResult: async () => { throw new Error("unused"); } };
+  const transport = { isAgentConnected: () => true, sendTask() {}, awaitResult: async () => { throw new Error("unused"); } };
   const value = fixture({ ideaLabConfig: liveConfig() });
   value.deps.startDesktop = async () => ({ transport, close: async () => undefined });
   value.deps.resolveDeploy = async () => ({});
@@ -153,7 +176,7 @@ test("recovery finishes before Web sees ready and shutdown follows single-owner 
     dispose: async () => { order.push("runtime"); },
   });
   value.deps.startDesktop = async () => ({
-    transport: { sendTask() {}, awaitResult: async () => { throw new Error("unused"); } },
+    transport: { isAgentConnected: () => true, sendTask() {}, awaitResult: async () => { throw new Error("unused"); } },
     close: async () => { order.push("desktop"); },
   });
   value.deps.startWeb = async (options: any) => {
@@ -179,7 +202,7 @@ test("startup failure disposes already-created resources and preserves the origi
   const order: string[] = [];
   const value = fixture({ env: { ISEOL_CHATGPT_WEB_ENABLED: "true" }, ideaLabConfig: liveConfig() });
   value.deps.startDesktop = async () => ({
-    transport: { sendTask() {}, awaitResult: async () => { throw new Error("unused"); } },
+    transport: { isAgentConnected: () => true, sendTask() {}, awaitResult: async () => { throw new Error("unused"); } },
     close: async () => { order.push("desktop"); },
   });
   value.deps.resolveBrowser = async () => browserDriver(() => { order.push("browser"); });
@@ -203,4 +226,31 @@ test("Discord entrypoint disposes the composed runtime on termination signals", 
   assert.match(source, /let iseolRuntimeStartup/);
   assert.match(source, /await iseolRuntimeStartup/);
   assert.match(source, /await services\?\.dispose\(\)/);
+});
+
+test("unavailable configured Desktop agent keeps live Idea Lab blocked before driver construction", async () => {
+  let constructed = 0;
+  let recovered = 0;
+  const value = fixture({ ideaLabConfig: liveConfig() });
+  value.deps.startDesktop = async () => ({
+    transport: {
+      isAgentConnected: (agentId: string) => { assert.equal(agentId, "agent-live"); return false; },
+      sendTask() {},
+      awaitResult: async () => { throw new Error("unused"); },
+    },
+    close: async () => undefined,
+  });
+  value.deps.resolveDeploy = async () => ({});
+  value.deps.createProductionDriver = () => { constructed += 1; return {}; };
+  value.deps.createRuntime = () => ({
+    recover: async () => { recovered += 1; },
+    dispose: async () => undefined,
+  });
+
+  const services = await startIseolRuntimeServices(value);
+  assert.equal(services.ideaLabCapability.state, "blocked");
+  assert.equal(constructed, 0);
+  assert.equal(recovered, 0);
+  assert.ok(value.events.includes("web:blocked"));
+  await services.dispose();
 });

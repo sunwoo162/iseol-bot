@@ -29,18 +29,35 @@ export type IdeaLabProductionRuntimeDriverInput = EnabledConfig & {
   now?: () => string;
 };
 const SAFE_PROVIDER_RETRY = "Idea Lab provider operation could not be completed; retrying safely";
+const SAFE_PROVIDER_EXTERNAL = "Idea Lab provider authorization or capability is unavailable";
 const SAFE_FINAL_FAILURE = "Harness production failed";
 
-function canonicalCommit(run: HarnessRuntimeRunEnvelope): string {
-  const evidence = run.evidence.find((item) =>
-    item.kind === "commit" &&
-    item.stage === "COMMIT" &&
-    /^[0-9a-f]{40}$/i.test(item.reference ?? ""),
-  );
-  if (!evidence?.reference) {
-    throw new Error("Idea Lab canonical COMMIT evidence is missing or invalid");
+function classifyProviderFailure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/\bstatus (?:401|403)\b|unauthori[sz]ed|forbidden|authentication|authorization/i.test(message)) {
+    return { type: "waiting-external" as const, reason: SAFE_PROVIDER_EXTERNAL };
   }
-  return evidence.reference;
+  if (/deployment not ready|response (?:lost|closed)|connection (?:reset|closed)|\bstatus (?:408|425|429|5\d\d)\b|fetch failed|ECONNRESET|ETIMEDOUT|ENETUNREACH|EAI_AGAIN/i.test(message)) {
+    return { type: "retryable-failure" as const, reason: SAFE_PROVIDER_RETRY };
+  }
+  return { type: "final-failure" as const, reason: SAFE_FINAL_FAILURE };
+}
+
+function canonicalCommit(run: HarnessRuntimeRunEnvelope): string {
+  const evidence = run.evidence.filter((item) =>
+    item.kind === "commit" && item.stage === "COMMIT",
+  );
+  if (evidence.length !== 1 || !/^[0-9a-f]{40}$/i.test(evidence[0]?.reference ?? "")) {
+    throw new Error("Idea Lab canonical COMMIT evidence is missing, invalid, or ambiguous");
+  }
+  return evidence[0]!.reference!;
+}
+
+function commitIdentityConflict(production: PrototypeProduction, commitSha: string): boolean {
+  return Boolean(
+    (production.commitSha?.trim() && production.commitSha !== commitSha)
+    || (production.deployment?.commitSha?.trim() && production.deployment.commitSha !== commitSha),
+  );
 }
 
 function expectedProductionBranch(campaignId: string, productionId: string): string {
@@ -96,16 +113,19 @@ function assertProductionIdentity(
   }
 }
 
-function verifiedReceipt(production: PrototypeProduction): PrototypeDeploymentReceipt | null {
+function deploymentReceipt(production: PrototypeProduction): PrototypeDeploymentReceipt | null {
   const value = production.deployment;
-  if (!value?.provider || !value.deploymentId || !value.url || !value.commitSha || !value.deployedAt || !value.verifiedAt) {
-    return null;
-  }
+  if (!value?.provider || !value.deploymentId || !value.url || !value.commitSha || !value.deployedAt) return null;
   if (value.commitSha !== production.commitSha) return null;
   return {
     provider: value.provider, deploymentId: value.deploymentId, url: value.url,
-    commitSha: value.commitSha, deployedAt: value.deployedAt, verifiedAt: value.verifiedAt,
+    commitSha: value.commitSha, deployedAt: value.deployedAt,
+    ...(value.verifiedAt ? { verifiedAt: value.verifiedAt } : {}),
   };
+}
+function verifiedReceipt(production: PrototypeProduction): PrototypeDeploymentReceipt | null {
+  const value = deploymentReceipt(production);
+  return value?.verifiedAt ? value : null;
 }
 export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRuntimeDriverInput) {
   const now = input.now ?? (() => new Date().toISOString());
@@ -176,26 +196,29 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
         }
 
         const current = await loadPrototypeProduction(input.roots.modelRoot, productionId);
-        if (!current) return { type: "retryable-failure", reason: SAFE_PROVIDER_RETRY };
-        const commitSha = canonicalCommit(run);
-        const deployable: PrototypeProduction = {
-          ...current,
-          commitSha,
-          status: run.state.stage === "DEPLOY" ? "deploying" : "verifying",
-          updatedAt: now(),
-        };
-        await savePrototypeProduction(input.roots.modelRoot, deployable);
+        if (!current) return { type: "final-failure", reason: SAFE_FINAL_FAILURE };
 
         try {
-          const deployment = await deployPrototypeProduction(deployable, input.deployAdapter);
-          const withDeployment: PrototypeProduction = {
-            ...deployable,
-            deployment,
-            status: "verifying",
+          const commitSha = canonicalCommit(run);
+          if (commitIdentityConflict(current, commitSha)) {
+            return { type: "final-failure", reason: SAFE_FINAL_FAILURE };
+          }
+          const deployable: PrototypeProduction = {
+            ...current,
+            commitSha,
+            status: run.state.stage === "DEPLOY" ? "deploying" : "verifying",
             updatedAt: now(),
           };
-          await savePrototypeProduction(input.roots.modelRoot, withDeployment);
+          await savePrototypeProduction(input.roots.modelRoot, deployable);
           if (run.state.stage === "DEPLOY") {
+            const deployment = await deployPrototypeProduction(deployable, input.deployAdapter);
+            const withDeployment: PrototypeProduction = {
+              ...deployable,
+              deployment,
+              status: "verifying",
+              updatedAt: now(),
+            };
+            await savePrototypeProduction(input.roots.modelRoot, withDeployment);
             return {
               type: "completed",
               evidence: [{
@@ -211,9 +234,11 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
             };
           }
 
-          const verified = await verifyPrototypeProductionDeployment(withDeployment, deployment, input.deployAdapter);
+          const deployment = deploymentReceipt(deployable);
+          if (!deployment) return { type: "final-failure", reason: SAFE_FINAL_FAILURE };
+          const verified = await verifyPrototypeProductionDeployment(deployable, deployment, input.deployAdapter);
           await savePrototypeProduction(input.roots.modelRoot, {
-            ...withDeployment,
+            ...deployable,
             deployment: verified,
             status: "verifying",
             updatedAt: now(),
@@ -231,8 +256,8 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
               reference: verified.url,
             }],
           };
-        } catch {
-          return { type: "retryable-failure", reason: SAFE_PROVIDER_RETRY };
+        } catch (error) {
+          return classifyProviderFailure(error);
         }
       },
     };
@@ -291,8 +316,14 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
     production: PrototypeProduction,
     proposal: IdeaProposal,    run: HarnessRuntimeRunEnvelope,
   ): Promise<PrototypeProduction> {
-    const commitSha = canonicalCommit(run);
+    let commitSha: string;
+    try {
+      commitSha = canonicalCommit(run);
+    } catch {
+      return persistFailure(production);
+    }
     let latest = await loadPrototypeProduction(input.roots.modelRoot, production.id) ?? production;
+    if (commitIdentityConflict(latest, commitSha)) return persistFailure(latest);
     latest = { ...latest, commitSha, status: "deploying", updatedAt: now() };
     await savePrototypeProduction(input.roots.modelRoot, latest);
 
@@ -305,8 +336,10 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
         deployment = await verifyPrototypeProductionDeployment(latest, deployed, input.deployAdapter);
         latest = { ...latest, deployment, status: "verifying", updatedAt: now() };
         await savePrototypeProduction(input.roots.modelRoot, latest);
-      } catch {
-        throw new Error(SAFE_PROVIDER_RETRY);
+      } catch (error) {
+        const failure = classifyProviderFailure(error);
+        if (failure.type === "final-failure") return persistFailure(latest);
+        throw new Error(failure.reason);
       }
     }
 

@@ -47,11 +47,18 @@ test("enabled runtime requires every field and parses test args and timeout", ()
     assert.equal(config.testTimeoutMs, 60000);
   }
   for (const key of Object.keys(enabledEnv())) {
-    if (key === "ISEOL_IDEA_LAB_RUNTIME_ENABLED") continue;
+    if (key === "ISEOL_IDEA_LAB_RUNTIME_ENABLED" || key === "ISEOL_IDEA_LAB_TEST_TIMEOUT_MS") continue;
     assert.throws(() => resolveIdeaLabRuntimeConfig(enabledEnv({ [key]: "" }), roots), new RegExp(key.replaceAll("_", "[_]?"), "i"));
   }
 });
 
+test("runtime defaults optional test timeout to 120000", () => {
+  const env = enabledEnv();
+  delete env.ISEOL_IDEA_LAB_TEST_TIMEOUT_MS;
+  const config = resolveIdeaLabRuntimeConfig(env, roots);
+  assert.equal(config.enabled, true);
+  if (config.enabled) assert.equal(config.testTimeoutMs, 120000);
+});
 test("rejects unsafe sandbox paths, malformed args, non-positive timeout, and unsupported URLs", () => {
   assert.throws(() => resolveIdeaLabRuntimeConfig(enabledEnv({ ISEOL_IDEA_LAB_SANDBOX_ROOT: roots.modelRoot }), roots), /sandbox/i);
   assert.throws(() => resolveIdeaLabRuntimeConfig(enabledEnv({ ISEOL_IDEA_LAB_SANDBOX_ROOT: "C:/iseol/new-sandbox", ISEOL_IDEA_LAB_REPOSITORY_ROOT: "C:/iseol/new-sandbox/repository" }), roots), /outside/i);

@@ -146,7 +146,7 @@ The live runtime is opt-in and requires explicit target settings. Add configurat
 
 When runtime is enabled, repository root, repository URL, sandbox root, base ref, and agent id are required and must be validated before campaign execution starts.
 
-Repository URL must be a supported Git remote URL for the existing sandbox/deploy path. Repository root and sandbox root must resolve to safe explicit paths; sandbox root must not equal or contain the Iseol repository/model/run/web/browser-profile roots.
+Repository URL must be a supported Git remote URL for the existing sandbox/deploy path. Repository root and sandbox root must resolve to safe explicit paths; sandbox root must not equal or contain the Iseol repository/model/run/web/browser-profile roots. `repositoryRoot` is the trusted local source checkout used by the Desktop `GIT_WORKTREE_CREATE` operation and is intentionally contained by `sandboxRoot`, because the Desktop task `workspaceRoot` is the sandbox boundary and neither the source checkout nor allocated worktree may escape it. This production `repositoryRoot` is distinct from Iseol's own repository root.
 
 The test executable and arguments are configuration-owned and are compiled into the canonical `TEST` Desktop Task Pack; the runtime must not guess `npm test`, a package manager, or any repository-specific command. `CONTEXT` uses bounded Git inspection and `COMMIT` uses one deterministic Git commit operation in the isolated production worktree.
 
@@ -237,6 +237,8 @@ Before runtime-ready:
 - missing ChatGPT browser configuration/profile -> runtime blocked;
 - missing Desktop Agent Core configuration -> runtime blocked;
 - missing Vercel adapter configuration -> runtime blocked.
+
+A blocked Idea Lab capability means no Idea Lab production driver, runtime worker, recovery pass, or live Campaign enqueue capability is constructed or used. It does not require the process composition to tear down an independently enabled shared Desktop Core, ChatGPT browser, or Web bridge that may serve non-Idea-Lab consumers; those resources remain composition-owned and are disposed normally on shutdown.
 
 During execution:
 - ChatGPT authentication/session failures propagate through existing provider/bridge classification and block or retry according to supervisor/Harness rules;

@@ -151,8 +151,29 @@ export async function startIseolRuntimeServices(
   const deps = input.deps ?? {};
   const webConfig = input.webConfig ?? resolveWebControlPlaneConfig(env);
   const roots = input.roots ?? defaultRoots(env, webConfig);
-  const desktopConfig = input.desktopConfig ?? resolveDesktopAgentCoreConfig(env);
-  const ideaLabConfig = input.ideaLabConfig ?? resolveIdeaLabRuntimeConfig(env, roots);
+  const requestedFlag = env.ISEOL_IDEA_LAB_RUNTIME_ENABLED?.trim().toLowerCase() === "true";
+  let ideaLabConfig: IdeaLabRuntimeConfig;
+  let ideaLabConfigBlocked = false;
+  try {
+    ideaLabConfig = input.ideaLabConfig ?? resolveIdeaLabRuntimeConfig(env, roots);
+  } catch (error) {
+    if (!requestedFlag) throw error;
+    ideaLabConfig = { enabled: false };
+    ideaLabConfigBlocked = true;
+  }
+  const ideaLabRequested = ideaLabConfig.enabled || ideaLabConfigBlocked;
+  let desktopConfig: DesktopAgentCoreConfig;
+  try {
+    desktopConfig = input.desktopConfig ?? resolveDesktopAgentCoreConfig(env);
+  } catch (error) {
+    if (!ideaLabRequested) throw error;
+    desktopConfig = {
+      enabled: false,
+      host: "127.0.0.1",
+      port: 8791,
+      stateRoot: resolve(roots.iseolRoot, "data", "desktop-agent"),
+    };
+  }
   const bridgeConfig = resolveChatGptWebBridgeConfig(env);
   const startDesktop = deps.startDesktop ?? startDesktopAgentCoreService;
   const startWeb = deps.startWeb ?? startWebControlPlaneServer;
@@ -169,26 +190,43 @@ export async function startIseolRuntimeServices(
   let bridge: ChatGptWebBridgeService | undefined;
   let runtime: IdeaLabRuntimeService | undefined;
   let webServer: Server | undefined;
-  let capability: IseolRuntimeCapability = ideaLabConfig.enabled
+  let capability: IseolRuntimeCapability = ideaLabRequested
     ? { state: "blocked" }
     : { state: "disabled" };
 
   try {
-    desktopCore = desktopConfig.enabled ? await startDesktop(desktopConfig) : null;
+    if (desktopConfig.enabled) {
+      try {
+        desktopCore = await startDesktop(desktopConfig);
+      } catch (error) {
+        if (!ideaLabRequested) throw error;
+        desktopCore = null;
+      }
+    }
     const needsBrowser = bridgeConfig.enabled || ideaLabConfig.enabled;
     const browserRepositoryRoot = ideaLabConfig.enabled
       ? ideaLabConfig.repositoryRoot
       : roots.iseolRoot;
-    browser = needsBrowser
-      ? await resolveSharedBrowser(env, roots, browserRepositoryRoot, bridgeConfig.workerRoot, resolveBrowser)
-      : null;
+    if (needsBrowser) {
+      try {
+        browser = await resolveSharedBrowser(env, roots, browserRepositoryRoot, bridgeConfig.workerRoot, resolveBrowser);
+      } catch (error) {
+        if (!ideaLabRequested) throw error;
+        browser = null;
+      }
+    }
 
     bridge = bridgeConfig.enabled && browser
       ? await createBridge(bridgeConfig, browser, { ownsDriver: false })
       : undefined;
 
-    if (ideaLabConfig.enabled && desktopCore?.transport && browser) {
-      const deployAdapter = await resolveDeploy(env);
+    if (ideaLabConfig.enabled && desktopCore?.transport && browser && desktopCore.transport.isAgentConnected(ideaLabConfig.agentId)) {
+      let deployAdapter: PrototypeDeployAdapter | null = null;
+      try {
+        deployAdapter = await resolveDeploy(env);
+      } catch {
+        deployAdapter = null;
+      }
       if (deployAdapter) {
         const sandboxAdapter: PrototypeSandboxAdapter = createSandboxAdapter({
           dispatch: async (pack) => {

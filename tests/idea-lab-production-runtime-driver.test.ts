@@ -11,7 +11,7 @@ import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 import { saveIdeaProposal } from "../src/idea-lab/proposal-store.js";
 import { createFakePrototypeDeployAdapter } from "../src/idea-lab/test-support/fake-deploy-adapter.js";
 import { loadPrototypeCandidate } from "../src/project-model/prototype-store.js";
-import { loadPrototypeProduction } from "../src/idea-lab/production-store.js";
+import { loadPrototypeProduction, savePrototypeProduction } from "../src/idea-lab/production-store.js";
 
 test("createProduction is durable and reconciles the same Run and sandbox", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-driver-"));
@@ -178,10 +178,12 @@ test("missing COMMIT evidence fails closed", async () => {
   const { loadHarnessRun } = await import("../src/harness/run-store.js");
   const run = await loadHarnessRun(root, production.runId);
   await saveHarnessRun(root, { ...run!, preflight: { version: 1, runId: run!.request.runId, status: "ready", policy: { version: 1, loadedAt: "now", sources: [], effectiveSha256: "policy" } }, state: { ...run!.state, stage: "DONE", status: "DONE", completedStages: ["COMMIT", "DEPLOY", "PRODUCTION_VERIFY"] }, evidence: [] });
-  await assert.rejects(() => driver.advanceProduction(production), /COMMIT evidence/i);
+  const failed = await driver.advanceProduction(production);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.failureSummary, "Harness production failed");
 });
 
-test("provider failure returns bounded generic failure without provider text", async () => {
+test("unknown provider failure fails closed with bounded generic text", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-driver-safe-"));
   const proposal = baseProposal("camp-safe");
   const driver = makeDriver(root, { proposal, deployAdapter: { reconcile: async () => null, deploy: async () => { throw new Error("SECRET_PROVIDER_TOKEN"); }, verify: async () => { throw new Error("SECRET_PROVIDER_TOKEN"); } } });
@@ -192,9 +194,179 @@ test("provider failure returns bounded generic failure without provider text", a
   const sha = "b".repeat(40);
   await saveHarnessRun(root, { ...run!, preflight: { version: 1, runId: run!.request.runId, status: "ready", policy: { version: 1, loadedAt: "now", sources: [], effectiveSha256: "policy" } }, state: { ...run!.state, stage: "DEPLOY", status: "READY", completedStages: ["CONTEXT", "ANALYZE", "PLAN", "IMPLEMENT", "TEST", "SELF_REVIEW", "COMMIT"] }, evidence: [{ version: 1, id: "test", kind: "test", stage: "TEST", recordedAt: "now", summary: "tested" }, { version: 1, id: "review", kind: "review", stage: "SELF_REVIEW", recordedAt: "now", summary: "reviewed" }, { version: 1, id: "commit", kind: "commit", stage: "COMMIT", recordedAt: "now", summary: "committed", reference: sha }] });
   const result = await driver.advanceProduction(production);
-  assert.equal(result.status, "running");
+  assert.equal(result.status, "failed");
   assert.ok(!JSON.stringify(result).includes("SECRET_PROVIDER_TOKEN"));
 });
+
+test("PRODUCTION_VERIFY reuses the persisted deployment without a second deploy", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-verify-reuse-"));
+  const proposal = baseProposal("camp-verify-reuse");
+  let deploys = 0;
+  const driver = makeDriver(root, { proposal, deployAdapter: {
+    reconcile: async () => null,
+    deploy: async (request: any) => {
+      deploys += 1;
+      return { provider: "test", deploymentId: `d${deploys}`, url: "https://preview", commitSha: request.commitSha, deployedAt: "2026-09-12T00:00:00.000Z" };
+    },
+    verify: async (request: any) => ({ ...request.deployment, verifiedAt: "2026-09-12T00:00:01.000Z" }),
+  }});
+  const production = await driver.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const run = await loadHarnessRun(root, production.runId);
+  const sha = "d".repeat(40);
+  await saveHarnessRun(root, runnableAtDeploy(run!, sha));
+  const ready = await driver.advanceProduction(production);
+  assert.equal(ready.status, "ready");
+  assert.equal(deploys, 1);
+});
+
+test("deployment identity mismatch fails final instead of retrying", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-provider-identity-"));
+  const proposal = baseProposal("camp-provider-identity");
+  let reconciles = 0;
+  const driver = makeDriver(root, { proposal, deployAdapter: {
+    reconcile: async (request: any) => {
+      reconciles += 1;
+      return { provider: "test", deploymentId: "foreign", url: "https://preview", commitSha: "e".repeat(40), deployedAt: "2026-09-12T00:00:00.000Z" };
+    },
+    deploy: async () => { throw new Error("must not deploy"); },
+    verify: async () => { throw new Error("must not verify"); },
+  }});
+  const production = await driver.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const run = await loadHarnessRun(root, production.runId);
+  await saveHarnessRun(root, runnableAtDeploy(run!, "f".repeat(40)));
+  const failed = await driver.advanceProduction(production);
+  assert.equal(failed.status, "failed");
+  assert.equal(reconciles, 1);
+});
+
+test("provider stage missing canonical commit fails the Production final", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-provider-commit-"));
+  const proposal = baseProposal("camp-provider-commit");
+  const driver = makeDriver(root, { proposal });
+  const production = await driver.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const run = await loadHarnessRun(root, production.runId);
+  const broken = runnableAtDeploy(run!, "a".repeat(40));
+  broken.evidence = broken.evidence.filter((item) => item.kind !== "commit");
+  await saveHarnessRun(root, broken);
+  const failed = await driver.advanceProduction(production);
+  assert.equal(failed.status, "failed");
+});
+
+test("DONE finalization fails closed on deployment commit mismatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-finalize-mismatch-"));
+  const proposal = baseProposal("camp-finalize-mismatch");
+  const driver = makeDriver(root, { proposal, deployAdapter: {
+    reconcile: async () => null,
+    deploy: async () => ({ provider: "test", deploymentId: "bad", url: "https://preview", commitSha: "0".repeat(40), deployedAt: "2026-09-12T00:00:00.000Z" }),
+    verify: async (request: any) => ({ ...request.deployment, verifiedAt: "2026-09-12T00:00:01.000Z" }),
+  }});
+  const production = await driver.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const run = await loadHarnessRun(root, production.runId);
+  await saveHarnessRun(root, completedRun(run!, "9".repeat(40)));
+  const failed = await driver.advanceProduction(production);
+  assert.equal(failed.status, "failed");
+});
+
+test("DONE finalization rejects persisted deployment for a different commit without redeploying", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-persisted-deploy-mismatch-"));
+  const proposal = baseProposal("camp-persisted-deploy-mismatch");
+  let deploys = 0;
+  const driver = makeDriver(root, { proposal, deployAdapter: {
+    reconcile: async () => null,
+    deploy: async (request: any) => {
+      deploys += 1;
+      return { provider: "test", deploymentId: "new", url: "https://new-preview", commitSha: request.commitSha, deployedAt: "2026-09-12T00:00:00.000Z" };
+    },
+    verify: async (request: any) => ({ ...request.deployment, verifiedAt: "2026-09-12T00:00:01.000Z" }),
+  }});
+  const production = await driver.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+  await savePrototypeProduction(root, {
+    ...production,
+    commitSha: "8".repeat(40),
+    deployment: { provider: "test", deploymentId: "old", url: "https://old-preview", commitSha: "8".repeat(40), deployedAt: "2026-09-11T00:00:00.000Z" },
+    status: "verifying",
+  });
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const run = await loadHarnessRun(root, production.runId);
+  await saveHarnessRun(root, completedRun(run!, "9".repeat(40)));
+  const failed = await driver.advanceProduction(production);
+  assert.equal(failed.status, "failed");
+  assert.equal(deploys, 0);
+});
+
+test("ambiguous canonical COMMIT evidence fails final before deployment", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-ambiguous-commit-"));
+  const proposal = baseProposal("camp-ambiguous-commit");
+  let deploys = 0;
+  const driver = makeDriver(root, { proposal, deployAdapter: {
+    reconcile: async () => null,
+    deploy: async (request: any) => {
+      deploys += 1;
+      return { provider: "test", deploymentId: "d", url: "https://preview", commitSha: request.commitSha, deployedAt: "2026-09-12T00:00:00.000Z" };
+    },
+    verify: async (request: any) => ({ ...request.deployment, verifiedAt: "2026-09-12T00:00:01.000Z" }),
+  }});
+  const production = await driver.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const run = await loadHarnessRun(root, production.runId);
+  const ambiguous = runnableAtDeploy(run!, "1".repeat(40));
+  ambiguous.evidence.push({ version: 1, id: "commit-ambiguous", kind: "commit", stage: "COMMIT", recordedAt: "later", summary: "other commit", reference: "2".repeat(40) });
+  await saveHarnessRun(root, ambiguous);
+  const failed = await driver.advanceProduction(production);
+  assert.equal(failed.status, "failed");
+  assert.equal(deploys, 0);
+});
+
+function runnableAtDeploy(run: HarnessRuntimeRunEnvelope, sha: string): HarnessRuntimeRunEnvelope {
+  return {
+    ...run,
+    preflight: {
+      version: 1,
+      runId: run.request.runId,
+      status: "ready",
+      policy: { version: 1, loadedAt: "now", sources: [], effectiveSha256: "policy" },
+    },
+    state: {
+      ...run.state,
+      stage: "DEPLOY",
+      status: "READY",
+      completedStages: ["CONTEXT", "ANALYZE", "PLAN", "IMPLEMENT", "TEST", "SELF_REVIEW", "COMMIT"],
+    },
+    evidence: [
+      { version: 1, id: "test-red", kind: "test", stage: "TEST", recordedAt: "now", summary: "tested" },
+      { version: 1, id: "review-red", kind: "review", stage: "SELF_REVIEW", recordedAt: "now", summary: "reviewed" },
+      { version: 1, id: "commit-red", kind: "commit", stage: "COMMIT", recordedAt: "now", summary: "committed", reference: sha },
+    ],
+  };
+}
+
+function completedRun(run: HarnessRuntimeRunEnvelope, sha: string): HarnessRuntimeRunEnvelope {
+  const atDeploy = runnableAtDeploy(run, sha);
+  return {
+    ...atDeploy,
+    state: {
+      ...atDeploy.state,
+      stage: "DONE",
+      status: "DONE",
+      completedStages: [...atDeploy.state.completedStages, "DEPLOY", "PRODUCTION_VERIFY"],
+    },
+    evidence: [
+      ...atDeploy.evidence,
+      { version: 1, id: "deploy-done", kind: "deployment", stage: "DEPLOY", recordedAt: "now", summary: "deployed", reference: "https://preview" },
+      { version: 1, id: "verify-done", kind: "production-verification", stage: "PRODUCTION_VERIFY", recordedAt: "now", summary: "verified", reference: "https://preview" },
+    ],
+  };
+}
 
 function baseProposal(campaignId: string): IdeaProposal {
   return { version: 1, id: `proposal-${campaignId}`, campaignId, title: "Focus", concept: "Focus", problemDomain: "study", targetUser: "students", jobToBeDone: "focus", coreInteractionLoop: "plan", dataModel: "sessions", primaryDifferentiator: "feedback", whyMateriallyDifferent: "loop", status: "accepted", createdAt: "2026-09-11T00:00:00.000Z" };
