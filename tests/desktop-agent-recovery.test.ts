@@ -181,3 +181,32 @@ test("active foreign lease prevents commit reconciliation takeover", async () =>
   assert.equal(reality.desktopCommit, undefined);
   assert.equal((await loadDesktopJob(f.jobRoot, "job-commit"))?.lease?.owner, "session-old");
 });
+
+test("published commit recovery waits until origin contains the exact committed branch head", async () => {
+  const f = await fixture();
+  await registerAgent(f);
+  const pack = commitPack(f);
+  const operation = pack.operations[0];
+  assert.equal(operation?.type, "GIT_COMMIT");
+  if (operation?.type !== "GIT_COMMIT") return;
+  operation.publish = true;
+  await createDesktopJob(f.jobRoot, pack, "2026-09-08T03:00:00.000Z");
+  await acquireDesktopJobLease(f.jobRoot, pack.jobId, "session-old", "2026-09-08T03:00:00.000Z", 10_000);
+  await writeFile(join(f.targetRoot, "feature.txt"), "done\n", "utf8");
+  execFileSync("git", ["add", "-A"], { cwd: f.targetRoot });
+  execFileSync("git", ["commit", "-m", "feat: recovered commit"], { cwd: f.targetRoot, stdio: "ignore" });
+  const committedHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: f.targetRoot, encoding: "utf8" }).trim();
+  const branch = execFileSync("git", ["branch", "--show-current"], { cwd: f.targetRoot, encoding: "utf8" }).trim();
+  const remote = join(f.base, "remote.git");
+  execFileSync("git", ["init", "--bare", remote], { stdio: "ignore" });
+  execFileSync("git", ["remote", "add", "origin", remote], { cwd: f.targetRoot });
+  const transport = new RuntimeTransport(f.base);
+  const inspector = createDesktopRealityInspector({ registryRoot: f.registryRoot, jobRoot: f.jobRoot, transport, now: () => "2026-09-08T03:00:30.000Z" });
+
+  const beforePush = await inspector.inspect(recoveryRun(f));
+  assert.equal(beforePush.desktopCommit, undefined);
+  execFileSync("git", ["push", "origin", `HEAD:refs/heads/${branch}`], { cwd: f.targetRoot, stdio: "ignore" });
+  const afterPush = await inspector.inspect(recoveryRun(f));
+  assert.equal(afterPush.desktopCommit?.reference, committedHead);
+  assert.equal((await loadDesktopJob(f.jobRoot, pack.jobId))?.status, "completed");
+});

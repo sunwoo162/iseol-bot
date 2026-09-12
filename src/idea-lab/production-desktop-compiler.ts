@@ -7,6 +7,15 @@ import { assertDesktopTaskPack } from "../desktop-agent/contracts.js";
 type EnabledConfig = Extract<IdeaLabRuntimeConfig, { enabled: true }>;
 type CompilerOptions = { now?: () => string; leaseDurationMs?: number };
 
+function canonicalContextHead(run: HarnessRuntimeRunEnvelope): string {
+  const references = run.evidence
+    .filter((item) => item.stage === "CONTEXT" && item.provider === "iseol-desktop-agent")
+    .map((item) => item.reference ?? "")
+    .filter((value) => /^[0-9a-f]{40}$/i.test(value));
+  if (references.length !== 1) throw new Error("Idea Lab COMMIT requires one canonical CONTEXT Git head");
+  return references[0]!;
+}
+
 function packFor(
   run: HarnessRuntimeRunEnvelope,
   agentId: string,
@@ -24,7 +33,7 @@ function packFor(
     ? { id: "context", type: "GIT_INSPECT" as const, cwd: "." }
     : stage === "TEST"
       ? { id: "test", type: "RUN_PROCESS" as const, cwd: ".", executable: config.testExecutable, args: [...config.testArgs], timeoutMs: config.testTimeoutMs }
-      : { id: "commit", type: "GIT_COMMIT" as const, cwd: ".", message: "feat: build idea lab prototype" };
+      : { id: "commit", type: "GIT_COMMIT" as const, cwd: ".", message: "feat: build idea lab prototype", expectedHead: canonicalContextHead(run), publish: true };
   const pack: DesktopTaskPack = {
     version: 1,
     jobId: `${run.request.runId}:${stage.toLowerCase()}`,

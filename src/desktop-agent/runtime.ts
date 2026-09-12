@@ -282,31 +282,75 @@ async function executeOperation(
       const failed = subject.code !== 0 ? subject : branch.code !== 0 ? branch : status;
       return commandOperationResult(operation.id, failed, "Inspect Git identity");
     }
+    const branchName = branch.stdout.trim();
+    let remoteHead = "";
+    if (operation.includeRemote) {
+      const remote = await gitCommand(workspace, cwd, ["ls-remote", "--heads", "origin", `refs/heads/${branchName}`], maxOutputBytes);
+      if (remote.code !== 0) return commandOperationResult(operation.id, remote, "Inspect Git remote identity");
+      remoteHead = remote.stdout.trim().split(/\s+/, 1)[0] ?? "";
+    }
     const identity = {
       head: head.stdout.trim(),
       parent: parent.code === 0 ? parent.stdout.trim() : "",
       subject: subject.stdout.trim(),
-      branch: branch.stdout.trim(),
+      branch: branchName,
       status: status.stdout,
+      ...(operation.includeRemote ? { remoteHead } : {}),
     };
     return { operationId: operation.id, ok: true, summary: "Inspected Git identity", stdout: JSON.stringify(identity), reference: identity.head };
   }
 
   if (operation.type === "GIT_COMMIT") {
     const cwd = await assertWorkspaceAccess(deps.allowedRoots, workspace, operation.cwd);
-    const add = await gitCommand(workspace, cwd, ["add", "-A"], maxOutputBytes);
-    if (add.code !== 0) return commandOperationResult(operation.id, add, "Stage Git changes");
-    const staged = await gitCommand(workspace, cwd, ["diff", "--cached", "--quiet"], maxOutputBytes);
-    if (staged.code === 0) {
-      return { operationId: operation.id, ok: false, summary: "Git commit has no staged changes" };
+    const headBefore = await gitCommand(workspace, cwd, ["rev-parse", "HEAD"], maxOutputBytes);
+    if (headBefore.code !== 0) return commandOperationResult(operation.id, headBefore, "Inspect Git HEAD");
+    const parent = await gitCommand(workspace, cwd, ["rev-parse", "HEAD^"], maxOutputBytes);
+    const subject = await gitCommand(workspace, cwd, ["show", "-s", "--format=%s", "HEAD"], maxOutputBytes);
+    const status = await gitCommand(workspace, cwd, ["status", "--short"], maxOutputBytes);
+    const recovered = Boolean(operation.expectedHead)
+      && parent.code === 0
+      && parent.stdout.trim() === operation.expectedHead
+      && subject.code === 0
+      && subject.stdout.trim() === operation.message
+      && status.code === 0
+      && status.stdout.trim() === "";
+    let commitHead = headBefore.stdout.trim();
+    if (!recovered) {
+      if (operation.expectedHead && commitHead !== operation.expectedHead) {
+        return { operationId: operation.id, ok: false, summary: "Git HEAD does not match expected commit base", reference: commitHead };
+      }
+      const add = await gitCommand(workspace, cwd, ["add", "-A"], maxOutputBytes);
+      if (add.code !== 0) return commandOperationResult(operation.id, add, "Stage Git changes");
+      const staged = await gitCommand(workspace, cwd, ["diff", "--cached", "--quiet"], maxOutputBytes);
+      if (staged.code === 0) return { operationId: operation.id, ok: false, summary: "Git commit has no staged changes" };
+      if (staged.code !== 1) return commandOperationResult(operation.id, staged, "Inspect staged Git changes");
+      const commit = await gitCommand(workspace, cwd, ["commit", "-m", operation.message], maxOutputBytes);
+      const result = commandOperationResult(operation.id, commit, "Created Git commit");
+      if (!result.ok) return result;
+      const head = await gitCommand(workspace, cwd, ["rev-parse", "HEAD"], maxOutputBytes);
+      if (head.code !== 0) return commandOperationResult(operation.id, head, "Inspect committed Git HEAD");
+      commitHead = head.stdout.trim();
     }
-    if (staged.code !== 1) return commandOperationResult(operation.id, staged, "Inspect staged Git changes");
-    const commit = await gitCommand(workspace, cwd, ["commit", "-m", operation.message], maxOutputBytes);
-    const result = commandOperationResult(operation.id, commit, "Created Git commit");
-    if (!result.ok) return result;
-    const head = await gitCommand(workspace, cwd, ["rev-parse", "HEAD"], maxOutputBytes);
-    if (head.code === 0) result.reference = head.stdout.trim();
-    return result;
+    if (!operation.publish) {
+      return { operationId: operation.id, ok: true, summary: recovered ? "Reused Git commit" : "Created Git commit", reference: commitHead };
+    }
+    const branch = await gitCommand(workspace, cwd, ["branch", "--show-current"], maxOutputBytes);
+    if (branch.code !== 0) return commandOperationResult(operation.id, branch, "Inspect Git branch for publish");
+    const branchName = branch.stdout.trim();
+    if (!branchName) return { operationId: operation.id, ok: false, summary: "Git publish requires a named branch", reference: commitHead };
+    const push = await gitCommand(workspace, cwd, ["push", "origin", `HEAD:refs/heads/${branchName}`], maxOutputBytes);
+    const pushResult = commandOperationResult(operation.id, push, "Published Git commit");
+    pushResult.reference = commitHead;
+    if (!pushResult.ok) return pushResult;
+    const remote = await gitCommand(workspace, cwd, ["ls-remote", "--heads", "origin", `refs/heads/${branchName}`], maxOutputBytes);
+    if (remote.code !== 0) {
+      const remoteResult = commandOperationResult(operation.id, remote, "Verify published Git commit");
+      remoteResult.reference = commitHead;
+      return remoteResult;
+    }
+    const remoteHead = remote.stdout.trim().split(/\s+/, 1)[0] ?? "";
+    if (remoteHead !== commitHead) return { operationId: operation.id, ok: false, summary: "Published Git commit identity mismatch", reference: commitHead };
+    return { operationId: operation.id, ok: true, summary: recovered ? "Reused and published Git commit" : "Created and published Git commit", reference: commitHead };
   }
 
   const fetchImpl = deps.fetchImpl ?? fetch;

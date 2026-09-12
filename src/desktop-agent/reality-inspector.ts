@@ -26,6 +26,7 @@ type GitIdentity = {
   subject: string;
   branch: string;
   status: string;
+  remoteHead?: string;
 };
 function commitOperation(pack: DesktopTaskPack): GitCommitOperation | null {
   const operation = pack.operations.find((item) => item.type === "GIT_COMMIT");
@@ -50,7 +51,8 @@ function matchingRecoveredCommit(operation: GitCommitOperation, identity: GitIde
   return Boolean(operation.expectedHead)
     && identity.parent === operation.expectedHead
     && identity.subject === operation.message
-    && identity.status.trim() === "";
+    && identity.status.trim() === ""
+    && (!operation.publish || identity.remoteHead === identity.head);
 }
 export function createDesktopRealityInspector(
   input: CreateDesktopRealityInspectorInput,
@@ -104,7 +106,7 @@ export function createDesktopRealityInspector(
         workspaceRoot: job.pack.workspaceRoot,
         idempotencyKey: `inspect:${job.idempotencyKey}`,
         leaseUntil: new Date(Date.parse(at) + inspectTimeoutMs).toISOString(),
-        operations: [{ id: "inspect", type: "GIT_INSPECT", cwd: operation.cwd }],
+        operations: [{ id: "inspect", type: "GIT_INSPECT", cwd: operation.cwd, ...(operation.publish ? { includeRemote: true } : {}) }],
       };
       input.transport.sendTask(job.pack.agentId, inspectPack);
       const inspectResult = await input.transport.awaitResult(inspectPack.jobId, inspectTimeoutMs);

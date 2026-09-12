@@ -45,8 +45,10 @@ test("production compiler emits stable Context, Test, and Commit packs", async (
   assert.deepEqual(testPack?.policySources, [{ kind: "project-harness", path: "C:/harness.md", sha256: "b".repeat(64), required: true }]);
   assert.equal(testPack?.leaseUntil, "2026-09-09T01:01:00.000Z");
 
-  const commit = await compile(runAt("COMMIT"), "agent-live");
-  assert.deepEqual(commit?.operations[0], { id: "commit", type: "GIT_COMMIT", cwd: ".", message: "feat: build idea lab prototype" });
+  const commitRun = runAt("COMMIT");
+  commitRun.evidence = [{ version: 1, id: "context", kind: "command", stage: "CONTEXT", recordedAt: NOW, summary: "Context", provider: "iseol-desktop-agent", reference: "c".repeat(40) }];
+  const commit = await compile(commitRun, "agent-live");
+  assert.deepEqual(commit?.operations[0], { id: "commit", type: "GIT_COMMIT", cwd: ".", message: "feat: build idea lab prototype", expectedHead: "c".repeat(40), publish: true });
   assert.equal(commit?.jobId, "run-idea-1:commit");
   assert.equal(commit?.idempotencyKey, "run-idea-1:commit");
 });
@@ -56,4 +58,30 @@ test("production compiler returns null for non-production stages", async () => {
   for (const stage of ["ANALYZE", "PLAN", "IMPLEMENT", "SELF_REVIEW", "PR", "DEPLOY"] as const) {
     assert.equal(await compile(runAt(stage), "agent-live"), null);
   }
+});
+
+test("production Commit publishes the exact system branch from the Context head", async () => {
+  const compile = createIdeaLabProductionDesktopTaskCompiler(config, { now: () => NOW });
+  const contextHead = "c".repeat(40);
+  const run = runAt("COMMIT");
+  run.evidence = [{
+    version: 1,
+    id: "context-head",
+    kind: "command",
+    stage: "CONTEXT",
+    recordedAt: NOW,
+    summary: "Desktop context inspected",
+    provider: "iseol-desktop-agent",
+    reference: contextHead,
+  }];
+
+  const commit = await compile(run, "agent-live");
+  assert.deepEqual(commit?.operations[0], {
+    id: "commit",
+    type: "GIT_COMMIT",
+    cwd: ".",
+    message: "feat: build idea lab prototype",
+    expectedHead: contextHead,
+    publish: true,
+  });
 });

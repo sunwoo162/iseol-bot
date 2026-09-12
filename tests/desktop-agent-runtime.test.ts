@@ -184,3 +184,57 @@ test("runtime checks HTTP without exposing a shell command surface", async () =>
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
   }
 });
+
+test("Git commit publish pushes the exact commit to the current origin branch", async () => {
+  const { allowed, workspace, harnessPath } = await fixture();
+  initGit(workspace);
+  await writeFile(join(workspace, "hello.txt"), "old\n", "utf8");
+  execFileSync("git", ["add", "hello.txt"], { cwd: workspace });
+  execFileSync("git", ["commit", "-m", "chore: initial"], { cwd: workspace, stdio: "ignore" });
+  const expectedHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+  const remote = join(allowed, "remote.git");
+  execFileSync("git", ["init", "--bare", remote], { stdio: "ignore" });
+  execFileSync("git", ["remote", "add", "origin", remote], { cwd: workspace });
+  execFileSync("git", ["switch", "-c", "idea/camp/prod"], { cwd: workspace, stdio: "ignore" });
+  await writeFile(join(workspace, "hello.txt"), "new\n", "utf8");
+  const pack = policyPack(workspace, harnessPath, [{
+    id: "commit", type: "GIT_COMMIT", cwd: ".", message: "feat: publish prototype", expectedHead, publish: true,
+  }]);
+  pack.stage = "COMMIT";
+
+  const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed] });
+  assert.equal(result.status, "completed");
+  const local = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+  const remoteHead = execFileSync("git", ["--git-dir", remote, "rev-parse", "refs/heads/idea/camp/prod"], { encoding: "utf8" }).trim();
+  assert.equal(remoteHead, local);
+  assert.equal(result.operations[0]?.reference, local);
+});
+test("Git commit publish retry reuses the committed HEAD after an initial push failure", async () => {
+  const { allowed, workspace, harnessPath } = await fixture();
+  initGit(workspace);
+  await writeFile(join(workspace, "hello.txt"), "old\n", "utf8");
+  execFileSync("git", ["add", "hello.txt"], { cwd: workspace });
+  execFileSync("git", ["commit", "-m", "chore: initial"], { cwd: workspace, stdio: "ignore" });
+  const expectedHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+  const missingRemote = join(allowed, "missing.git");
+  execFileSync("git", ["remote", "add", "origin", missingRemote], { cwd: workspace });
+  execFileSync("git", ["switch", "-c", "idea/camp/retry"], { cwd: workspace, stdio: "ignore" });
+  await writeFile(join(workspace, "hello.txt"), "new\n", "utf8");
+  const pack = policyPack(workspace, harnessPath, [{
+    id: "commit", type: "GIT_COMMIT", cwd: ".", message: "feat: publish retry", expectedHead, publish: true,
+  }]);
+  pack.stage = "COMMIT";
+
+  const first = await executeDesktopTaskPack(pack, { allowedRoots: [allowed] });
+  assert.equal(first.status, "retryable-failure");
+  const committed = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+  assert.equal(execFileSync("git", ["rev-list", "--count", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim(), "2");
+  const remote = join(allowed, "remote-retry.git");
+  execFileSync("git", ["init", "--bare", remote], { stdio: "ignore" });
+  execFileSync("git", ["remote", "set-url", "origin", remote], { cwd: workspace });
+
+  const second = await executeDesktopTaskPack(pack, { allowedRoots: [allowed] });
+  assert.equal(second.status, "completed");
+  assert.equal(execFileSync("git", ["rev-list", "--count", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim(), "2");
+  assert.equal(execFileSync("git", ["--git-dir", remote, "rev-parse", "refs/heads/idea/camp/retry"], { encoding: "utf8" }).trim(), committed);
+});

@@ -6,9 +6,9 @@ const OPERATION_KEYS: Record<string, readonly string[]> = {
   GIT_STATUS: ["id", "type", "cwd"],
   GIT_DIFF: ["id", "type", "cwd"],
   GIT_BRANCH: ["id", "type", "cwd"],
-  GIT_INSPECT: ["id", "type", "cwd"],
+  GIT_INSPECT: ["id", "type", "cwd", "includeRemote"],
   GIT_WORKTREE_CREATE: ["id", "type", "cwd", "branch", "worktreePath", "baseRef"],
-  GIT_COMMIT: ["id", "type", "cwd", "message", "expectedHead"],
+  GIT_COMMIT: ["id", "type", "cwd", "message", "expectedHead", "publish"],
   CHECK_HTTP: ["id", "type", "url", "timeoutMs"],
 };
 

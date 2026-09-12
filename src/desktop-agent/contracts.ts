@@ -40,9 +40,9 @@ export type RunProcessOperation = {
 export type GitStatusOperation = { id: string; type: "GIT_STATUS"; cwd: string };
 export type GitDiffOperation = { id: string; type: "GIT_DIFF"; cwd: string };
 export type GitBranchOperation = { id: string; type: "GIT_BRANCH"; cwd: string };
-export type GitInspectOperation = { id: string; type: "GIT_INSPECT"; cwd: string };
+export type GitInspectOperation = { id: string; type: "GIT_INSPECT"; cwd: string; includeRemote?: boolean };
 export type GitWorktreeCreateOperation = { id: string; type: "GIT_WORKTREE_CREATE"; cwd: string; branch: string; worktreePath: string; baseRef: string };
-export type GitCommitOperation = { id: string; type: "GIT_COMMIT"; cwd: string; message: string; expectedHead?: string };
+export type GitCommitOperation = { id: string; type: "GIT_COMMIT"; cwd: string; message: string; expectedHead?: string; publish?: boolean };
 export type CheckHttpOperation = { id: string; type: "CHECK_HTTP"; url: string; timeoutMs: number };
 
 export type DesktopOperation =
@@ -156,6 +156,13 @@ function assertOperation(value: unknown): asserts value is DesktopOperation {
   if (!OPERATION_TYPES.has(operation.type as DesktopOperation["type"])) {
     throw new Error(`Unsupported Desktop operation type: ${operation.type}`);
   }  assertDesktopOperationPolicy(operation);
+
+  if (operation.type === "GIT_COMMIT" && "publish" in operation && typeof operation.publish !== "boolean") {
+    throw new Error("Desktop Git commit publish must be a boolean");
+  }
+  if (operation.type === "GIT_INSPECT" && "includeRemote" in operation && typeof operation.includeRemote !== "boolean") {
+    throw new Error("Desktop Git inspect includeRemote must be a boolean");
+  }
 
   if (operation.type === "GIT_WORKTREE_CREATE") {
     const allowed = new Set(["id", "type", "cwd", "branch", "worktreePath", "baseRef"]);

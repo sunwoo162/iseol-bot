@@ -122,3 +122,17 @@ test("desktop operations reject unknown fields and destructive Git through RUN_P
     );
   }
 });
+
+test("Git publish and remote inspection flags are strict booleans", () => {
+  assert.throws(() => assertDesktopTaskPack({
+    ...basePack(),
+    policyDigest: "a".repeat(64),
+    policySources: [{ kind: "project-harness", path: "C:/repo/docs/HARNESS_ENGINEERING.md", sha256: "b".repeat(64), required: true }],
+    operations: [{ id: "commit", type: "GIT_COMMIT", cwd: ".", message: "feat: publish", publish: "true" }],
+  }), /publish/i);
+
+  assert.throws(() => assertDesktopTaskPack({
+    ...basePack(),
+    operations: [{ id: "inspect", type: "GIT_INSPECT", cwd: ".", includeRemote: "yes" }],
+  }), /includeRemote/i);
+});
