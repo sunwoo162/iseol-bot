@@ -60,6 +60,7 @@ type RuntimeDependencies = {
   createProductionDriver?: typeof createIdeaLabProductionRuntimeDriver;
   createRuntime?: typeof createIdeaLabRuntimeService;
   createSandboxAdapter?: typeof createDesktopPrototypeSandboxAdapter;
+  sleep?: (ms: number) => Promise<void>;
 };
 
 export type IseolRuntimeInput = {
@@ -68,6 +69,7 @@ export type IseolRuntimeInput = {
   webConfig?: WebControlPlaneConfig;
   desktopConfig?: DesktopAgentCoreConfig;
   ideaLabConfig?: IdeaLabRuntimeConfig;
+  agentReadyTimeoutMs?: number;
   deps?: RuntimeDependencies;
 };
 
@@ -108,6 +110,22 @@ async function resolveSharedBrowser(
     webRoot: roots.webRoot,
     chatGptWebRoot: resolve(chatGptWebRoot),
   });
+}
+
+async function waitForDesktopAgentConnection(
+  transport: { isAgentConnected(agentId: string): boolean },
+  agentId: string,
+  timeoutMs: number,
+  sleep: (ms: number) => Promise<void>,
+): Promise<boolean> {
+  if (transport.isAgentConnected(agentId)) return true;
+  if (timeoutMs === 0) return false;
+  const pollMs = 50;
+  for (let elapsed = 0; elapsed < timeoutMs; elapsed += pollMs) {
+    await sleep(Math.min(pollMs, timeoutMs - elapsed));
+    if (transport.isAgentConnected(agentId)) return true;
+  }
+  return false;
 }
 
 async function closeWebServer(server: Server | undefined): Promise<void> {
@@ -184,6 +202,11 @@ export async function startIseolRuntimeServices(
   const createProductionDriver = deps.createProductionDriver ?? createIdeaLabProductionRuntimeDriver;
   const createRuntime = deps.createRuntime ?? createIdeaLabRuntimeService;
   const createSandboxAdapter = deps.createSandboxAdapter ?? createDesktopPrototypeSandboxAdapter;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolveDelay) => setTimeout(resolveDelay, ms)));
+  const agentReadyTimeoutMs = input.agentReadyTimeoutMs ?? 5_000;
+  if (!Number.isInteger(agentReadyTimeoutMs) || agentReadyTimeoutMs < 0) {
+    throw new Error("agentReadyTimeoutMs must be a non-negative integer");
+  }
 
   let desktopCore: DesktopCoreService | null = null;
   let browser: ChatGptBrowserDriver | null = null;
@@ -220,7 +243,10 @@ export async function startIseolRuntimeServices(
       ? await createBridge(bridgeConfig, browser, { ownsDriver: false })
       : undefined;
 
-    if (ideaLabConfig.enabled && desktopCore?.transport && browser && desktopCore.transport.isAgentConnected(ideaLabConfig.agentId)) {
+    const desktopAgentReady = ideaLabConfig.enabled && desktopCore?.transport && browser
+      ? await waitForDesktopAgentConnection(desktopCore.transport, ideaLabConfig.agentId, agentReadyTimeoutMs, sleep)
+      : false;
+    if (ideaLabConfig.enabled && desktopCore?.transport && browser && desktopAgentReady) {
       let deployAdapter: PrototypeDeployAdapter | null = null;
       try {
         deployAdapter = await resolveDeploy(env);

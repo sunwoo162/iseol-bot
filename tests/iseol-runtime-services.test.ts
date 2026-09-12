@@ -34,6 +34,7 @@ function fixture(overrides: Record<string, unknown> = {}) {
       stateRoot: "C:/desktop-state", token: "desktop-token",
     },
     ideaLabConfig: { enabled: false },
+    agentReadyTimeoutMs: 0,
     deps: {
       resolveBrowser: async () => browserDriver(),
       startDesktop: async () => ({
@@ -252,5 +253,35 @@ test("unavailable configured Desktop agent keeps live Idea Lab blocked before dr
   assert.equal(constructed, 0);
   assert.equal(recovered, 0);
   assert.ok(value.events.includes("web:blocked"));
+  await services.dispose();
+});
+
+test("live Idea Lab waits boundedly for the configured Desktop agent to connect", async () => {
+  let checks = 0;
+  let sleeps = 0;
+  let constructed = 0;
+  const value = fixture({ ideaLabConfig: liveConfig(), agentReadyTimeoutMs: 100 });
+  value.deps.startDesktop = async () => ({
+    transport: {
+      isAgentConnected: (agentId: string) => {
+        assert.equal(agentId, "agent-live");
+        checks += 1;
+        return checks >= 2;
+      },
+      sendTask() {},
+      awaitResult: async () => { throw new Error("unused"); },
+    },
+    close: async () => undefined,
+  });
+  value.deps.sleep = async (ms: number) => { assert.ok(ms > 0); sleeps += 1; };
+  value.deps.resolveDeploy = async () => ({});
+  value.deps.createProductionDriver = () => { constructed += 1; return {}; };
+  value.deps.createRuntime = () => ({ recover: async () => undefined, dispose: async () => undefined });
+
+  const services = await startIseolRuntimeServices(value);
+  assert.equal(services.ideaLabCapability.state, "ready");
+  assert.equal(constructed, 1);
+  assert.equal(sleeps, 1);
+  assert.equal(checks, 2);
   await services.dispose();
 });
