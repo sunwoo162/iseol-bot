@@ -216,6 +216,10 @@ test("disconnect after a real commit reconciles on reconnect without a duplicate
   const lost = await executor.execute(runEnvelope(f, "RUNNING"));
   assert.equal(lost.type, "waiting-agent");
   assert.equal((await loadDesktopJob(f.jobRoot, "job-e2e-commit"))?.status, "indeterminate");
+  for (let attempt = 0; attempt < 400 && !resources.agent.getResult("job-e2e-commit"); attempt += 1) {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
+  }
+  assert.equal(resources.agent.getResult("job-e2e-commit")?.status, "completed");
   assert.equal(git(f.repo, ["rev-list", "--count", "HEAD"]), "2");
 
   const second = await connectFakeDesktopAgent({
