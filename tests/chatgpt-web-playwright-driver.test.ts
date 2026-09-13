@@ -341,3 +341,24 @@ test("restart resumes the exact persisted conversation without creating a replac
   assert.deepEqual(resumeUrls, ["https://chatgpt.com/c/conv-persisted"]);
   assert.equal(shared.sends, 1);
 });
+
+test("first submit ignores provisional WEB conversation refs until canonical identity arrives", async () => {
+  let now = 0;
+  const item = fakeBackend();
+  item.backend.sendPrompt = async () => {
+    item.setUrl("https://chatgpt.com/c/WEB:temporary-ref");
+  };
+  const sleep = async (ms: number) => {
+    now += ms;
+    if (now >= 300) item.setUrl("https://chatgpt.com/c/conv-canonical");
+  };
+  const driver = await createPlaywrightChatGptBrowserDriver(config, {
+    backend: item.backend, now: () => now, sleep,
+  } as any);
+
+  assert.deepEqual(
+    await driver.submitPrompt({ prompt: "payload", promptSha256: "provisional-sha" }),
+    { conversationRef: "conv-canonical" },
+  );
+  assert.ok(now >= 300);
+});

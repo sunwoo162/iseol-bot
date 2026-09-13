@@ -111,7 +111,7 @@ export async function createPlaywrightChatGptBrowserDriver(
       const url = await backend.currentUrl();
       if (authUrl(url)) throw new ChatGptWebAuthenticationRequiredError("ChatGPT authentication is required");
       const actual = conversationFrom(url);
-      if (actual) return actual;
+      if (actual && !actual.startsWith("WEB:")) return actual;
       if (now() - startedAt >= NEW_CONVERSATION_REF_TIMEOUT_MS) {
         return lost("ChatGPT did not assign a canonical conversation identity after prompt submission");
       }
