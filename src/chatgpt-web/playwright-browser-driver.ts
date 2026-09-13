@@ -84,7 +84,7 @@ export async function createPlaywrightChatGptBrowserDriver(
   async function authenticatedComposerCount(url: string): Promise<number> {
     const composerCount = await backend.composerCount();
     const authCount = await backend.authenticationRequiredCount();
-    if (authUrl(url) || (authCount > 0 && composerCount === 0)) {
+    if (authUrl(url) || authCount > 0) {
       throw new ChatGptWebAuthenticationRequiredError("ChatGPT authentication is required");
     }
     return composerCount;
@@ -213,7 +213,7 @@ export async function createPlaywrightChatGptBrowserDriver(
       const url = await backend.currentUrl();
       const composerCount = await backend.composerCount();
       const authCount = await backend.authenticationRequiredCount();
-      if (authUrl(url) || (authCount > 0 && composerCount === 0)) return "auth-required";
+      if (authUrl(url) || authCount > 0) return "auth-required";
       if (conversationFrom(url) !== conversationRef || composerCount !== 1) return "lost";
       return "ready";
     } catch { return "lost"; }

@@ -67,6 +67,14 @@ test("login URL or login surface requires authentication", async () => {
   const authSurfaceDriver = await createPlaywrightChatGptBrowserDriver(config, { backend: authSurface.backend });
   await assert.rejects(() => authSurfaceDriver.openOrResumeConversation({ prompt: "x", promptSha256: "sha" }), ChatGptWebAuthenticationRequiredError);
 });
+test("guest composer with a login surface still requires authentication", async () => {
+  const guest = fakeBackend({ composerCount: async () => 1, authenticationRequiredCount: async () => 2 });
+  const driver = await createPlaywrightChatGptBrowserDriver(config, { backend: guest.backend });
+  await assert.rejects(
+    () => driver.openOrResumeConversation({ prompt: "x", promptSha256: "sha" }),
+    ChatGptWebAuthenticationRequiredError,
+  );
+});
 test("missing or ambiguous composer loses the session", async () => {
   for (const count of [0, 2]) {
     const item = fakeBackend({ composerCount: async () => count });
@@ -196,6 +204,13 @@ test("probe classifies exact ready auth-required and lost states", async () => {
 
   item.setUrl("https://chatgpt.com/c/other");
   assert.equal(await driver.probeConversation("conv-1"), "lost");
+});
+
+test("probe treats a guest composer with login controls as auth-required", async () => {
+  const guest = fakeBackend({ authenticationRequiredCount: async () => 2 });
+  guest.setUrl("https://chatgpt.com/c/conv-1");
+  const driver = await createPlaywrightChatGptBrowserDriver(config, { backend: guest.backend } as any);
+  assert.equal(await driver.probeConversation("conv-1"), "auth-required");
 });
 
 test("the same prompt SHA is deduplicated per conversation rather than globally", async () => {
