@@ -38,6 +38,24 @@ const config = { enabled: true as const, profileRoot: "C:\\temp\\chatgpt-profile
   assert.deepEqual(opened, {});
   assert.deepEqual(urls, ["https://chatgpt.com/"]);
 });
+test("new conversation waits boundedly for authenticated composer readiness", async () => {
+  let now = 0;
+  let composerChecks = 0;
+  const item = fakeBackend({
+    composerCount: async () => {
+      composerChecks += 1;
+      return composerChecks < 3 ? 0 : 1;
+    },
+  });
+  const driver = await createPlaywrightChatGptBrowserDriver(config, {
+    backend: item.backend,
+    now: () => now,
+    sleep: async (ms: number) => { now += ms; },
+  } as any);
+  assert.deepEqual(await driver.openOrResumeConversation({ prompt: "x", promptSha256: "sha" }), {});
+  assert.equal(composerChecks, 3);
+  assert.ok(now >= 200);
+});
 test("resume navigates to and proves the exact requested conversation", async () => {
   const { backend, urls } = fakeBackend();
   const driver = await createPlaywrightChatGptBrowserDriver(config, { backend });
@@ -75,14 +93,21 @@ test("guest composer with a login surface still requires authentication", async 
     ChatGptWebAuthenticationRequiredError,
   );
 });
-test("missing or ambiguous composer loses the session", async () => {
+test("missing composer waits only for the bounded readiness window while ambiguity fails immediately", async () => {
   for (const count of [0, 2]) {
+    let now = 0;
     const item = fakeBackend({ composerCount: async () => count });
-    const driver = await createPlaywrightChatGptBrowserDriver(config, { backend: item.backend });
+    const driver = await createPlaywrightChatGptBrowserDriver(config, {
+      backend: item.backend,
+      now: () => now,
+      sleep: async (ms: number) => { now += ms; },
+    } as any);
     await assert.rejects(
       () => driver.openOrResumeConversation({ prompt: "x", promptSha256: "sha" }),
       ChatGptWebSessionLostError,
     );
+    if (count === 0) assert.ok(now >= 5_000);
+    else assert.equal(now, 0);
   }
 });
 

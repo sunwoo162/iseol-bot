@@ -15,6 +15,7 @@ const REF = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/;
 const POLL_MS = 100;
 const RESULT_SETTLE_MS = 750;
 const NEW_CONVERSATION_REF_TIMEOUT_MS = 5_000;
+const COMPOSER_READY_TIMEOUT_MS = 5_000;
 const MAX_STRUCTURED_RESULT_BYTES = 262_144;
 
 type DriverDeps = {
@@ -90,6 +91,20 @@ export async function createPlaywrightChatGptBrowserDriver(
     return composerCount;
   }
 
+  async function waitForAuthenticatedComposer(): Promise<string> {
+    const startedAt = now();
+    while (true) {
+      const url = await backend.currentUrl();
+      const composerCount = await authenticatedComposerCount(url);
+      if (composerCount === 1) return url;
+      if (composerCount > 1) lost("Authenticated ChatGPT composer is missing or ambiguous");
+      if (now() - startedAt >= COMPOSER_READY_TIMEOUT_MS) {
+        lost("Authenticated ChatGPT composer is missing or ambiguous");
+      }
+      await sleep(POLL_MS);
+    }
+  }
+
   async function waitForNewConversationRef(): Promise<string> {
     const startedAt = now();
     while (true) {
@@ -109,8 +124,7 @@ export async function createPlaywrightChatGptBrowserDriver(
       const requested = input.conversationRef;
       if (requested && !REF.test(requested)) lost("Conversation identity is invalid");
       await backend.navigate(requested ? `${ROOT}c/${requested}` : ROOT);
-      const url = await backend.currentUrl();
-      if (await authenticatedComposerCount(url) !== 1) lost("Authenticated ChatGPT composer is missing or ambiguous");
+      const url = await waitForAuthenticatedComposer();
       const actual = conversationFrom(url);
       if (requested) {
         if (actual !== requested) lost("ChatGPT conversation identity changed during navigation");
