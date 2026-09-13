@@ -22,7 +22,7 @@ type BackendDeps = {
   ) => Promise<BrowserContext>;
 };
 
-const COMPOSER_SELECTOR = 'textarea, [contenteditable="true"][role="textbox"], [contenteditable="true"][data-lexical-editor="true"]';
+const COMPOSER_SELECTOR = 'textarea:visible, [contenteditable="true"][role="textbox"]:visible, [contenteditable="true"][data-lexical-editor="true"]:visible';
 const AUTH_SELECTOR = 'a[href*="/auth/login"], a[href*="/auth/signup"], a[href*="/auth/sign-up"]';
 const ASSISTANT_SELECTOR = '[data-message-author-role="assistant"]';
 const GENERATING_SELECTOR = 'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop"]';

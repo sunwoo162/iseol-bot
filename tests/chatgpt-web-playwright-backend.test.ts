@@ -42,3 +42,32 @@ test("backend recreates its owned page after conversation close and disposes the
   assert.equal(contextCloseCount, 1);
   await assert.rejects(() => backend.navigate("https://chatgpt.com/"), /disposed/i);
 });
+
+test("composer operations ignore hidden fallback editors", async () => {
+  let filled = "";
+  const context = {
+    async newPage() {
+      return {
+        async goto() {},
+        url() { return "https://chatgpt.com/"; },
+        locator(selector: string) {
+          const composerSelector = selector.includes("textarea");
+          return {
+            async count() { return composerSelector ? (selector.includes(":visible") ? 1 : 2) : 0; },
+            async fill(value: string) { filled = value; },
+          };
+        },
+        isClosed() { return false; },
+        async close() {},
+      };
+    },
+    async close() {},
+  };
+  const backend = await (createPlaywrightBrowserBackend as any)(config, {
+    launchPersistentContext: async () => context,
+  });
+  assert.equal(await backend.composerCount(), 1);
+  await backend.fillComposer("hello");
+  assert.equal(filled, "hello");
+  await backend.dispose();
+});
