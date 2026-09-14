@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { HarnessEvidenceKind, HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import type { HarnessStageExecutor, HarnessStageExecutionResult } from "../harness/run-supervisor.js";
-import type { DesktopJobResult, DesktopTaskPack } from "./contracts.js";
+import type { DesktopJobResult, DesktopOperationResult, DesktopTaskPack } from "./contracts.js";
 import { desktopTaskPackMutates } from "./contracts.js";
 import { listOnlineDesktopAgents } from "./agent-registry.js";
 import {
@@ -62,10 +62,23 @@ function evidenceKindForStage(stage: HarnessRuntimeRunEnvelope["state"]["stage"]
   return "command";
 }
 
+type DesktopFeedback = { kind: HarnessEvidenceKind; summary: string; reference?: string };
+type DesktopCompletedExecutionResult = HarnessStageExecutionResult & { feedback: DesktopFeedback[] };
+const MAX_DESKTOP_FEEDBACK_CHARS = 8_000;
+function operationFeedback(item: DesktopOperationResult): string {
+  const parts = [`Desktop operation ${item.operationId}: ${item.summary}`];
+  if (item.stdout?.trim()) parts.push(`stdout:\n${item.stdout.trim()}`);
+  if (item.stderr?.trim()) parts.push(`stderr:\n${item.stderr.trim()}`);
+  const joined = parts.join("\n");
+  return joined.length <= MAX_DESKTOP_FEEDBACK_CHARS
+    ? joined
+    : `${joined.slice(0, MAX_DESKTOP_FEEDBACK_CHARS)}\n[truncated]`;
+}
+
 function completedResult(
   run: HarnessRuntimeRunEnvelope,
   result: DesktopJobResult,
-): HarnessStageExecutionResult {
+): DesktopCompletedExecutionResult {
   const operationReference = result.operations.find((item) => item.reference)?.reference;
   return {
     type: "completed",
@@ -79,6 +92,11 @@ function completedResult(
       provider: "iseol-desktop-agent",
       reference: operationReference ?? `desktop-job:${result.jobId}`,
     }],
+    feedback: result.operations.map((item) => ({
+      kind: evidenceKindForStage(run.state.stage),
+      summary: operationFeedback(item),
+      reference: item.reference ?? `desktop-job:${result.jobId}:${item.operationId}`,
+    })),
   };
 }
 function failureReason(result: DesktopJobResult): string {

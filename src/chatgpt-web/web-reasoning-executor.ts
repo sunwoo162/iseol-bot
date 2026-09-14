@@ -17,7 +17,10 @@ export type WebDesktopIntentRunnerInput = {
   session: WebWorkerSession;
   intent: DesktopIntent;
 };
-export type WebDesktopIntentRunner = (input: WebDesktopIntentRunnerInput) => Promise<HarnessStageExecutionResult>;
+export type WebDesktopIntentExecutionResult =
+  | { type: "completed"; evidence: HarnessEvidenceRecord[]; feedback?: WebPromptEvidence[] }
+  | Exclude<HarnessStageExecutionResult, { type: "completed" }>;
+export type WebDesktopIntentRunner = (input: WebDesktopIntentRunnerInput) => Promise<WebDesktopIntentExecutionResult>;
 
 export type CreateWebReasoningExecutorInput = {
   workerRoot: string;
@@ -139,7 +142,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           prompt = compileWebPrompt({ kind: "feedback", run, session, priorTurns, desktopEvidence });
           continue;
         }
-        const turnDesktopEvidence: HarnessEvidenceRecord[] = [];
+        const turnDesktopFeedback: WebPromptEvidence[] = [];
         const rejectedFeedback: WebPromptEvidence[] = [];
         for (const intent of result.intents) {
           try {
@@ -161,7 +164,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           }
 
           await recordDesktopIntent(input.workerRoot, { intent, status: "accepted", recordedAt: now() });
-          let desktopResult: HarnessStageExecutionResult;
+          let desktopResult: WebDesktopIntentExecutionResult;
           try {
             desktopResult = await input.runDesktopIntent({ run, session, intent });
           } catch (error) {
@@ -169,7 +172,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           }
           if (desktopResult.type !== "completed") return desktopResult;
           accumulatedEvidence.push(...desktopResult.evidence);
-          turnDesktopEvidence.push(...desktopResult.evidence);
+          turnDesktopFeedback.push(...(desktopResult.feedback ?? feedbackEvidence(desktopResult.evidence)));
         }
 
         const responseSha256 = digest(JSON.stringify(result));
@@ -201,7 +204,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
 
         desktopEvidence = [
           ...desktopEvidence,
-          ...feedbackEvidence(turnDesktopEvidence),
+          ...turnDesktopFeedback,
           ...rejectedFeedback,
         ];
         prompt = compileWebPrompt({ kind: "feedback", run, session, priorTurns, desktopEvidence });

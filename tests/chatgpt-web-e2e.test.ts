@@ -117,6 +117,7 @@ test("Supervisor runs Web reasoning through the real Desktop bridge before deter
   const patch = ["--- a/feature.txt", "+++ b/feature.txt", "@@ -1 +1 @@", "-old", "+new", ""].join("\n");
   const fake = createFakeChatGptWebBrowserAdapter([
     { version: 1, runId: "run-web-e2e", stage: "IMPLEMENT", generation: 1, summary: "Apply and verify patch", decisions: ["Use guarded Desktop intents"], intents: [
+      { version: 1, intentId: "intent-read", runId: "run-web-e2e", stage: "IMPLEMENT", workspaceRoot: f.repo, policySha256, kind: "READ_CONTEXT", path: "feature.txt" },
       { version: 1, intentId: "intent-patch", runId: "run-web-e2e", stage: "IMPLEMENT", workspaceRoot: f.repo, policySha256, kind: "PROPOSE_PATCH", path: "feature.txt", patch },
       { version: 1, intentId: "intent-verify", runId: "run-web-e2e", stage: "IMPLEMENT", workspaceRoot: f.repo, policySha256, kind: "RUN_TEST", cwd: ".", executable: basename(process.execPath), args: ["verify.js"], timeoutMs: 5_000 },
     ], outcome: "continue" },
@@ -136,7 +137,8 @@ test("Supervisor runs Web reasoning through the real Desktop bridge before deter
   assert.equal(final.evidence.some((item) => item.stage === "TEST" && item.kind === "test"), true);
   assert.equal(final.evidence.some((item) => item.stage === "SELF_REVIEW" && item.kind === "review"), true);
   assert.equal(final.evidence.some((item) => item.stage === "COMMIT" && item.kind === "commit"), true);
-  assert.equal(fake.submittedPrompts.some((prompt) => prompt.stage === "IMPLEMENT" && /Desktop Job/.test(prompt.body)), true);
+  assert.equal(fake.submittedPrompts.some((prompt) => prompt.stage === "IMPLEMENT" && /Desktop Job/.test(prompt.body)), false);
+  assert.match(fake.submittedPrompts[1]!.body, /old/);
 });
 test("browser recovery reuses the same Desktop intent job without applying a mutation twice", async (t) => {
   const f = await fixture();

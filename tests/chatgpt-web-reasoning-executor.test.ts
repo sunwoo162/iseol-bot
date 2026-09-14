@@ -134,3 +134,25 @@ test("reasoning executor persists a conversation ref assigned by first submit be
   assert.equal((await executor.execute(run)).type, "completed");
   assert.equal((await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"))?.conversationRef, "conv-after-submit");
 });
+
+test("reasoning feedback prefers ephemeral Desktop payload over durable completion summary", async () => {
+  const { root, run } = await fixture();
+  const policySha256 = run.preflight.policy!.effectiveSha256;
+  const intent = { version: 1 as const, intentId: "intent-read", runId: "run-web", stage: "IMPLEMENT" as const, workspaceRoot: run.request.targetRoot, policySha256, kind: "READ_CONTEXT" as const, path: "README.md" };
+  const fake = createFakeChatGptWebBrowserAdapter([
+    { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1, summary: "Inspect", decisions: [], intents: [intent], outcome: "continue" },
+    { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1, summary: "Done", decisions: [], intents: [], outcome: "stage-complete" },
+  ]);
+  let calls = 0;
+  const executor = createWebReasoningExecutor({
+    workerRoot: root, adapter: fake.adapter, now: () => "2026-09-08T01:06:00.000Z",
+    runDesktopIntent: async () => {
+      calls += 1;
+      return { type: "completed", evidence: [{ version: 1, id: "evidence-read", kind: "command", stage: "IMPLEMENT", recordedAt: "2026-09-08T01:06:00.000Z", summary: "Desktop Job completed", provider: "iseol-desktop-agent" }], feedback: [{ kind: "command", summary: "actual repository payload" }] } as any;
+    },
+  });
+  assert.equal((await executor.execute(run)).type, "completed");
+  assert.equal(calls, 1);
+  assert.match(fake.submittedPrompts[1]!.body, /actual repository payload/);
+  assert.doesNotMatch(fake.submittedPrompts[1]!.body, /Desktop Job completed/);
+});
