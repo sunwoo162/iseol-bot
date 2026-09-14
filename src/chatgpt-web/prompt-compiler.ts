@@ -85,6 +85,21 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
     recovery: input.kind === "recovery" ? "Resume from the first unfinished verified step; do not repeat verified side effects." : null,
     outputContract: {
       responseFormat: "exactly-one-json-object-no-markdown-or-prose",
+      jsonStringEncodingRule: "Use valid JSON string escaping for every string value. Inside JSON strings, encode newlines as \\n, double quotes as \\\", and backslashes as \\\\; never emit raw newlines or unescaped double quotes.",
+      proposePatchRule: "PROPOSE_PATCH.patch must be a git apply-compatible unified diff. Use diff --git / --- / +++ / @@ hunks and never use *** Begin Patch, *** Update File, *** Add File, or *** Delete File markers.",
+      proposePatchExample: {
+        kind: "PROPOSE_PATCH",
+        path: "index.html",
+        patch: [
+          "diff --git a/index.html b/index.html",
+          "--- a/index.html",
+          "+++ b/index.html",
+          "@@ -1 +1 @@",
+          "-<div>old</div>",
+          "+<div class=\"card\">new</div>",
+          "",
+        ].join("\n"),
+      },
       reasoningTurnResult: {
         version: 1,
         runId: input.run.request.runId,

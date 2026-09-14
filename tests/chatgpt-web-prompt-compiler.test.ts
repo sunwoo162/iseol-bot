@@ -130,3 +130,16 @@ test("prompt renders Windows workspace roots with JSON-safe forward slashes", ()
     "C:/Users/user/IseolLiveSmoke/sandbox/campaign-1",
   );
 });
+
+
+test("prompt explains JSON-safe git-apply patch encoding", () => {
+  const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
+  assert.match(payload.outputContract.jsonStringEncodingRule, /JSON string escaping/i);
+  assert.match(payload.outputContract.jsonStringEncodingRule, /double quotes/i);
+  assert.match(payload.outputContract.jsonStringEncodingRule, /newlines/i);
+  assert.match(payload.outputContract.proposePatchRule, /git apply/i);
+  assert.match(payload.outputContract.proposePatchRule, /unified diff/i);
+  assert.match(payload.outputContract.proposePatchRule, /Begin Patch/i);
+  assert.match(payload.outputContract.proposePatchExample.patch, /diff --git a\/index\.html b\/index\.html/);
+  assert.match(payload.outputContract.proposePatchExample.patch, /class="card"/);
+});

@@ -181,3 +181,24 @@ test("restarted reasoning hydrates recovered Desktop payload before the next tur
   assert.equal(fake.submittedPrompts[0]!.kind, "feedback");
   assert.match(fake.submittedPrompts[0]!.body, /recovered package payload/);
 });
+
+
+test("structured JSON syntax errors get bounded corrective feedback", async () => {
+  const { root, run } = await fixture();
+  const { ChatGptWebStructuredResultError } = await import("../src/chatgpt-web/browser-adapter.js");
+  const fake = createFakeChatGptWebBrowserAdapter([
+    new ChatGptWebStructuredResultError("ChatGPT structured result is not exactly one JSON value"),
+    { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1, summary: "Corrected", decisions: [], intents: [], outcome: "stage-complete" },
+  ]);
+  const executor = createWebReasoningExecutor({
+    workerRoot: root, adapter: fake.adapter, maxRejectedIntents: 2,
+    now: () => "2026-09-08T01:07:00.000Z",
+    runDesktopIntent: async () => { throw new Error("unused"); },
+  });
+  assert.equal((await executor.execute(run)).type, "completed");
+  assert.equal(fake.submittedPrompts.length, 2);
+  const feedback = JSON.parse(fake.submittedPrompts[1]!.body) as any;
+  assert.match(JSON.stringify(feedback.desktopEvidence), /valid JSON string escaping/i);
+  assert.match(JSON.stringify(feedback.desktopEvidence), /PROPOSE_PATCH\.patch/);
+  assert.match(JSON.stringify(feedback.desktopEvidence), /git apply/i);
+});

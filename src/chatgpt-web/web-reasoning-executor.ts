@@ -4,7 +4,7 @@ import type { HarnessStageExecutor, HarnessStageExecutionResult } from "../harne
 import type { DesktopIntent, ReasoningTurn, WebWorkerSession } from "./contracts.js";
 import { assertReasoningTurnResult } from "./contracts.js";
 import type { ChatGptWebBrowserAdapter } from "./browser-adapter.js";
-import { ChatGptWebSessionLostError } from "./browser-adapter.js";
+import { ChatGptWebSessionLostError, ChatGptWebStructuredResultError } from "./browser-adapter.js";
 import { compileWebPrompt, type CompiledWebPrompt, type WebPromptEvidence } from "./prompt-compiler.js";
 import { createWebWorkerSession, getActiveWebWorkerSession, updateWebWorkerSession } from "./session-store.js";
 import { appendReasoningTurn, listReasoningTurns } from "./turn-store.js";
@@ -57,6 +57,7 @@ function reasoningEvidence(turn: ReasoningTurn): HarnessEvidenceRecord {
 function feedbackEvidence(records: HarnessEvidenceRecord[]): WebPromptEvidence[] {
   return records.map((item) => ({ kind: item.kind, summary: item.summary, ...(item.reference ? { reference: item.reference } : {}) }));
 }
+const STRUCTURED_JSON_CORRECTION = "Previous response was not valid JSON. Return exactly one JSON object with valid JSON string escaping. For PROPOSE_PATCH.patch, JSON-escape newlines, double quotes, and backslashes, and use a git apply-compatible unified diff; never use *** Begin Patch markers.";
 async function ensureSession(input: CreateWebReasoningExecutorInput, run: HarnessRuntimeRunEnvelope, at: string): Promise<WebWorkerSession> {
   const existing = await getActiveWebWorkerSession(input.workerRoot, run.request.runId, run.state.stage);
   if (existing) return existing;
@@ -118,6 +119,15 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           }
           rawResult = await input.adapter.awaitStructuredResult(session, resultTimeoutMs);
         } catch (error) {
+          if (error instanceof ChatGptWebStructuredResultError) {
+            rejectedCount += 1;
+            if (rejectedCount >= maxRejected) {
+              return { type: "retryable-failure", reason: `Rejected reasoning result budget exhausted: ${error.message}` };
+            }
+            desktopEvidence = [...desktopEvidence, { kind: "reasoning-rejection", summary: STRUCTURED_JSON_CORRECTION }];
+            prompt = compileWebPrompt({ kind: "feedback", run, session, priorTurns, desktopEvidence });
+            continue;
+          }
           if (!(error instanceof ChatGptWebSessionLostError)) {
             return { type: "retryable-failure", reason: error instanceof Error ? error.message : String(error) };
           }
