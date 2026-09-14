@@ -83,7 +83,37 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
     priorDecisions,
     desktopEvidence: evidence,
     recovery: input.kind === "recovery" ? "Resume from the first unfinished verified step; do not repeat verified side effects." : null,
-    outputContract: "Return one versioned ReasoningTurnResult. Prose alone never completes a stage.",
+    outputContract: {
+      responseFormat: "exactly-one-json-object-no-markdown-or-prose",
+      reasoningTurnResult: {
+        version: 1,
+        runId: input.run.request.runId,
+        stage: input.run.state.stage,
+        generation: input.session.generation,
+        summary: "non-empty string",
+        decisions: ["string"],
+        intents: [],
+        outcome: "continue|stage-complete|blocked-user|retryable",
+      },
+      desktopIntentCommonRequired: {
+        version: 1,
+        intentId: "unique non-empty id",
+        runId: input.run.request.runId,
+        stage: input.run.state.stage,
+        workspaceRoot: input.run.request.targetRoot,
+        policySha256: policy.effectiveSha256,
+      },
+      requiredFieldsByIntentKind: {
+        READ_CONTEXT: ["path"],
+        PROPOSE_PATCH: ["path", "patch"],
+        RUN_TEST: ["cwd", "executable", "args", "timeoutMs"],
+        RUN_BUILD: ["cwd", "executable", "args", "timeoutMs"],
+        GIT_INSPECT: ["cwd"],
+        REQUEST_COMMIT: ["cwd", "message", "expectedHead?"],
+        CHECK_HTTP: ["url", "timeoutMs"],
+      },
+      blockerReasonRule: "Include blockerReason only when outcome is blocked-user; otherwise omit it.",
+    },
   };
   const body = JSON.stringify(stable(payload), null, 2);
   return {

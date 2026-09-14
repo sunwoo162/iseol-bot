@@ -84,3 +84,36 @@ test("prompt compiler rejects mismatched session and run policy context", () => 
   assert.throws(() => compileWebPrompt({ ...baseInput(), session: session("PLAN") }), /stage/i);
   assert.throws(() => compileWebPrompt({ ...baseInput(), session: session("IMPLEMENT", 1, "wrong-policy") }), /policy/i);
 });
+
+
+test("prompt pins the exact reasoning result envelope and Desktop intent contract", () => {
+  const compiled = compileWebPrompt({
+    ...baseInput(),
+    run: run("PLAN"),
+    session: session("PLAN", 3),
+  });
+  const payload = JSON.parse(compiled.body) as any;
+  assert.equal(payload.outputContract.responseFormat, "exactly-one-json-object-no-markdown-or-prose");
+  assert.deepEqual(payload.outputContract.reasoningTurnResult, {
+    version: 1,
+    runId: "run-prompt",
+    stage: "PLAN",
+    generation: 3,
+    summary: "non-empty string",
+    decisions: ["string"],
+    intents: [],
+    outcome: "continue|stage-complete|blocked-user|retryable",
+  });
+  assert.deepEqual(payload.outputContract.desktopIntentCommonRequired, {
+    version: 1,
+    intentId: "unique non-empty id",
+    runId: "run-prompt",
+    stage: "PLAN",
+    workspaceRoot: "C:/workspace/project",
+    policySha256: "policy-sha",
+  });
+  assert.deepEqual(payload.outputContract.requiredFieldsByIntentKind.READ_CONTEXT, ["path"]);
+  assert.deepEqual(payload.outputContract.requiredFieldsByIntentKind.RUN_TEST, ["cwd", "executable", "args", "timeoutMs"]);
+  assert.deepEqual(payload.outputContract.requiredFieldsByIntentKind.REQUEST_COMMIT, ["cwd", "message", "expectedHead?"]);
+  assert.match(payload.outputContract.blockerReasonRule, /blocked-user/);
+});
