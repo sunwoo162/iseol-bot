@@ -35,6 +35,15 @@ const DEFAULT_EXECUTABLES = new Set([
   "java", "java.exe", "mvn", "mvn.cmd", "gradle", "gradle.bat",
 ]);
 
+function resolveProcessInvocation(executable: string, args: string[]): { executable: string; args: string[] } {
+  const name = basename(executable).toLowerCase();
+  if (process.platform === "win32" && (name === "npm" || name === "npm.cmd")) {
+    const npmCli = resolve(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+    return { executable: process.execPath, args: [npmCli, ...args] };
+  }
+  return { executable, args };
+}
+
 function capOutput(value: Buffer, maxBytes: number): string {
   return value.subarray(0, Math.max(0, maxBytes)).toString("utf8");
 }
@@ -48,7 +57,8 @@ async function runCommand(input: {
   stdin?: string;
 }): Promise<CommandResult> {
   return new Promise((resolveResult, reject) => {
-    const child = spawn(input.executable, input.args, {
+    const invocation = resolveProcessInvocation(input.executable, input.args);
+    const child = spawn(invocation.executable, invocation.args, {
       cwd: input.cwd,
       shell: false,
       windowsHide: true,

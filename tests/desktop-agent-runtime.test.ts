@@ -262,3 +262,26 @@ test("policy read roots do not expand writable workspace roots", async () => {
     /outside Desktop workspace|outside Desktop Agent allowed roots/i,
   );
 });
+
+
+test("Windows runtime executes npm without opening a shell", async (t) => {
+  if (process.platform !== "win32") return t.skip("Windows-specific npm shim behavior");
+  const { allowed, workspace, harnessPath } = await fixture();
+  const pack = policyPack(workspace, harnessPath, [{
+    id: "npm-version", type: "RUN_PROCESS", cwd: ".", executable: "npm", args: ["--version"], timeoutMs: 5_000,
+  }]);
+  const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed] });
+  assert.equal(result.status, "completed");
+  assert.match(result.operations[0]?.stdout ?? "", /^\d+\.\d+/);
+});
+
+test("Windows runtime executes npm.cmd without opening a shell", async (t) => {
+  if (process.platform !== "win32") return t.skip("Windows-specific npm shim behavior");
+  const { allowed, workspace, harnessPath } = await fixture();
+  const pack = policyPack(workspace, harnessPath, [{
+    id: "npm-cmd-version", type: "RUN_PROCESS", cwd: ".", executable: "npm.cmd", args: ["--version"], timeoutMs: 5_000,
+  }]);
+  const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed] });
+  assert.equal(result.status, "completed");
+  assert.match(result.operations[0]?.stdout ?? "", /^\d+\.\d+/);
+});
