@@ -117,3 +117,16 @@ test("prompt pins the exact reasoning result envelope and Desktop intent contrac
   assert.deepEqual(payload.outputContract.requiredFieldsByIntentKind.REQUEST_COMMIT, ["cwd", "message", "expectedHead?"]);
   assert.match(payload.outputContract.blockerReasonRule, /blocked-user/);
 });
+
+test("prompt renders Windows workspace roots with JSON-safe forward slashes", () => {
+  const input = baseInput();
+  input.run.request.targetRoot = "C:\\Users\\user\\IseolLiveSmoke\\sandbox\\campaign-1";
+
+  const compiled = compileWebPrompt(input);
+  const payload = JSON.parse(compiled.body) as any;
+
+  assert.equal(
+    payload.outputContract.desktopIntentCommonRequired.workspaceRoot,
+    "C:/Users/user/IseolLiveSmoke/sandbox/campaign-1",
+  );
+});

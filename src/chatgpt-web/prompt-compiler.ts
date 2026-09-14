@@ -100,7 +100,7 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
         intentId: "unique non-empty id",
         runId: input.run.request.runId,
         stage: input.run.state.stage,
-        workspaceRoot: input.run.request.targetRoot,
+        workspaceRoot: input.run.request.targetRoot.replaceAll("\\", "/"),
         policySha256: policy.effectiveSha256,
       },
       requiredFieldsByIntentKind: {
