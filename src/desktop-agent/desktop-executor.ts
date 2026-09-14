@@ -33,6 +33,7 @@ export type CreateDesktopStageExecutorInput = {
   heartbeatTimeoutMs?: number;
   leaseDurationMs?: number;
   resultTimeoutMs?: number;
+  captureRetryableResultAsFeedback?: boolean;
 };
 
 function containsPath(root: string, target: string): boolean {
@@ -169,6 +170,10 @@ export function createDesktopStageExecutor(
       }
 
       if (result.status === "retryable-failure") {
+        if (input.captureRetryableResultAsFeedback) {
+          await completeDesktopJob(input.jobRoot, job.jobId, sessionId, result);
+          return completedResult(run, result);
+        }
         await requeueDesktopJob(input.jobRoot, job.jobId, sessionId, result.completedAt);
         return { type: "retryable-failure", reason: failureReason(result) };
       }

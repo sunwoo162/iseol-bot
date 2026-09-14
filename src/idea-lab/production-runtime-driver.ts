@@ -279,6 +279,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
         jobRoot: input.desktopStateRoot,
         transport: input.desktopTransport,
         compileTaskPack: async () => pack,
+        captureRetryableResultAsFeedback: true,
       });
       return desktop.execute(run);
     };

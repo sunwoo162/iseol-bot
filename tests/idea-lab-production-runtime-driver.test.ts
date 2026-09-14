@@ -455,7 +455,7 @@ function makeDriver(root: string, options: any = {}) {
   return createIdeaLabProductionRuntimeDriver({
     roots: { iseolRoot: root, modelRoot: root, runRoot: root, webRoot: root, browserProfileRoot: root },
     repositoryRoot, repositoryUrl: options.repositoryUrl ?? "https://github.com/acme/proto", baseRef: options.baseRef ?? "main", sandboxRoot: root,
-    agentId: "agent-1", desktopStateRoot: options.desktopStateRoot ?? root, sandboxAdapter: options.sandbox ?? { inspect: async () => null, allocate: async (input: any) => ({ repositoryUrl: input.repositoryUrl, branch: `idea/${input.campaignId}/${input.productionId}`, worktreeRoot: input.run.request.targetRoot, baseRef: input.baseRef }) }, desktopTransport: {} as never, browserAdapter: options.browserAdapter ?? {} as never,
+    agentId: "agent-1", desktopStateRoot: options.desktopStateRoot ?? root, sandboxAdapter: options.sandbox ?? { inspect: async () => null, allocate: async (input: any) => ({ repositoryUrl: input.repositoryUrl, branch: `idea/${input.campaignId}/${input.productionId}`, worktreeRoot: input.run.request.targetRoot, baseRef: input.baseRef }) }, desktopTransport: options.desktopTransport ?? {} as never, browserAdapter: options.browserAdapter ?? {} as never,
     desktopTaskCompiler: async () => null, deployAdapter: options.deployAdapter ?? {} as never,
   });
 }
@@ -481,4 +481,36 @@ test("Idea Lab Desktop compiler emits a job id accepted by the durable job store
   const pack = await compiler(run, "agent-1");
   assert.ok(pack);
   await assert.doesNotReject(() => createDesktopJob(root, pack, at));
+});
+
+test("Idea Lab Web reasoning consumes an executed RED test failure as Desktop feedback", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-red-feedback-"));
+  const proposal = baseProposal("camp-red-feedback");
+  const bootstrap = makeDriver(root, { proposal });
+  const production = await bootstrap.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const { registerDesktopAgent } = await import("../src/desktop-agent/agent-registry.js");
+  const run = await loadHarnessRun(root, production.runId);
+  assert.ok(run);
+  const { createHash } = await import("node:crypto");
+  const { writeFile } = await import("node:fs/promises");
+  const policyPath = join(root, "HARNESS_ENGINEERING.md");
+  const policyContent = "policy\n";
+  await writeFile(policyPath, policyContent, "utf8");
+  const policySourceSha256 = createHash("sha256").update(policyContent, "utf8").digest("hex");
+  const policySha256 = createHash("sha256").update(`iseol-global\n${policyPath}\n${policySourceSha256}`, "utf8").digest("hex");
+  await saveHarnessRun(root, { ...run, preflight: { version: 1, runId: production.runId, status: "ready", policy: { version: 1, loadedAt: new Date().toISOString(), sources: [{ kind: "iseol-global", path: policyPath, sha256: policySourceSha256, content: policyContent }], effectiveSha256: policySha256 } }, state: { ...run.state, stage: "IMPLEMENT", status: "READY", completedStages: ["CONTEXT", "ANALYZE", "PLAN"] } });
+  await registerDesktopAgent(root, { version: 1, agentId: "agent-1", agentVersion: "test", os: "win32", capabilities: ["process"], workspaceRoots: [production.worktreeRoot], token: "not-persisted" }, new Date().toISOString());
+  const intentId = "implement-run-red-test";
+  const browser = createFakeChatGptWebBrowserAdapter([
+    { version: 1, runId: production.runId, stage: "IMPLEMENT", generation: 1, summary: "Run RED", decisions: [], outcome: "continue", intents: [{ version: 1, intentId, runId: production.runId, stage: "IMPLEMENT", workspaceRoot: production.worktreeRoot, policySha256, kind: "RUN_TEST", cwd: ".", executable: "npm", args: ["test"], timeoutMs: 120000 }] },
+    { version: 1, runId: production.runId, stage: "IMPLEMENT", generation: 1, summary: "Stop after RED feedback", decisions: [], intents: [], outcome: "blocked-user", blockerReason: "verified RED feedback" },
+  ]);
+  const transport = { isAgentConnected: () => true, getAgentSessionId: () => "session-red", sendTask: () => undefined, awaitResult: async (jobId: string) => ({ version: 1, jobId, runId: production.runId, agentId: "agent-1", status: "retryable-failure" as const, completedAt: new Date().toISOString(), operations: [{ operationId: intentId, ok: false, summary: "Ran npm exited with code 1", stdout: "RED test failed" }] }) };
+  const driver = makeDriver(root, { proposal, browserAdapter: browser.adapter, desktopTransport: transport });
+  await driver.advanceProduction(production);
+  assert.equal(browser.submittedPrompts.length, 2);
+  assert.equal(browser.submittedPrompts[1]?.kind, "feedback");
+  assert.match(browser.submittedPrompts[1]?.body ?? "", /RED test failed/);
 });

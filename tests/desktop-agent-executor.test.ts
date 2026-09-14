@@ -170,3 +170,25 @@ test("lost result for a mutating task becomes indeterminate instead of requeuein
   assert.equal(result.type, "waiting-agent");
   assert.equal((await loadDesktopJob(jobRoot, "job-lost-commit"))?.status, "indeterminate");
 });
+
+test("reasoning mode captures an executed retryable Desktop result as feedback", async () => {
+  const { registryRoot, jobRoot, targetRoot } = await roots();
+  await register(registryRoot, targetRoot);
+  const transport = new FakeTransport();
+  transport.nextResult = {
+    ...completed("job-test", "retryable-failure"),
+    operations: [{ operationId: "op-1", ok: false, summary: "Ran npm exited with code 1", stdout: "RED test failed" }],
+  };
+  const executor = createDesktopStageExecutor({
+    registryRoot, jobRoot, transport, captureRetryableResultAsFeedback: true,
+    compileTaskPack: async () => task(targetRoot),
+    now: () => "2026-09-08T03:00:10.000Z",
+  });
+  const result = await executor.execute(run(targetRoot));
+  assert.equal(result.type, "completed");
+  if (result.type !== "completed") return;
+  assert.match((result as any).feedback?.[0]?.summary ?? "", /RED test failed/);
+  const stored = await loadDesktopJob(jobRoot, "job-test");
+  assert.equal(stored?.status, "completed");
+  assert.equal(stored?.result?.status, "retryable-failure");
+});
