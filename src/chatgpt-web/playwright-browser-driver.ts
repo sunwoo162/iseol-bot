@@ -54,6 +54,29 @@ function classifyBrowserFailure(error: unknown): never {
   throw new ChatGptWebSessionLostError("ChatGPT browser operation failed");
 }
 
+function canonicalizeNewFilePatch(patch: string): string {
+  const lines = patch.replaceAll("\r\n", "\n").split("\n");
+  const trailingNewline = lines.at(-1) === "";
+  if (trailingNewline) lines.pop();
+  if (lines.filter((line) => line.startsWith("--- ")).length !== 1 || !lines.includes("--- /dev/null")) return patch;
+  const hunkIndexes = lines.flatMap((line, index) => line.startsWith("@@ ") ? [index] : []);
+  if (hunkIndexes.length !== 1) return patch;
+  const hunkIndex = hunkIndexes[0]!;
+  const match = lines[hunkIndex]!.match(/^@@ -0,0 \+(\d+)(?:,\d+)? @@(.*)$/);
+  if (!match) return patch;
+  let newCount = 0;
+  for (let index = hunkIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (line === "\\ No newline at end of file") continue;
+    if (line.startsWith("diff --git ") || line.startsWith("--- ") || line.startsWith("+++ ") || line.startsWith("@@ ")) return patch;
+    if (line.startsWith(" ") || line.startsWith("-")) return patch;
+    if (!line.startsWith("+")) lines[index] = `+${line}`;
+    newCount += 1;
+  }
+  lines[hunkIndex] = `@@ -0,0 +${match[1]},${newCount} @@${match[2] ?? ""}`;
+  return lines.join("\n") + (trailingNewline ? "\n" : "");
+}
+
 function validatePatchAppendixSyntax(patch: string): void {
   const lines = patch.replaceAll("\r\n", "\n").split("\n");
   if (lines.at(-1) === "") lines.pop();
@@ -126,8 +149,9 @@ function parsePatchMultipart(candidate: string): unknown | null {
     if (intent.patch !== `@@ISEOL_PATCH:${id}@@`) structured("ChatGPT patch placeholder does not match intent identity");
     const patch = blocks.get(id);
     if (patch === undefined) structured("ChatGPT patch appendix is missing");
-    validatePatchAppendixSyntax(patch);
-    intent.patch = patch;
+    const canonicalPatch = canonicalizeNewFilePatch(patch);
+    validatePatchAppendixSyntax(canonicalPatch);
+    intent.patch = canonicalPatch;
     used.add(id);
   }
   if (blocks.size !== used.size) structured("ChatGPT patch appendix is not referenced by a PROPOSE_PATCH intent");

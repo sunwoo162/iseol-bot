@@ -433,7 +433,7 @@ test("structured result rejects invalid raw unified diff syntax before Desktop d
     ].join("\n"),
     [
       "diff --git a/app.test.js b/app.test.js", "new file mode 100644", "--- /dev/null", "+++ b/app.test.js",
-      "@@ -0,0 +1,3 @@", "+line one", "", "line two", "+line three", "",
+      "@@ -0,0 +1,3 @@", "+line one", "-line two", "+line three", "",
     ].join("\n"),
     [
       "diff --git a/app.js b/app.js", "--- a/app.js", "+++ b/app.js", "@@ -0,0 +1,3 @@", "+one", "+two", "",
@@ -454,4 +454,26 @@ test("structured result rejects invalid raw unified diff syntax before Desktop d
       (error: unknown) => error instanceof Error && error.name === "ChatGptWebStructuredResultError",
     );
   }
+});
+
+
+test("structured result canonicalizes unprefixed body lines only for a new-file patch", async () => {
+  let now = 0;
+  const item = fakeBackend();
+  item.setUrl("https://chatgpt.com/c/conv-new-file-patch");
+  const driver = await createPlaywrightChatGptBrowserDriver(config, {
+    backend: item.backend, now: () => now, sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await driver.submitPrompt({ conversationRef: "conv-new-file-patch", prompt: "payload", promptSha256: "new-file-patch" });
+  const patch = [
+    "diff --git a/smoke.test.js b/smoke.test.js", "new file mode 100644", "--- /dev/null", "+++ b/smoke.test.js",
+    "@@ -0,0 +1,3 @@", "+line one", "", "line two", "+line three",
+  ].join("\n");
+  const header = { version: 1, intents: [{ intentId: "patch-new", kind: "PROPOSE_PATCH", path: "smoke.test.js", patch: "@@ISEOL_PATCH:patch-new@@" }] };
+  item.setAssistant(`${JSON.stringify(header)}\n@@ISEOL_PATCH_BEGIN:patch-new@@\n${patch}\n@@ISEOL_PATCH_END:patch-new@@`, 1);
+  const result = await driver.readStructuredResult({ conversationRef: "conv-new-file-patch", timeoutMs: 2000 }) as any;
+  assert.equal(result.intents[0].patch, [
+    "diff --git a/smoke.test.js b/smoke.test.js", "new file mode 100644", "--- /dev/null", "+++ b/smoke.test.js",
+    "@@ -0,0 +1,4 @@", "+line one", "+", "+line two", "+line three", "",
+  ].join("\n"));
 });
