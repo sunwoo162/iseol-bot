@@ -2,8 +2,10 @@ import { resolve } from "node:path";
 import type { ChatGptWebBrowserAdapter } from "../chatgpt-web/browser-adapter.js";
 import { createHybridStageExecutor } from "../chatgpt-web/hybrid-executor.js";
 import { compileDesktopIntentToTaskPack } from "../chatgpt-web/intent-compiler.js";
+import { loadDesktopIntent } from "../chatgpt-web/intent-store.js";
 import { createWebReasoningExecutor, type WebDesktopIntentRunner } from "../chatgpt-web/web-reasoning-executor.js";
-import { createDesktopStageExecutor, type DesktopExecutionTransport, type DesktopTaskCompiler } from "../desktop-agent/desktop-executor.js";
+import { createDesktopStageExecutor, desktopJobFeedback, type DesktopExecutionTransport, type DesktopTaskCompiler } from "../desktop-agent/desktop-executor.js";
+import { findDesktopJobByIdempotencyKey } from "../desktop-agent/job-store.js";
 import type { HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import { createDevelopmentRun } from "../harness/run-service.js";
 import { loadHarnessRun } from "../harness/run-store.js";
@@ -281,9 +283,36 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
       return desktop.execute(run);
     };
 
+    const recoverDesktopFeedback = async ({ run, priorTurns }: { run: HarnessRuntimeRunEnvelope; priorTurns: Array<{ desktopIntentIds: string[] }> }) => {
+      const feedback = [];
+      const seen = new Set<string>();
+      for (const turn of priorTurns) {
+        for (const intentId of turn.desktopIntentIds) {
+          if (seen.has(intentId)) continue;
+          seen.add(intentId);
+          const intentRecord = await loadDesktopIntent(input.roots.webRoot, run.request.runId, intentId);
+          if (!intentRecord) throw new Error(`Recovered Desktop intent record is missing: ${intentId}`);
+          if (intentRecord.status === "rejected") {
+            feedback.push({ kind: "reasoning-rejection", summary: intentRecord.reason ?? "Desktop intent was rejected", reference: `intent:${intentId}` });
+            continue;
+          }
+          const job = await findDesktopJobByIdempotencyKey(input.desktopStateRoot, `web-intent:${run.request.runId}:${intentId}`);
+          if (!job || job.status !== "completed" || !job.result) {
+            throw new Error(`Recovered Desktop Job is not completed: ${intentId}`);
+          }
+          if (job.runId !== run.request.runId || job.stage !== run.state.stage) {
+            throw new Error(`Recovered Desktop Job identity mismatch: ${intentId}`);
+          }
+          feedback.push(...desktopJobFeedback(run, job.result));
+        }
+      }
+      return feedback;
+    };
+
     const web = createWebReasoningExecutor({
       workerRoot: input.roots.webRoot,      adapter: input.browserAdapter,
       runDesktopIntent,
+      recoverDesktopFeedback,
       now,
       commitAuthorized: false,
     });

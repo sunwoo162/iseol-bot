@@ -62,7 +62,7 @@ function evidenceKindForStage(stage: HarnessRuntimeRunEnvelope["state"]["stage"]
   return "command";
 }
 
-type DesktopFeedback = { kind: HarnessEvidenceKind; summary: string; reference?: string };
+export type DesktopFeedback = { kind: HarnessEvidenceKind; summary: string; reference?: string };
 type DesktopCompletedExecutionResult = HarnessStageExecutionResult & { feedback: DesktopFeedback[] };
 const MAX_DESKTOP_FEEDBACK_CHARS = 8_000;
 function operationFeedback(item: DesktopOperationResult): string {
@@ -75,6 +75,16 @@ function operationFeedback(item: DesktopOperationResult): string {
     : `${joined.slice(0, MAX_DESKTOP_FEEDBACK_CHARS)}\n[truncated]`;
 }
 
+export function desktopJobFeedback(
+  run: HarnessRuntimeRunEnvelope,
+  result: DesktopJobResult,
+): DesktopFeedback[] {
+  return result.operations.map((item) => ({
+    kind: evidenceKindForStage(run.state.stage),
+    summary: operationFeedback(item),
+    reference: item.reference ?? `desktop-job:${result.jobId}:${item.operationId}`,
+  }));
+}
 function completedResult(
   run: HarnessRuntimeRunEnvelope,
   result: DesktopJobResult,
@@ -92,11 +102,7 @@ function completedResult(
       provider: "iseol-desktop-agent",
       reference: operationReference ?? `desktop-job:${result.jobId}`,
     }],
-    feedback: result.operations.map((item) => ({
-      kind: evidenceKindForStage(run.state.stage),
-      summary: operationFeedback(item),
-      reference: item.reference ?? `desktop-job:${result.jobId}:${item.operationId}`,
-    })),
+    feedback: desktopJobFeedback(run, result),
   };
 }
 function failureReason(result: DesktopJobResult): string {

@@ -8,7 +8,7 @@ import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 import { createWebReasoningExecutor } from "../src/chatgpt-web/web-reasoning-executor.js";
 import { createFakeChatGptWebBrowserAdapter, ChatGptWebSessionLostError } from "../src/chatgpt-web/test-support/fake-browser-adapter.js";
 import { getActiveWebWorkerSession } from "../src/chatgpt-web/session-store.js";
-import { listReasoningTurns } from "../src/chatgpt-web/turn-store.js";
+import { appendReasoningTurn, listReasoningTurns } from "../src/chatgpt-web/turn-store.js";
 import { loadDesktopIntent } from "../src/chatgpt-web/intent-store.js";
 
 async function fixture() {
@@ -155,4 +155,29 @@ test("reasoning feedback prefers ephemeral Desktop payload over durable completi
   assert.equal(calls, 1);
   assert.match(fake.submittedPrompts[1]!.body, /actual repository payload/);
   assert.doesNotMatch(fake.submittedPrompts[1]!.body, /Desktop Job completed/);
+});
+test("restarted reasoning hydrates recovered Desktop payload before the next turn", async () => {
+  const { root, run } = await fixture();
+  await appendReasoningTurn(root, {
+    version: 1, turnId: "turn-prior", sessionId: "session-prior", runId: "run-web", stage: "IMPLEMENT", generation: 1,
+    promptSha256: "a".repeat(64), responseSha256: "b".repeat(64), summary: "Inspected repository", decisions: ["Need package context"],
+    desktopIntentIds: ["intent-prior-read"], outcome: "continue", recordedAt: "2026-09-08T01:05:30.000Z",
+  });
+  const fake = createFakeChatGptWebBrowserAdapter([
+    { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1, summary: "Recovered context is sufficient", decisions: [], intents: [], outcome: "stage-complete" },
+  ]);
+  const recoveredIntentIds: string[] = [];
+  const executor = createWebReasoningExecutor({
+    workerRoot: root, adapter: fake.adapter, now: () => "2026-09-08T01:06:00.000Z",
+    runDesktopIntent: async () => { throw new Error("recovered Desktop intent must not rerun"); },
+    recoverDesktopFeedback: async ({ priorTurns }: any) => {
+      recoveredIntentIds.push(...priorTurns.flatMap((turn: any) => turn.desktopIntentIds));
+      return [{ kind: "command", summary: "recovered package payload" }];
+    },
+  } as any);
+  assert.equal((await executor.execute(run)).type, "completed");
+  assert.deepEqual(recoveredIntentIds, ["intent-prior-read"]);
+  assert.equal(fake.submittedPrompts.length, 1);
+  assert.equal(fake.submittedPrompts[0]!.kind, "feedback");
+  assert.match(fake.submittedPrompts[0]!.body, /recovered package payload/);
 });

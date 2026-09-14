@@ -26,6 +26,7 @@ export type CreateWebReasoningExecutorInput = {
   workerRoot: string;
   adapter: ChatGptWebBrowserAdapter;
   runDesktopIntent: WebDesktopIntentRunner;
+  recoverDesktopFeedback?: (input: { run: HarnessRuntimeRunEnvelope; priorTurns: ReasoningTurn[] }) => Promise<WebPromptEvidence[]>;
   now?: () => string;
   resultTimeoutMs?: number;
   maxTurnsPerStage?: number;
@@ -89,7 +90,9 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
       let priorTurns = (await listReasoningTurns(input.workerRoot, run.request.runId))
         .filter((turn) => turn.stage === run.state.stage);
       const accumulatedEvidence: HarnessEvidenceRecord[] = [];
-      let desktopEvidence: WebPromptEvidence[] = [];
+      let desktopEvidence: WebPromptEvidence[] = priorTurns.length > 0 && input.recoverDesktopFeedback
+        ? await input.recoverDesktopFeedback({ run, priorTurns })
+        : [];
       let prompt = compileWebPrompt({
         kind: priorTurns.length === 0 ? "initial" : "feedback",
         run, session, priorTurns, desktopEvidence,

@@ -369,6 +369,41 @@ test("Idea Lab Web reasoning rejects commit intents before the canonical COMMIT 
   assert.equal(record?.status, "rejected");
   assert.match(record?.reason ?? "", /commit is not explicitly authorized/i);
 });
+
+test("Idea Lab restart hydrates completed Desktop output without rerunning the intent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-web-recovery-feedback-"));
+  const proposal = baseProposal("camp-web-recovery-feedback");
+  const bootstrap = makeDriver(root, { proposal });
+  const production = await bootstrap.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const run = await loadHarnessRun(root, production.runId);
+  assert.ok(run);
+  const runId = production.runId;
+  const intentId = "analyze-read-package";
+  const policySha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+  const at = "2026-09-14T11:00:00.000Z";
+  const intent = { version: 1 as const, intentId, runId, stage: "ANALYZE" as const, workspaceRoot: production.worktreeRoot, policySha256, kind: "READ_CONTEXT" as const, path: "package.json" };
+  const { appendReasoningTurn } = await import("../src/chatgpt-web/turn-store.js");
+  const { recordDesktopIntent } = await import("../src/chatgpt-web/intent-store.js");
+  const { createDesktopJob, acquireDesktopJobLease, completeDesktopJob, loadDesktopJob } = await import("../src/desktop-agent/job-store.js");
+  await appendReasoningTurn(root, { version: 1, turnId: "turn-analyze-read", sessionId: "session-analyze-old", runId, stage: "ANALYZE", generation: 1, promptSha256: "a".repeat(64), responseSha256: "b".repeat(64), summary: "Read repository context", decisions: [], desktopIntentIds: [intentId], outcome: "continue", recordedAt: at });
+  await recordDesktopIntent(root, { intent, status: "accepted", recordedAt: at });
+  const jobId = "web-recovery-feedback-job";
+  await createDesktopJob(root, { version: 1, jobId, runId, stage: "ANALYZE", attempt: 0, agentId: "agent-1", workspaceRoot: production.worktreeRoot, policyDigest: policySha256, policySources: [], idempotencyKey: `web-intent:${runId}:${intentId}`, leaseUntil: "2026-09-14T11:10:00.000Z", operations: [{ id: intentId, type: "READ_FILE", path: "package.json" }] }, at);
+  await acquireDesktopJobLease(root, jobId, "test-owner", at, 60_000);
+  await completeDesktopJob(root, jobId, "test-owner", { version: 1, jobId, runId, agentId: "agent-1", status: "completed", completedAt: "2026-09-14T11:00:01.000Z", operations: [{ operationId: intentId, ok: true, summary: "Read package.json", stdout: "{\"scripts\":{\"test\":\"node --test\"}}" }] });
+  await saveHarnessRun(root, { ...run, preflight: { version: 1, runId, status: "ready", policy: { version: 1, loadedAt: at, sources: [], effectiveSha256: policySha256 } }, state: { ...run.state, stage: "ANALYZE", status: "READY", completedStages: ["CONTEXT"] } });
+  const browser = createFakeChatGptWebBrowserAdapter([
+    { version: 1, runId, stage: "ANALYZE", generation: 1, summary: "Analysis complete", decisions: [], intents: [], outcome: "stage-complete" },
+    { version: 1, runId, stage: "PLAN", generation: 1, summary: "Controlled stop", decisions: [], intents: [], outcome: "blocked-user", blockerReason: "stop after recovery verification" },
+  ]);
+  const driver = makeDriver(root, { proposal, browserAdapter: browser.adapter });
+  await driver.advanceProduction(production);
+  assert.equal(browser.submittedPrompts[0]?.kind, "feedback");
+  assert.match(browser.submittedPrompts[0]!.body, /node --test/);
+  assert.equal((await loadDesktopJob(root, jobId))?.attempts, 1);
+});
 function runnableAtDeploy(run: HarnessRuntimeRunEnvelope, sha: string): HarnessRuntimeRunEnvelope {
   return {
     ...run,
