@@ -285,3 +285,30 @@ test("live Idea Lab waits boundedly for the configured Desktop agent to connect"
   assert.equal(checks, 2);
   await services.dispose();
 });
+
+
+test("default live Idea Lab wait covers the persistent Agent max reconnect backoff", async () => {
+  let checks = 0;
+  let sleeps = 0;
+  let constructed = 0;
+  const value = fixture({ ideaLabConfig: liveConfig() });
+  delete value.agentReadyTimeoutMs;
+  value.deps.startDesktop = async () => ({
+    transport: {
+      isAgentConnected: () => { checks += 1; return checks >= 602; },
+      sendTask() {},
+      awaitResult: async () => { throw new Error("unused"); },
+    },
+    close: async () => undefined,
+  });
+  value.deps.sleep = async (ms: number) => { assert.ok(ms > 0 && ms <= 50); sleeps += 1; };
+  value.deps.resolveDeploy = async () => ({});
+  value.deps.createProductionDriver = () => { constructed += 1; return {}; };
+  value.deps.createRuntime = () => ({ recover: async () => undefined, dispose: async () => undefined });
+
+  const services = await startIseolRuntimeServices(value);
+  assert.equal(services.ideaLabCapability.state, "ready");
+  assert.equal(constructed, 1);
+  assert.ok(sleeps >= 600);
+  await services.dispose();
+});

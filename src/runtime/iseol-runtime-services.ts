@@ -203,7 +203,7 @@ export async function startIseolRuntimeServices(
   const createRuntime = deps.createRuntime ?? createIdeaLabRuntimeService;
   const createSandboxAdapter = deps.createSandboxAdapter ?? createDesktopPrototypeSandboxAdapter;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolveDelay) => setTimeout(resolveDelay, ms)));
-  const agentReadyTimeoutMs = input.agentReadyTimeoutMs ?? 5_000;
+  const agentReadyTimeoutMs = input.agentReadyTimeoutMs ?? 31_000;
   if (!Number.isInteger(agentReadyTimeoutMs) || agentReadyTimeoutMs < 0) {
     throw new Error("agentReadyTimeoutMs must be a non-negative integer");
   }
