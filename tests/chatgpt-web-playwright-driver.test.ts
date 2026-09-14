@@ -424,3 +424,34 @@ test("structured result requires raw appendix transport for PROPOSE_PATCH", asyn
     );
   }
 });
+
+test("structured result rejects invalid raw unified diff syntax before Desktop dispatch", async () => {
+  const invalidPatches = [
+    [
+      "diff --git a/a.txt b/a.txt", "--- a/a.txt", "+++ b/a.txt", "@@ -1 +1 @@", "-old", "+new",
+      "diff --git a/b.txt b/b.txt", "--- a/b.txt", "+++ b/b.txt", "@@ -1 +1 @@", "-old", "+new", "",
+    ].join("\n"),
+    [
+      "diff --git a/app.test.js b/app.test.js", "new file mode 100644", "--- /dev/null", "+++ b/app.test.js",
+      "@@ -0,0 +1,3 @@", "+line one", "", "line two", "+line three", "",
+    ].join("\n"),
+    [
+      "diff --git a/app.js b/app.js", "--- a/app.js", "+++ b/app.js", "@@ -0,0 +1,3 @@", "+one", "+two", "",
+    ].join("\n"),
+  ];
+  for (const [index, patch] of invalidPatches.entries()) {
+    let now = 0;
+    const item = fakeBackend();
+    item.setUrl("https://chatgpt.com/c/conv-invalid-patch");
+    const driver = await createPlaywrightChatGptBrowserDriver(config, {
+      backend: item.backend, now: () => now, sleep: async (ms: number) => { now += ms; },
+    } as any);
+    await driver.submitPrompt({ conversationRef: "conv-invalid-patch", prompt: "payload", promptSha256: `invalid-patch-${index}` });
+    const header = { version: 1, intents: [{ intentId: "patch-1", kind: "PROPOSE_PATCH", path: "app.test.js", patch: "@@ISEOL_PATCH:patch-1@@" }] };
+    item.setAssistant(`${JSON.stringify(header)}\n@@ISEOL_PATCH_BEGIN:patch-1@@\n${patch.trimEnd()}\n@@ISEOL_PATCH_END:patch-1@@`, 1);
+    await assert.rejects(
+      () => driver.readStructuredResult({ conversationRef: "conv-invalid-patch", timeoutMs: 2000 }),
+      (error: unknown) => error instanceof Error && error.name === "ChatGptWebStructuredResultError",
+    );
+  }
+});

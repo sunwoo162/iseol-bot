@@ -54,6 +54,48 @@ function classifyBrowserFailure(error: unknown): never {
   throw new ChatGptWebSessionLostError("ChatGPT browser operation failed");
 }
 
+function validatePatchAppendixSyntax(patch: string): void {
+  const lines = patch.replaceAll("\r\n", "\n").split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  const diffHeaders = lines.filter((line) => line.startsWith("diff --git "));
+  const oldHeaders = lines.filter((line) => line.startsWith("--- "));
+  const newHeaders = lines.filter((line) => line.startsWith("+++ "));
+  if (diffHeaders.length !== 1 || oldHeaders.length !== 1 || newHeaders.length !== 1) {
+    structured("ChatGPT patch appendix must contain exactly one file diff");
+  }
+  let hunks = 0;
+  let index = 0;
+  while (index < lines.length) {
+    const header = lines[index]!;
+    if (!header.startsWith("@@ ")) { index += 1; continue; }
+    const match = header.match(/^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@(?: .*)?$/);
+    if (!match) structured("ChatGPT patch hunk header is invalid");
+    const expectedOld = match[1] === undefined ? 1 : Number.parseInt(match[1], 10);
+    const expectedNew = match[2] === undefined ? 1 : Number.parseInt(match[2], 10);
+    let seenOld = 0;
+    let seenNew = 0;
+    hunks += 1;
+    index += 1;
+    while (index < lines.length && !lines[index]!.startsWith("@@ ")) {
+      const line = lines[index]!;
+      if (line === "\\ No newline at end of file") { index += 1; continue; }
+      if (line.startsWith("diff --git ") || line.startsWith("--- ") || line.startsWith("+++ ")) {
+        structured("ChatGPT patch appendix must contain exactly one file diff");
+      }
+      const prefix = line[0];
+      if (prefix === " ") { seenOld += 1; seenNew += 1; }
+      else if (prefix === "-") seenOld += 1;
+      else if (prefix === "+") seenNew += 1;
+      else structured("ChatGPT patch hunk body lines require a unified-diff prefix");
+      index += 1;
+    }
+    if (seenOld !== expectedOld || seenNew !== expectedNew) {
+      structured("ChatGPT patch hunk line counts do not match the hunk header");
+    }
+  }
+  if (hunks === 0) structured("ChatGPT patch appendix must include at least one hunk");
+}
+
 function parsePatchMultipart(candidate: string): unknown | null {
   const firstNewline = candidate.indexOf("\n");
   if (firstNewline < 0) return null;
@@ -84,6 +126,7 @@ function parsePatchMultipart(candidate: string): unknown | null {
     if (intent.patch !== `@@ISEOL_PATCH:${id}@@`) structured("ChatGPT patch placeholder does not match intent identity");
     const patch = blocks.get(id);
     if (patch === undefined) structured("ChatGPT patch appendix is missing");
+    validatePatchAppendixSyntax(patch);
     intent.patch = patch;
     used.add(id);
   }

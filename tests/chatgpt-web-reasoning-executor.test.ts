@@ -202,6 +202,8 @@ test("structured JSON syntax errors get bounded corrective feedback", async () =
   assert.match(JSON.stringify(feedback.desktopEvidence), /ISEOL_PATCH:<intentId>/);
   assert.match(JSON.stringify(feedback.desktopEvidence), /git apply/i);
   assert.match(JSON.stringify(feedback.desktopEvidence), /ISEOL_PATCH_BEGIN/);
+  assert.match(JSON.stringify(feedback.desktopEvidence), /exactly one file/i);
+  assert.match(JSON.stringify(feedback.desktopEvidence), /hunk.*prefix/i);
 });
 
 

@@ -57,7 +57,7 @@ function reasoningEvidence(turn: ReasoningTurn): HarnessEvidenceRecord {
 function feedbackEvidence(records: HarnessEvidenceRecord[]): WebPromptEvidence[] {
   return records.map((item) => ({ kind: item.kind, summary: item.summary, ...(item.reference ? { reference: item.reference } : {}) }));
 }
-const STRUCTURED_JSON_CORRECTION = "Previous response was not valid structured output. Return no markdown or prose. Without PROPOSE_PATCH, return exactly one JSON object. With PROPOSE_PATCH, use a single-line JSON header where patch is @@ISEOL_PATCH:<intentId>@@, then emit the raw git apply-compatible unified diff between @@ISEOL_PATCH_BEGIN:<intentId>@@ and @@ISEOL_PATCH_END:<intentId>@@; never use *** Begin Patch markers.";
+const STRUCTURED_JSON_CORRECTION = "Previous response was not valid structured output. Return no markdown or prose. Without PROPOSE_PATCH, return exactly one JSON object. With PROPOSE_PATCH, use a single-line JSON header where patch is @@ISEOL_PATCH:<intentId>@@, then emit the raw git apply-compatible unified diff between @@ISEOL_PATCH_BEGIN:<intentId>@@ and @@ISEOL_PATCH_END:<intentId>@@. Each appendix must contain exactly one file diff; every hunk body line needs a unified-diff prefix (space, +, -, or \\), blank added lines are +, and hunk counts must match. Never use *** Begin Patch markers.";
 async function ensureSession(input: CreateWebReasoningExecutorInput, run: HarnessRuntimeRunEnvelope, at: string): Promise<WebWorkerSession> {
   const existing = await getActiveWebWorkerSession(input.workerRoot, run.request.runId, run.state.stage);
   if (existing) return existing;

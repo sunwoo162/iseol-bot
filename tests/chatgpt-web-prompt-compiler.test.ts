@@ -157,3 +157,12 @@ test("prompt transports PROPOSE_PATCH diff outside the JSON header", () => {
   assert.match(payload.outputContract.proposePatchExample.appendix, /class="card"/);
   assert.match(payload.outputContract.proposePatchExample.appendix, /@@ISEOL_PATCH_END:patch-example@@/);
 });
+
+test("prompt constrains each patch appendix to one syntactically valid file diff", () => {
+  const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
+  const rule = payload.outputContract.proposePatchRule as string;
+  assert.match(rule, /exactly one file/i);
+  assert.match(rule, /hunk/i);
+  assert.match(rule, /prefix/i);
+  assert.match(rule, /blank added line/i);
+});
