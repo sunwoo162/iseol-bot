@@ -22,7 +22,10 @@ function samePath(left: string, right: string): boolean {
 }
 
 function assertRelativeWorkspacePath(root: string, input: string, field: string): void {
-  if (isAbsolute(input)) throw new Error(`${field} must be workspace-relative`);
+  if (isAbsolute(input)) {
+    const hint = field === "Desktop intent cwd" ? '; use "." for the workspace root instead of workspaceRoot' : "";
+    throw new Error(`${field} must be workspace-relative${hint}`);
+  }
   const target = resolve(root, input);
   const rel = relative(resolve(root), target);
   if (rel === ".." || rel.startsWith(`..\\`) || rel.startsWith("../") || isAbsolute(rel)) {

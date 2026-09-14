@@ -173,3 +173,12 @@ test("prompt requires patch markers to be standalone lines", () => {
   assert.match(payload.outputContract.proposePatchRule, /standalone line/i);
   assert.match(payload.outputContract.proposePatchRule, /newline.*before.*after/i);
 });
+
+
+test("prompt requires cwd to stay workspace-relative", () => {
+  const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
+  const rule = String(payload.outputContract.cwdRule ?? "");
+  assert.match(rule, /workspace-relative/i);
+  assert.match(rule, /use ['"]?\.['"]? for (?:the )?workspace root/i);
+  assert.match(rule, /never.*workspaceRoot/i);
+});

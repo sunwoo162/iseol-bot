@@ -85,3 +85,11 @@ test("relative paths cannot escape the Run workspace", () => {
   assert.throws(() => validateDesktopIntent(context, { ...base, kind: "READ_CONTEXT", path: "../secret.txt" }), /outside|relative|workspace/i);
   assert.throws(() => validateDesktopIntent(context, { ...base, kind: "GIT_INSPECT", cwd: resolve(root, "src") }), /relative/i);
 });
+
+test("absolute cwd rejection tells reasoning to use dot for the workspace root", () => {
+  const intent: DesktopIntent = { ...base, kind: "GIT_INSPECT", cwd: root };
+  assert.throws(
+    () => validateDesktopIntent(context, intent),
+    /workspace-relative.*use ['"]?\.['"]?.*workspace root/i,
+  );
+});
