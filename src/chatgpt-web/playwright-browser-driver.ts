@@ -54,20 +54,61 @@ function classifyBrowserFailure(error: unknown): never {
   throw new ChatGptWebSessionLostError("ChatGPT browser operation failed");
 }
 
-function parseStructuredResult(text: string): unknown {
-  if (Buffer.byteLength(text, "utf8") > MAX_STRUCTURED_RESULT_BYTES) {
-    structured("ChatGPT structured result exceeds the allowed size");
+function parsePatchMultipart(candidate: string): unknown | null {
+  const firstNewline = candidate.indexOf("\n");
+  if (firstNewline < 0) return null;
+  const headerText = candidate.slice(0, firstNewline).trim();
+  let header: any;
+  try { header = JSON.parse(headerText); } catch { return null; }
+  if (!header || typeof header !== "object" || Array.isArray(header)) structured("ChatGPT patch header must be one JSON object");
+  let rest = candidate.slice(firstNewline + 1).replaceAll("\r\n", "\n");
+  const blocks = new Map<string, string>();
+  while (rest.trim()) {
+    if (rest.startsWith("\n")) rest = rest.slice(1);
+    const begin = rest.match(/^@@ISEOL_PATCH_BEGIN:([A-Za-z0-9][A-Za-z0-9._:-]{0,191})@@\n/);
+    if (!begin?.[1]) structured("ChatGPT patch appendix begin marker is invalid");
+    const id = begin[1];
+    if (blocks.has(id)) structured("ChatGPT patch appendix id is duplicated");
+    const bodyStart = begin[0].length;
+    const endMarker = `\n@@ISEOL_PATCH_END:${id}@@`;
+    const endAt = rest.indexOf(endMarker, bodyStart);
+    if (endAt < 0) structured("ChatGPT patch appendix end marker is missing");
+    blocks.set(id, rest.slice(bodyStart, endAt) + "\n");
+    rest = rest.slice(endAt + endMarker.length);
   }
+  const intents = Array.isArray(header.intents) ? header.intents : [];
+  const used = new Set<string>();
+  for (const intent of intents) {
+    if (!intent || intent.kind !== "PROPOSE_PATCH") continue;
+    const id = typeof intent.intentId === "string" ? intent.intentId : "";
+    if (intent.patch !== `@@ISEOL_PATCH:${id}@@`) structured("ChatGPT patch placeholder does not match intent identity");
+    const patch = blocks.get(id);
+    if (patch === undefined) structured("ChatGPT patch appendix is missing");
+    intent.patch = patch;
+    used.add(id);
+  }
+  if (blocks.size !== used.size) structured("ChatGPT patch appendix is not referenced by a PROPOSE_PATCH intent");
+  return header;
+}
+function parseStructuredResult(text: string): unknown {
+  if (Buffer.byteLength(text, "utf8") > MAX_STRUCTURED_RESULT_BYTES) structured("ChatGPT structured result exceeds the allowed size");
   const trimmed = text.trim();
   if (!trimmed) structured("ChatGPT structured result is empty");
   let candidate = trimmed;
   const fenced = trimmed.match(/^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i);
   if (fenced) candidate = fenced[1]?.trim() ?? "";
-  else if (trimmed.startsWith("```") || trimmed.endsWith("```")) {
-    structured("ChatGPT structured result fence is malformed");
+  else if (trimmed.startsWith("```") || trimmed.endsWith("```")) structured("ChatGPT structured result fence is malformed");
+  const multipart = parsePatchMultipart(candidate);
+  if (multipart !== null) return multipart;
+  try {
+    const parsed = JSON.parse(candidate);
+    const intents = parsed && typeof parsed === "object" && Array.isArray((parsed as any).intents) ? (parsed as any).intents : [];
+    if (intents.some((intent: any) => intent?.kind === "PROPOSE_PATCH")) structured("ChatGPT PROPOSE_PATCH requires raw patch appendix transport");
+    return parsed;
+  } catch (error) {
+    if (error instanceof ChatGptWebStructuredResultError) throw error;
+    return structured("ChatGPT structured result is not exactly one JSON value");
   }
-  try { return JSON.parse(candidate); }
-  catch { return structured("ChatGPT structured result is not exactly one JSON value"); }
 }
 
 export async function createPlaywrightChatGptBrowserDriver(

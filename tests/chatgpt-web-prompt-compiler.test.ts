@@ -93,7 +93,7 @@ test("prompt pins the exact reasoning result envelope and Desktop intent contrac
     session: session("PLAN", 3),
   });
   const payload = JSON.parse(compiled.body) as any;
-  assert.equal(payload.outputContract.responseFormat, "exactly-one-json-object-no-markdown-or-prose");
+  assert.match(payload.outputContract.responseFormat, /JSON object.*patch append/i);
   assert.deepEqual(payload.outputContract.reasoningTurnResult, {
     version: 1,
     runId: "run-prompt",
@@ -132,7 +132,7 @@ test("prompt renders Windows workspace roots with JSON-safe forward slashes", ()
 });
 
 
-test("prompt explains JSON-safe git-apply patch encoding", () => {
+test("prompt explains JSON-safe git-apply patch transport", () => {
   const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
   assert.match(payload.outputContract.jsonStringEncodingRule, /JSON string escaping/i);
   assert.match(payload.outputContract.jsonStringEncodingRule, /double quotes/i);
@@ -140,6 +140,20 @@ test("prompt explains JSON-safe git-apply patch encoding", () => {
   assert.match(payload.outputContract.proposePatchRule, /git apply/i);
   assert.match(payload.outputContract.proposePatchRule, /unified diff/i);
   assert.match(payload.outputContract.proposePatchRule, /Begin Patch/i);
-  assert.match(payload.outputContract.proposePatchExample.patch, /diff --git a\/index\.html b\/index\.html/);
-  assert.match(payload.outputContract.proposePatchExample.patch, /class="card"/);
+  assert.match(payload.outputContract.proposePatchExample.appendix, /diff --git a\/index\.html b\/index\.html/);
+  assert.match(payload.outputContract.proposePatchExample.appendix, /class="card"/);
+});
+
+
+test("prompt transports PROPOSE_PATCH diff outside the JSON header", () => {
+  const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
+  assert.match(payload.outputContract.responseFormat, /patch append/i);
+  assert.match(payload.outputContract.proposePatchRule, /@@ISEOL_PATCH:<intentId>@@/);
+  assert.match(payload.outputContract.proposePatchRule, /single-line JSON/i);
+  assert.match(payload.outputContract.proposePatchRule, /after the JSON/i);
+  assert.equal(payload.outputContract.proposePatchExample.intent.patch, "@@ISEOL_PATCH:patch-example@@");
+  assert.match(payload.outputContract.proposePatchExample.appendix, /@@ISEOL_PATCH_BEGIN:patch-example@@/);
+  assert.match(payload.outputContract.proposePatchExample.appendix, /diff --git a\/index\.html b\/index\.html/);
+  assert.match(payload.outputContract.proposePatchExample.appendix, /class="card"/);
+  assert.match(payload.outputContract.proposePatchExample.appendix, /@@ISEOL_PATCH_END:patch-example@@/);
 });

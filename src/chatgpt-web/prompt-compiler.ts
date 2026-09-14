@@ -84,20 +84,20 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
     desktopEvidence: evidence,
     recovery: input.kind === "recovery" ? "Resume from the first unfinished verified step; do not repeat verified side effects." : null,
     outputContract: {
-      responseFormat: "exactly-one-json-object-no-markdown-or-prose",
-      jsonStringEncodingRule: "Use valid JSON string escaping for every string value. Inside JSON strings, encode newlines as \\n, double quotes as \\\", and backslashes as \\\\; never emit raw newlines or unescaped double quotes.",
-      proposePatchRule: "PROPOSE_PATCH.patch must be a git apply-compatible unified diff. Use diff --git / --- / +++ / @@ hunks and never use *** Begin Patch, *** Update File, *** Add File, or *** Delete File markers.",
+      responseFormat: "exactly one JSON object only, unless PROPOSE_PATCH is present; then use one single-line JSON header followed only by exact patch appendices, with no markdown or prose",
+      jsonStringEncodingRule: "Use valid JSON string escaping for every JSON value. Inside JSON strings, encode newlines as \\n, double quotes as \\\", and backslashes as \\\\; raw patch appendix bodies are outside JSON and must not be JSON-escaped.",
+      proposePatchRule: "For each PROPOSE_PATCH intent, set patch to exactly @@ISEOL_PATCH:<intentId>@@ inside the single-line JSON header. After the JSON, emit exactly one raw patch appendix for that intent using @@ISEOL_PATCH_BEGIN:<intentId>@@ and @@ISEOL_PATCH_END:<intentId>@@. The appendix body must be a git apply-compatible unified diff using diff --git / --- / +++ / @@ hunks; never use *** Begin Patch, *** Update File, *** Add File, or *** Delete File markers.",
       proposePatchExample: {
-        kind: "PROPOSE_PATCH",
-        path: "index.html",
-        patch: [
+        intent: { intentId: "patch-example", kind: "PROPOSE_PATCH", path: "index.html", patch: "@@ISEOL_PATCH:patch-example@@" },
+        appendix: [
+          "@@ISEOL_PATCH_BEGIN:patch-example@@",
           "diff --git a/index.html b/index.html",
           "--- a/index.html",
           "+++ b/index.html",
           "@@ -1 +1 @@",
           "-<div>old</div>",
           "+<div class=\"card\">new</div>",
-          "",
+          "@@ISEOL_PATCH_END:patch-example@@",
         ].join("\n"),
       },
       reasoningTurnResult: {

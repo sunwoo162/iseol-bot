@@ -198,9 +198,10 @@ test("structured JSON syntax errors get bounded corrective feedback", async () =
   assert.equal((await executor.execute(run)).type, "completed");
   assert.equal(fake.submittedPrompts.length, 2);
   const feedback = JSON.parse(fake.submittedPrompts[1]!.body) as any;
-  assert.match(JSON.stringify(feedback.desktopEvidence), /valid JSON string escaping/i);
-  assert.match(JSON.stringify(feedback.desktopEvidence), /PROPOSE_PATCH\.patch/);
+  assert.match(JSON.stringify(feedback.desktopEvidence), /single-line JSON header/i);
+  assert.match(JSON.stringify(feedback.desktopEvidence), /ISEOL_PATCH:<intentId>/);
   assert.match(JSON.stringify(feedback.desktopEvidence), /git apply/i);
+  assert.match(JSON.stringify(feedback.desktopEvidence), /ISEOL_PATCH_BEGIN/);
 });
 
 

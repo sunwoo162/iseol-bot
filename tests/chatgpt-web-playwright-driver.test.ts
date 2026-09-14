@@ -387,3 +387,40 @@ test("closing a conversation clears first-submit dedupe for the next owned conve
   );
   assert.equal(sequence, 2);
 });
+
+
+test("structured result hydrates a raw unified diff patch appendix", async () => {
+  let now = 0;
+  const item = fakeBackend();
+  item.setUrl("https://chatgpt.com/c/conv-patch");
+  const driver = await createPlaywrightChatGptBrowserDriver(config, {
+    backend: item.backend, now: () => now, sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await driver.submitPrompt({ conversationRef: "conv-patch", prompt: "payload", promptSha256: "patch-sha" });
+  const patch = [
+    "diff --git a/index.html b/index.html", "--- a/index.html", "+++ b/index.html", "@@ -1 +1 @@",
+    "-<meta name=\"old\">", "+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">",
+  ].join("\n") + "\n";
+  const header = { version: 1, intents: [{ intentId: "patch-1", kind: "PROPOSE_PATCH", path: "index.html", patch: "@@ISEOL_PATCH:patch-1@@" }] };
+  item.setAssistant(`${JSON.stringify(header)}\n@@ISEOL_PATCH_BEGIN:patch-1@@\n${patch.trimEnd()}\n@@ISEOL_PATCH_END:patch-1@@`, 1);
+  const result = await driver.readStructuredResult({ conversationRef: "conv-patch", timeoutMs: 2000 }) as any;
+  assert.equal(result.intents[0].patch, patch);
+});
+
+
+test("structured result requires raw appendix transport for PROPOSE_PATCH", async () => {
+  for (const patch of ["@@ISEOL_PATCH:patch-1@@", "diff --git a/a b/a\n--- a/a\n+++ b/a\n"]) {
+    let now = 0;
+    const item = fakeBackend();
+    item.setUrl("https://chatgpt.com/c/conv-patch-required");
+    const driver = await createPlaywrightChatGptBrowserDriver(config, {
+      backend: item.backend, now: () => now, sleep: async (ms: number) => { now += ms; },
+    } as any);
+    await driver.submitPrompt({ conversationRef: "conv-patch-required", prompt: "payload", promptSha256: `required-${patch.length}` });
+    item.setAssistant(JSON.stringify({ version: 1, intents: [{ intentId: "patch-1", kind: "PROPOSE_PATCH", path: "a", patch }] }), 1);
+    await assert.rejects(
+      () => driver.readStructuredResult({ conversationRef: "conv-patch-required", timeoutMs: 2000 }),
+      (error: unknown) => error instanceof Error && error.name === "ChatGptWebStructuredResultError",
+    );
+  }
+});
