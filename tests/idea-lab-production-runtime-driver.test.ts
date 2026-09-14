@@ -424,3 +424,26 @@ function makeDriver(root: string, options: any = {}) {
     desktopTaskCompiler: async () => null, deployAdapter: options.deployAdapter ?? {} as never,
   });
 }
+
+
+test("Idea Lab Desktop compiler emits a job id accepted by the durable job store", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-jobid-"));
+  const { createIdeaLabProductionDesktopTaskCompiler } = await import("../src/idea-lab/production-desktop-compiler.js");
+  const { createDesktopJob } = await import("../src/desktop-agent/job-store.js");
+  const at = "2026-09-14T06:00:00.000Z";
+  const runId = "run-camp-job-prod-1";
+  const run: HarnessRuntimeRunEnvelope = {
+    version: 1,
+    request: { version: 1, runId, mode: "idea-lab", objective: "prototype", targetRoot: root },
+    preflight: { version: 1, runId, status: "ready", policy: { version: 1, loadedAt: at, sources: [{ kind: "iseol-global", path: join(root, "HARNESS_ENGINEERING.md"), sha256: "a".repeat(64), content: "policy" }], effectiveSha256: "b".repeat(64) } },
+    state: { version: 1, stage: "CONTEXT", status: "READY", completedStages: ["PREFLIGHT"], skippedStages: [], updatedAt: at },
+    evidence: [], updatedAt: at,
+  };
+  const compiler = createIdeaLabProductionDesktopTaskCompiler({
+    enabled: true, repositoryRoot: root, repositoryUrl: "https://github.com/acme/proto", baseRef: "main",
+    sandboxRoot: root, agentId: "agent-1", testExecutable: "npm.cmd", testArgs: ["test"], testTimeoutMs: 120000,
+  }, { now: () => at });
+  const pack = await compiler(run, "agent-1");
+  assert.ok(pack);
+  await assert.doesNotReject(() => createDesktopJob(root, pack, at));
+});

@@ -36,7 +36,7 @@ function packFor(
       : { id: "commit", type: "GIT_COMMIT" as const, cwd: ".", message: "feat: build idea lab prototype", expectedHead: canonicalContextHead(run), publish: true };
   const pack: DesktopTaskPack = {
     version: 1,
-    jobId: `${run.request.runId}:${stage.toLowerCase()}`,
+    jobId: `${run.request.runId}-${stage.toLowerCase()}`,
     runId: run.request.runId,
     stage,
     attempt: 0,
