@@ -15,6 +15,7 @@ import { assertWorkspaceAccess, verifyDesktopTaskPolicy } from "./workspace-guar
 
 export type DesktopRuntimeDependencies = {
   allowedRoots: string[];
+  policyRoots?: string[];
   maxOutputBytes?: number;
   allowedExecutables?: string[];
   fetchImpl?: typeof fetch;
@@ -402,7 +403,10 @@ export async function executeDesktopTaskPack(
   for (const operation of pack.operations) {
     if (desktopOperationMutates(operation) && !policyVerified) {
       try {
-        await verifyDesktopTaskPolicy(pack, deps.allowedRoots);
+        await verifyDesktopTaskPolicy(pack, [
+          ...deps.allowedRoots,
+          ...(deps.policyRoots ?? []),
+        ]);
         policyVerified = true;
       } catch (error) {
         const summary = error instanceof Error ? error.message : String(error);

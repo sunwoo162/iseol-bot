@@ -238,3 +238,27 @@ test("Git commit publish retry reuses the committed HEAD after an initial push f
   assert.equal(execFileSync("git", ["rev-list", "--count", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim(), "2");
   assert.equal(execFileSync("git", ["--git-dir", remote, "rev-parse", "refs/heads/idea/camp/retry"], { encoding: "utf8" }).trim(), committed);
 });
+
+test("policy read roots do not expand writable workspace roots", async () => {
+  const { allowed, workspace } = await fixture();
+  const policyRoot = await mkdtemp(join(tmpdir(), "iseol-desktop-policy-"));
+  const policyPath = join(policyRoot, "HARNESS_ENGINEERING.md");
+  const policyText = "# External Policy\n";
+  await writeFile(policyPath, policyText, "utf8");
+  const sources: DesktopPolicySource[] = [{
+    kind: "iseol-global", path: policyPath, sha256: sha(policyText), required: true,
+  }];
+  const pack = policyPack(workspace, policyPath, [{
+    id: "process", type: "RUN_PROCESS", cwd: ".",
+    executable: process.execPath, args: ["--version"], timeoutMs: 2_000,
+  }]);
+  pack.policySources = sources;
+  pack.policyDigest = effective(sources);
+
+  const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed], policyRoots: [policyRoot] });
+  assert.equal(result.status, "completed");
+  await assert.rejects(
+    assertWorkspaceAccess([allowed], workspace, policyRoot),
+    /outside Desktop workspace|outside Desktop Agent allowed roots/i,
+  );
+});

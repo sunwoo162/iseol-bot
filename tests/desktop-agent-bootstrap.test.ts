@@ -101,3 +101,16 @@ test("production entrypoints wire Core startup and Desktop Agent scripts", async
   assert.equal(pkg.scripts["desktop:agent"], "tsx src/desktop-agent/main.ts");
   assert.equal(pkg.scripts["desktop:agent:start"], "node dist/desktop-agent/main.js");
 });
+
+
+test("Agent policy roots stay separate from writable workspace roots", () => {
+  const config = resolveDesktopAgentClientConfig({
+    ISEOL_DESKTOP_AGENT_URL: "ws://127.0.0.1:8791",
+    ISEOL_DESKTOP_AGENT_TOKEN: "secret",
+    ISEOL_DESKTOP_AGENT_ID: "agent-001",
+    ISEOL_DESKTOP_AGENT_WORKSPACE_ROOTS: "C:\\Sandbox",
+    ISEOL_DESKTOP_AGENT_POLICY_ROOTS: "C:\\Policy;C:\\Policy2",
+  });
+  assert.deepEqual(config.workspaceRoots, ["C:\\Sandbox"]);
+  assert.deepEqual(config.policyRoots, ["C:\\Policy", "C:\\Policy2"]);
+});

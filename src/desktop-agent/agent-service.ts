@@ -8,6 +8,7 @@ export type DesktopAgentClientConfig = {
   token: string;
   agentId: string;
   workspaceRoots: string[];
+  policyRoots?: string[];
   heartbeatIntervalMs: number;
   reconnectBaseMs: number;
   reconnectMaxMs: number;
@@ -58,6 +59,11 @@ export function resolveDesktopAgentClientConfig(env: AgentEnv): DesktopAgentClie
     .filter(Boolean)
     .map((item) => resolve(item));
   if (roots.length === 0) throw new Error("ISEOL_DESKTOP_AGENT_WORKSPACE_ROOTS is required");
+  const policyRoots = (env.ISEOL_DESKTOP_AGENT_POLICY_ROOTS ?? "")
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => resolve(item));
   const heartbeatIntervalMs = positiveInt(env.ISEOL_DESKTOP_AGENT_HEARTBEAT_MS, 5_000, "ISEOL_DESKTOP_AGENT_HEARTBEAT_MS");
   const reconnectBaseMs = positiveInt(env.ISEOL_DESKTOP_AGENT_RECONNECT_BASE_MS, 1_000, "ISEOL_DESKTOP_AGENT_RECONNECT_BASE_MS");
   const reconnectMaxMs = positiveInt(env.ISEOL_DESKTOP_AGENT_RECONNECT_MAX_MS, 30_000, "ISEOL_DESKTOP_AGENT_RECONNECT_MAX_MS");
@@ -69,6 +75,7 @@ export function resolveDesktopAgentClientConfig(env: AgentEnv): DesktopAgentClie
     token,
     agentId,
     workspaceRoots: [...new Set(roots)],
+    policyRoots: [...new Set(policyRoots)],
     heartbeatIntervalMs,
     reconnectBaseMs,
     reconnectMaxMs,
@@ -110,7 +117,10 @@ export async function runPersistentDesktopAgent(
           token: config.token,
         },
         heartbeatIntervalMs: config.heartbeatIntervalMs,
-        onTask: (pack) => executeDesktopTaskPack(pack, { allowedRoots: config.workspaceRoots }),
+        onTask: (pack) => executeDesktopTaskPack(pack, {
+          allowedRoots: config.workspaceRoots,
+          policyRoots: config.policyRoots ?? [],
+        }),
       }) as DesktopAgentConnection;
       failures = 0;
       if (aborted(deps.signal)) {
