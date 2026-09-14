@@ -202,3 +202,32 @@ test("structured JSON syntax errors get bounded corrective feedback", async () =
   assert.match(JSON.stringify(feedback.desktopEvidence), /PROPOSE_PATCH\.patch/);
   assert.match(JSON.stringify(feedback.desktopEvidence), /git apply/i);
 });
+
+
+test("restart advances past a lost session still referenced by the active pointer", async () => {
+  const { root, run } = await fixture();
+  const { createHash } = await import("node:crypto");
+  const { createWebWorkerSession, getActiveWebWorkerSession, loadWebWorkerSession, updateWebWorkerSession } = await import("../src/chatgpt-web/session-store.js");
+  const staleId = `web-${createHash("sha256").update("run-web\nIMPLEMENT\n1").digest("hex").slice(0, 24)}`;
+  const stale = {
+    version: 1 as const, sessionId: staleId, runId: "run-web", stage: "IMPLEMENT" as const,
+    generation: 1, policySha256: run.preflight.policy!.effectiveSha256, status: "ready" as const,
+    createdAt: "2026-09-08T01:00:00.000Z",
+  };
+  await createWebWorkerSession(root, stale);
+  await updateWebWorkerSession(root, { ...stale, status: "lost", closedAt: "2026-09-08T01:01:00.000Z" });
+  assert.equal(await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"), null);
+
+  const fake = createFakeChatGptWebBrowserAdapter([
+    { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 2, summary: "Recovered", decisions: [], intents: [], outcome: "stage-complete" },
+  ]);
+  const executor = createWebReasoningExecutor({
+    workerRoot: root, adapter: fake.adapter, now: () => "2026-09-08T01:02:00.000Z",
+    runDesktopIntent: async () => { throw new Error("unused"); },
+  });
+
+  assert.equal((await executor.execute(run)).type, "completed");
+  const active = await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT");
+  assert.equal(active?.generation, 2);
+  assert.equal((await loadWebWorkerSession(root, staleId))?.status, "lost");
+});

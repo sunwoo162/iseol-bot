@@ -6,7 +6,7 @@ import { assertReasoningTurnResult } from "./contracts.js";
 import type { ChatGptWebBrowserAdapter } from "./browser-adapter.js";
 import { ChatGptWebSessionLostError, ChatGptWebStructuredResultError } from "./browser-adapter.js";
 import { compileWebPrompt, type CompiledWebPrompt, type WebPromptEvidence } from "./prompt-compiler.js";
-import { createWebWorkerSession, getActiveWebWorkerSession, updateWebWorkerSession } from "./session-store.js";
+import { createWebWorkerSession, getActiveWebWorkerSession, getPointedWebWorkerSession, replaceLostWebWorkerSession, updateWebWorkerSession } from "./session-store.js";
 import { appendReasoningTurn, listReasoningTurns } from "./turn-store.js";
 import { recordDesktopIntent } from "./intent-store.js";
 import { validateDesktopIntent } from "./intent-compiler.js";
@@ -63,6 +63,20 @@ async function ensureSession(input: CreateWebReasoningExecutorInput, run: Harnes
   if (existing) return existing;
   const policy = run.preflight.policy;
   if (run.preflight.status !== "ready" || !policy) throw new Error("Web reasoning requires ready Harness policy");
+  const pointed = await getPointedWebWorkerSession(input.workerRoot, run.request.runId, run.state.stage);
+  if (pointed?.status === "lost") {
+    const generation = pointed.generation + 1;
+    return replaceLostWebWorkerSession(input.workerRoot, pointed.sessionId, {
+      version: 1,
+      sessionId: sessionId(run.request.runId, run.state.stage, generation),
+      runId: run.request.runId,
+      stage: run.state.stage,
+      generation,
+      policySha256: policy.effectiveSha256,
+      status: "ready",
+      createdAt: at,
+    }, at);
+  }
   return createWebWorkerSession(input.workerRoot, {
     version: 1,
     sessionId: sessionId(run.request.runId, run.state.stage, 1),

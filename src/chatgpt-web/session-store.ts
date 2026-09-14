@@ -42,16 +42,20 @@ export async function loadWebWorkerSession(root: string, sessionId: string): Pro
   }
 }
 
-export async function getActiveWebWorkerSession(root: string, runId: string, stage: HarnessRunStage): Promise<WebWorkerSession | null> {
+export async function getPointedWebWorkerSession(root: string, runId: string, stage: HarnessRunStage): Promise<WebWorkerSession | null> {
   try {
     const pointer = JSON.parse(await readFile(activeFile(root, runId, stage), "utf8")) as { sessionId?: string };
     if (!pointer.sessionId) throw new Error("Active Web worker session pointer is invalid");
-    const session = await loadWebWorkerSession(root, pointer.sessionId);
-    return session && session.status !== "lost" && session.status !== "closed" ? session : null;
+    return await loadWebWorkerSession(root, pointer.sessionId);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function getActiveWebWorkerSession(root: string, runId: string, stage: HarnessRunStage): Promise<WebWorkerSession | null> {
+  const session = await getPointedWebWorkerSession(root, runId, stage);
+  return session && session.status !== "lost" && session.status !== "closed" ? session : null;
 }
 export async function createWebWorkerSession(root: string, session: WebWorkerSession): Promise<WebWorkerSession> {
   assertWebWorkerSession(session);
