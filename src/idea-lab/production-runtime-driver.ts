@@ -285,7 +285,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
       workerRoot: input.roots.webRoot,      adapter: input.browserAdapter,
       runDesktopIntent,
       now,
-      commitAuthorized: true,
+      commitAuthorized: false,
     });
     desktop = createDesktopStageExecutor({
       registryRoot: input.desktopStateRoot,

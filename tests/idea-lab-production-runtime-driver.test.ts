@@ -12,6 +12,8 @@ import { saveIdeaProposal } from "../src/idea-lab/proposal-store.js";
 import { createFakePrototypeDeployAdapter } from "../src/idea-lab/test-support/fake-deploy-adapter.js";
 import { loadPrototypeCandidate } from "../src/project-model/prototype-store.js";
 import { loadPrototypeProduction, savePrototypeProduction } from "../src/idea-lab/production-store.js";
+import { createFakeChatGptWebBrowserAdapter } from "../src/chatgpt-web/test-support/fake-browser-adapter.js";
+import { loadDesktopIntent } from "../src/chatgpt-web/intent-store.js";
 
 test("createProduction is durable and reconciles the same Run and sandbox", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-driver-"));
@@ -327,6 +329,46 @@ test("ambiguous canonical COMMIT evidence fails final before deployment", async 
   assert.equal(deploys, 0);
 });
 
+
+test("Idea Lab Web reasoning rejects commit intents before the canonical COMMIT stage", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-web-commit-"));
+  const proposal = baseProposal("camp-web-commit");
+  const bootstrap = makeDriver(root, { proposal });
+  const production = await bootstrap.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const run = await loadHarnessRun(root, production.runId);
+  assert.ok(run);
+
+  const runId = production.runId;
+  const intentId = "web-commit-intent";
+  const policySha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+  const browser = createFakeChatGptWebBrowserAdapter([
+    {
+      version: 1, runId, stage: "IMPLEMENT", generation: 1, summary: "Commit too early", decisions: [], outcome: "continue",
+      intents: [{
+        version: 1, intentId, runId, stage: "IMPLEMENT", workspaceRoot: production.worktreeRoot, policySha256,
+        kind: "REQUEST_COMMIT", cwd: ".", message: "feat: premature web commit",
+      }],
+    },
+    {
+      version: 1, runId, stage: "IMPLEMENT", generation: 1, summary: "Controlled stop", decisions: [], intents: [],
+      outcome: "blocked-user", blockerReason: "stop after commit rejection",
+    },
+  ]);
+  const driver = makeDriver(root, { proposal, browserAdapter: browser.adapter });
+  await saveHarnessRun(root, {
+    ...run,
+    preflight: { version: 1, runId, status: "ready", policy: { version: 1, loadedAt: "now", sources: [], effectiveSha256: policySha256 } },
+    state: { ...run.state, stage: "IMPLEMENT", status: "READY", completedStages: ["CONTEXT", "ANALYZE", "PLAN"] },
+  });
+
+  await driver.advanceProduction(production);
+
+  const record = await loadDesktopIntent(root, runId, intentId);
+  assert.equal(record?.status, "rejected");
+  assert.match(record?.reason ?? "", /commit is not explicitly authorized/i);
+});
 function runnableAtDeploy(run: HarnessRuntimeRunEnvelope, sha: string): HarnessRuntimeRunEnvelope {
   return {
     ...run,
@@ -378,7 +420,7 @@ function makeDriver(root: string, options: any = {}) {
   return createIdeaLabProductionRuntimeDriver({
     roots: { iseolRoot: root, modelRoot: root, runRoot: root, webRoot: root, browserProfileRoot: root },
     repositoryRoot, repositoryUrl: options.repositoryUrl ?? "https://github.com/acme/proto", baseRef: options.baseRef ?? "main", sandboxRoot: root,
-    agentId: "agent-1", desktopStateRoot: options.desktopStateRoot ?? root, sandboxAdapter: options.sandbox ?? { inspect: async () => null, allocate: async (input: any) => ({ repositoryUrl: input.repositoryUrl, branch: `idea/${input.campaignId}/${input.productionId}`, worktreeRoot: input.run.request.targetRoot, baseRef: input.baseRef }) }, desktopTransport: {} as never, browserAdapter: {} as never,
+    agentId: "agent-1", desktopStateRoot: options.desktopStateRoot ?? root, sandboxAdapter: options.sandbox ?? { inspect: async () => null, allocate: async (input: any) => ({ repositoryUrl: input.repositoryUrl, branch: `idea/${input.campaignId}/${input.productionId}`, worktreeRoot: input.run.request.targetRoot, baseRef: input.baseRef }) }, desktopTransport: {} as never, browserAdapter: options.browserAdapter ?? {} as never,
     desktopTaskCompiler: async () => null, deployAdapter: options.deployAdapter ?? {} as never,
   });
 }
