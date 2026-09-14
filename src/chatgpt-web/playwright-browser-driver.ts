@@ -241,6 +241,10 @@ export async function createPlaywrightChatGptBrowserDriver(
     async closeConversation(conversationRef) {
       if (!REF.test(conversationRef)) lost("Conversation identity is invalid");
       await backend.closeOwnedPage();
+      pendingByConversation.delete(conversationRef);
+      for (const [key, submittedConversationRef] of submittedByTurn) {
+        if (submittedConversationRef === conversationRef) submittedByTurn.delete(key);
+      }
     },
     async dispose() { await backend.dispose(); },
   };

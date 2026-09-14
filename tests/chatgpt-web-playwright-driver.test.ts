@@ -362,3 +362,28 @@ test("first submit ignores provisional WEB conversation refs until canonical ide
   );
   assert.ok(now >= 300);
 });
+
+
+test("closing a conversation clears first-submit dedupe for the next owned conversation", async () => {
+  const item = fakeBackend();
+  let sequence = 0;
+  item.backend.sendPrompt = async () => {
+    sequence += 1;
+    item.setUrl(`https://chatgpt.com/c/conv-${sequence}`);
+  };
+  const driver = await createPlaywrightChatGptBrowserDriver(config, { backend: item.backend } as any);
+
+  await driver.openOrResumeConversation({ prompt: "payload", promptSha256: "repeat-sha" });
+  assert.deepEqual(
+    await driver.submitPrompt({ prompt: "payload", promptSha256: "repeat-sha" }),
+    { conversationRef: "conv-1" },
+  );
+  await driver.closeConversation("conv-1");
+
+  await driver.openOrResumeConversation({ prompt: "payload", promptSha256: "repeat-sha" });
+  assert.deepEqual(
+    await driver.submitPrompt({ prompt: "payload", promptSha256: "repeat-sha" }),
+    { conversationRef: "conv-2" },
+  );
+  assert.equal(sequence, 2);
+});
