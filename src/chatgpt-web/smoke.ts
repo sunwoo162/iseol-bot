@@ -15,7 +15,12 @@ export async function runChatGptWebControlledSmoke(input: {
   };
   const prompt: CompiledWebPrompt = {
     version: 1, kind: "initial", runId: "smoke-run", stage: "ANALYZE", generation: 1, policySha256,
-    body: "Controlled Iseol smoke. Return one ReasoningTurnResult for ANALYZE. Do not request Desktop mutation.",
+    body: [
+      "Controlled Iseol smoke. Return exactly one JSON object only, with no prose or markdown.",
+      "Return exactly this ReasoningTurnResult envelope:",
+      '{"version":1,"runId":"smoke-run","stage":"ANALYZE","generation":1,"summary":"Controlled Iseol smoke completed.","decisions":[],"intents":[],"outcome":"stage-complete"}',
+      "Do not request Desktop mutation.",
+    ].join("\n"),
     sha256: "0".repeat(64),
   };
   const adapter = createProductionChatGptWebAdapter(input.driver);

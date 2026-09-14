@@ -3,6 +3,7 @@ import test from "node:test";
 import { resolve } from "node:path";
 import { ChatGptWebAuthenticationRequiredError } from "../src/chatgpt-web/browser-adapter.js";
 import type { ChatGptBrowserDriver } from "../src/chatgpt-web/production-browser-adapter.js";
+import { runChatGptWebControlledSmoke } from "../src/chatgpt-web/smoke.js";
 import { runChatGptWebBrowserSmokeCli } from "../scripts/chatgpt-web-browser-smoke.js";
 
 const roots = {
@@ -97,4 +98,27 @@ test("smoke CLI disposes the production driver on both success and domain failur
     assert.equal(code, shouldFail ? 1 : 0);
     assert.equal(disposeCalls, 1);
   }
+});
+
+
+test("controlled smoke prompt requires the exact ReasoningTurnResult envelope", async () => {
+  let submittedPrompt = "";
+  const driver: ChatGptBrowserDriver = {
+    ...fakeDriver,
+    async submitPrompt(input) {
+      submittedPrompt = input.prompt;
+      return { conversationRef: "smoke-conv" };
+    },
+  };
+
+  await runChatGptWebControlledSmoke({ driver });
+
+  for (const required of [
+    '"version":1', '"runId":"smoke-run"', '"stage":"ANALYZE"',
+    '"generation":1', '"summary"', '"decisions"', '"intents":[]', '"outcome"',
+  ]) {
+    assert.ok(submittedPrompt.includes(required), `missing schema fragment: ${required}`);
+  }
+  assert.match(submittedPrompt, /JSON object only/i);
+  assert.match(submittedPrompt, /do not request Desktop mutation/i);
 });
