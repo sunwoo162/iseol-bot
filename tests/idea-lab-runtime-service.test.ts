@@ -82,3 +82,25 @@ test("runtime rejects unsupported scheduler concurrency", () => {
     /concurrency/i,
   );
 });
+
+
+test("fresh enqueue runs before pending recovery backlog", async () => {
+  const root = await mkdtemp(join(tmpdir(), "idea-lab-runtime-priority-"));
+  await saveIdeaLabCampaign(root, campaign("recover-a", "generating"));
+  await saveIdeaLabCampaign(root, campaign("recover-b", "generating"));
+  const calls: string[] = [];
+  let release!: () => void;
+  const first = new Promise<void>((resolve) => { release = resolve; });
+  const runtime = createIdeaLabRuntimeService({ modelRoot: root, superviseCampaign: async (id) => {
+    calls.push(id);
+    if (id === "recover-a") await first;
+  }});
+  await runtime.recover();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ["recover-a"]);
+  runtime.enqueue("fresh");
+  release();
+  await runtime.idle();
+  assert.deepEqual(calls, ["recover-a", "fresh", "recover-b"]);
+  await runtime.dispose();
+});

@@ -21,14 +21,15 @@ export function createIdeaLabRuntimeService(options: IdeaLabRuntimeOptions): Ide
   if (concurrency !== undefined && concurrency !== 1) {
     throw new Error("Idea Lab runtime concurrency must be 1");
   }
-  const queue: string[] = [];
+  const freshQueue: string[] = [];
+  const recoveryQueue: string[] = [];
   const scheduled = new Set<string>();
   let accepting = true;
   let running = false;
   let drainWaiters: Array<() => void> = [];
 
   const signalIdle = () => {
-    if (!running && queue.length === 0) {
+    if (!running && freshQueue.length === 0 && recoveryQueue.length === 0) {
       const waiters = drainWaiters;
       drainWaiters = [];
       for (const resolve of waiters) resolve();
@@ -39,8 +40,8 @@ export function createIdeaLabRuntimeService(options: IdeaLabRuntimeOptions): Ide
     if (running) return;
     running = true;
     try {
-      while (queue.length) {
-        const campaignId = queue.shift()!;
+      while (freshQueue.length || recoveryQueue.length) {
+        const campaignId = freshQueue.shift() ?? recoveryQueue.shift()!;
         try {
           await options.superviseCampaign(campaignId);
         } catch {
@@ -55,22 +56,23 @@ export function createIdeaLabRuntimeService(options: IdeaLabRuntimeOptions): Ide
     }
   };
 
-  const enqueue = (campaignId: string): void => {
+  const schedule = (campaignId: string, source: "fresh" | "recovery"): void => {
     if (!accepting || scheduled.has(campaignId)) return;
     scheduled.add(campaignId);
-    queue.push(campaignId);
+    (source === "fresh" ? freshQueue : recoveryQueue).push(campaignId);
     void pump();
   };
+  const enqueue = (campaignId: string): void => schedule(campaignId, "fresh");
 
   return {
     enqueue,
     async recover() {
       for (const campaign of await listIdeaLabCampaigns(options.modelRoot)) {
-        if (campaign.status === "generating" || campaign.status === "producing") enqueue(campaign.id);
+        if (campaign.status === "generating" || campaign.status === "producing") schedule(campaign.id, "recovery");
       }
     },
     idle() {
-      if (!running && queue.length === 0) return Promise.resolve();
+      if (!running && freshQueue.length === 0 && recoveryQueue.length === 0) return Promise.resolve();
       return new Promise<void>((resolve) => drainWaiters.push(resolve));
     },
     async dispose() {
