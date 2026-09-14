@@ -57,7 +57,11 @@ function reasoningEvidence(turn: ReasoningTurn): HarnessEvidenceRecord {
 function feedbackEvidence(records: HarnessEvidenceRecord[]): WebPromptEvidence[] {
   return records.map((item) => ({ kind: item.kind, summary: item.summary, ...(item.reference ? { reference: item.reference } : {}) }));
 }
-const STRUCTURED_JSON_CORRECTION = "Previous response was not valid structured output. Return no markdown or prose. Without PROPOSE_PATCH, return exactly one JSON object. With PROPOSE_PATCH, use a single-line JSON header where patch is @@ISEOL_PATCH:<intentId>@@, then emit the raw git apply-compatible unified diff between @@ISEOL_PATCH_BEGIN:<intentId>@@ and @@ISEOL_PATCH_END:<intentId>@@. Each appendix must contain exactly one file diff; every hunk body line needs a unified-diff prefix (space, +, -, or \\), blank added lines are +, and hunk counts must match. Never use *** Begin Patch markers.";
+const STRUCTURED_JSON_CORRECTION = "Previous response was not valid structured output. Return no markdown or prose. Without PROPOSE_PATCH, return exactly one JSON object. With PROPOSE_PATCH, use a single-line JSON header where patch is @@ISEOL_PATCH:<intentId>@@, then emit the raw git apply-compatible unified diff between @@ISEOL_PATCH_BEGIN:<intentId>@@ and @@ISEOL_PATCH_END:<intentId>@@. Each begin/end marker must be a standalone line with a newline immediately before and after it (EOF allowed after the final end marker). Each appendix must contain exactly one file diff; every hunk body line needs a unified-diff prefix (space, +, -, or \\), blank added lines are +, and hunk counts must match. Never use *** Begin Patch markers.";
+function structuredCorrection(reason: string): string {
+  const boundedReason = reason.replace(/\s+/g, " ").trim().slice(0, 240);
+  return `${STRUCTURED_JSON_CORRECTION} Validation failure: ${boundedReason}`;
+}
 async function ensureSession(input: CreateWebReasoningExecutorInput, run: HarnessRuntimeRunEnvelope, at: string): Promise<WebWorkerSession> {
   const existing = await getActiveWebWorkerSession(input.workerRoot, run.request.runId, run.state.stage);
   if (existing) return existing;
@@ -138,7 +142,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
             if (rejectedCount >= maxRejected) {
               return { type: "retryable-failure", reason: `Rejected reasoning result budget exhausted: ${error.message}` };
             }
-            desktopEvidence = [...desktopEvidence, { kind: "reasoning-rejection", summary: STRUCTURED_JSON_CORRECTION }];
+            desktopEvidence = [...desktopEvidence, { kind: "reasoning-rejection", summary: structuredCorrection(error.message) }];
             prompt = compileWebPrompt({ kind: "feedback", run, session, priorTurns, desktopEvidence });
             continue;
           }

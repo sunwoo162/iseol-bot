@@ -234,3 +234,20 @@ test("restart advances past a lost session still referenced by the active pointe
   assert.equal(active?.generation, 2);
   assert.equal((await loadWebWorkerSession(root, staleId))?.status, "lost");
 });
+
+
+test("structured correction includes the exact validation reason and marker-line rule", async () => {
+  const { root, run } = await fixture();
+  const { ChatGptWebStructuredResultError } = await import("../src/chatgpt-web/browser-adapter.js");
+  const fake = createFakeChatGptWebBrowserAdapter([
+    new ChatGptWebStructuredResultError("ChatGPT patch appendix end marker is missing"),
+    { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1, summary: "Corrected", decisions: [], intents: [], outcome: "stage-complete" },
+  ]);
+  const executor = createWebReasoningExecutor({ workerRoot: root, adapter: fake.adapter, maxRejectedIntents: 2,
+    now: () => "2026-09-08T01:08:00.000Z", runDesktopIntent: async () => { throw new Error("unused"); } });
+  assert.equal((await executor.execute(run)).type, "completed");
+  const feedback = JSON.parse(fake.submittedPrompts[1]!.body) as any;
+  const text = JSON.stringify(feedback.desktopEvidence);
+  assert.match(text, /patch appendix end marker is missing/i);
+  assert.match(text, /standalone line/i);
+});

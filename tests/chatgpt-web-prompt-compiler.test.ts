@@ -166,3 +166,10 @@ test("prompt constrains each patch appendix to one syntactically valid file diff
   assert.match(rule, /prefix/i);
   assert.match(rule, /blank added line/i);
 });
+
+
+test("prompt requires patch markers to be standalone lines", () => {
+  const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
+  assert.match(payload.outputContract.proposePatchRule, /standalone line/i);
+  assert.match(payload.outputContract.proposePatchRule, /newline.*before.*after/i);
+});
