@@ -485,6 +485,11 @@ test("Desktop disconnect after patch and commit reconciles the same Idea Lab Run
   });
   assert.equal(lost.state.stage, "COMMIT");
   assert.equal(lost.state.status, "WAITING_AGENT");
+  const localResultDeadline = Date.now() + 5_000;
+  while (!resources.agent.getResult("job-idea-interrupt-commit") && Date.now() < localResultDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(resources.agent.getResult("job-idea-interrupt-commit")?.status, "completed");
   assert.equal(git(system.repositoryRoot, ["rev-list", "--count", "HEAD"]), "2");
   assert.equal((await loadDesktopJob(system.jobRoot, "job-idea-interrupt-commit"))?.status, "indeterminate");
 
