@@ -111,6 +111,7 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
         intents: [],
         outcome: "continue|stage-complete|blocked-user|retryable",
       },
+      desktopIntentCommonRule: "Every Desktop intent MUST include every field in desktopIntentCommonRequired, especially workspaceRoot and policySha256, in addition to its kind-specific required fields.",
       desktopIntentCommonRequired: {
         version: 1,
         intentId: "unique non-empty id",
