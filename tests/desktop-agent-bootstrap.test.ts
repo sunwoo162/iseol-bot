@@ -60,6 +60,7 @@ test("Agent client config requires secure public transport and explicit roots", 
     ISEOL_DESKTOP_AGENT_TOKEN: "secret",
     ISEOL_DESKTOP_AGENT_ID: "agent-001",
     ISEOL_DESKTOP_AGENT_WORKSPACE_ROOTS: "C:\\A;C:\\B",
+    ISEOL_DESKTOP_AGENT_REQUIRED_OS_USER: "IseolRunner",
   });
   assert.deepEqual(config.workspaceRoots, ["C:\\A", "C:\\B"]);
 });
@@ -73,6 +74,7 @@ test("persistent Agent reconnect uses bounded exponential backoff", async () => 
     token: "secret",
     agentId: "agent-001",
     workspaceRoots: [process.cwd()],
+    requiredOsUser: "test-user",
     heartbeatIntervalMs: 1_000,
     reconnectBaseMs: 10,
     reconnectMaxMs: 25,
@@ -86,6 +88,7 @@ test("persistent Agent reconnect uses bounded exponential backoff", async () => 
     },
     sleep: async (ms) => { delays.push(ms); },
     random: () => 0,
+    currentOsUser: () => "test-user",
   });
   assert.equal(attempts, 3);
   assert.deepEqual(delays, [10, 20]);
@@ -110,7 +113,51 @@ test("Agent policy roots stay separate from writable workspace roots", () => {
     ISEOL_DESKTOP_AGENT_ID: "agent-001",
     ISEOL_DESKTOP_AGENT_WORKSPACE_ROOTS: "C:\\Sandbox",
     ISEOL_DESKTOP_AGENT_POLICY_ROOTS: "C:\\Policy;C:\\Policy2",
+    ISEOL_DESKTOP_AGENT_REQUIRED_OS_USER: "IseolRunner",
   });
   assert.deepEqual(config.workspaceRoots, ["C:\\Sandbox"]);
   assert.deepEqual(config.policyRoots, ["C:\\Policy", "C:\\Policy2"]);
+});
+
+test("Agent client config requires an explicit least-privilege OS identity", () => {
+  assert.throws(() => resolveDesktopAgentClientConfig({
+    ISEOL_DESKTOP_AGENT_URL: "ws://127.0.0.1:8791",
+    ISEOL_DESKTOP_AGENT_TOKEN: "secret",
+    ISEOL_DESKTOP_AGENT_ID: "agent-001",
+    ISEOL_DESKTOP_AGENT_WORKSPACE_ROOTS: "C:\\Sandbox",
+  }), /required.*os.*user|os.*user.*required/i);
+});
+
+test("persistent Agent fails closed before connecting under the wrong OS user", async () => {
+  let connects = 0;
+  await assert.rejects(runPersistentDesktopAgent({
+    url: "ws://127.0.0.1:8791", token: "secret", agentId: "agent-001",
+    workspaceRoots: [process.cwd()], requiredOsUser: "IseolRunner",
+    heartbeatIntervalMs: 1_000, reconnectBaseMs: 10, reconnectMaxMs: 25,
+  }, {
+    currentOsUser: () => "user",
+    connect: async () => { connects += 1; throw new Error("must not connect"); },
+  }), /IseolRunner|OS identity|least-privilege/i);
+  assert.equal(connects, 0);
+});
+
+test("persistent Agent advertises typed execution capabilities without generic process", async () => {
+  const abort = new AbortController();
+  let hello: { capabilities: string[] } | undefined;
+  await runPersistentDesktopAgent({
+    url: "ws://127.0.0.1:8791", token: "secret", agentId: "agent-001",
+    workspaceRoots: [process.cwd()], requiredOsUser: "IseolRunner",
+    heartbeatIntervalMs: 1_000, reconnectBaseMs: 10, reconnectMaxMs: 25,
+  }, {
+    signal: abort.signal,
+    currentOsUser: () => "IseolRunner",
+    connect: async (input) => {
+      hello = { capabilities: [...input.hello.capabilities] };
+      abort.abort();
+      return { close: async () => undefined, closed: Promise.resolve() };
+    },
+  });
+  assert.ok(hello);
+  assert.deepEqual(hello.capabilities, ["files", "test", "build", "git", "http"]);
+  assert.equal(hello.capabilities.includes("process"), false);
 });

@@ -1,3 +1,4 @@
+import { userInfo } from "node:os";
 import { resolve } from "node:path";
 import { assertDesktopAgentId } from "./agent-registry.js";
 import { executeDesktopTaskPack } from "./runtime.js";
@@ -7,6 +8,7 @@ export type DesktopAgentClientConfig = {
   url: string;
   token: string;
   agentId: string;
+  requiredOsUser: string;
   workspaceRoots: string[];
   policyRoots?: string[];
   heartbeatIntervalMs: number;
@@ -26,6 +28,7 @@ type PersistentAgentDeps = {
   connect?: typeof connectDesktopAgentWebSocketClient;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
+  currentOsUser?: () => string;
 };
 function required(env: AgentEnv, name: string): string {
   const value = env[name]?.trim();
@@ -53,6 +56,7 @@ export function resolveDesktopAgentClientConfig(env: AgentEnv): DesktopAgentClie
   const token = required(env, "ISEOL_DESKTOP_AGENT_TOKEN");
   const agentId = required(env, "ISEOL_DESKTOP_AGENT_ID");
   assertDesktopAgentId(agentId);
+  const requiredOsUser = required(env, "ISEOL_DESKTOP_AGENT_REQUIRED_OS_USER");
   const roots = required(env, "ISEOL_DESKTOP_AGENT_WORKSPACE_ROOTS")
     .split(";")
     .map((item) => item.trim())
@@ -74,12 +78,18 @@ export function resolveDesktopAgentClientConfig(env: AgentEnv): DesktopAgentClie
     url,
     token,
     agentId,
+    requiredOsUser,
     workspaceRoots: [...new Set(roots)],
     policyRoots: [...new Set(policyRoots)],
     heartbeatIntervalMs,
     reconnectBaseMs,
     reconnectMaxMs,
   };
+}
+
+export function assertDesktopAgentOsIdentity(requiredOsUser: string, actualOsUser: string): void {
+  const same = process.platform === "win32" ? requiredOsUser.toLowerCase() === actualOsUser.toLowerCase() : requiredOsUser === actualOsUser;
+  if (!same) throw new Error(`Desktop Agent OS identity mismatch: required ${requiredOsUser}, actual ${actualOsUser}`);
 }
 
 function aborted(signal?: AbortSignal): boolean {
@@ -97,6 +107,8 @@ export async function runPersistentDesktopAgent(
   config: DesktopAgentClientConfig,
   deps: PersistentAgentDeps = {},
 ): Promise<void> {
+  const currentOsUser = deps.currentOsUser ?? (() => userInfo().username);
+  assertDesktopAgentOsIdentity(config.requiredOsUser, currentOsUser());
   const connect = deps.connect ?? connectDesktopAgentWebSocketClient;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolveDelay) => setTimeout(resolveDelay, ms)));
   const random = deps.random ?? Math.random;
@@ -112,7 +124,7 @@ export async function runPersistentDesktopAgent(
           agentId: config.agentId,
           agentVersion: "0.1.0",
           os: process.platform,
-          capabilities: ["files", "process", "git", "http"],
+          capabilities: ["files", "test", "build", "git", "http"],
           workspaceRoots: config.workspaceRoots,
           token: config.token,
         },
