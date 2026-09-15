@@ -98,3 +98,25 @@ test("backend captures the latest assistant source through its turn copy action"
   assert.equal(clicks, 1);
   await backend.dispose();
 });
+
+
+test("backend detects the visible ChatGPT temporary request-limit message", async () => {
+  const page = {
+    locator(selector: string) {
+      assert.equal(selector, "body");
+      return {
+        async innerText() {
+          return "요청이 너무 많습니다\n요청을 너무 빠르게 보내고 있습니다. 데이터를 보호하기 위해 대화에 대한 액세스가 일시적으로 제한되었습니다.\n몇 분 후 다시 시도해 주세요.";
+        },
+      };
+    },
+    isClosed() { return false; },
+    async close() {},
+  };
+  const context = { async newPage() { return page; }, async close() {} };
+  const backend = await (createPlaywrightBrowserBackend as any)(config, {
+    launchPersistentContext: async () => context,
+  });
+  assert.equal(await (backend as any).temporaryRestrictionCount(), 1);
+  await backend.dispose();
+});

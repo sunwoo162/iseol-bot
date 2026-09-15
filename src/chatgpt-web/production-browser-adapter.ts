@@ -2,6 +2,7 @@ import type { ChatGptWebBrowserAdapter, ChatGptWebSessionProbe } from "./browser
 import {
   ChatGptWebAuthenticationRequiredError,
   ChatGptWebSessionLostError,
+  ChatGptWebTemporarilyLimitedError,
   ChatGptWebStructuredResultError,
 } from "./browser-adapter.js";
 import type { CompiledWebPrompt } from "./prompt-compiler.js";
@@ -29,6 +30,7 @@ function classify(error: unknown): never {
   if (
     error instanceof ChatGptWebAuthenticationRequiredError
     || error instanceof ChatGptWebSessionLostError
+    || error instanceof ChatGptWebTemporarilyLimitedError
     || error instanceof ChatGptWebStructuredResultError
   ) throw error;
   const message = error instanceof Error ? error.message : String(error);

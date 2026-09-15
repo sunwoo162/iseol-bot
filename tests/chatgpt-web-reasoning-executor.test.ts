@@ -296,3 +296,31 @@ test("reasoning default result timeout allows slow live ChatGPT responses", asyn
   assert.equal((await executor.execute(run)).type, "completed");
   assert.equal(observedTimeout, 240_000);
 });
+
+
+test("temporary ChatGPT rate limits stop reasoning without session recovery or extra submits", async () => {
+  const { root, run } = await fixture();
+  const browserModule = await import("../src/chatgpt-web/browser-adapter.js") as any;
+  const LimitedError = browserModule.ChatGptWebTemporarilyLimitedError;
+  assert.equal(typeof LimitedError, "function", "temporary-limit error type must exist");
+  let submitCalls = 0;
+  const adapter = {
+    openOrResumeSession: async () => { throw new LimitedError("ChatGPT Web is temporarily rate limited"); },
+    submitTurn: async () => { submitCalls += 1; },
+    awaitStructuredResult: async () => { throw new Error("must not read"); },
+    probeSession: async () => "ready",
+    closeSession: async () => undefined,
+  } as any;
+  const executor = createWebReasoningExecutor({
+    workerRoot: root,
+    adapter,
+    now: () => "2026-09-08T01:11:00.000Z",
+    runDesktopIntent: async () => { throw new Error("desktop must not run"); },
+  });
+  assert.deepEqual(await executor.execute(run), {
+    type: "waiting-external",
+    reason: "ChatGPT Web is temporarily rate limited",
+  });
+  assert.equal(submitCalls, 0);
+  assert.equal((await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"))?.generation, 1);
+});

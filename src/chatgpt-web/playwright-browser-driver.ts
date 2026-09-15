@@ -1,6 +1,7 @@
 import {
   ChatGptWebAuthenticationRequiredError,
   ChatGptWebSessionLostError,
+  ChatGptWebTemporarilyLimitedError,
   ChatGptWebStructuredResultError,
 } from "./browser-adapter.js";
 import type { ChatGptWebSessionProbe } from "./browser-adapter.js";
@@ -49,6 +50,7 @@ function classifyBrowserFailure(error: unknown): never {
   if (
     error instanceof ChatGptWebAuthenticationRequiredError
     || error instanceof ChatGptWebSessionLostError
+    || error instanceof ChatGptWebTemporarilyLimitedError
     || error instanceof ChatGptWebStructuredResultError
   ) throw error;
   throw new ChatGptWebSessionLostError("ChatGPT browser operation failed");
@@ -206,6 +208,9 @@ export async function createPlaywrightChatGptBrowserDriver(
   const turnKey = (conversationRef: string | undefined, sha: string) => JSON.stringify([conversationRef ?? null, sha]);
 
   async function authenticatedComposerCount(url: string): Promise<number> {
+    if (await backend.temporaryRestrictionCount() > 0) {
+      throw new ChatGptWebTemporarilyLimitedError("ChatGPT Web is temporarily rate limited");
+    }
     const composerCount = await backend.composerCount();
     const authCount = await backend.authenticationRequiredCount();
     if (authUrl(url) || authCount > 0) {
@@ -231,6 +236,9 @@ export async function createPlaywrightChatGptBrowserDriver(
   async function waitForNewConversationRef(): Promise<string> {
     const startedAt = now();
     while (true) {
+      if (await backend.temporaryRestrictionCount() > 0) {
+        throw new ChatGptWebTemporarilyLimitedError("ChatGPT Web is temporarily rate limited");
+      }
       const url = await backend.currentUrl();
       if (authUrl(url)) throw new ChatGptWebAuthenticationRequiredError("ChatGPT authentication is required");
       const actual = conversationFrom(url);
@@ -350,9 +358,11 @@ export async function createPlaywrightChatGptBrowserDriver(
     if (!REF.test(conversationRef)) return "lost";
     try {
       const url = await backend.currentUrl();
+      const restrictionCount = await backend.temporaryRestrictionCount();
       const composerCount = await backend.composerCount();
       const authCount = await backend.authenticationRequiredCount();
       if (authUrl(url) || authCount > 0) return "auth-required";
+      if (restrictionCount > 0) return "temporarily-limited";
       if (conversationFrom(url) !== conversationRef || composerCount !== 1) return "lost";
       return "ready";
     } catch { return "lost"; }

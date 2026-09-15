@@ -1,7 +1,7 @@
 import type { ReasoningTurnResult, WebWorkerSession } from "./contracts.js";
 import type { CompiledWebPrompt } from "./prompt-compiler.js";
 
-export type ChatGptWebSessionProbe = "ready" | "lost" | "auth-required";
+export type ChatGptWebSessionProbe = "ready" | "lost" | "auth-required" | "temporarily-limited";
 export type ChatGptWebOpenResult = { conversationRef?: string };
 
 export class ChatGptWebSessionLostError extends Error {
@@ -9,6 +9,9 @@ export class ChatGptWebSessionLostError extends Error {
 }
 export class ChatGptWebAuthenticationRequiredError extends Error {
   constructor(message: string) { super(message); this.name = "ChatGptWebAuthenticationRequiredError"; }
+}
+export class ChatGptWebTemporarilyLimitedError extends Error {
+  constructor(message: string) { super(message); this.name = "ChatGptWebTemporarilyLimitedError"; }
 }
 export class ChatGptWebStructuredResultError extends Error {
   constructor(message: string) { super(message); this.name = "ChatGptWebStructuredResultError"; }

@@ -6,6 +6,7 @@ export interface PlaywrightBrowserBackend {
   currentUrl(): Promise<string>;
   composerCount(): Promise<number>;
   authenticationRequiredCount(): Promise<number>;
+  temporaryRestrictionCount(): Promise<number>;
   fillComposer(value: string): Promise<void>;
   sendPrompt(): Promise<void>;
   assistantMessageCount(): Promise<number>;
@@ -25,6 +26,7 @@ type BackendDeps = {
 
 const COMPOSER_SELECTOR = 'textarea:visible, [contenteditable="true"][role="textbox"]:visible, [contenteditable="true"][data-lexical-editor="true"]:visible';
 const AUTH_SELECTOR = 'a[href*="/auth/login"], a[href*="/auth/signup"], a[href*="/auth/sign-up"]';
+const TEMPORARY_RESTRICTION_TEXT = /(?:too many requests|sending requests too quickly|access (?:has been )?temporarily limited|요청이 너무 많습니다|요청을 너무 빠르게 보내고 있습니다|액세스가 일시적으로 제한)/i;
 const ASSISTANT_SELECTOR = '[data-message-author-role="assistant"]';
 const COPY_SELECTOR = 'button[data-testid="copy-turn-action-button"]';
 const COPY_CAPTURE_TIMEOUT_MS = 2_000;
@@ -102,6 +104,10 @@ export async function createPlaywrightBrowserBackend(
     async currentUrl() { return (await ownedPage()).url(); },
     async composerCount() { return (await ownedPage()).locator(COMPOSER_SELECTOR).count(); },
     async authenticationRequiredCount() { return (await ownedPage()).locator(AUTH_SELECTOR).count(); },
+    async temporaryRestrictionCount() {
+      const text = await (await ownedPage()).locator("body").innerText();
+      return TEMPORARY_RESTRICTION_TEXT.test(text) ? 1 : 0;
+    },
     async fillComposer(value) {
       const composer = (await ownedPage()).locator(COMPOSER_SELECTOR);
       if (await composer.count() !== 1) throw new Error("composer unavailable");

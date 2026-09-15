@@ -205,3 +205,35 @@ test("enabled bridge service exposes an explicit driver disposal handle", async 
   await (service as any).dispose();
   assert.equal(disposeCalls, 1);
 });
+
+
+test("playwright driver refuses composer use while ChatGPT is temporarily rate limited", async () => {
+  const { createPlaywrightChatGptBrowserDriver } = await import("../src/chatgpt-web/playwright-browser-driver.js");
+  let fillCalls = 0;
+  let sendCalls = 0;
+  const backend = {
+    navigate: async () => undefined,
+    currentUrl: async () => "https://chatgpt.com/",
+    composerCount: async () => 1,
+    authenticationRequiredCount: async () => 0,
+    temporaryRestrictionCount: async () => 1,
+    fillComposer: async () => { fillCalls += 1; },
+    sendPrompt: async () => { sendCalls += 1; },
+    assistantMessageCount: async () => 0,
+    latestAssistantText: async () => null,
+    latestAssistantRawText: async () => null,
+    generationControlCount: async () => 0,
+    closeOwnedPage: async () => undefined,
+    dispose: async () => undefined,
+  };
+  const driver = await createPlaywrightChatGptBrowserDriver(
+    { enabled: true, profileRoot: "C:\\temp\\chatgpt-profile", headless: true },
+    { backend: backend as any },
+  );
+  await assert.rejects(
+    driver.openOrResumeConversation({ prompt: "bounded", promptSha256: "c".repeat(64) }),
+    /temporarily rate limited/i,
+  );
+  assert.equal(fillCalls, 0);
+  assert.equal(sendCalls, 0);
+});

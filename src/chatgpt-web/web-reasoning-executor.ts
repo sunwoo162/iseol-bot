@@ -4,7 +4,7 @@ import type { HarnessStageExecutor, HarnessStageExecutionResult } from "../harne
 import type { DesktopIntent, ReasoningTurn, WebWorkerSession } from "./contracts.js";
 import { assertReasoningTurnResult } from "./contracts.js";
 import type { ChatGptWebBrowserAdapter } from "./browser-adapter.js";
-import { ChatGptWebSessionLostError, ChatGptWebStructuredResultError } from "./browser-adapter.js";
+import { ChatGptWebSessionLostError, ChatGptWebStructuredResultError, ChatGptWebTemporarilyLimitedError } from "./browser-adapter.js";
 import { compileWebPrompt, type CompiledWebPrompt, type WebPromptEvidence } from "./prompt-compiler.js";
 import { createWebWorkerSession, getActiveWebWorkerSession, getPointedWebWorkerSession, replaceLostWebWorkerSession, updateWebWorkerSession } from "./session-store.js";
 import { appendReasoningTurn, listReasoningTurns } from "./turn-store.js";
@@ -137,6 +137,9 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           }
           rawResult = await input.adapter.awaitStructuredResult(session, resultTimeoutMs);
         } catch (error) {
+          if (error instanceof ChatGptWebTemporarilyLimitedError) {
+            return { type: "waiting-external", reason: "ChatGPT Web is temporarily rate limited" };
+          }
           if (error instanceof ChatGptWebStructuredResultError) {
             rejectedCount += 1;
             if (rejectedCount >= maxRejected) {
