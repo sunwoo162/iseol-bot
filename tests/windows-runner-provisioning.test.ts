@@ -112,5 +112,8 @@ test("Windows runner launcher records sanitized startup diagnostics inside works
   assert.match(script, /agent-startup\.log/i);
   assert.match(script, /NODE_EXIT|STARTUP_ERROR/i);
   assert.match(script, /ISEOL_DESKTOP_AGENT_WORKSPACE_ROOTS/i);
+  const diagnosticIndex = script.indexOf("agent-startup.log");
+  const identityIndex = script.indexOf("$env:USERNAME -ine $requiredUser");
+  assert.ok(diagnosticIndex >= 0 && identityIndex > diagnosticIndex);
   assert.doesNotMatch(script, /Write.*ISEOL_DESKTOP_AGENT_TOKEN/i);
 });
