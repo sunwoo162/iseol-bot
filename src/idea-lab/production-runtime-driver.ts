@@ -334,7 +334,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
         const result = await hybrid.execute(run);
         if (result.type === "retryable-failure"
           && ["ANALYZE", "PLAN", "IMPLEMENT", "SELF_REVIEW"].includes(run.state.stage)
-          && /budget exhausted/i.test(result.reason)) {
+          && /Rejected reasoning result budget exhausted: ChatGPT (?:patch|PROPOSE_PATCH)/i.test(result.reason)) {
           return { type: "final-failure" as const, reason: SAFE_FINAL_FAILURE };
         }
         return result;
