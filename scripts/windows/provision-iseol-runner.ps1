@@ -227,7 +227,6 @@ $action = New-ScheduledTaskAction -Execute "powershell.exe" `
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
   -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-  -MultipleInstances StopExisting `
   -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
   -ExecutionTimeLimit ([TimeSpan]::Zero)
 $runnerPlain = ConvertFrom-SecureValue $RunnerPassword
@@ -250,6 +249,14 @@ foreach ($groupSid in $privilegedGroupSids) {
   }
 }
 if ($PSCmdlet.ShouldProcess($TaskName, "Start least-privilege Desktop Agent")) {
+  Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  $taskStopped = $false
+  for ($attempt = 0; $attempt -lt 20; $attempt += 1) {
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+    if ($task.State -ne "Running") { $taskStopped = $true; break }
+    Start-Sleep -Milliseconds 250
+  }
+  if (-not $taskStopped) { throw "Desktop Agent scheduled task did not stop before restart" }
   Start-ScheduledTask -TaskName $TaskName
   $taskRunning = $false
   for ($attempt = 0; $attempt -lt 20; $attempt += 1) {

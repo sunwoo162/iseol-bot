@@ -119,7 +119,13 @@ test("Windows runner launcher records sanitized startup diagnostics inside works
 });
 
 
-test("Windows runner scheduled task replaces stale instances on restart", async () => {
+test("Windows runner stops stale task instances before restart on PowerShell 5.1", async () => {
   const script = await readFile(provisionUrl, "utf8");
-  assert.match(script, /New-ScheduledTaskSettingsSet[\s\S]*-MultipleInstances\s+StopExisting/i);
+  assert.doesNotMatch(script, /-MultipleInstances\s+StopExisting/i);
+  const stopIndex = script.indexOf("Stop-ScheduledTask -TaskName $TaskName");
+  const startIndex = script.indexOf("Start-ScheduledTask -TaskName $TaskName");
+  assert.ok(stopIndex >= 0 && startIndex > stopIndex);
+  const restartBlock = script.slice(stopIndex, startIndex);
+  assert.match(restartBlock, /Get-ScheduledTask\s+-TaskName\s+\$TaskName/i);
+  assert.match(restartBlock, /State\s*-ne\s*["']Running["']/i);
 });
