@@ -31,6 +31,7 @@ type SmokeDeps = {
   stderr?: (line: string) => void;
   cwd?: string;
   timeoutMs?: number;
+  cleanupTimeoutMs?: number;
 };
 function smokeWebConfig(env: Record<string, string | undefined>, cwd: string) {
   return {
@@ -255,6 +256,7 @@ export async function runIdeaLabLiveSmokeCli(
     return 2;
   }
   const timeoutMs = deps.timeoutMs ?? 15 * 60_000;
+  const cleanupTimeoutMs = deps.cleanupTimeoutMs ?? Math.min(timeoutMs, 10_000);
   const startServices = deps.startServices ?? startIseolRuntimeServices;
   const postCampaign = deps.postCampaign ?? postLiveCampaign;
   const listProductions = deps.listProductions ?? listPrototypeProductions;
@@ -263,13 +265,17 @@ export async function runIdeaLabLiveSmokeCli(
   const loadCampaign = deps.loadCampaign ?? loadIdeaLabCampaign;
   let services: IseolRuntimeServices | undefined;
   let exitCode = 1;
+  let activeStage = "start-services";
 
   try {
+    activeStage = "start-services";
     services = await within(startServices({ env, webConfig }), timeoutMs);
     if (services.ideaLabCapability.state !== "ready" || !services.ideaLabRuntime) {
       throw new LiveSmokeExternalBlocker("Idea Lab live runtime composition is blocked");
     }
+    activeStage = "post-campaign";
     const created = await within(postCampaign(services.webServer, webConfig.token), timeoutMs);
+    activeStage = "runtime-idle";
     await within(services.ideaLabRuntime.idle(), timeoutMs);
     const finalCampaign = await within(loadCampaign(webConfig.modelRoot, created.id), timeoutMs);
     if (!finalCampaign) throw new Error("Idea Lab live smoke Campaign disappeared after runtime idle");
@@ -283,12 +289,15 @@ export async function runIdeaLabLiveSmokeCli(
       : null;
     const verified = assertVerifiedOutcome(finalCampaign, productions, candidates, run);
 
+    activeStage = "pre-restart-dispose";
     await within(services.dispose(), timeoutMs);
     services = undefined;
+    activeStage = "restart-services";
     services = await within(startServices({ env, webConfig }), timeoutMs);
     if (services.ideaLabCapability.state !== "ready" || !services.ideaLabRuntime) {
       throw new LiveSmokeExternalBlocker("Idea Lab live runtime restart is blocked");
     }
+    activeStage = "restart-idle";
     await within(services.ideaLabRuntime.idle(), timeoutMs);
     const restartedCampaign = await within(loadCampaign(webConfig.modelRoot, created.id), timeoutMs);
     if (!restartedCampaign) throw new Error("Idea Lab live smoke Campaign disappeared after restart");
@@ -310,7 +319,7 @@ export async function runIdeaLabLiveSmokeCli(
     exitCode = 0;
   } catch (error) {
     if (externalError(error)) {
-      stderr("Idea Lab live smoke blocked-external: required live capability is unavailable.");
+      stderr(`Idea Lab live smoke blocked-external: stage=${activeStage}; required live capability is unavailable.`);
       exitCode = 2;
     } else {
       stderr("Idea Lab live smoke failed during domain verification.");
@@ -319,10 +328,10 @@ export async function runIdeaLabLiveSmokeCli(
   } finally {
     if (services) {
       try {
-        await services.dispose();
+        await within(services.dispose(), cleanupTimeoutMs);
       } catch {
         stderr("Idea Lab live smoke failed during service disposal.");
-        exitCode = 1;
+        if (exitCode !== 2) exitCode = 1;
       }
     }
   }

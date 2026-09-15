@@ -165,6 +165,8 @@ test("prompt constrains each patch appendix to one syntactically valid file diff
   assert.match(rule, /hunk/i);
   assert.match(rule, /prefix/i);
   assert.match(rule, /blank added line/i);
+  assert.match(rule, /at most one PROPOSE_PATCH/i);
+  assert.match(rule, /later turn/i);
 });
 
 

@@ -222,3 +222,62 @@ test("live smoke returns one for domain verification failure and still disposes 
   assert.equal(disposes, 1);
   assert.equal(lines.some((line) => /passed/i.test(line)), false);
 });
+
+
+test("live smoke bounds final disposal after an external timeout", async () => {
+  const never = new Promise<void>(() => undefined);
+  const result = await Promise.race([
+    runIdeaLabLiveSmokeCli(configuredEnv(), {
+      ...successDeps(),
+      startServices: async () => ({
+        webServer: {} as any,
+        desktopCore: null,
+        ideaLabRuntime: { idle: async () => undefined },
+        ideaLabCapability: { state: "ready" as const },
+        dispose: async () => { await never; },
+      }),
+      timeoutMs: 5,
+    }),
+    new Promise<"did-not-settle">((resolve) => setTimeout(() => resolve("did-not-settle"), 100)),
+  ]);
+  assert.equal(result, 2);
+});
+
+test("live smoke reports the stage that timed out", async () => {
+  const lines: string[] = [];
+  const never = new Promise<void>(() => undefined);
+  const code = await runIdeaLabLiveSmokeCli(configuredEnv(), {
+    ...successDeps(),
+    startServices: async () => ({
+      webServer: {} as any,
+      desktopCore: null,
+      ideaLabRuntime: { idle: async () => { await never; } },
+      ideaLabCapability: { state: "ready" as const },
+      dispose: async () => undefined,
+    }),
+    timeoutMs: 5,
+    stderr: (line) => lines.push(line),
+  });
+  assert.equal(code, 2);
+  assert.ok(lines.some((line) => line.includes("runtime-idle")));
+});
+test("live smoke uses a short cleanup timeout independent of the main budget", async () => {
+  const never = new Promise<void>(() => undefined);
+  const result = await Promise.race([
+    runIdeaLabLiveSmokeCli(configuredEnv(), {
+      ...successDeps(),
+      startServices: async () => ({
+        webServer: {} as any,
+        desktopCore: null,
+        ideaLabRuntime: { idle: async () => undefined },
+        ideaLabCapability: { state: "ready" as const },
+        dispose: async () => { await never; },
+      }),
+      postCampaign: async () => { throw new Error("Desktop Agent is not connected"); },
+      timeoutMs: 1_000,
+      cleanupTimeoutMs: 5,
+    } as any),
+    new Promise<"did-not-settle">((resolve) => setTimeout(() => resolve("did-not-settle"), 100)),
+  ]);
+  assert.equal(result, 2);
+});

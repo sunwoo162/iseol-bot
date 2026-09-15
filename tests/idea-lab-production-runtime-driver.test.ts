@@ -514,3 +514,31 @@ test("Idea Lab Web reasoning consumes an executed RED test failure as Desktop fe
   assert.equal(browser.submittedPrompts[1]?.kind, "feedback");
   assert.match(browser.submittedPrompts[1]?.body ?? "", /RED test failed/);
 });
+
+
+test("Idea Lab fails one production after the Web reasoning retry budget is exhausted", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-web-retry-budget-"));
+  const proposal = baseProposal("camp-web-retry-budget");
+  const bootstrap = makeDriver(root, { proposal });
+  const production = await bootstrap.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const run = await loadHarnessRun(root, production.runId);
+  assert.ok(run);
+  await saveHarnessRun(root, {
+    ...run,
+    preflight: { version: 1, runId: production.runId, status: "ready", policy: { version: 1, loadedAt: "now", sources: [], effectiveSha256: "policy" }},
+    state: { ...run.state, stage: "IMPLEMENT", status: "READY", completedStages: ["PREFLIGHT", "CONTEXT", "ANALYZE", "PLAN"] },
+  });
+  const { ChatGptWebStructuredResultError } = await import("../src/chatgpt-web/browser-adapter.js");
+  const fake = createFakeChatGptWebBrowserAdapter(Array.from({ length: 60 }, () =>
+    new ChatGptWebStructuredResultError("ChatGPT patch appendix end marker is missing"),
+  ));
+  const driver = makeDriver(root, { proposal, browserAdapter: fake.adapter });
+
+  const result = await driver.advanceProduction(production);
+
+  assert.equal(result.status, "failed");
+  assert.equal(fake.submittedPrompts.length, 3);
+  assert.equal((await loadPrototypeProduction(root, production.id))?.status, "failed");
+});

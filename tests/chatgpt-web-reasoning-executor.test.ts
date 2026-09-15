@@ -250,6 +250,8 @@ test("structured correction includes the exact validation reason and marker-line
   const text = JSON.stringify(feedback.desktopEvidence);
   assert.match(text, /patch appendix end marker is missing/i);
   assert.match(text, /standalone line/i);
+  assert.match(text, /exactly one PROPOSE_PATCH/i);
+  assert.match(text, /later turn/i);
 });
 
 
