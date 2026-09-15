@@ -46,6 +46,23 @@ if (-not (Test-Path -LiteralPath $entrypoint -PathType Leaf)) {
   throw "Iseol Desktop Agent entrypoint is missing: $entrypoint"
 }
 
-Set-Location $PSScriptRoot
-& $values["ISEOL_NODE_EXE"] $entrypoint
-exit $LASTEXITCODE
+$diagnosticRoot = ($values["ISEOL_DESKTOP_AGENT_WORKSPACE_ROOTS"] -split ";")[0]
+$diagnosticDir = Join-Path $diagnosticRoot ".iseol"
+$diagnosticPath = Join-Path $diagnosticDir "agent-startup.log"
+New-Item -ItemType Directory -Force -Path $diagnosticDir | Out-Null
+Add-Content -LiteralPath $diagnosticPath -Value "START=$([DateTime]::UtcNow.ToString('o')) USER=$env:USERNAME"
+
+try {
+  Set-Location $PSScriptRoot
+  & $values["ISEOL_NODE_EXE"] $entrypoint *>> $diagnosticPath
+  $nodeExit = $LASTEXITCODE
+  Add-Content -LiteralPath $diagnosticPath -Value "NODE_EXIT=$nodeExit"
+  exit $nodeExit
+} catch {
+  $safeMessage = $_.Exception.Message
+  if ($values.ContainsKey("ISEOL_DESKTOP_AGENT_TOKEN")) {
+    $safeMessage = $safeMessage.Replace($values["ISEOL_DESKTOP_AGENT_TOKEN"], "[REDACTED]")
+  }
+  Add-Content -LiteralPath $diagnosticPath -Value "STARTUP_ERROR=$safeMessage"
+  throw
+}

@@ -105,3 +105,12 @@ test("Windows runner verifies effective batch logon before scheduled task regist
   const registerIndex = script.indexOf("Register-ScheduledTask");
   assert.ok(verifyIndex >= 0 && registerIndex > verifyIndex);
 });
+
+test("Windows runner launcher records sanitized startup diagnostics inside workspace", async () => {
+  const script = await readFile(launcherUrl, "utf8");
+  assert.match(script, /Join-Path \$diagnosticRoot "\.iseol"/i);
+  assert.match(script, /agent-startup\.log/i);
+  assert.match(script, /NODE_EXIT|STARTUP_ERROR/i);
+  assert.match(script, /ISEOL_DESKTOP_AGENT_WORKSPACE_ROOTS/i);
+  assert.doesNotMatch(script, /Write.*ISEOL_DESKTOP_AGENT_TOKEN/i);
+});
