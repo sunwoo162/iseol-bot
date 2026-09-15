@@ -10,6 +10,7 @@ export interface PlaywrightBrowserBackend {
   sendPrompt(): Promise<void>;
   assistantMessageCount(): Promise<number>;
   latestAssistantText(): Promise<string | null>;
+  latestAssistantRawText(): Promise<string | null>;
   generationControlCount(): Promise<number>;
   closeOwnedPage(): Promise<void>;
   dispose(): Promise<void>;
@@ -25,6 +26,8 @@ type BackendDeps = {
 const COMPOSER_SELECTOR = 'textarea:visible, [contenteditable="true"][role="textbox"]:visible, [contenteditable="true"][data-lexical-editor="true"]:visible';
 const AUTH_SELECTOR = 'a[href*="/auth/login"], a[href*="/auth/signup"], a[href*="/auth/sign-up"]';
 const ASSISTANT_SELECTOR = '[data-message-author-role="assistant"]';
+const COPY_SELECTOR = 'button[data-testid="copy-turn-action-button"]';
+const COPY_CAPTURE_TIMEOUT_MS = 2_000;
 const GENERATING_SELECTOR = 'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop"]';
 
 export async function createPlaywrightBrowserBackend(
@@ -70,6 +73,64 @@ export async function createPlaywrightBrowserBackend(
     async latestAssistantText() {
       const assistant = (await ownedPage()).locator(ASSISTANT_SELECTOR);
       return await assistant.count() > 0 ? assistant.last().innerText() : null;
+    },
+    async latestAssistantRawText() {
+      const owned = await ownedPage();
+      const assistant = owned.locator(ASSISTANT_SELECTOR);
+      if (await assistant.count() === 0) return null;
+      const turn = assistant.last().locator('xpath=ancestor::*[.//button[@data-testid="copy-turn-action-button"]][1]');
+      if (await turn.count() !== 1) throw new Error("assistant turn copy control unavailable or ambiguous");
+      const copy = turn.locator(COPY_SELECTOR);
+      if (await copy.count() !== 1) throw new Error("assistant copy control unavailable or ambiguous");
+      await owned.evaluate(() => {
+        const clipboard = navigator.clipboard as any;
+        if (!clipboard) throw new Error("clipboard unavailable");
+        const state = {
+          clipboard,
+          writeDescriptor: Object.getOwnPropertyDescriptor(clipboard, "write"),
+          writeTextDescriptor: Object.getOwnPropertyDescriptor(clipboard, "writeText"),
+          text: undefined as string | undefined,
+          items: undefined as any[] | undefined,
+        };
+        (globalThis as any).__iseolClipboardCapture = state;
+        Object.defineProperty(clipboard, "write", {
+          configurable: true,
+          value: async (items: any[]) => { state.items = items; },
+        });
+        Object.defineProperty(clipboard, "writeText", {
+          configurable: true,
+          value: async (value: string) => { state.text = String(value); },
+        });
+      });
+      try {
+        await copy.click();
+        await owned.waitForFunction(() => {
+          const state = (globalThis as any).__iseolClipboardCapture;
+          return Boolean(state && (state.text !== undefined || state.items !== undefined));
+        }, undefined, { timeout: COPY_CAPTURE_TIMEOUT_MS });
+        return await owned.evaluate(async () => {
+          const state = (globalThis as any).__iseolClipboardCapture;
+          if (!state) throw new Error("clipboard capture unavailable");
+          if (typeof state.text === "string") return state.text;
+          for (const item of state.items ?? []) {
+            if (!item?.types?.includes?.("text/plain")) continue;
+            const blob = await item.getType("text/plain");
+            return await blob.text();
+          }
+          throw new Error("copied response has no text/plain payload");
+        });
+      } finally {
+        await owned.evaluate(() => {
+          const state = (globalThis as any).__iseolClipboardCapture;
+          if (!state) return;
+          const clipboard = state.clipboard;
+          if (state.writeDescriptor) Object.defineProperty(clipboard, "write", state.writeDescriptor);
+          else delete clipboard.write;
+          if (state.writeTextDescriptor) Object.defineProperty(clipboard, "writeText", state.writeTextDescriptor);
+          else delete clipboard.writeText;
+          delete (globalThis as any).__iseolClipboardCapture;
+        });
+      }
     },
     async generationControlCount() { return (await ownedPage()).locator(GENERATING_SELECTOR).count(); },
     async closeOwnedPage() {

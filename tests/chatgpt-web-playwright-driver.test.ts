@@ -21,6 +21,7 @@ function fakeBackend(overrides: Partial<PlaywrightBrowserBackend> = {}) {
     sendPrompt: async () => { sends += 1; },
     assistantMessageCount: async () => assistantCount,
     latestAssistantText: async () => assistantText,
+    latestAssistantRawText: async () => assistantText,
     generationControlCount: async () => generatingCount,
     closeOwnedPage: async () => { closed += 1; },
     dispose: async () => undefined,
@@ -476,4 +477,26 @@ test("structured result canonicalizes unprefixed body lines only for a new-file 
     "diff --git a/smoke.test.js b/smoke.test.js", "new file mode 100644", "--- /dev/null", "+++ b/smoke.test.js",
     "@@ -0,0 +1,4 @@", "+line one", "+", "+line two", "+line three", "",
   ].join("\n"));
+});
+
+
+test("structured result parses lossless copied source when rendered markdown consumes patch syntax", async () => {
+  let now = 0;
+  const rawPatch = [
+    "diff --git a/app.test.js b/app.test.js", "--- a/app.test.js", "+++ b/app.test.js", "@@ -1 +1 @@",
+    '-assert.match(html, new RegExp(data-action="${action}"));',
+    '+assert.match(html, new RegExp(`data-action="${action}"`));',
+  ].join("\n") + "\n";
+  const header = { version: 1, intents: [{ intentId: "patch-raw", kind: "PROPOSE_PATCH", path: "app.test.js", patch: "@@ISEOL_PATCH:patch-raw@@" }] };
+  const raw = `${JSON.stringify(header)}\n@@ISEOL_PATCH_BEGIN:patch-raw@@\n${rawPatch.trimEnd()}\n@@ISEOL_PATCH_END:patch-raw@@`;
+  const rendered = raw.replaceAll("`", "").replace(/^\+/gm, "");
+  const item = fakeBackend({ latestAssistantRawText: async () => raw } as any);
+  item.setUrl("https://chatgpt.com/c/conv-lossless");
+  const driver = await createPlaywrightChatGptBrowserDriver(config, {
+    backend: item.backend, now: () => now, sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await driver.submitPrompt({ conversationRef: "conv-lossless", prompt: "payload", promptSha256: "lossless-sha" });
+  item.setAssistant(rendered, 1);
+  const result = await driver.readStructuredResult({ conversationRef: "conv-lossless", timeoutMs: 2000 }) as any;
+  assert.equal(result.intents[0].patch, rawPatch);
 });

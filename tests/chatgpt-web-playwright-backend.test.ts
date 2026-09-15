@@ -71,3 +71,30 @@ test("composer operations ignore hidden fallback editors", async () => {
   assert.equal(filled, "hello");
   await backend.dispose();
 });
+
+
+test("backend captures the latest assistant source through its turn copy action", async () => {
+  const raw = "+assert.match(html, new RegExp(`data-action=\"${action}\"`));";
+  let clicks = 0;
+  let evaluations = 0;
+  const copy = { async count() { return 1; }, async click() { clicks += 1; } };
+  const turn = {
+    async count() { return 1; },
+    locator(selector: string) { assert.equal(selector, 'button[data-testid="copy-turn-action-button"]'); return copy; },
+  };
+  const assistant = {
+    async count() { return 1; }, last() { return this; },
+    locator(selector: string) { assert.match(selector, /copy-turn-action-button/); return turn; },
+  };
+  const page = {
+    locator(selector: string) { assert.equal(selector, '[data-message-author-role="assistant"]'); return assistant; },
+    async evaluate() { evaluations += 1; return evaluations === 2 ? raw : undefined; },
+    async waitForFunction() {},
+    isClosed() { return false; }, async close() {},
+  };
+  const context = { async newPage() { return page; }, async close() {} };
+  const backend = await (createPlaywrightBrowserBackend as any)(config, { launchPersistentContext: async () => context });
+  assert.equal(await (backend as any).latestAssistantRawText(), raw);
+  assert.equal(clicks, 1);
+  await backend.dispose();
+});

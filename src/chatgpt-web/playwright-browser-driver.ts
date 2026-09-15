@@ -310,8 +310,10 @@ export async function createPlaywrightChatGptBrowserDriver(
         if (generatingCount === 0 && latestText?.trim()) {
           if (latestText === stableText) {
             if (now() - stableSince >= RESULT_SETTLE_MS) {
+              const rawText = await backend.latestAssistantRawText();
+              if (!rawText?.trim()) lost("ChatGPT assistant source is unavailable");
               pendingByConversation.delete(input.conversationRef);
-              return parseStructuredResult(latestText);
+              return parseStructuredResult(rawText);
             }
           } else {
             stableText = latestText;
