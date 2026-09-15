@@ -173,15 +173,20 @@ async function gitCommand(
   args: string[],
   maxOutputBytes: number,
 ): Promise<CommandResult> {
+  const gitRuntimeRoot = join(resolve(workspace), ".iseol", "git-runtime");
+  const hooksRoot = join(gitRuntimeRoot, "hooks-disabled");
+  await mkdir(hooksRoot, { recursive: true });
+  const env = createSandboxedProcessEnv(process.env, gitRuntimeRoot);
+  env.GIT_TERMINAL_PROMPT = "0";
   return runCommand({
     executable: "git",
-    args,
+    args: ["-c", `core.hooksPath=${hooksRoot}`, ...args],
     cwd,
     timeoutMs: 30_000,
     maxOutputBytes,
+    env,
   });
 }
-
 type GitWorktreeEntry = { path: string; branch?: string };
 
 function parseGitWorktrees(output: string): GitWorktreeEntry[] {

@@ -32,7 +32,7 @@ async function fixture() {
   await mkdir(join(repo, "docs"), { recursive: true });
   await writeFile(join(repo, "docs", "HARNESS_ENGINEERING.md"), "# Project Harness\n", "utf8");
   await writeFile(join(repo, "feature.txt"), "old\n", "utf8");
-  await writeFile(join(repo, "verify.js"), "const fs=require('fs'); if(fs.readFileSync('feature.txt','utf8').trim()!=='new') process.exit(2);\n", "utf8");
+  await writeFile(join(repo, "verify.test.cjs"), "const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');test('feature updated',()=>assert.equal(fs.readFileSync('feature.txt','utf8').trim(),'new'));\n", "utf8");
   execFileSync("git", ["init"], { cwd: repo, stdio: "ignore" });
   execFileSync("git", ["config", "user.email", "iseol@example.com"], { cwd: repo });
   execFileSync("git", ["config", "user.name", "Iseol Web E2E"], { cwd: repo });
@@ -74,7 +74,7 @@ function deterministicPack(f: Awaited<ReturnType<typeof fixture>>, run: HarnessR
     policySources: policy.sources.map((source) => ({ kind: source.kind, path: source.path, sha256: source.sha256, required: true })),
     leaseUntil: "2026-09-08T05:10:00.000Z",
   };
-  if (run.state.stage === "TEST") return { ...common, jobId: "job-web-e2e-test", idempotencyKey: "test:run-web-e2e", operations: [{ id: "verify", type: "RUN_PROCESS", cwd: ".", executable: basename(process.execPath), args: ["verify.js"], timeoutMs: 5_000 }] };
+  if (run.state.stage === "TEST") return { ...common, jobId: "job-web-e2e-test", idempotencyKey: "test:run-web-e2e", operations: [{ id: "verify", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "node", args: ["--test", "verify.test.cjs"], timeoutMs: 5_000 }] };
   if (run.state.stage === "COMMIT") return { ...common, jobId: "job-web-e2e-commit", idempotencyKey: "commit:run-web-e2e", operations: [{ id: "commit", type: "GIT_COMMIT", cwd: ".", message: "feat: web bridge e2e", expectedHead: f.initialHead }] };
   return null;
 }
@@ -119,7 +119,7 @@ test("Supervisor runs Web reasoning through the real Desktop bridge before deter
     { version: 1, runId: "run-web-e2e", stage: "IMPLEMENT", generation: 1, summary: "Apply and verify patch", decisions: ["Use guarded Desktop intents"], intents: [
       { version: 1, intentId: "intent-read", runId: "run-web-e2e", stage: "IMPLEMENT", workspaceRoot: f.repo, policySha256, kind: "READ_CONTEXT", path: "feature.txt" },
       { version: 1, intentId: "intent-patch", runId: "run-web-e2e", stage: "IMPLEMENT", workspaceRoot: f.repo, policySha256, kind: "PROPOSE_PATCH", path: "feature.txt", patch },
-      { version: 1, intentId: "intent-verify", runId: "run-web-e2e", stage: "IMPLEMENT", workspaceRoot: f.repo, policySha256, kind: "RUN_TEST", cwd: ".", executable: basename(process.execPath), args: ["verify.js"], timeoutMs: 5_000 },
+      { version: 1, intentId: "intent-verify", runId: "run-web-e2e", stage: "IMPLEMENT", workspaceRoot: f.repo, policySha256, kind: "RUN_TEST", cwd: ".", executable: "node", args: ["--test", "verify.test.cjs"], timeoutMs: 5_000 },
     ], outcome: "continue" },
     { version: 1, runId: "run-web-e2e", stage: "IMPLEMENT", generation: 1, summary: "Implementation complete", decisions: ["Desktop verification passed"], intents: [], outcome: "stage-complete" },
     { version: 1, runId: "run-web-e2e", stage: "SELF_REVIEW", generation: 1, summary: "Self review complete", decisions: ["No material issue found"], intents: [], outcome: "stage-complete" },

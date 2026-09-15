@@ -161,3 +161,14 @@ test("persistent Agent advertises typed execution capabilities without generic p
   assert.deepEqual(hello.capabilities, ["files", "test", "build", "git", "http"]);
   assert.equal(hello.capabilities.includes("process"), false);
 });
+
+test("Windows runner provisioning keeps the whole user profile default-deny and stays non-admin", async () => {
+  const script = await readFile(new URL("../scripts/windows/provision-iseol-runner.ps1", import.meta.url), "utf8");
+  assert.match(script, /ProtectedProfileRoot/);
+  assert.match(script, /WorkspaceRoot must be outside the protected user profile/i);
+  assert.match(script, /unsafeProfileSids/);
+  for (const sid of ["S-1-5-32-544", "S-1-5-32-547", "S-1-5-32-551"]) assert.match(script, new RegExp(sid));
+  assert.match(script, /Remove-LocalGroupMember/);
+  assert.match(script, /RunLevel Limited/i);
+  assert.doesNotMatch(script, /icacls\.exe[\s\S]*\/deny/i);
+});

@@ -33,9 +33,10 @@ test("resource observer detects only explicitly owned leaked jobs sessions proce
     operations: [{
       id: "build",
       type: "RUN_PROCESS",
+      purpose: "build",
       cwd: ".",
-      executable: process.execPath,
-      args: ["--version"],
+      executable: "npm",
+      args: ["run", "build"],
       timeoutMs: 1_000,
     }],
   });

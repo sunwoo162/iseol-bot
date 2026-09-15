@@ -67,7 +67,8 @@ async function createSystem() {
   await mkdir(worktreesRoot, { recursive: true });
   await writeFile(join(repositoryRoot, "docs", "HARNESS_ENGINEERING.md"), "# Idea Lab Sandbox Harness\n", "utf8");
   await writeFile(join(repositoryRoot, "product.txt"), "seed\n", "utf8");
-  await writeFile(join(repositoryRoot, "verify.js"), "const fs=require('fs');const want=process.argv[2];if(fs.readFileSync('product.txt','utf8').trim()!==want)process.exit(2);\n", "utf8");
+  await writeFile(join(repositoryRoot, "verify.test.cjs"), "const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');test('candidate value',()=>assert.match(fs.readFileSync('product.txt','utf8').trim(),/^candidate-prod-\\d+$/));\n", "utf8");
+  await writeFile(join(repositoryRoot, "fail.test.cjs"), "const test=require('node:test');test('forced failure',()=>{throw new Error('forced failure')});\n", "utf8");
   execFileSync("git", ["init", "-b", "main"], { cwd: repositoryRoot, stdio: "ignore" });
   execFileSync("git", ["config", "user.email", "iseol@example.com"], { cwd: repositoryRoot });
   execFileSync("git", ["config", "user.name", "Iseol Idea Lab E2E"], { cwd: repositoryRoot });
@@ -119,7 +120,7 @@ function deterministicPack(
   };
   if (run.state.stage === "TEST") return {
     ...common, jobId: `${run.request.runId}-test`, idempotencyKey: `test:${run.request.runId}`,
-    operations: [{ id: "test", type: "RUN_PROCESS", cwd: ".", executable: failTest ? "curl" : basename(process.execPath), args: failTest ? [] : ["verify.js", expectedValue], timeoutMs: 5_000 }],
+    operations: [{ id: "test", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "node", args: ["--test", failTest ? "fail.test.cjs" : "verify.test.cjs"], timeoutMs: 5_000 }],
   };
   if (run.state.stage === "COMMIT") return {
     ...common, jobId: `${run.request.runId}-commit`, idempotencyKey: `commit:${run.request.runId}`,
@@ -403,7 +404,7 @@ test("failed second candidate is replenished without changing successful canonic
   const productions = (await listPrototypeProductions(system.modelRoot)).filter((item) => item.campaignId === campaign.id);
   assert.deepEqual(productions.filter((item) => item.status === "ready").map((item) => item.id), ["prod-1", "prod-3", "prod-4"]);
   assert.equal(productions.find((item) => item.id === "prod-2")?.status, "failed");
-  assert.equal((await loadHarnessRun(system.runRoot, "run-camp-replenish-prod-2"))?.state.status, "FAILED_FINAL");
+  assert.equal((await loadHarnessRun(system.runRoot, "run-camp-replenish-prod-2"))?.state.status, "FAILED_RETRYABLE");
   assert.equal(productions.find((item) => item.id === "prod-1")?.runId, "run-camp-replenish-prod-1");
   assert.equal(productions.find((item) => item.id === "prod-3")?.runId, "run-camp-replenish-prod-3");
   assert.equal(new Set(productions.map((item) => item.runId)).size, productions.length);

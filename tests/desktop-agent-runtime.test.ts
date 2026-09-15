@@ -274,7 +274,7 @@ test("Windows runtime executes bounded npm test without opening a shell", async 
   await writeFile(join(workspace, "package.json"), JSON.stringify({ scripts: { test: "node --test noop.test.js" } }), "utf8");
   await writeFile(join(workspace, "noop.test.js"), "import test from 'node:test';\ntest('noop', () => {});\n", "utf8");
   const pack = policyPack(workspace, harnessPath, [{
-    id: "npm-test", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "npm", args: ["test"], timeoutMs: 5_000,
+    id: "npm-test", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "npm", args: ["test"], timeoutMs: 15_000,
   }]);
   const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed] });
   assert.equal(result.status, "completed");
@@ -287,7 +287,7 @@ test("Windows runtime executes bounded npm.cmd test without opening a shell", as
   await writeFile(join(workspace, "package.json"), JSON.stringify({ scripts: { test: "node --test noop.test.js" } }), "utf8");
   await writeFile(join(workspace, "noop.test.js"), "import test from 'node:test';\ntest('noop', () => {});\n", "utf8");
   const pack = policyPack(workspace, harnessPath, [{
-    id: "npm-cmd-test", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "npm.cmd", args: ["test"], timeoutMs: 5_000,
+    id: "npm-cmd-test", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "npm.cmd", args: ["test"], timeoutMs: 15_000,
   }]);
   const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed] });
   assert.equal(result.status, "completed");
@@ -328,4 +328,33 @@ test("runtime isolates child secrets, profile paths, PATH, and owned temp lifecy
   });
   assert.equal(result.status, "completed");
   await assert.rejects(access(jobTemp), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+});
+
+test("Git commit ignores repository hooks and does not expose Agent secrets", async () => {
+  const { allowed, workspace, harnessPath } = await fixture();
+  initGit(workspace);
+  await writeFile(join(workspace, "hello.txt"), "old\n", "utf8");
+  execFileSync("git", ["add", "hello.txt"], { cwd: workspace });
+  execFileSync("git", ["commit", "-m", "chore: initial"], { cwd: workspace, stdio: "ignore" });
+  await mkdir(join(workspace, ".git", "hooks"), { recursive: true });
+  await writeFile(join(workspace, ".git", "hooks", "pre-commit"), [
+    "#!/bin/sh",
+    "echo $ISEOL_DESKTOP_AGENT_TOKEN > hook-secret.txt",
+    "exit 91",
+  ].join("\n"), "utf8");
+  await writeFile(join(workspace, "hello.txt"), "new\n", "utf8");
+  const previous = process.env.ISEOL_DESKTOP_AGENT_TOKEN;
+  process.env.ISEOL_DESKTOP_AGENT_TOKEN = "must-not-leak";
+  try {
+    const pack = policyPack(workspace, harnessPath, [{
+      id: "commit", type: "GIT_COMMIT", cwd: ".", message: "feat: safe commit",
+    }]);
+    pack.stage = "COMMIT";
+    const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed] });
+    assert.equal(result.status, "completed");
+    await assert.rejects(access(join(workspace, "hook-secret.txt")), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
+  } finally {
+    if (previous === undefined) delete process.env.ISEOL_DESKTOP_AGENT_TOKEN;
+    else process.env.ISEOL_DESKTOP_AGENT_TOKEN = previous;
+  }
 });

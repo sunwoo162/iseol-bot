@@ -29,7 +29,7 @@ async function fixture() {
   await mkdir(join(repo, "docs"), { recursive: true });
   await writeFile(join(repo, "docs", "HARNESS_ENGINEERING.md"), "# Project Harness\n", "utf8");
   await writeFile(join(repo, "feature.txt"), "old\n", "utf8");
-  await writeFile(join(repo, "verify.js"), "const fs=require('fs'); if(fs.readFileSync('feature.txt','utf8').trim()!=='new') process.exit(2);\n", "utf8");
+  await writeFile(join(repo, "verify.test.cjs"), "const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');test('feature updated',()=>assert.equal(fs.readFileSync('feature.txt','utf8').trim(),'new'));\n", "utf8");
   execFileSync("git", ["init"], { cwd: repo, stdio: "ignore" });
   execFileSync("git", ["config", "user.email", "iseol@example.com"], { cwd: repo });
   execFileSync("git", ["config", "user.name", "Iseol E2E"], { cwd: repo });
@@ -83,7 +83,7 @@ function taskPack(f: Awaited<ReturnType<typeof fixture>>, agentId: string): Desk
     leaseUntil: "2026-09-08T04:10:00.000Z",
     operations: [
       { id: "patch", type: "APPLY_PATCH", path: "feature.txt", patch },
-      { id: "verify", type: "RUN_PROCESS", cwd: ".", executable: process.execPath, args: ["verify.js"], timeoutMs: 2_000 },
+      { id: "verify", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "node", args: ["--test", "verify.test.cjs"], timeoutMs: 2_000 },
       { id: "status", type: "GIT_STATUS", cwd: "." },
       { id: "commit", type: "GIT_COMMIT", cwd: ".", message: "feat: desktop e2e", expectedHead: f.initialHead },
     ],
