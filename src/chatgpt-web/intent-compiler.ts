@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
+import { assertBoundedProcessRequest } from "../desktop-agent/process-policy.js";
 import type { HarnessRuntimeRunEnvelope, HarnessRunStage } from "../harness/contracts.js";
 import type { DesktopTaskPack, DesktopOperation } from "../desktop-agent/contracts.js";
 import { assertDesktopTaskPack } from "../desktop-agent/contracts.js";
@@ -15,7 +16,6 @@ export type DesktopIntentCompilerContext = {
 };
 
 const REASONING_STAGES = new Set<HarnessRunStage>(["ANALYZE", "PLAN", "IMPLEMENT", "SELF_REVIEW"]);
-const SHELL_EXECUTABLES = new Set(["cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe", "bash", "sh", "zsh"]);
 
 function samePath(left: string, right: string): boolean {
   return resolve(left).toLowerCase() === resolve(right).toLowerCase();
@@ -33,15 +33,7 @@ function assertRelativeWorkspacePath(root: string, input: string, field: string)
   }
 }
 function assertProcessIntent(intent: Extract<DesktopIntent, { kind: "RUN_TEST" | "RUN_BUILD" }>): void {
-  const name = basename(intent.executable).toLowerCase();
-  if (SHELL_EXECUTABLES.has(name)) throw new Error(`Shell executable is not allowed: ${intent.executable}`);
-  if (intent.executable !== basename(intent.executable)) {
-    throw new Error("Process executable must be a bounded executable name");
-  }
-  if ((name === "node" || name === "node.exe")
-      && intent.args.some((arg) => ["-e", "--eval", "-p", "--print"].includes(arg))) {
-    throw new Error("Node inline evaluation is not allowed");
-  }
+  assertBoundedProcessRequest(intent.kind === "RUN_TEST" ? "test" : "build", intent.executable, intent.args);
 }
 
 export function validateDesktopIntent(
@@ -80,7 +72,7 @@ function operationForIntent(intent: DesktopIntent): DesktopOperation {
   if (intent.kind === "READ_CONTEXT") return { id: intent.intentId, type: "READ_FILE", path: intent.path };
   if (intent.kind === "PROPOSE_PATCH") return { id: intent.intentId, type: "APPLY_PATCH", path: intent.path, patch: intent.patch };
   if (intent.kind === "RUN_TEST" || intent.kind === "RUN_BUILD") {
-    return { id: intent.intentId, type: "RUN_PROCESS", cwd: intent.cwd, executable: intent.executable, args: [...intent.args], timeoutMs: intent.timeoutMs };
+    return { id: intent.intentId, type: "RUN_PROCESS", purpose: intent.kind === "RUN_TEST" ? "test" : "build", cwd: intent.cwd, executable: intent.executable, args: [...intent.args], timeoutMs: intent.timeoutMs };
   }
   if (intent.kind === "GIT_INSPECT") return { id: intent.intentId, type: "GIT_INSPECT", cwd: intent.cwd };
   if (intent.kind === "REQUEST_COMMIT") {

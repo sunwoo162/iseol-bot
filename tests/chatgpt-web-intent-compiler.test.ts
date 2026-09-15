@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import test from "node:test";
 import { resolve } from "node:path";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
@@ -49,7 +49,7 @@ test("commit requires explicit authorization while reasoning intents are bounded
   assert.throws(() => validateDesktopIntent(context, commit), /commit.*authorized/i);
   assert.doesNotThrow(() => validateDesktopIntent({ ...context, commitAuthorized: true }, commit));
 
-  const processIntent: DesktopIntent = { ...base, kind: "RUN_TEST", cwd: ".", executable: "node", args: ["verify.js"], timeoutMs: 1000 };
+  const processIntent: DesktopIntent = { ...base, kind: "RUN_TEST", cwd: ".", executable: "node", args: ["--test"], timeoutMs: 1000 };
   assert.doesNotThrow(() => validateDesktopIntent(context, processIntent));
   assert.throws(() => validateDesktopIntent(context, { ...processIntent, args: ["-e", "process.exit(0)"] }), /inline|eval/i);
   assert.throws(() => validateDesktopIntent(context, { ...processIntent, executable: "powershell.exe" }), /shell/i);
@@ -91,5 +91,17 @@ test("absolute cwd rejection tells reasoning to use dot for the workspace root",
   assert.throws(
     () => validateDesktopIntent(context, intent),
     /workspace-relative.*use ['"]?\.['"]?.*workspace root/i,
+  );
+});
+
+
+test("test and build intents compile to purpose-bound process operations", () => {
+  const testIntent: DesktopIntent = { ...base, kind: "RUN_TEST", cwd: ".", executable: "npm", args: ["test"], timeoutMs: 30_000 };
+  const buildIntent: DesktopIntent = { ...base, kind: "RUN_BUILD", cwd: ".", executable: "npm", args: ["run", "build"], timeoutMs: 30_000 };
+  assert.equal((compileDesktopIntentToTaskPack(context, testIntent, "agent-1", "2026-09-08T01:00:00.000Z").operations[0] as any).purpose, "test");
+  assert.equal((compileDesktopIntentToTaskPack(context, buildIntent, "agent-1", "2026-09-08T01:00:00.000Z").operations[0] as any).purpose, "build");
+  assert.throws(
+    () => validateDesktopIntent(context, { ...testIntent, args: ["install"] }),
+    /not allowed|bounded|test/i,
   );
 });

@@ -39,7 +39,7 @@ test("production compiler emits stable Context, Test, and Commit packs", async (
   assert.equal(context?.idempotencyKey, "run-idea-1:context");
 
   const testPack = await compile(runAt("TEST"), "agent-live");
-  assert.deepEqual(testPack?.operations[0], { id: "test", type: "RUN_PROCESS", cwd: ".", executable: config.testExecutable, args: config.testArgs, timeoutMs: config.testTimeoutMs });
+  assert.deepEqual(testPack?.operations[0], { id: "test", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: config.testExecutable, args: config.testArgs, timeoutMs: config.testTimeoutMs });
   assert.equal(testPack?.workspaceRoot, config.repositoryRoot);
   assert.equal(testPack?.policyDigest, "a".repeat(64));
   assert.deepEqual(testPack?.policySources, [{ kind: "project-harness", path: "C:/harness.md", sha256: "b".repeat(64), required: true }]);
@@ -84,4 +84,9 @@ test("production Commit publishes the exact system branch from the Context head"
     expectedHead: contextHead,
     publish: true,
   });
+});
+test("production TEST operation is explicitly purpose-bound", async () => {
+  const compile = createIdeaLabProductionDesktopTaskCompiler(config, { now: () => NOW });
+  const testPack = await compile(runAt("TEST"), "agent-live");
+  assert.equal((testPack?.operations[0] as any)?.purpose, "test");
 });

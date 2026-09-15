@@ -295,7 +295,7 @@ const processTimeout = desktopScenario({
   name: "Desktop bounded process timeout",
   execute: async () => {
     const f = await createEvaluationFixture("iseol-eval-desktop-timeout");
-    await writeFile(`${f.targetRoot}/slow.js`, "setTimeout(() => {}, 10000);\n", "utf8");
+    await writeFile(`${f.targetRoot}/slow.js`, "import test from 'node:test';\ntest('slow', async () => { await new Promise((resolve) => setTimeout(resolve, 10000)); });\n", "utf8");
     await registerEvaluationAgent(f.registryRoot, f.base);
     const transport = new ScriptedDesktopTransport(f.base);
     const pack = desktopPack({
@@ -303,7 +303,7 @@ const processTimeout = desktopScenario({
       jobId: "job-timeout",
       policyDigest: f.policyDigest,
       policySources: f.policySources,
-      operations: [{ id: "slow", type: "RUN_PROCESS", cwd: ".", executable: process.execPath, args: ["slow.js"], timeoutMs: 40 }],
+      operations: [{ id: "slow", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "node", args: ["--test", "slow.js"], timeoutMs: 40 }],
     });
     const executor = createDesktopStageExecutor({
       registryRoot: f.registryRoot, jobRoot: f.jobRoot, transport,

@@ -31,6 +31,7 @@ export type ApplyPatchOperation = { id: string; type: "APPLY_PATCH"; path: strin
 export type RunProcessOperation = {
   id: string;
   type: "RUN_PROCESS";
+  purpose: import("./process-policy.js").RunProcessPurpose;
   cwd: string;
   executable: string;
   args: string[];

@@ -1,8 +1,10 @@
+import { assertBoundedProcessRequest } from "./process-policy.js";
+
 const OPERATION_KEYS: Record<string, readonly string[]> = {
   READ_FILE: ["id", "type", "path"],
   LIST_DIRECTORY: ["id", "type", "path"],
   APPLY_PATCH: ["id", "type", "path", "patch"],
-  RUN_PROCESS: ["id", "type", "cwd", "executable", "args", "timeoutMs"],
+  RUN_PROCESS: ["id", "type", "purpose", "cwd", "executable", "args", "timeoutMs"],
   GIT_STATUS: ["id", "type", "cwd"],
   GIT_DIFF: ["id", "type", "cwd"],
   GIT_BRANCH: ["id", "type", "cwd"],
@@ -51,10 +53,20 @@ export function assertDesktopOperationPolicy(operation: Record<string, unknown>)
   if (unknown) throw new Error(`Desktop ${type} operation has unknown field: ${unknown}`);
 
   if (type !== "RUN_PROCESS") return;
-  if (typeof operation.executable !== "string" || !Array.isArray(operation.args)) return;
+  if (operation.purpose !== "test" && operation.purpose !== "build") {
+    throw new Error("Desktop RUN_PROCESS purpose must be test or build");
+  }
+  if (typeof operation.executable !== "string" || !Array.isArray(operation.args)
+      || operation.args.some((arg) => typeof arg !== "string")) {
+    throw new Error("Desktop RUN_PROCESS executable and args are required");
+  }
   const name = executableName(operation.executable);
   const firstArg = gitSubcommand(operation.args);
-  if ((name === "git" || name === "git.exe") && UNSUPPORTED_GIT_PROCESS_COMMANDS.has(firstArg)) {
-    throw new Error(`Desktop destructive Git process is not allowed: git ${firstArg}`);
+  if (name === "git" || name === "git.exe") {
+    if (UNSUPPORTED_GIT_PROCESS_COMMANDS.has(firstArg)) {
+      throw new Error(`Desktop destructive Git process is not allowed: git ${firstArg}`);
+    }
+    throw new Error("Desktop Git is not allowed through RUN_PROCESS");
   }
+  assertBoundedProcessRequest(operation.purpose, operation.executable, operation.args);
 }

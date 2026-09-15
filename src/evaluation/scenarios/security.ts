@@ -86,7 +86,7 @@ const rawShellField = securityScenario({
       policyDigest: f.policyDigest,
       policySources: f.policySources,
       operations: [{
-        id: "process", type: "RUN_PROCESS", cwd: ".", executable: "git", args: ["status"], timeoutMs: 1_000,
+        id: "process", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "git", args: ["status"], timeoutMs: 1_000,
         shell: true,
       } as never],
     });
@@ -106,7 +106,7 @@ const destructiveGitOperation = securityScenario({
       jobId: "job-destructive-git",
       policyDigest: f.policyDigest,
       policySources: f.policySources,
-      operations: [{ id: "reset", type: "RUN_PROCESS", cwd: ".", executable: "git", args: ["reset", "--hard", "HEAD~1"], timeoutMs: 1_000 }],
+      operations: [{ id: "reset", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "git", args: ["reset", "--hard", "HEAD~1"], timeoutMs: 1_000 }],
     });
     const rejected = await rejectedBy(() => assertDesktopTaskPack(pack), /destructive|unsupported|not allowed/i);
     requireScenario(rejected, "Desktop protocol accepted destructive git reset through RUN_PROCESS");
@@ -123,7 +123,7 @@ const staleHarnessSource = securityScenario({
       jobId: "job-policy-drift",
       policyDigest: f.policyDigest,
       policySources: f.policySources,
-      operations: [{ id: "process", type: "RUN_PROCESS", cwd: ".", executable: process.execPath, args: ["--version"], timeoutMs: 1_000 }],
+      operations: [{ id: "process", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "node", args: ["--test"], timeoutMs: 1_000 }],
     });
     await verifyDesktopTaskPolicy(pack, [f.base]);
     await writeFile(f.harnessPath, "# Changed Evaluation Harness\n", "utf8");
@@ -143,7 +143,7 @@ const missingHarnessSource = securityScenario({
       jobId: "job-policy-missing",
       policyDigest: f.policyDigest,
       policySources: f.policySources,
-      operations: [{ id: "process", type: "RUN_PROCESS", cwd: ".", executable: process.execPath, args: ["--version"], timeoutMs: 1_000 }],
+      operations: [{ id: "process", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "node", args: ["--test"], timeoutMs: 1_000 }],
     });
     await rm(f.harnessPath);
     const rejected = await rejectedBy(() => verifyDesktopTaskPolicy(pack, [f.base]), /required policy source/i);

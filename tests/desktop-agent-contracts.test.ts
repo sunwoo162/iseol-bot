@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import test from "node:test";
 import {
   ISEOL_DESKTOP_PROTOCOL_VERSION,
@@ -94,7 +94,7 @@ test("desktop operations reject unknown fields and destructive Git through RUN_P
       ...basePack(),
       policyDigest: "a".repeat(64),
       policySources: [{ kind: "project-harness", path: "C:/repo/docs/HARNESS_ENGINEERING.md", sha256: "b".repeat(64), required: true }],
-      operations: [{ id: "op-1", type: "RUN_PROCESS", cwd: ".", executable: "git", args: ["status"], timeoutMs: 1_000, shell: true }],
+      operations: [{ id: "op-1", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "git", args: ["status"], timeoutMs: 1_000, shell: true }],
     }),
     /unknown field/i,
   );
@@ -103,7 +103,7 @@ test("desktop operations reject unknown fields and destructive Git through RUN_P
       ...basePack(),
       policyDigest: "a".repeat(64),
       policySources: [{ kind: "project-harness", path: "C:/repo/docs/HARNESS_ENGINEERING.md", sha256: "b".repeat(64), required: true }],
-      operations: [{ id: "op-1", type: "RUN_PROCESS", cwd: ".", executable: "git", args: ["reset", "--hard", "HEAD~1"], timeoutMs: 1_000 }],
+      operations: [{ id: "op-1", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "git", args: ["reset", "--hard", "HEAD~1"], timeoutMs: 1_000 }],
     }),
     /destructive Git process/i,
   );
@@ -116,7 +116,7 @@ test("desktop operations reject unknown fields and destructive Git through RUN_P
         ...basePack(),
         policyDigest: "a".repeat(64),
         policySources: [{ kind: "project-harness", path: "C:/repo/docs/HARNESS_ENGINEERING.md", sha256: "b".repeat(64), required: true }],
-        operations: [{ id: "op-1", type: "RUN_PROCESS", cwd: ".", executable: "git", args, timeoutMs: 1_000 }],
+        operations: [{ id: "op-1", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "git", args, timeoutMs: 1_000 }],
       }),
       /destructive Git process/i,
     );
@@ -135,4 +135,19 @@ test("Git publish and remote inspection flags are strict booleans", () => {
     ...basePack(),
     operations: [{ id: "inspect", type: "GIT_INSPECT", cwd: ".", includeRemote: "yes" }],
   }), /includeRemote/i);
+});
+
+test("RUN_PROCESS requires a bounded test or build purpose", () => {
+  const policy = {
+    policyDigest: "a".repeat(64),
+    policySources: [{ kind: "project-harness", path: "C:/repo/docs/HARNESS_ENGINEERING.md", sha256: "b".repeat(64), required: true }],
+  };
+  const process = { id: "op-1", type: "RUN_PROCESS", cwd: ".", executable: "npm", args: ["test"], timeoutMs: 1_000 };
+  assert.throws(() => assertDesktopTaskPack({ ...basePack(), ...policy, operations: [process] }), /purpose/i);
+  assert.throws(() => assertDesktopTaskPack({ ...basePack(), ...policy, operations: [{ ...process, purpose: "deploy" }] }), /purpose/i);
+  assert.doesNotThrow(() => assertDesktopTaskPack({ ...basePack(), ...policy, operations: [{ ...process, purpose: "test" }] }));
+  assert.throws(
+    () => assertDesktopTaskPack({ ...basePack(), ...policy, operations: [{ ...process, purpose: "test", args: ["install"] }] }),
+    /not allowed|bounded|test/i,
+  );
 });
