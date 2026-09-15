@@ -29,6 +29,23 @@ function ConvertFrom-SecureValue([securestring]$Value) {
   finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
 }
 
+if (-not ("Iseol.NativeLsa" -as [type])) {
+  Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
+namespace Iseol { public static class NativeLsa {
+  [StructLayout(LayoutKind.Sequential)] struct LSA_OBJECT_ATTRIBUTES { public uint Length; public IntPtr RootDirectory; public IntPtr ObjectName; public uint Attributes; public IntPtr SecurityDescriptor; public IntPtr SecurityQualityOfService; }
+  [StructLayout(LayoutKind.Sequential)] struct LSA_UNICODE_STRING { public ushort Length; public ushort MaximumLength; public IntPtr Buffer; }
+  [DllImport("advapi32.dll")] static extern uint LsaOpenPolicy(IntPtr SystemName, ref LSA_OBJECT_ATTRIBUTES ObjectAttributes, uint DesiredAccess, out IntPtr PolicyHandle);
+  [DllImport("advapi32.dll")] static extern uint LsaAddAccountRights(IntPtr PolicyHandle, IntPtr AccountSid, LSA_UNICODE_STRING[] UserRights, uint CountOfRights);
+  [DllImport("advapi32.dll")] static extern uint LsaNtStatusToWinError(uint Status); [DllImport("advapi32.dll")] static extern uint LsaClose(IntPtr PolicyHandle);
+  public static void AddAccountRight(string sidValue, string right) { var sid = new SecurityIdentifier(sidValue); var bytes = new byte[sid.BinaryLength]; sid.GetBinaryForm(bytes,0); var pin = GCHandle.Alloc(bytes,GCHandleType.Pinned); IntPtr policy = IntPtr.Zero, text = IntPtr.Zero; try { var oa = new LSA_OBJECT_ATTRIBUTES(); oa.Length=(uint)Marshal.SizeOf(oa); uint status=LsaOpenPolicy(IntPtr.Zero,ref oa,0x00000810,out policy); if(status!=0) throw new Win32Exception((int)LsaNtStatusToWinError(status)); text=Marshal.StringToHGlobalUni(right); var u=new LSA_UNICODE_STRING{Length=(ushort)(right.Length*2),MaximumLength=(ushort)((right.Length+1)*2),Buffer=text}; status=LsaAddAccountRights(policy,pin.AddrOfPinnedObject(),new[]{u},1); if(status!=0) throw new Win32Exception((int)LsaNtStatusToWinError(status)); } finally { if(text!=IntPtr.Zero) Marshal.FreeHGlobal(text); if(policy!=IntPtr.Zero) LsaClose(policy); if(pin.IsAllocated) pin.Free(); } }
+} }
+'@
+}
+
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $ProtectedProfileRoot = (Resolve-Path -LiteralPath $ProtectedProfileRoot).Path
 $WorkspaceRoot = [IO.Path]::GetFullPath($WorkspaceRoot)
@@ -70,6 +87,9 @@ if (-not $runner) {
 }
 $runner = Get-LocalUser -Name $RunnerUser -ErrorAction Stop
 $runnerSid = $runner.SID.Value
+if ($PSCmdlet.ShouldProcess($principal, "Grant SeBatchLogonRight for scheduled task execution")) {
+  [Iseol.NativeLsa]::AddAccountRight($runnerSid, "SeBatchLogonRight")
+}
 
 $privilegedGroupSids = @("S-1-5-32-544", "S-1-5-32-547", "S-1-5-32-551")
 foreach ($groupSid in $privilegedGroupSids) {

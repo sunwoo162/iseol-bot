@@ -85,3 +85,13 @@ test("Windows runner scheduled task is allowed to start on battery and reports s
   assert.match(script, /DisallowStartIfOnBatteries/i);
   assert.match(script, /StopIfGoingOnBatteries/i);
 });
+
+test("Windows runner receives only the batch-logon right required by Password scheduled tasks", async () => {
+  const script = await readFile(provisionUrl, "utf8");
+  const rightIndex = script.indexOf("SeBatchLogonRight");
+  const registerIndex = script.indexOf("Register-ScheduledTask");
+  assert.ok(rightIndex >= 0 && registerIndex > rightIndex);
+  assert.match(script, /LsaAddAccountRights/i);
+  assert.match(script, /runnerSid/i);
+  assert.doesNotMatch(script, /SeServiceLogonRight|SeBackupPrivilege|SeRestorePrivilege/i);
+});
