@@ -275,3 +275,24 @@ test("generation echo mismatch gets corrective feedback without replacing the ac
   assert.equal((await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"))?.generation, 1);
   assert.equal((await listReasoningTurns(root, "run-web")).length, 1);
 });
+
+
+test("reasoning default result timeout allows slow live ChatGPT responses", async () => {
+  const { root, run } = await fixture();
+  let observedTimeout = 0;
+  const adapter = {
+    openOrResumeSession: async () => ({ conversationRef: "conv-slow-live" }),
+    submitTurn: async () => ({ conversationRef: "conv-slow-live" }),
+    awaitStructuredResult: async (_session: unknown, timeoutMs: number) => {
+      observedTimeout = timeoutMs;
+      return { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1,
+        summary: "done", decisions: [], intents: [], outcome: "stage-complete" };
+    },
+    probeSession: async () => "ready",
+    closeSession: async () => undefined,
+  } as any;
+  const executor = createWebReasoningExecutor({ workerRoot: root, adapter,
+    now: () => "2026-09-08T01:10:00.000Z", runDesktopIntent: async () => { throw new Error("unused"); } });
+  assert.equal((await executor.execute(run)).type, "completed");
+  assert.equal(observedTimeout, 240_000);
+});

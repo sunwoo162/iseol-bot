@@ -94,7 +94,7 @@ async function ensureSession(input: CreateWebReasoningExecutorInput, run: Harnes
 }
 export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInput): HarnessStageExecutor {
   const now = input.now ?? (() => new Date().toISOString());
-  const resultTimeoutMs = input.resultTimeoutMs ?? 120_000;
+  const resultTimeoutMs = input.resultTimeoutMs ?? 240_000;
   const maxTurns = input.maxTurnsPerStage ?? 8;
   const maxRejected = input.maxRejectedIntents ?? 3;
   if (!Number.isInteger(maxTurns) || maxTurns <= 0) throw new Error("maxTurnsPerStage must be a positive integer");
