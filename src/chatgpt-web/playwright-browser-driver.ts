@@ -77,6 +77,21 @@ function canonicalizeNewFilePatch(patch: string): string {
   return lines.join("\n") + (trailingNewline ? "\n" : "");
 }
 
+function canonicalizeHunkBlankLineNoise(patch: string): string {
+  const lines = patch.replaceAll("\r\n", "\n").split("\n");
+  const trailingNewline = lines.at(-1) === "";
+  if (trailingNewline) lines.pop();
+  const output: string[] = [];
+  let inHunk = false;
+  for (const line of lines) {
+    if (line.startsWith("@@ ")) inHunk = true;
+    else if (inHunk && (line.startsWith("diff --git ") || line.startsWith("--- ") || line.startsWith("+++ "))) inHunk = false;
+    if (inHunk && line === "") continue;
+    output.push(line);
+  }
+  return output.join("\n") + (trailingNewline ? "\n" : "");
+}
+
 function validatePatchAppendixSyntax(patch: string): void {
   const lines = patch.replaceAll("\r\n", "\n").split("\n");
   if (lines.at(-1) === "") lines.pop();
@@ -149,7 +164,7 @@ function parsePatchMultipart(candidate: string): unknown | null {
     if (intent.patch !== `@@ISEOL_PATCH:${id}@@`) structured("ChatGPT patch placeholder does not match intent identity");
     const patch = blocks.get(id);
     if (patch === undefined) structured("ChatGPT patch appendix is missing");
-    const canonicalPatch = canonicalizeNewFilePatch(patch);
+    const canonicalPatch = canonicalizeHunkBlankLineNoise(canonicalizeNewFilePatch(patch));
     validatePatchAppendixSyntax(canonicalPatch);
     intent.patch = canonicalPatch;
     used.add(id);

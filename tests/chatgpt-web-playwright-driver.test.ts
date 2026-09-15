@@ -500,3 +500,25 @@ test("structured result parses lossless copied source when rendered markdown con
   const result = await driver.readStructuredResult({ conversationRef: "conv-lossless", timeoutMs: 2000 }) as any;
   assert.equal(result.intents[0].patch, rawPatch);
 });
+
+
+test("structured result drops unprefixed blank-line noise inside an existing-file hunk", async () => {
+  let now = 0;
+  const item = fakeBackend();
+  item.setUrl("https://chatgpt.com/c/conv-blank-noise");
+  const driver = await createPlaywrightChatGptBrowserDriver(config, {
+    backend: item.backend, now: () => now, sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await driver.submitPrompt({ conversationRef: "conv-blank-noise", prompt: "payload", promptSha256: "blank-noise" });
+  const noisyPatch = [
+    "diff --git a/index.html b/index.html", "--- a/index.html", "+++ b/index.html", "@@ -1,2 +1,2 @@",
+    "", " <!doctype html>", "", "-<title>Old</title>", "+<title>New</title>",
+  ].join("\n");
+  const header = { version: 1, intents: [{ intentId: "patch-blank", kind: "PROPOSE_PATCH", path: "index.html", patch: "@@ISEOL_PATCH:patch-blank@@" }] };
+  item.setAssistant(`${JSON.stringify(header)}\n@@ISEOL_PATCH_BEGIN:patch-blank@@\n${noisyPatch}\n@@ISEOL_PATCH_END:patch-blank@@`, 1);
+  const result = await driver.readStructuredResult({ conversationRef: "conv-blank-noise", timeoutMs: 2000 }) as any;
+  assert.equal(result.intents[0].patch, [
+    "diff --git a/index.html b/index.html", "--- a/index.html", "+++ b/index.html", "@@ -1,2 +1,2 @@",
+    " <!doctype html>", "-<title>Old</title>", "+<title>New</title>", "",
+  ].join("\n"));
+});
