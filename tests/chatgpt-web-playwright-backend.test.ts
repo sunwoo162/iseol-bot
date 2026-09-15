@@ -77,7 +77,7 @@ test("backend captures the latest assistant source through its turn copy action"
   const raw = "+assert.match(html, new RegExp(`data-action=\"${action}\"`));";
   let clicks = 0;
   let evaluations = 0;
-  const copy = { async count() { return 1; }, async click() { clicks += 1; } };
+  const copy = { async count() { return 1; }, async dispatchEvent(type: string) { assert.equal(type, "click"); clicks += 1; } };
   const turn = {
     async count() { return 1; },
     locator(selector: string) { assert.equal(selector, 'button[data-testid="copy-turn-action-button"]'); return copy; },
@@ -88,8 +88,8 @@ test("backend captures the latest assistant source through its turn copy action"
   };
   const page = {
     locator(selector: string) { assert.equal(selector, '[data-message-author-role="assistant"]'); return assistant; },
-    async evaluate() { evaluations += 1; return evaluations === 2 ? raw : undefined; },
-    async waitForFunction() {},
+    async evaluate(expression: unknown) { assert.equal(typeof expression, "string"); evaluations += 1; return evaluations === 2 ? raw : undefined; },
+    async waitForFunction(expression: unknown) { assert.equal(typeof expression, "string"); },
     isClosed() { return false; }, async close() {},
   };
   const context = { async newPage() { return page; }, async close() {} };

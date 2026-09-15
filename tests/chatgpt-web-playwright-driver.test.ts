@@ -257,7 +257,7 @@ test("first submit waits boundedly for ChatGPT to assign the canonical conversat
   item.backend.sendPrompt = async () => undefined;
   const sleep = async (ms: number) => {
     now += ms;
-    if (now >= 300) item.setUrl("https://chatgpt.com/c/conv-delayed");
+    if (now >= 6_000) item.setUrl("https://chatgpt.com/c/conv-delayed");
   };
   const driver = await createPlaywrightChatGptBrowserDriver(config, {
     backend: item.backend, now: () => now, sleep,
@@ -267,7 +267,7 @@ test("first submit waits boundedly for ChatGPT to assign the canonical conversat
     await driver.submitPrompt({ prompt: "payload", promptSha256: "delayed-sha" }),
     { conversationRef: "conv-delayed" },
   );
-  assert.ok(now >= 300);
+  assert.ok(now >= 6_000);
 });
 
 test("result reading ignores assistant messages that existed before the submitted turn", async () => {

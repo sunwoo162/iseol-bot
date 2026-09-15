@@ -14,7 +14,7 @@ const ROOT = "https://chatgpt.com/";
 const REF = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/;
 const POLL_MS = 100;
 const RESULT_SETTLE_MS = 750;
-const NEW_CONVERSATION_REF_TIMEOUT_MS = 5_000;
+const NEW_CONVERSATION_REF_TIMEOUT_MS = 30_000;
 const COMPOSER_READY_TIMEOUT_MS = 5_000;
 const MAX_STRUCTURED_RESULT_BYTES = 262_144;
 
