@@ -57,6 +57,22 @@ function reasoningEvidence(turn: ReasoningTurn): HarnessEvidenceRecord {
 function feedbackEvidence(records: HarnessEvidenceRecord[]): WebPromptEvidence[] {
   return records.map((item) => ({ kind: item.kind, summary: item.summary, ...(item.reference ? { reference: item.reference } : {}) }));
 }
+function completedStageContext(turns: ReasoningTurn[], run: HarnessRuntimeRunEnvelope): WebPromptEvidence[] {
+  const completedStages = new Set(run.state.completedStages);
+  const latestByStage = new Map<ReasoningTurn["stage"], ReasoningTurn>();
+  for (const turn of turns) {
+    if (turn.stage === run.state.stage || turn.outcome !== "stage-complete" || !completedStages.has(turn.stage)) continue;
+    latestByStage.set(turn.stage, turn);
+  }
+  return [...latestByStage.values()].map((turn) => ({
+    kind: "reasoning-context",
+    summary: [
+      `Verified ${turn.stage} summary: ${turn.summary}`,
+      ...turn.decisions.map((decision) => `Decision: ${decision}`),
+    ].join("\n"),
+    reference: `reasoning-turn:${turn.turnId}`,
+  }));
+}
 const STRUCTURED_JSON_CORRECTION = "Previous response was not valid structured output. Return no markdown or prose. Without PROPOSE_PATCH, return exactly one JSON object. With PROPOSE_PATCH, emit exactly one PROPOSE_PATCH intent and one patch appendix; defer remaining file changes to a later turn. Use a single-line JSON header where patch is @@ISEOL_PATCH:<intentId>@@, then emit the raw git apply-compatible unified diff between @@ISEOL_PATCH_BEGIN:<intentId>@@ and @@ISEOL_PATCH_END:<intentId>@@. Each begin/end marker must be a standalone line with a newline immediately before and after it (EOF allowed after the final end marker). Each appendix must contain exactly one file diff; every hunk body line needs a unified-diff prefix (space, +, -, or \\), blank added lines are +, and hunk counts must match. Never use *** Begin Patch markers.";
 function structuredCorrection(reason: string): string {
   const boundedReason = reason.replace(/\s+/g, " ").trim().slice(0, 240);
@@ -106,12 +122,16 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
         return { type: "waiting-external", reason: `${run.state.stage} is not owned by ChatGPT Web reasoning` };
       }
       let session = await ensureSession(input, run, now());
-      let priorTurns = (await listReasoningTurns(input.workerRoot, run.request.runId))
-        .filter((turn) => turn.stage === run.state.stage);
+      const allTurns = await listReasoningTurns(input.workerRoot, run.request.runId);
+      let priorTurns = allTurns.filter((turn) => turn.stage === run.state.stage);
       const accumulatedEvidence: HarnessEvidenceRecord[] = [];
-      let desktopEvidence: WebPromptEvidence[] = priorTurns.length > 0 && input.recoverDesktopFeedback
+      const recoveredCurrentStageEvidence = priorTurns.length > 0 && input.recoverDesktopFeedback
         ? await input.recoverDesktopFeedback({ run, priorTurns })
         : [];
+      let desktopEvidence: WebPromptEvidence[] = [
+        ...completedStageContext(allTurns, run),
+        ...recoveredCurrentStageEvidence,
+      ];
       let prompt = compileWebPrompt({
         kind: priorTurns.length === 0 ? "initial" : "feedback",
         run, session, priorTurns, desktopEvidence,
