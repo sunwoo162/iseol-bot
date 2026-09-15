@@ -55,3 +55,10 @@ test("Windows provisioning treats native npm stderr as diagnostic and trusts the
   assert.match(script, /if\s*\(\$npmExitCode\s*-ne\s*0\)/);
   assert.match(script, /2>&1/);
 });
+
+test("Windows provisioning writes agent env as BOM-free UTF-8 on PowerShell 5.1", async () => {
+  const script = await readFile(provisionUrl, "utf8");
+  assert.doesNotMatch(script, /utf8NoBOM/i);
+  assert.match(script, /UTF8Encoding\]\:\:new\(\$false\)|New-Object\s+Text\.UTF8Encoding\(\$false\)/i);
+  assert.match(script, /WriteAllLines\(\$configPath,\s*\$configLines/i);
+});

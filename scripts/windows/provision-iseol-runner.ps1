@@ -180,7 +180,7 @@ $configLines = @(
 )
 $configPath = Join-Path $InstallRoot "agent.env"
 if ($PSCmdlet.ShouldProcess($configPath, "Write restricted Agent configuration")) {
-  Set-Content -LiteralPath $configPath -Value $configLines -Encoding utf8NoBOM
+  [IO.File]::WriteAllLines($configPath, $configLines, [Text.UTF8Encoding]::new($false))
 }
 $tokenPlain = $null
 if ($PSCmdlet.ShouldProcess($InstallRoot, "Lock Agent install ACL")) {
