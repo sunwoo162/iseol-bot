@@ -33,6 +33,10 @@ $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $ProtectedProfileRoot = (Resolve-Path -LiteralPath $ProtectedProfileRoot).Path
 $WorkspaceRoot = [IO.Path]::GetFullPath($WorkspaceRoot)
 $InstallRoot = [IO.Path]::GetFullPath($InstallRoot)
+$IseolRoot = Split-Path -Parent $WorkspaceRoot
+if (-not (Test-IsUnderPath $InstallRoot $IseolRoot)) {
+  throw "InstallRoot must stay under IseolRoot: $IseolRoot"
+}
 if (Test-IsUnderPath $WorkspaceRoot $ProtectedProfileRoot) {
   throw "WorkspaceRoot must be outside the protected user profile: $ProtectedProfileRoot"
 }
@@ -98,6 +102,13 @@ foreach ($rule in $profileAcl.Access) {
 }
 
 $ownerPrincipal = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+if ($PSCmdlet.ShouldProcess($IseolRoot, "Lock Iseol container and grant runner traverse-only access")) {
+  New-Item -ItemType Directory -Force -Path $IseolRoot | Out-Null
+  & icacls.exe $IseolRoot /inheritance:r | Out-Null
+  & icacls.exe $IseolRoot /grant:r `
+    "*S-1-5-18:F" "*S-1-5-32-544:F" "${ownerPrincipal}:F" "${principal}:(RX)" | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "Failed to lock Iseol container ACL" }
+}
 if ($PSCmdlet.ShouldProcess($WorkspaceRoot, "Create restricted workspace and grant runner Modify access")) {
   New-Item -ItemType Directory -Force -Path $WorkspaceRoot | Out-Null
   & icacls.exe $WorkspaceRoot /inheritance:r | Out-Null

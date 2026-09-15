@@ -34,3 +34,13 @@ test("Windows runner launcher verifies identity before executing Node", async ()
   assert.ok(nodeLaunch > mismatchCheck);
   assert.match(script, /throw "Iseol Desktop Agent must run as/);
 });
+
+test("Windows runner cannot write outside the dedicated workspace under Iseol root", async () => {
+  const script = await readFile(provisionUrl, "utf8");
+  assert.match(script, /IseolRoot/);
+  const rootBlock = script.split("if ($PSCmdlet.ShouldProcess($WorkspaceRoot")[0] ?? "";
+  assert.match(rootBlock, /IseolRoot[\s\S]*inheritance:r/i);
+  assert.match(rootBlock, /principal}:\(RX\)/i);
+  assert.doesNotMatch(rootBlock, /principal}:\(OI\)\(CI\)[MWF]/i);
+  assert.match(script, /WorkspaceRoot[\s\S]*principal}:\(OI\)\(CI\)M/i);
+});
