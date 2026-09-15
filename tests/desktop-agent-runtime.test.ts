@@ -358,3 +358,24 @@ test("Git commit ignores repository hooks and does not expose Agent secrets", as
     else process.env.ISEOL_DESKTOP_AGENT_TOKEN = previous;
   }
 });
+
+
+test("Git safe-directory config trusts only exact bounded paths", async () => {
+  const runtime = await import("../src/desktop-agent/runtime.js") as Record<string, unknown>;
+  const buildArgs = runtime.gitSafeDirectoryConfig;
+  assert.equal(typeof buildArgs, "function");
+  const root = resolve("C:/ProgramData/Iseol/workspace");
+  const repo = resolve(root, "source");
+  const args = (buildArgs as (workspace: string, cwd: string) => string[])(root, repo);
+  const gitRoot = root.replaceAll("\\", "/");
+  const gitRepo = repo.replaceAll("\\", "/");
+  assert.deepEqual(args, [
+    "-c", `safe.directory=${gitRoot}`,
+    "-c", `safe.directory=${gitRepo}`,
+  ]);
+  assert.equal(args.some((arg) => arg === "safe.directory=*"), false);
+  assert.deepEqual(
+    (buildArgs as (workspace: string, cwd: string) => string[])(repo, repo),
+    ["-c", `safe.directory=${gitRepo}`],
+  );
+});

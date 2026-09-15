@@ -167,6 +167,18 @@ function validatePatchTarget(workspace: string, target: string, patch: string): 
   }
 }
 
+export function gitSafeDirectoryConfig(workspace: string, cwd: string): string[] {
+  const seen = new Set<string>();
+  const trusted: string[] = [];
+  for (const candidate of [workspace, cwd]) {
+    const normalized = resolve(candidate).replaceAll("\\", "/");
+    const identity = process.platform === "win32" ? normalized.toLowerCase() : normalized;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    trusted.push(normalized);
+  }
+  return trusted.flatMap((path) => ["-c", `safe.directory=${path}`]);
+}
 async function gitCommand(
   workspace: string,
   cwd: string,
@@ -180,7 +192,7 @@ async function gitCommand(
   env.GIT_TERMINAL_PROMPT = "0";
   return runCommand({
     executable: "git",
-    args: ["-c", `core.hooksPath=${hooksRoot}`, ...args],
+    args: [...gitSafeDirectoryConfig(workspace, cwd), "-c", `core.hooksPath=${hooksRoot}`, ...args],
     cwd,
     timeoutMs: 30_000,
     maxOutputBytes,
