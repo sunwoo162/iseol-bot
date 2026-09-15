@@ -120,3 +120,63 @@ test("backend detects the visible ChatGPT temporary request-limit message", asyn
   assert.equal(await (backend as any).temporaryRestrictionCount(), 1);
   await backend.dispose();
 });
+
+test("backend distinguishes conversation exhaustion from account usage limits", async () => {
+  let bodyText = "You've reached the maximum length for this conversation. Start a new chat to continue.";
+  const page = {
+    locator(selector: string) { assert.equal(selector, "body"); return { async innerText() { return bodyText; } }; },
+    isClosed() { return false; }, async close() {},
+  };
+  const context = { async newPage() { return page; }, async close() {} };
+  const backend = await (createPlaywrightBrowserBackend as any)(config, { launchPersistentContext: async () => context });
+  assert.equal(await (backend as any).conversationLimitCount(), 1);
+  assert.equal(await (backend as any).usageLimitCount(), 0);
+  bodyText = "You've reached your GPT-5 message limit. Try again later.";
+  assert.equal(await (backend as any).conversationLimitCount(), 0);
+  assert.equal(await (backend as any).usageLimitCount(), 1);
+  await backend.dispose();
+});
+
+test("backend dismisses the temporary request-limit popup", async () => {
+  let clicks = 0;
+  const page = {
+    locator(selector: string) { assert.equal(selector, "body"); return { async innerText() { return "요청이 너무 많습니다\n몇 분 후 다시 시도해 주세요."; } }; },
+    getByRole(role: string, options: { name: RegExp }) {
+      assert.equal(role, "button"); assert.match("알겠습니다", options.name);
+      return { async count() { return 1; }, async click() { clicks += 1; } };
+    },
+    isClosed() { return false; }, async close() {},
+  };
+  const context = { async newPage() { return page; }, async close() {} };
+  const backend = await (createPlaywrightBrowserBackend as any)(config, { launchPersistentContext: async () => context });
+  assert.equal(await (backend as any).dismissTemporaryRestriction(), true);
+  assert.equal(clicks, 1);
+  await backend.dispose();
+});
+
+test("backend treats model quota messages as usage limits rather than conversation exhaustion", async () => {
+  let bodyText = "You've reached the GPT-5 limit. Please try again later.";
+  const page = {
+    locator(selector: string) { assert.equal(selector, "body"); return { async innerText() { return bodyText; } }; },
+    isClosed() { return false; }, async close() {},
+  };
+  const context = { async newPage() { return page; }, async close() {} };
+  const backend = await (createPlaywrightBrowserBackend as any)(config, { launchPersistentContext: async () => context });
+  assert.equal(await (backend as any).usageLimitCount(), 1);
+  bodyText = "GPT-5 사용 한도에 도달했습니다. 나중에 다시 시도해 주세요.";
+  assert.equal(await (backend as any).usageLimitCount(), 1);
+  assert.equal(await (backend as any).conversationLimitCount(), 0);
+  await backend.dispose();
+});
+
+test("backend recognizes reached-the-limit-for-this-conversation wording", async () => {
+  const page = {
+    locator(selector: string) { assert.equal(selector, "body"); return { async innerText() { return "You've reached the limit for this conversation. Start a new chat to continue."; } }; },
+    isClosed() { return false; }, async close() {},
+  };
+  const context = { async newPage() { return page; }, async close() {} };
+  const backend = await (createPlaywrightBrowserBackend as any)(config, { launchPersistentContext: async () => context });
+  assert.equal(await (backend as any).conversationLimitCount(), 1);
+  assert.equal(await (backend as any).usageLimitCount(), 0);
+  await backend.dispose();
+});

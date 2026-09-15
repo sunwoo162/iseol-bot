@@ -324,3 +324,60 @@ test("temporary ChatGPT rate limits stop reasoning without session recovery or e
   assert.equal(submitCalls, 0);
   assert.equal((await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"))?.generation, 1);
 });
+
+test("conversation length exhaustion replaces only the Web session and continues the same Run", async () => {
+  const { root, run } = await fixture();
+  const browserModule = await import("../src/chatgpt-web/browser-adapter.js") as any;
+  const ConversationLimitError = browserModule.ChatGptWebConversationLimitError;
+  assert.equal(typeof ConversationLimitError, "function", "conversation-limit error type must exist");
+  const openedGenerations: number[] = [];
+  const submittedGenerations: number[] = [];
+  const adapter = {
+    openOrResumeSession: async (session: any) => {
+      openedGenerations.push(session.generation);
+      return session.generation === 1 ? { conversationRef: "conv-old" } : {};
+    },
+    submitTurn: async (session: any) => {
+      submittedGenerations.push(session.generation);
+      if (session.generation === 1) throw new ConversationLimitError("conversation exhausted");
+      return { conversationRef: "conv-new" };
+    },
+    awaitStructuredResult: async (session: any) => ({
+      version: 1, runId: "run-web", stage: "IMPLEMENT", generation: session.generation,
+      summary: "continued in replacement conversation", decisions: [], intents: [], outcome: "stage-complete",
+    }),
+    probeSession: async () => "ready",
+    closeSession: async () => undefined,
+  } as any;
+  const executor = createWebReasoningExecutor({ workerRoot: root, adapter,
+    now: () => "2026-09-08T01:12:00.000Z", runDesktopIntent: async () => { throw new Error("unused"); } });
+  assert.equal((await executor.execute(run)).type, "completed");
+  assert.deepEqual(openedGenerations, [1, 2]);
+  assert.deepEqual(submittedGenerations, [1, 2]);
+  const active = await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT");
+  assert.equal(active?.generation, 2);
+  assert.equal(active?.conversationRef, "conv-new");
+});
+
+test("account or model usage limits wait without creating a replacement conversation", async () => {
+  const { root, run } = await fixture();
+  const browserModule = await import("../src/chatgpt-web/browser-adapter.js") as any;
+  const UsageLimitError = browserModule.ChatGptWebUsageLimitError;
+  assert.equal(typeof UsageLimitError, "function", "usage-limit error type must exist");
+  let opens = 0;
+  const adapter = {
+    openOrResumeSession: async () => { opens += 1; throw new UsageLimitError("usage limit reached"); },
+    submitTurn: async () => { throw new Error("must not submit"); },
+    awaitStructuredResult: async () => { throw new Error("must not read"); },
+    probeSession: async () => "usage-limited",
+    closeSession: async () => undefined,
+  } as any;
+  const executor = createWebReasoningExecutor({ workerRoot: root, adapter,
+    now: () => "2026-09-08T01:13:00.000Z", runDesktopIntent: async () => { throw new Error("unused"); } });
+  assert.deepEqual(await executor.execute(run), {
+    type: "waiting-external",
+    reason: "ChatGPT Web usage limit reached",
+  });
+  assert.equal(opens, 1);
+  assert.equal((await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"))?.generation, 1);
+});

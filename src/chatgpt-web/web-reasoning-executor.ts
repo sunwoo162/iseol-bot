@@ -4,7 +4,7 @@ import type { HarnessStageExecutor, HarnessStageExecutionResult } from "../harne
 import type { DesktopIntent, ReasoningTurn, WebWorkerSession } from "./contracts.js";
 import { assertReasoningTurnResult } from "./contracts.js";
 import type { ChatGptWebBrowserAdapter } from "./browser-adapter.js";
-import { ChatGptWebSessionLostError, ChatGptWebStructuredResultError, ChatGptWebTemporarilyLimitedError } from "./browser-adapter.js";
+import { ChatGptWebConversationLimitError, ChatGptWebSessionLostError, ChatGptWebStructuredResultError, ChatGptWebTemporarilyLimitedError, ChatGptWebUsageLimitError } from "./browser-adapter.js";
 import { compileWebPrompt, type CompiledWebPrompt, type WebPromptEvidence } from "./prompt-compiler.js";
 import { createWebWorkerSession, getActiveWebWorkerSession, getPointedWebWorkerSession, replaceLostWebWorkerSession, updateWebWorkerSession } from "./session-store.js";
 import { appendReasoningTurn, listReasoningTurns } from "./turn-store.js";
@@ -140,6 +140,9 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           if (error instanceof ChatGptWebTemporarilyLimitedError) {
             return { type: "waiting-external", reason: "ChatGPT Web is temporarily rate limited" };
           }
+          if (error instanceof ChatGptWebUsageLimitError) {
+            return { type: "waiting-external", reason: "ChatGPT Web usage limit reached" };
+          }
           if (error instanceof ChatGptWebStructuredResultError) {
             rejectedCount += 1;
             if (rejectedCount >= maxRejected) {
@@ -149,7 +152,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
             prompt = compileWebPrompt({ kind: "feedback", run, session, priorTurns, desktopEvidence });
             continue;
           }
-          if (!(error instanceof ChatGptWebSessionLostError)) {
+          if (!(error instanceof ChatGptWebSessionLostError) && !(error instanceof ChatGptWebConversationLimitError)) {
             return { type: "retryable-failure", reason: error instanceof Error ? error.message : String(error) };
           }
           recoveries += 1;

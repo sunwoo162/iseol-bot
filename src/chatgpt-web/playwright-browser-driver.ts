@@ -2,6 +2,8 @@ import {
   ChatGptWebAuthenticationRequiredError,
   ChatGptWebSessionLostError,
   ChatGptWebTemporarilyLimitedError,
+  ChatGptWebConversationLimitError,
+  ChatGptWebUsageLimitError,
   ChatGptWebStructuredResultError,
 } from "./browser-adapter.js";
 import type { ChatGptWebSessionProbe } from "./browser-adapter.js";
@@ -51,6 +53,8 @@ function classifyBrowserFailure(error: unknown): never {
     error instanceof ChatGptWebAuthenticationRequiredError
     || error instanceof ChatGptWebSessionLostError
     || error instanceof ChatGptWebTemporarilyLimitedError
+    || error instanceof ChatGptWebConversationLimitError
+    || error instanceof ChatGptWebUsageLimitError
     || error instanceof ChatGptWebStructuredResultError
   ) throw error;
   throw new ChatGptWebSessionLostError("ChatGPT browser operation failed");
@@ -209,8 +213,11 @@ export async function createPlaywrightChatGptBrowserDriver(
 
   async function authenticatedComposerCount(url: string): Promise<number> {
     if (await backend.temporaryRestrictionCount() > 0) {
+      try { await backend.dismissTemporaryRestriction?.(); } catch { /* restriction still wins */ }
       throw new ChatGptWebTemporarilyLimitedError("ChatGPT Web is temporarily rate limited");
     }
+    if ((await backend.conversationLimitCount?.() ?? 0) > 0) throw new ChatGptWebConversationLimitError("ChatGPT conversation limit reached");
+    if ((await backend.usageLimitCount?.() ?? 0) > 0) throw new ChatGptWebUsageLimitError("ChatGPT Web usage limit reached");
     const composerCount = await backend.composerCount();
     const authCount = await backend.authenticationRequiredCount();
     if (authUrl(url) || authCount > 0) {
@@ -237,8 +244,11 @@ export async function createPlaywrightChatGptBrowserDriver(
     const startedAt = now();
     while (true) {
       if (await backend.temporaryRestrictionCount() > 0) {
+        try { await backend.dismissTemporaryRestriction?.(); } catch { /* restriction still wins */ }
         throw new ChatGptWebTemporarilyLimitedError("ChatGPT Web is temporarily rate limited");
       }
+      if ((await backend.conversationLimitCount?.() ?? 0) > 0) throw new ChatGptWebConversationLimitError("ChatGPT conversation limit reached");
+      if ((await backend.usageLimitCount?.() ?? 0) > 0) throw new ChatGptWebUsageLimitError("ChatGPT Web usage limit reached");
       const url = await backend.currentUrl();
       if (authUrl(url)) throw new ChatGptWebAuthenticationRequiredError("ChatGPT authentication is required");
       const actual = conversationFrom(url);
@@ -359,10 +369,12 @@ export async function createPlaywrightChatGptBrowserDriver(
     try {
       const url = await backend.currentUrl();
       const restrictionCount = await backend.temporaryRestrictionCount();
+      if (restrictionCount > 0) { try { await backend.dismissTemporaryRestriction?.(); } catch {} return "temporarily-limited"; }
+      if ((await backend.conversationLimitCount?.() ?? 0) > 0) return "conversation-exhausted";
+      if ((await backend.usageLimitCount?.() ?? 0) > 0) return "usage-limited";
       const composerCount = await backend.composerCount();
       const authCount = await backend.authenticationRequiredCount();
       if (authUrl(url) || authCount > 0) return "auth-required";
-      if (restrictionCount > 0) return "temporarily-limited";
       if (conversationFrom(url) !== conversationRef || composerCount !== 1) return "lost";
       return "ready";
     } catch { return "lost"; }

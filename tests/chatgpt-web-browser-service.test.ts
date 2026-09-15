@@ -237,3 +237,21 @@ test("playwright driver refuses composer use while ChatGPT is temporarily rate l
   assert.equal(fillCalls, 0);
   assert.equal(sendCalls, 0);
 });
+
+test("playwright driver classifies conversation and usage limits before composer input", async () => {
+  const { createPlaywrightChatGptBrowserDriver } = await import("../src/chatgpt-web/playwright-browser-driver.js");
+  const makeBackend = (conversation: number, usage: number) => ({
+    navigate: async () => undefined, currentUrl: async () => "https://chatgpt.com/", composerCount: async () => 1,
+    authenticationRequiredCount: async () => 0, temporaryRestrictionCount: async () => 0,
+    conversationLimitCount: async () => conversation, usageLimitCount: async () => usage,
+    dismissTemporaryRestriction: async () => false, fillComposer: async () => { throw new Error("must not fill"); },
+    sendPrompt: async () => { throw new Error("must not send"); }, assistantMessageCount: async () => 0,
+    latestAssistantText: async () => null, latestAssistantRawText: async () => null,
+    generationControlCount: async () => 0, closeOwnedPage: async () => undefined, dispose: async () => undefined,
+  });
+  const config = { enabled: true as const, profileRoot: "C:\\temp\\chatgpt-profile", headless: true };
+  const conversationDriver = await createPlaywrightChatGptBrowserDriver(config, { backend: makeBackend(1, 0) as any });
+  await assert.rejects(conversationDriver.openOrResumeConversation({ prompt: "x", promptSha256: "d".repeat(64) }), /conversation.*limit/i);
+  const usageDriver = await createPlaywrightChatGptBrowserDriver(config, { backend: makeBackend(0, 1) as any });
+  await assert.rejects(usageDriver.openOrResumeConversation({ prompt: "x", promptSha256: "e".repeat(64) }), /usage limit/i);
+});

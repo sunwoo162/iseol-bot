@@ -7,6 +7,9 @@ export interface PlaywrightBrowserBackend {
   composerCount(): Promise<number>;
   authenticationRequiredCount(): Promise<number>;
   temporaryRestrictionCount(): Promise<number>;
+  conversationLimitCount?(): Promise<number>;
+  usageLimitCount?(): Promise<number>;
+  dismissTemporaryRestriction?(): Promise<boolean>;
   fillComposer(value: string): Promise<void>;
   sendPrompt(): Promise<void>;
   assistantMessageCount(): Promise<number>;
@@ -27,6 +30,9 @@ type BackendDeps = {
 const COMPOSER_SELECTOR = 'textarea:visible, [contenteditable="true"][role="textbox"]:visible, [contenteditable="true"][data-lexical-editor="true"]:visible';
 const AUTH_SELECTOR = 'a[href*="/auth/login"], a[href*="/auth/signup"], a[href*="/auth/sign-up"]';
 const TEMPORARY_RESTRICTION_TEXT = /(?:too many requests|sending requests too quickly|access (?:has been )?temporarily limited|요청이 너무 많습니다|요청을 너무 빠르게 보내고 있습니다|액세스가 일시적으로 제한)/i;
+const CONVERSATION_LIMIT_TEXT = /(?:maximum length for this conversation|reached.{0,20}(?:maximum length|limit).{0,20}(?:for )?this conversation|this conversation.{0,30}(?:has )?reached.{0,20}(?:maximum length|limit)|conversation.{0,30}(?:maximum length|limit).{0,20}reached|이 대화.{0,30}(?:최대 길이|한도).{0,20}(?:도달|초과))/i;
+const USAGE_LIMIT_TEXT = /(?:you(?:\x27|’)ve reached (?:your )?.{0,40}(?:message|model|usage|plan|gpt-[a-z0-9._-]+)?.{0,20}limit|(?:message|model|usage|plan|gpt-[a-z0-9._-]+).{0,30}limit.{0,20}(?:reached|reset|try again)|(?:메시지|모델|사용|사용량|계정|gpt-[a-z0-9._-]+).{0,20}(?:한도|제한).{0,20}(?:도달|초과))/i;
+const TEMPORARY_DISMISS_TEXT = /^(?:알겠습니다|확인|got it|ok|okay)$/i;
 const ASSISTANT_SELECTOR = '[data-message-author-role="assistant"]';
 const COPY_SELECTOR = 'button[data-testid="copy-turn-action-button"]';
 const COPY_CAPTURE_TIMEOUT_MS = 2_000;
@@ -107,6 +113,20 @@ export async function createPlaywrightBrowserBackend(
     async temporaryRestrictionCount() {
       const text = await (await ownedPage()).locator("body").innerText();
       return TEMPORARY_RESTRICTION_TEXT.test(text) ? 1 : 0;
+    },
+    async conversationLimitCount() {
+      const text = await (await ownedPage()).locator("body").innerText();
+      return CONVERSATION_LIMIT_TEXT.test(text) ? 1 : 0;
+    },
+    async usageLimitCount() {
+      const text = await (await ownedPage()).locator("body").innerText();
+      return CONVERSATION_LIMIT_TEXT.test(text) ? 0 : (USAGE_LIMIT_TEXT.test(text) ? 1 : 0);
+    },
+    async dismissTemporaryRestriction() {
+      const button = (await ownedPage()).getByRole("button", { name: TEMPORARY_DISMISS_TEXT });
+      if (await button.count() !== 1) return false;
+      await button.click();
+      return true;
     },
     async fillComposer(value) {
       const composer = (await ownedPage()).locator(COMPOSER_SELECTOR);
