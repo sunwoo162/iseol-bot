@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { basename, dirname, relative, resolve } from "node:path";
-import { mkdir, readFile, readdir } from "node:fs/promises";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import type {
   DesktopJobResult,
   DesktopOperation,
@@ -12,12 +12,19 @@ import {
   desktopOperationMutates,
 } from "./contracts.js";
 import { assertWorkspaceAccess, verifyDesktopTaskPolicy } from "./workspace-guard.js";
+import {
+  assertBoundedProcessRequest,
+  assertOwnedProcessTemp,
+  createSandboxedProcessEnv,
+  processJobTempRoot,
+} from "./process-policy.js";
 
 export type DesktopRuntimeDependencies = {
   allowedRoots: string[];
   policyRoots?: string[];
   maxOutputBytes?: number;
   allowedExecutables?: string[];
+  processEnv?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
   now?: () => string;
 };
@@ -54,6 +61,7 @@ async function runCommand(input: {
   cwd: string;
   timeoutMs: number;
   maxOutputBytes: number;
+  env?: NodeJS.ProcessEnv;
   stdin?: string;
 }): Promise<CommandResult> {
   return new Promise((resolveResult, reject) => {
@@ -62,6 +70,7 @@ async function runCommand(input: {
       cwd: input.cwd,
       shell: false,
       windowsHide: true,
+      ...(input.env ? { env: input.env } : {}),
       stdio: ["pipe", "pipe", "pipe"],
     });
     const stdout: Buffer[] = [];
@@ -99,15 +108,16 @@ function executableAllowed(executable: string, configured?: string[]): boolean {
   return DEFAULT_EXECUTABLES.has(name);
 }
 
-function assertProcessRequest(executable: string, args: string[], configured?: string[]): void {
+function assertProcessRequest(
+  purpose: "test" | "build",
+  executable: string,
+  args: string[],
+  configured?: string[],
+): void {
   if (!executableAllowed(executable, configured)) {
     throw new Error(`Desktop executable is not allowed: ${executable}`);
   }
-  const name = basename(executable).toLowerCase();
-  if ((name === "node" || name === "node.exe")
-      && args.some((arg) => ["-e", "--eval", "-p", "--print"].includes(arg))) {
-    throw new Error("Desktop Node inline evaluation is not allowed");
-  }
+  assertBoundedProcessRequest(purpose, executable, args);
 }
 
 function commandOperationResult(
@@ -228,15 +238,24 @@ async function executeOperation(
 
   if (operation.type === "RUN_PROCESS") {
     const cwd = await assertWorkspaceAccess(deps.allowedRoots, workspace, operation.cwd);
-    assertProcessRequest(operation.executable, operation.args, deps.allowedExecutables);
-    const command = await runCommand({
-      executable: operation.executable,
-      args: operation.args,
-      cwd,
-      timeoutMs: operation.timeoutMs,
-      maxOutputBytes,
-    });
-    return commandOperationResult(operation.id, command, `Ran ${basename(operation.executable)}`);
+    assertProcessRequest(operation.purpose, operation.executable, operation.args, deps.allowedExecutables);
+    const tempRoot = assertOwnedProcessTemp(workspace, processJobTempRoot(workspace, pack.jobId));
+    const env = createSandboxedProcessEnv(deps.processEnv ?? process.env, tempRoot);
+    await mkdir(tempRoot, { recursive: true });
+    await mkdir(env.TEMP ?? join(tempRoot, "temp"), { recursive: true });
+    try {
+      const command = await runCommand({
+        executable: operation.executable,
+        args: operation.args,
+        cwd,
+        timeoutMs: operation.timeoutMs,
+        maxOutputBytes,
+        env,
+      });
+      return commandOperationResult(operation.id, command, `Ran ${basename(operation.executable)}`);
+    } finally {
+      await rm(assertOwnedProcessTemp(workspace, tempRoot), { recursive: true, force: true });
+    }
   }
 
   if (operation.type === "GIT_WORKTREE_CREATE") {

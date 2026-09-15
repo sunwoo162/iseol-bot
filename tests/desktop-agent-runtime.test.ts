@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { DesktopPolicySource, DesktopTaskPack } from "../src/desktop-agent/contracts.js";
 import { assertWorkspaceAccess, verifyDesktopTaskPolicy } from "../src/desktop-agent/workspace-guard.js";
 import { executeDesktopTaskPack } from "../src/desktop-agent/runtime.js";
+import { processJobTempRoot } from "../src/desktop-agent/process-policy.js";
 
 const sha = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
 
@@ -99,16 +100,17 @@ function initGit(workspace: string) {
 test("structured runtime executes file, process, and bounded output operations in order", async () => {
   const { allowed, workspace, harnessPath } = await fixture();
   await writeFile(join(workspace, "data.txt"), "hello", "utf8");
-  await writeFile(join(workspace, "print.js"), "console.log(\"abcdefghijklmnopqrstuvwxyz\");\n", "utf8");
+  await writeFile(join(workspace, "print.test.js"), "import test from 'node:test';\ntest('print', () => { console.log('abcdefghijklmnopqrstuvwxyz'); });\n", "utf8");
   const pack = policyPack(workspace, harnessPath, [
     { id: "read", type: "READ_FILE", path: "data.txt" },
     { id: "list", type: "LIST_DIRECTORY", path: "." },
     {
       id: "process",
       type: "RUN_PROCESS",
+      purpose: "test",
       cwd: ".",
-      executable: process.execPath,
-      args: ["print.js"],
+      executable: "node",
+      args: ["--test", "print.test.js"],
       timeoutMs: 2_000,
     },
   ]);
@@ -121,13 +123,14 @@ test("structured runtime executes file, process, and bounded output operations i
 
 test("runtime classifies process timeout as retryable failure", async () => {
   const { allowed, workspace, harnessPath } = await fixture();
-  await writeFile(join(workspace, "slow.js"), "setTimeout(() => {}, 10000);\n", "utf8");
+  await writeFile(join(workspace, "slow.test.js"), "import test from 'node:test';\ntest('slow', async () => { await new Promise((resolve) => setTimeout(resolve, 10000)); });\n", "utf8");
   const pack = policyPack(workspace, harnessPath, [{
     id: "slow",
     type: "RUN_PROCESS",
+    purpose: "test",
     cwd: ".",
-    executable: process.execPath,
-    args: ["slow.js"],
+    executable: "node",
+    args: ["--test", "slow.test.js"],
     timeoutMs: 50,
   }]);
   const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed] });
@@ -248,9 +251,10 @@ test("policy read roots do not expand writable workspace roots", async () => {
   const sources: DesktopPolicySource[] = [{
     kind: "iseol-global", path: policyPath, sha256: sha(policyText), required: true,
   }];
+  await writeFile(join(workspace, "noop.test.js"), "import test from 'node:test';\ntest('noop', () => {});\n", "utf8");
   const pack = policyPack(workspace, policyPath, [{
-    id: "process", type: "RUN_PROCESS", cwd: ".",
-    executable: process.execPath, args: ["--version"], timeoutMs: 2_000,
+    id: "process", type: "RUN_PROCESS", purpose: "test", cwd: ".",
+    executable: "node", args: ["--test", "noop.test.js"], timeoutMs: 2_000,
   }]);
   pack.policySources = sources;
   pack.policyDigest = effective(sources);
@@ -264,24 +268,64 @@ test("policy read roots do not expand writable workspace roots", async () => {
 });
 
 
-test("Windows runtime executes npm without opening a shell", async (t) => {
+test("Windows runtime executes bounded npm test without opening a shell", async (t) => {
   if (process.platform !== "win32") return t.skip("Windows-specific npm shim behavior");
   const { allowed, workspace, harnessPath } = await fixture();
+  await writeFile(join(workspace, "package.json"), JSON.stringify({ scripts: { test: "node --test noop.test.js" } }), "utf8");
+  await writeFile(join(workspace, "noop.test.js"), "import test from 'node:test';\ntest('noop', () => {});\n", "utf8");
   const pack = policyPack(workspace, harnessPath, [{
-    id: "npm-version", type: "RUN_PROCESS", cwd: ".", executable: "npm", args: ["--version"], timeoutMs: 5_000,
+    id: "npm-test", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "npm", args: ["test"], timeoutMs: 5_000,
   }]);
   const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed] });
   assert.equal(result.status, "completed");
-  assert.match(result.operations[0]?.stdout ?? "", /^\d+\.\d+/);
+  assert.match(result.operations[0]?.stdout ?? "", /pass|ok 1/i);
 });
 
-test("Windows runtime executes npm.cmd without opening a shell", async (t) => {
+test("Windows runtime executes bounded npm.cmd test without opening a shell", async (t) => {
   if (process.platform !== "win32") return t.skip("Windows-specific npm shim behavior");
   const { allowed, workspace, harnessPath } = await fixture();
+  await writeFile(join(workspace, "package.json"), JSON.stringify({ scripts: { test: "node --test noop.test.js" } }), "utf8");
+  await writeFile(join(workspace, "noop.test.js"), "import test from 'node:test';\ntest('noop', () => {});\n", "utf8");
   const pack = policyPack(workspace, harnessPath, [{
-    id: "npm-cmd-version", type: "RUN_PROCESS", cwd: ".", executable: "npm.cmd", args: ["--version"], timeoutMs: 5_000,
+    id: "npm-cmd-test", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "npm.cmd", args: ["test"], timeoutMs: 5_000,
   }]);
   const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed] });
   assert.equal(result.status, "completed");
-  assert.match(result.operations[0]?.stdout ?? "", /^\d+\.\d+/);
+  assert.match(result.operations[0]?.stdout ?? "", /pass|ok 1/i);
+});
+
+test("runtime isolates child secrets, profile paths, PATH, and owned temp lifecycle", async () => {
+  const { allowed, workspace, harnessPath } = await fixture();
+  await writeFile(join(workspace, "env.test.js"), [
+    "import test from 'node:test';",
+    "import assert from 'node:assert/strict';",
+    "test('isolated env', () => {",
+    "  assert.equal(process.env.DISCORD_TOKEN, undefined);",
+    "  assert.equal(process.env.GITHUB_TOKEN, undefined);",
+    "  assert.equal(process.env.ISEOL_DESKTOP_AGENT_TOKEN, undefined);",
+    "  assert.match(process.env.USERPROFILE ?? '', /\\.iseol[\\\\/]jobs[\\\\/][0-9a-f]{24}$/i);",
+    "  assert.match(process.env.TEMP ?? '', /\\.iseol[\\\\/]jobs[\\\\/][0-9a-f]{24}[\\\\/]temp$/i);",
+    "  assert.doesNotMatch(process.env.PATH ?? '', /C:\\\\Users\\\\user/i);",
+    "});",
+  ].join("\n"), "utf8");
+  const pack = policyPack(workspace, harnessPath, [{
+    id: "env", type: "RUN_PROCESS", purpose: "test", cwd: ".",
+    executable: "node", args: ["--test", "env.test.js"], timeoutMs: 5_000,
+  }]);
+  const jobTemp = processJobTempRoot(workspace, pack.jobId);
+  const result = await executeDesktopTaskPack(pack, {
+    allowedRoots: [allowed],
+    processEnv: {
+      Path: "C:\\Program Files\\nodejs;C:\\Users\\user\\AppData\\Roaming\\npm;C:\\Windows\\System32",
+      PATHEXT: ".COM;.EXE;.BAT;.CMD",
+      SystemRoot: "C:\\Windows",
+      USERPROFILE: "C:\\Users\\user",
+      APPDATA: "C:\\Users\\user\\AppData\\Roaming",
+      LOCALAPPDATA: "C:\\Users\\user\\AppData\\Local",
+      TEMP: "C:\\Users\\user\\AppData\\Local\\Temp",
+      DISCORD_TOKEN: "discord-secret", GITHUB_TOKEN: "github-secret", ISEOL_DESKTOP_AGENT_TOKEN: "agent-secret",
+    },
+  });
+  assert.equal(result.status, "completed");
+  await assert.rejects(access(jobTemp), (error: NodeJS.ErrnoException) => error.code === "ENOENT");
 });
