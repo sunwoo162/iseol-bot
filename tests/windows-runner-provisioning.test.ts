@@ -40,7 +40,10 @@ test("Windows runner cannot write outside the dedicated workspace under Iseol ro
   assert.match(script, /IseolRoot/);
   const rootBlock = script.split("if ($PSCmdlet.ShouldProcess($WorkspaceRoot")[0] ?? "";
   assert.match(rootBlock, /IseolRoot[\s\S]*inheritance:r/i);
-  assert.match(rootBlock, /principal}:\(RX\)/i);
-  assert.doesNotMatch(rootBlock, /principal}:\(OI\)\(CI\)[MWF]/i);
+  assert.match(rootBlock, /\*S-1-5-18:\(OI\)\(CI\)F/i);
+  assert.match(rootBlock, /\*S-1-5-32-544:\(OI\)\(CI\)F/i);
+  assert.match(rootBlock, /ownerPrincipal}:\(OI\)\(CI\)F/i);
+  assert.match(rootBlock, /"\$\{principal\}:\(RX\)"/i);
+  assert.doesNotMatch(rootBlock, /"\$\{principal\}:\(OI\)\(CI\)[MWF]/i);
   assert.match(script, /WorkspaceRoot[\s\S]*principal}:\(OI\)\(CI\)M/i);
 });

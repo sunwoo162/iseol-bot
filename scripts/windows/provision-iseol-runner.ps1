@@ -106,7 +106,7 @@ if ($PSCmdlet.ShouldProcess($IseolRoot, "Lock Iseol container and grant runner t
   New-Item -ItemType Directory -Force -Path $IseolRoot | Out-Null
   & icacls.exe $IseolRoot /inheritance:r | Out-Null
   & icacls.exe $IseolRoot /grant:r `
-    "*S-1-5-18:F" "*S-1-5-32-544:F" "${ownerPrincipal}:F" "${principal}:(RX)" | Out-Null
+    "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "${ownerPrincipal}:(OI)(CI)F" "${principal}:(RX)" | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Failed to lock Iseol container ACL" }
 }
 if ($PSCmdlet.ShouldProcess($WorkspaceRoot, "Create restricted workspace and grant runner Modify access")) {
