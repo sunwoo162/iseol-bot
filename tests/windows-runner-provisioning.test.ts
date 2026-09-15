@@ -95,3 +95,13 @@ test("Windows runner receives only the batch-logon right required by Password sc
   assert.match(script, /runnerSid/i);
   assert.doesNotMatch(script, /SeServiceLogonRight|SeBackupPrivilege|SeRestorePrivilege/i);
 });
+
+
+test("Windows runner verifies effective batch logon before scheduled task registration", async () => {
+  const script = await readFile(provisionUrl, "utf8");
+  assert.match(script, /LogonUser/i);
+  assert.match(script, /LOGON32_LOGON_BATCH|logonType\s*=\s*4/i);
+  const verifyIndex = script.indexOf("AssertBatchLogon");
+  const registerIndex = script.indexOf("Register-ScheduledTask");
+  assert.ok(verifyIndex >= 0 && registerIndex > verifyIndex);
+});

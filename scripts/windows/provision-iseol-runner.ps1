@@ -41,7 +41,11 @@ namespace Iseol { public static class NativeLsa {
   [DllImport("advapi32.dll")] static extern uint LsaOpenPolicy(IntPtr SystemName, ref LSA_OBJECT_ATTRIBUTES ObjectAttributes, uint DesiredAccess, out IntPtr PolicyHandle);
   [DllImport("advapi32.dll")] static extern uint LsaAddAccountRights(IntPtr PolicyHandle, IntPtr AccountSid, LSA_UNICODE_STRING[] UserRights, uint CountOfRights);
   [DllImport("advapi32.dll")] static extern uint LsaNtStatusToWinError(uint Status); [DllImport("advapi32.dll")] static extern uint LsaClose(IntPtr PolicyHandle);
+  [DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern bool LogonUser(string username, string domain, string password, int logonType, int logonProvider, out IntPtr token);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool CloseHandle(IntPtr handle);
+  const int LOGON32_LOGON_BATCH = 4;
   public static void AddAccountRight(string sidValue, string right) { var sid = new SecurityIdentifier(sidValue); var bytes = new byte[sid.BinaryLength]; sid.GetBinaryForm(bytes,0); var pin = GCHandle.Alloc(bytes,GCHandleType.Pinned); IntPtr policy = IntPtr.Zero, text = IntPtr.Zero; try { var oa = new LSA_OBJECT_ATTRIBUTES(); oa.Length=(uint)Marshal.SizeOf(oa); uint status=LsaOpenPolicy(IntPtr.Zero,ref oa,0x00000810,out policy); if(status!=0) throw new Win32Exception((int)LsaNtStatusToWinError(status)); text=Marshal.StringToHGlobalUni(right); var u=new LSA_UNICODE_STRING{Length=(ushort)(right.Length*2),MaximumLength=(ushort)((right.Length+1)*2),Buffer=text}; status=LsaAddAccountRights(policy,pin.AddrOfPinnedObject(),new[]{u},1); if(status!=0) throw new Win32Exception((int)LsaNtStatusToWinError(status)); } finally { if(text!=IntPtr.Zero) Marshal.FreeHGlobal(text); if(policy!=IntPtr.Zero) LsaClose(policy); if(pin.IsAllocated) pin.Free(); } }
+  public static void AssertBatchLogon(string username, string domain, string password) { IntPtr token = IntPtr.Zero; try { if(!LogonUser(username, domain, password, LOGON32_LOGON_BATCH, 0, out token)) throw new Win32Exception(Marshal.GetLastWin32Error()); } finally { if(token != IntPtr.Zero) CloseHandle(token); } }
 } }
 '@
 }
@@ -89,6 +93,12 @@ $runner = Get-LocalUser -Name $RunnerUser -ErrorAction Stop
 $runnerSid = $runner.SID.Value
 if ($PSCmdlet.ShouldProcess($principal, "Grant SeBatchLogonRight for scheduled task execution")) {
   [Iseol.NativeLsa]::AddAccountRight($runnerSid, "SeBatchLogonRight")
+}
+$batchPasswordPlain = ConvertFrom-SecureValue $RunnerPassword
+try {
+  [Iseol.NativeLsa]::AssertBatchLogon($RunnerUser, $env:COMPUTERNAME, $batchPasswordPlain)
+} finally {
+  $batchPasswordPlain = $null
 }
 
 $privilegedGroupSids = @("S-1-5-32-544", "S-1-5-32-547", "S-1-5-32-551")
