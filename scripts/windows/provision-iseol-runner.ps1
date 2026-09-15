@@ -227,6 +227,7 @@ $action = New-ScheduledTaskAction -Execute "powershell.exe" `
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
   -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+  -MultipleInstances StopExisting `
   -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
   -ExecutionTimeLimit ([TimeSpan]::Zero)
 $runnerPlain = ConvertFrom-SecureValue $RunnerPassword

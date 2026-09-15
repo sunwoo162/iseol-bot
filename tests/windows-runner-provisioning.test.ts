@@ -117,3 +117,9 @@ test("Windows runner launcher records sanitized startup diagnostics inside works
   assert.ok(diagnosticIndex >= 0 && identityIndex > diagnosticIndex);
   assert.doesNotMatch(script, /Write.*ISEOL_DESKTOP_AGENT_TOKEN/i);
 });
+
+
+test("Windows runner scheduled task replaces stale instances on restart", async () => {
+  const script = await readFile(provisionUrl, "utf8");
+  assert.match(script, /New-ScheduledTaskSettingsSet[\s\S]*-MultipleInstances\s+StopExisting/i);
+});
