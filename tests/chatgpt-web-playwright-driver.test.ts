@@ -522,3 +522,26 @@ test("structured result drops unprefixed blank-line noise inside an existing-fil
     " <!doctype html>", "-<title>Old</title>", "+<title>New</title>", "",
   ].join("\n"));
 });
+
+test("resume tolerates composer hydration beyond five seconds", async () => {
+  let now = 0;
+  let composerChecks = 0;
+  const item = fakeBackend({
+    composerCount: async () => {
+      composerChecks += 1;
+      return now >= 6_000 ? 1 : 0;
+    },
+  });
+  const driver = await createPlaywrightChatGptBrowserDriver(config, {
+    backend: item.backend,
+    now: () => now,
+    sleep: async (ms: number) => { now += ms; },
+  } as any);
+
+  assert.deepEqual(
+    await driver.openOrResumeConversation({ conversationRef: "conv-slow-hydration", prompt: "x", promptSha256: "sha" }),
+    { conversationRef: "conv-slow-hydration" },
+  );
+  assert.ok(now >= 6_000);
+  assert.ok(composerChecks > 50);
+});
