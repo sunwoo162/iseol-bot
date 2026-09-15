@@ -62,3 +62,16 @@ test("Windows provisioning writes agent env as BOM-free UTF-8 on PowerShell 5.1"
   assert.match(script, /UTF8Encoding\]\:\:new\(\$false\)|New-Object\s+Text\.UTF8Encoding\(\$false\)/i);
   assert.match(script, /WriteAllLines\(\$configPath,\s*\$configLines/i);
 });
+
+
+test("Windows provisioning verifies the scheduled Agent is actually running before READY", async () => {
+  const script = await readFile(provisionUrl, "utf8");
+  const startIndex = script.indexOf("Start-ScheduledTask -TaskName $TaskName");
+  const readyIndex = script.indexOf('Write-Output "ISEOL_RUNNER_READY=true"');
+  assert.ok(startIndex >= 0 && readyIndex > startIndex);
+  const tail = script.slice(startIndex, readyIndex);
+  assert.match(tail, /Get-ScheduledTask\s+-TaskName\s+\$TaskName/i);
+  assert.match(tail, /Get-ScheduledTaskInfo\s+-TaskName\s+\$TaskName/i);
+  assert.match(tail, /LastTaskResult/i);
+  assert.match(tail, /Running/i);
+});

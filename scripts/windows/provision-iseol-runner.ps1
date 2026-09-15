@@ -219,6 +219,19 @@ foreach ($groupSid in $privilegedGroupSids) {
 }
 if ($PSCmdlet.ShouldProcess($TaskName, "Start least-privilege Desktop Agent")) {
   Start-ScheduledTask -TaskName $TaskName
+  $taskRunning = $false
+  for ($attempt = 0; $attempt -lt 20; $attempt += 1) {
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+    if ($task.State -eq "Running") {
+      $taskRunning = $true
+      break
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  if (-not $taskRunning) {
+    $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction Stop
+    throw "Desktop Agent scheduled task failed to stay Running; LastTaskResult=$($taskInfo.LastTaskResult)"
+  }
 }
 
 Write-Output "ISEOL_RUNNER_USER=$principal"
