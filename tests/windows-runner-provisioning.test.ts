@@ -75,3 +75,13 @@ test("Windows provisioning verifies the scheduled Agent is actually running befo
   assert.match(tail, /LastTaskResult/i);
   assert.match(tail, /Running/i);
 });
+
+
+test("Windows runner scheduled task is allowed to start on battery and reports startup constraints", async () => {
+  const script = await readFile(provisionUrl, "utf8");
+  assert.match(script, /AllowStartIfOnBatteries/i);
+  assert.match(script, /DontStopIfGoingOnBatteries/i);
+  assert.match(script, /LogonType/i);
+  assert.match(script, /DisallowStartIfOnBatteries/i);
+  assert.match(script, /StopIfGoingOnBatteries/i);
+});

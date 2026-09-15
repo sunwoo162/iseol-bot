@@ -196,6 +196,7 @@ $action = New-ScheduledTaskAction -Execute "powershell.exe" `
   -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$launcher`""
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+  -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
   -ExecutionTimeLimit ([TimeSpan]::Zero)
 $runnerPlain = ConvertFrom-SecureValue $RunnerPassword
@@ -230,7 +231,7 @@ if ($PSCmdlet.ShouldProcess($TaskName, "Start least-privilege Desktop Agent")) {
   }
   if (-not $taskRunning) {
     $taskInfo = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction Stop
-    throw "Desktop Agent scheduled task failed to stay Running; LastTaskResult=$($taskInfo.LastTaskResult)"
+    throw "Desktop Agent scheduled task failed to stay Running; State=$($task.State); LogonType=$($task.Principal.LogonType); DisallowStartIfOnBatteries=$($task.Settings.DisallowStartIfOnBatteries); StopIfGoingOnBatteries=$($task.Settings.StopIfGoingOnBatteries); LastTaskResult=$($taskInfo.LastTaskResult)"
   }
 }
 
