@@ -150,8 +150,16 @@ if ($PSCmdlet.ShouldProcess($InstallRoot, "Install isolated Desktop Agent runtim
 $npm = Get-Command npm.cmd -ErrorAction Stop
 Push-Location $InstallRoot
 try {
-  & $npm.Source ci --omit=dev --ignore-scripts --no-audit --no-fund
-  if ($LASTEXITCODE -ne 0) { throw "npm ci for isolated Agent runtime failed" }
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $npmOutput = & $npm.Source ci --omit=dev --ignore-scripts --no-audit --no-fund 2>&1
+    $npmExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  $npmOutput | ForEach-Object { Write-Output $_ }
+  if ($npmExitCode -ne 0) { throw "npm ci for isolated Agent runtime failed" }
 } finally {
   Pop-Location
 }

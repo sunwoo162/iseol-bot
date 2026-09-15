@@ -47,3 +47,11 @@ test("Windows runner cannot write outside the dedicated workspace under Iseol ro
   assert.doesNotMatch(rootBlock, /"\$\{principal\}:\(OI\)\(CI\)[MWF]/i);
   assert.match(script, /WorkspaceRoot[\s\S]*principal}:\(OI\)\(CI\)M/i);
 });
+
+test("Windows provisioning treats native npm stderr as diagnostic and trusts the exit code", async () => {
+  const script = await readFile(provisionUrl, "utf8");
+  assert.match(script, /ErrorActionPreference\s*=\s*["']Continue["']/);
+  assert.match(script, /npmExitCode\s*=\s*\$LASTEXITCODE/);
+  assert.match(script, /if\s*\(\$npmExitCode\s*-ne\s*0\)/);
+  assert.match(script, /2>&1/);
+});
