@@ -251,3 +251,27 @@ test("structured correction includes the exact validation reason and marker-line
   assert.match(text, /patch appendix end marker is missing/i);
   assert.match(text, /standalone line/i);
 });
+
+
+test("generation echo mismatch gets corrective feedback without replacing the active session", async () => {
+  const { root, run } = await fixture();
+  const fake = createFakeChatGptWebBrowserAdapter([
+    { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 2, summary: "Wrong generation", decisions: [], intents: [], outcome: "continue" },
+    { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1, summary: "Corrected generation", decisions: [], intents: [], outcome: "stage-complete" },
+  ]);
+  const executor = createWebReasoningExecutor({
+    workerRoot: root,
+    adapter: fake.adapter,
+    maxRejectedIntents: 2,
+    now: () => "2026-09-08T01:09:00.000Z",
+    runDesktopIntent: async () => { throw new Error("unused"); },
+  });
+
+  assert.equal((await executor.execute(run)).type, "completed");
+  assert.equal(fake.submittedPrompts.length, 2);
+  const correction = JSON.parse(fake.submittedPrompts[1]!.body) as any;
+  assert.match(JSON.stringify(correction.desktopEvidence), /expected generation 1/i);
+  assert.match(JSON.stringify(correction.desktopEvidence), /received 2/i);
+  assert.equal((await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"))?.generation, 1);
+  assert.equal((await listReasoningTurns(root, "run-web")).length, 1);
+});

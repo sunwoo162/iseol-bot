@@ -166,6 +166,17 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           result = await assertActiveWebWorkerResult(input.workerRoot, run, session, rawResult);
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
+          if (/result generation is stale/i.test(reason)) {
+            rejectedCount += 1;
+            if (rejectedCount >= maxRejected) return { type: "retryable-failure", reason: `Rejected reasoning result budget exhausted: ${reason}` };
+            const receivedGeneration = (rawResult as { generation?: unknown }).generation;
+            desktopEvidence = [...desktopEvidence, {
+              kind: "reasoning-rejection",
+              summary: `Expected generation ${session.generation}; received ${String(receivedGeneration)}. ${reason}`,
+            }];
+            prompt = compileWebPrompt({ kind: "feedback", run, session, priorTurns, desktopEvidence });
+            continue;
+          }
           if (/policy|stale|generation|active session/i.test(reason)) return { type: "retryable-failure", reason };
           rejectedCount += 1;
           if (rejectedCount >= maxRejected) return { type: "retryable-failure", reason: `Rejected reasoning result budget exhausted: ${reason}` };
