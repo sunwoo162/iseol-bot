@@ -54,6 +54,7 @@ function prerequisiteState(
     modelRoot: webConfig.modelRoot,
     runRoot: webConfig.harnessRoot,
     webRoot: webConfig.webRoot,
+    webWorkerRoot: resolve(env.ISEOL_CHATGPT_WEB_ROOT?.trim() || resolve(cwd, "data", "runs")),
     browserProfileRoot: resolve(env.ISEOL_CHATGPT_BROWSER_PROFILE_ROOT?.trim() || resolve(cwd, "data", "chatgpt-profile")),
   };
   try {

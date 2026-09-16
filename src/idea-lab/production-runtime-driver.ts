@@ -131,6 +131,7 @@ function verifiedReceipt(production: PrototypeProduction): PrototypeDeploymentRe
 }
 export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRuntimeDriverInput) {
   const now = input.now ?? (() => new Date().toISOString());
+  const webWorkerRoot = input.roots.webWorkerRoot ?? input.roots.webRoot;
 
   async function createProduction(proposal: IdeaProposal, ordinal: number): Promise<PrototypeProduction> {
     const id = `${proposal.campaignId}-prod-${ordinal}`;
@@ -291,7 +292,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
         for (const intentId of turn.desktopIntentIds) {
           if (seen.has(intentId)) continue;
           seen.add(intentId);
-          const intentRecord = await loadDesktopIntent(input.roots.webRoot, run.request.runId, intentId);
+          const intentRecord = await loadDesktopIntent(webWorkerRoot, run.request.runId, intentId);
           if (!intentRecord) throw new Error(`Recovered Desktop intent record is missing: ${intentId}`);
           if (intentRecord.status === "rejected") {
             feedback.push({ kind: "reasoning-rejection", summary: intentRecord.reason ?? "Desktop intent was rejected", reference: `intent:${intentId}` });
@@ -311,7 +312,8 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
     };
 
     const web = createWebReasoningExecutor({
-      workerRoot: input.roots.webRoot,      adapter: input.browserAdapter,
+      workerRoot: webWorkerRoot,
+      adapter: input.browserAdapter,
       runDesktopIntent,
       recoverDesktopFeedback,
       now,
@@ -433,6 +435,15 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
     if (final.state.status === "FAILED_FINAL") {
       const latest = await loadPrototypeProduction(input.roots.modelRoot, production.id) ?? canonical;
       return persistFailure(latest);
+    }
+    if (final.state.status === "FAILED_RETRYABLE") {
+      const latest = await loadPrototypeProduction(input.roots.modelRoot, production.id) ?? canonical;
+      await savePrototypeProduction(input.roots.modelRoot, {
+        ...latest,
+        status: "running",
+        updatedAt: now(),
+      });
+      throw new Error("Idea Lab Harness retry budget exhausted; yield campaign supervision for recovery");
     }
     if (final.state.status !== "DONE") {
       const latest = await loadPrototypeProduction(input.roots.modelRoot, production.id) ?? canonical;

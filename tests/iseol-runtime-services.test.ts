@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { resolve } from "node:path";
 import type { ChatGptBrowserDriver } from "../src/chatgpt-web/production-browser-adapter.js";
 import { startIseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
 
@@ -101,6 +102,25 @@ test("Idea-Lab-only runtime resolves the browser once even when standalone bridg
   const services = await startIseolRuntimeServices(value);
   assert.equal(services.ideaLabCapability.state, "ready");
   assert.equal(browserCreates, 1);
+  await services.dispose();
+});
+
+test("Idea Lab worker sessions use the configured ChatGPT Web root, separate from static web content", async () => {
+  const value = fixture({
+    env: { ISEOL_CHATGPT_WEB_ENABLED: "false", ISEOL_CHATGPT_WEB_ROOT: "C:/fresh-chatgpt-workers" },
+    ideaLabConfig: liveConfig(),
+  });
+  value.deps.resolveBrowser = async () => browserDriver();
+  value.deps.resolveDeploy = async () => ({});
+  let driverRoots: any;
+  value.deps.createProductionDriver = (input: any) => { driverRoots = input.roots; return {}; };
+  value.deps.createRuntime = () => ({ recover: async () => undefined, dispose: async () => undefined });
+  delete value.roots;
+
+  const services = await startIseolRuntimeServices(value);
+
+  assert.equal(driverRoots.webRoot, resolve("C:/iseol-web"));
+  assert.equal(driverRoots.webWorkerRoot, resolve("C:/fresh-chatgpt-workers"));
   await services.dispose();
 });
 for (const [name, configure] of [

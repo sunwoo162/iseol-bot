@@ -140,6 +140,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
       let acceptedTurns = 0;
       let rejectedCount = 0;
       let recoveries = 0;
+      let finalRecoveryTrigger: "ChatGptWebSessionLostError" | "ChatGptWebConversationLimitError" = "ChatGptWebSessionLostError";
 
       while (acceptedTurns < maxTurns) {
         let rawResult: unknown;
@@ -175,8 +176,13 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           if (!(error instanceof ChatGptWebSessionLostError) && !(error instanceof ChatGptWebConversationLimitError)) {
             return { type: "retryable-failure", reason: error instanceof Error ? error.message : String(error) };
           }
+          finalRecoveryTrigger = error instanceof ChatGptWebConversationLimitError
+            ? "ChatGptWebConversationLimitError"
+            : "ChatGptWebSessionLostError";
           recoveries += 1;
-          if (recoveries > maxTurns) return { type: "retryable-failure", reason: "ChatGPT Web session recovery budget exhausted" };
+          if (recoveries > maxTurns) {
+            return { type: "retryable-failure", reason: `ChatGPT Web session recovery budget exhausted (${finalRecoveryTrigger})` };
+          }
           const recovered = await recoverWebWorkerSession({
             workerRoot: input.workerRoot, run, session, priorTurns, desktopEvidence, at: now(),
           });

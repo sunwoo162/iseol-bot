@@ -92,6 +92,7 @@ function defaultRoots(
     modelRoot: resolve(webConfig.modelRoot),
     runRoot: resolve(webConfig.harnessRoot),
     webRoot: resolve(webConfig.webRoot),
+    webWorkerRoot: resolve(resolveChatGptWebBridgeConfig(env).workerRoot),
     browserProfileRoot: resolve(configuredProfile || resolve(cwd, "data", "chatgpt-profile")),
   };
 }
@@ -173,7 +174,12 @@ export async function startIseolRuntimeServices(
   const env = input.env ?? process.env;
   const deps = input.deps ?? {};
   const webConfig = input.webConfig ?? resolveWebControlPlaneConfig(env);
-  const roots = input.roots ?? defaultRoots(env, webConfig);
+  const roots = input.roots
+    ? {
+        ...input.roots,
+        webWorkerRoot: input.roots.webWorkerRoot ?? resolve(resolveChatGptWebBridgeConfig(env).workerRoot),
+      }
+    : defaultRoots(env, webConfig);
   const requestedFlag = env.ISEOL_IDEA_LAB_RUNTIME_ENABLED?.trim().toLowerCase() === "true";
   let ideaLabConfig: IdeaLabRuntimeConfig;
   let ideaLabConfigBlocked = false;

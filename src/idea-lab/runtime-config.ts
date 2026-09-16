@@ -7,6 +7,7 @@ export type IdeaLabRuntimeRoots = {
   modelRoot: string;
   runRoot: string;
   webRoot: string;
+  webWorkerRoot?: string;
   browserProfileRoot: string;
 };
 
