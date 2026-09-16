@@ -24,6 +24,8 @@ export function createIdeaLabRuntimeService(options: IdeaLabRuntimeOptions): Ide
   const freshQueue: string[] = [];
   const recoveryQueue: string[] = [];
   const scheduled = new Set<string>();
+  const failedPasses = new Map<string, number>();
+  const MAX_AUTOMATIC_RETRIES = 1;
   let accepting = true;
   let running = false;
   let drainWaiters: Array<() => void> = [];
@@ -42,12 +44,32 @@ export function createIdeaLabRuntimeService(options: IdeaLabRuntimeOptions): Ide
     try {
       while (freshQueue.length || recoveryQueue.length) {
         const campaignId = freshQueue.shift() ?? recoveryQueue.shift()!;
+        let retryAfterFailure = false;
         try {
           await options.superviseCampaign(campaignId);
+          failedPasses.delete(campaignId);
         } catch {
           try { options.onError?.(campaignId, SAFE_ERROR_SUMMARY); } catch { /* reporting must not stop the worker */ }
+          const attempts = failedPasses.get(campaignId) ?? 0;
+          if (attempts < MAX_AUTOMATIC_RETRIES) {
+            try {
+              const campaign = (await listIdeaLabCampaigns(options.modelRoot))
+                .find((item) => item.id === campaignId);
+              if (campaign && (campaign.status === "generating" || campaign.status === "producing")) {
+                failedPasses.set(campaignId, attempts + 1);
+                retryAfterFailure = true;
+              } else {
+                failedPasses.delete(campaignId);
+              }
+            } catch {
+              failedPasses.delete(campaignId);
+            }
+          } else {
+            failedPasses.delete(campaignId);
+          }
         } finally {
           scheduled.delete(campaignId);
+          if (retryAfterFailure) schedule(campaignId, "recovery");
         }
       }
     } finally {

@@ -3,7 +3,10 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { saveIdeaLabCampaign } from "../src/idea-lab/campaign-store.js";
+import { loadIdeaLabCampaign, saveIdeaLabCampaign } from "../src/idea-lab/campaign-store.js";
+import { listPrototypeProductions } from "../src/idea-lab/production-store.js";
+import { FakeIdeaProposalProvider } from "../src/idea-lab/test-support/fake-proposal-provider.js";
+import { superviseIdeaLabCampaign } from "../src/idea-lab/campaign-supervisor.js";
 import { createIdeaLabRuntimeService } from "../src/idea-lab/runtime-service.js";
 
 const campaign = (id: string, status: "generating" | "producing" | "complete" | "blocked" | "cancelled") => ({
@@ -102,5 +105,78 @@ test("fresh enqueue runs before pending recovery backlog", async () => {
   release();
   await runtime.idle();
   assert.deepEqual(calls, ["recover-a", "fresh", "recover-b"]);
+  await runtime.dispose();
+});
+
+test("runtime retries interrupted campaign supervision once and reuses an already allocated sandbox", async () => {
+  const root = await mkdtemp(join(tmpdir(), "idea-lab-runtime-interrupted-allocation-"));
+  await saveIdeaLabCampaign(root, {
+    ...campaign("camp-retry", "generating"),
+    productionConcurrency: 1,
+  });
+  const provider = new FakeIdeaProposalProvider([[
+    {
+      title: "Allocated prototype",
+      concept: "A prototype whose worktree exists after a delayed Desktop Agent result",
+      problemDomain: "domain",
+      targetUser: "user",
+      jobToBeDone: "job",
+      coreInteractionLoop: "loop",
+      dataModel: "model",
+      primaryDifferentiator: "different",
+      whyMateriallyDifferent: "A distinct workflow",
+    },
+  ]]);
+  let createAttempts = 0;
+  let worktreeExists = false;
+  let advances = 0;
+  const runtime = createIdeaLabRuntimeService({
+    modelRoot: root,
+    superviseCampaign: async (campaignId) => superviseIdeaLabCampaign({
+      root,
+      campaignId,
+      proposalProvider: provider,
+      createProduction: async (proposal, ordinal) => {
+        createAttempts += 1;
+        if (createAttempts === 1) {
+          worktreeExists = true;
+          throw new Error("Desktop Job result timeout after worktree creation");
+        }
+        assert.equal(worktreeExists, true, "retry must enter the existing sandbox inspect/reuse path");
+        return {
+          version: 1,
+          id: `${campaignId}-prod-${ordinal}`,
+          campaignId,
+          proposalId: proposal.id,
+          runId: `run-${campaignId}-prod-${ordinal}`,
+          repositoryUrl: "https://example.invalid/repo.git",
+          sandboxRoot: "C:/sandbox",
+          worktreeRoot: `C:/sandbox/${campaignId}-prod-${ordinal}`,
+          branch: `idea/${campaignId}/${campaignId}-prod-${ordinal}`,
+          baseRef: "main",
+          status: "queued",
+          createdAt: "2026-09-16T00:00:00.000Z",
+          updatedAt: "2026-09-16T00:00:00.000Z",
+        };
+      },
+      advanceProduction: async (production) => {
+        advances += 1;
+        return { ...production, status: "ready", commitSha: "a".repeat(40), updatedAt: "2026-09-16T00:00:01.000Z" };
+      },
+      now: () => "2026-09-16T00:00:00.000Z",
+    }),
+  });
+
+  runtime.enqueue("camp-retry");
+  await runtime.idle();
+
+  const recovered = await loadIdeaLabCampaign(root, "camp-retry");
+  const productions = await listPrototypeProductions(root);
+  assert.equal(recovered?.status, "complete");
+  assert.equal(recovered?.proposalIds.length, 1);
+  assert.equal(recovered?.productionIds.length, 1);
+  assert.equal(productions.length, 1);
+  assert.equal(createAttempts, 2);
+  assert.equal(advances, 1);
   await runtime.dispose();
 });
