@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createIdeaLabProductionRuntimeDriver } from "../src/idea-lab/production-runtime-driver.js";
@@ -14,6 +14,11 @@ import { loadPrototypeCandidate } from "../src/project-model/prototype-store.js"
 import { loadPrototypeProduction, savePrototypeProduction } from "../src/idea-lab/production-store.js";
 import { createFakeChatGptWebBrowserAdapter } from "../src/chatgpt-web/test-support/fake-browser-adapter.js";
 import { loadDesktopIntent } from "../src/chatgpt-web/intent-store.js";
+import { saveIdeaLabCampaign } from "../src/idea-lab/campaign-store.js";
+import { buildIdeaLabView } from "../src/web-control-plane/view-model.js";
+import { findDesktopJobByIdempotencyKey } from "../src/desktop-agent/job-store.js";
+import { createPlaywrightChatGptBrowserDriver } from "../src/chatgpt-web/playwright-browser-driver.js";
+import { createProductionChatGptWebAdapter } from "../src/chatgpt-web/production-browser-adapter.js";
 
 test("createProduction is durable and reconciles the same Run and sandbox", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-driver-"));
@@ -541,4 +546,112 @@ test("Idea Lab fails one production after the Web reasoning retry budget is exha
   assert.equal(result.status, "failed");
   assert.equal(fake.submittedPrompts.length, 3);
   assert.equal((await loadPrototypeProduction(root, production.id))?.status, "failed");
+});
+
+test("terminal patch-result rejection keeps a safe diagnostic on the canonical Run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-patch-diagnostic-"));
+  await mkdir(join(root, "docs"), { recursive: true });
+  await writeFile(join(root, "docs", "HARNESS_ENGINEERING.md"), "# Test Harness\n", "utf8");
+  const proposal = baseProposal("camp-patch-diagnostic");
+  const bootstrap = makeDriver(root, { proposal });
+  const production = await bootstrap.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const run = await loadHarnessRun(root, production.runId);
+  assert.ok(run);
+  await saveHarnessRun(root, {
+    ...run,
+    state: { ...run.state, stage: "IMPLEMENT", status: "READY", completedStages: ["PREFLIGHT", "CONTEXT", "ANALYZE", "PLAN"] },
+  });
+
+  const intentId = "implement-read-app-js-001";
+  const validFirstTurn = JSON.stringify({
+    version: 1, runId: production.runId, stage: "IMPLEMENT", generation: 1,
+    summary: "Read current app.js", decisions: [], outcome: "continue",
+    intents: [{
+      version: 1, intentId, runId: production.runId, stage: "IMPLEMENT",
+      workspaceRoot: production.worktreeRoot, policySha256: run.preflight.policy!.effectiveSha256,
+      kind: "READ_CONTEXT", path: "app.js",
+    }],
+  });
+  const patchIntentId = "implement-invalid-patch-001";
+  const invalidPatchResult = [
+    JSON.stringify({
+      version: 1, runId: production.runId, stage: "IMPLEMENT", generation: 1,
+      summary: "Propose a patch", decisions: [], outcome: "continue",
+      intents: [{
+        version: 1, intentId: patchIntentId, runId: production.runId, stage: "IMPLEMENT",
+        workspaceRoot: production.worktreeRoot, policySha256: run.preflight.policy!.effectiveSha256,
+        kind: "PROPOSE_PATCH", path: "app.js", patch: `@@ISEOL_PATCH:${patchIntentId}@@`,
+      }],
+    }),
+    `@@ISEOL_PATCH_BEGIN:${patchIntentId}@@`,
+    "diff --git a/app.js b/app.js", "--- a/app.js", "+++ b/app.js", "@@ -1 +1 @@", "-old", "+new",
+  ].join("\n");
+  let currentUrl = "https://chatgpt.com/";
+  let assistantCount = 0;
+  let assistantText: string | null = null;
+  let responseIndex = 0;
+  let clockMs = 0;
+  const backend = {
+    navigate: async (url: string) => { currentUrl = url; },
+    currentUrl: async () => currentUrl,
+    composerCount: async () => 1,
+    authenticationRequiredCount: async () => 0,
+    temporaryRestrictionCount: async () => 0,
+    conversationLimitCount: async () => 0,
+    usageLimitCount: async () => 0,
+    fillComposer: async () => undefined,
+    sendPrompt: async () => {
+      responseIndex += 1;
+      if (currentUrl === "https://chatgpt.com/") currentUrl = "https://chatgpt.com/c/diagnostic-conversation";
+      assistantCount += 1;
+      assistantText = responseIndex === 1 ? validFirstTurn : invalidPatchResult;
+    },
+    assistantMessageCount: async () => assistantCount,
+    latestAssistantText: async () => assistantText,
+    latestAssistantRawText: async () => assistantText,
+    generationControlCount: async () => 0,
+    closeOwnedPage: async () => undefined,
+    dispose: async () => undefined,
+  };
+  const browserDriver = await createPlaywrightChatGptBrowserDriver(
+    { enabled: true, profileRoot: join(root, "browser-profile"), headless: true },
+    { backend, now: () => clockMs, sleep: async (ms: number) => { clockMs += ms; } } as any,
+  );
+  const browserAdapter = createProductionChatGptWebAdapter(browserDriver);
+  const desktopTransport = {
+    isAgentConnected: () => true,
+    getAgentSessionId: () => "agent-session",
+    sendTask: () => undefined,
+    awaitResult: async (jobId: string) => ({
+      version: 1 as const, jobId, runId: production.runId, agentId: "agent-1", status: "completed" as const,
+      completedAt: "2026-09-16T00:00:01.000Z",
+      operations: [{ operationId: intentId, ok: true, summary: "Read app.js", stdout: "export default {};" }],
+    }),
+  };
+  await (await import("../src/desktop-agent/agent-registry.js")).registerDesktopAgent(root, {
+    version: 1, agentId: "agent-1", agentVersion: "test", os: "win32", capabilities: ["process"],
+    workspaceRoots: [production.worktreeRoot], token: "fixture-only-token",
+  }, new Date().toISOString());
+  await saveIdeaLabCampaign(root, {
+    version: 1, id: proposal.campaignId, seed: proposal.concept, constraints: [], targetReadyCount: 1,
+    productionConcurrency: 1, proposalIds: [proposal.id], productionIds: [production.id], status: "producing",
+    createdAt: proposal.createdAt, updatedAt: proposal.createdAt,
+  });
+  const driver = makeDriver(root, { proposal, browserAdapter, desktopTransport });
+
+  const result = await driver.advanceProduction(production);
+  const finalRun = await loadHarnessRun(root, production.runId);
+  const publicView = await buildIdeaLabView(root, root);
+
+  assert.equal(result.status, "failed");
+  assert.equal(finalRun?.state.status, "FAILED_FINAL");
+  assert.match(finalRun?.state.reason ?? "", /rejected structured-result budget exhausted.*patch appendix invalid/i);
+  assert.ok((finalRun?.state.reason?.length ?? Infinity) <= 160);
+  assert.equal(result.failureSummary, "Harness production failed");
+  assert.equal((await findDesktopJobByIdempotencyKey(root, `web-intent:${production.runId}:${intentId}`))?.status, "completed");
+  assert.equal(responseIndex, 4);
+  assert.doesNotMatch(JSON.stringify(publicView), /patch appendix|end marker|rejected structured-result/i);
+  assert.doesNotMatch(JSON.stringify(finalRun?.state.reason), /app\.js|fixture-only-token|@@ISEOL_PATCH|secret/i);
 });

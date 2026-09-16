@@ -181,7 +181,7 @@ test("retryable Harness exhaustion yields campaign supervision instead of resett
 
   const finalRun = await loadHarnessRun(root, production.runId);
   assert.equal(finalRun?.state.status, "FAILED_RETRYABLE");
-  assert.match(finalRun?.state.reason ?? "", /ChatGptWebSessionLostError/);
+  assert.match(finalRun?.state.reason ?? "", /recovery budget exhausted: session lost/);
   assert.equal((await loadDesktopIntent(root, production.runId, intentId))?.status, "accepted");
   assert.equal((await findDesktopJobByIdempotencyKey(root, `web-intent:${production.runId}:${intentId}`))?.status, "completed");
   assert.ok(fake.openedSessions.length <= 288, `expected at most two Harness budgets, got ${fake.openedSessions.length} sessions`);

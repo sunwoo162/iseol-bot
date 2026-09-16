@@ -110,7 +110,7 @@ test("malformed structured results use the same bounded rejection budget", async
   });
   const result = await executor.execute(run);
   assert.equal(result.type, "retryable-failure");
-  assert.match(result.reason, /rejected reasoning result budget/i);
+  assert.equal(result.reason, "ChatGPT Web failure: rejected structured-result budget exhausted; structured result invalid");
   assert.equal(fake.submittedPrompts.length, 2);
 });
 test("reasoning executor persists a conversation ref assigned by first submit before reading the result", async () => {
@@ -321,7 +321,7 @@ test("temporary ChatGPT rate limits stop reasoning without session recovery or e
   });
   assert.deepEqual(await executor.execute(run), {
     type: "waiting-external",
-    reason: "ChatGPT Web is temporarily rate limited",
+    reason: "ChatGPT Web failure: temporary rate limit",
   });
   assert.equal(submitCalls, 0);
   assert.equal((await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"))?.generation, 1);
@@ -378,8 +378,34 @@ test("account or model usage limits wait without creating a replacement conversa
     now: () => "2026-09-08T01:13:00.000Z", runDesktopIntent: async () => { throw new Error("unused"); } });
   assert.deepEqual(await executor.execute(run), {
     type: "waiting-external",
-    reason: "ChatGPT Web usage limit reached",
+    reason: "ChatGPT Web failure: usage limit",
   });
   assert.equal(opens, 1);
   assert.equal((await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"))?.generation, 1);
+});
+
+test("bounded browser failures persist safe semantic classifications", async () => {
+  const browser = await import("../src/chatgpt-web/browser-adapter.js");
+  const cases: Array<[string, new (message: string) => Error, string, string, number]> = [
+    ["session lost", browser.ChatGptWebSessionLostError, "browser session disappeared", "ChatGPT Web recovery budget exhausted: session lost", 1],
+    ["conversation identity", browser.ChatGptWebSessionLostError, "ChatGPT Web conversation reference is unavailable", "ChatGPT Web recovery budget exhausted: conversation identity unavailable", 1],
+    ["structured result timeout", browser.ChatGptWebSessionLostError, "ChatGPT structured result timed out", "ChatGPT Web recovery budget exhausted: structured result timeout", 1],
+    ["conversation limit", browser.ChatGptWebConversationLimitError, "conversation limit reached", "ChatGPT Web recovery budget exhausted: conversation limit", 1],
+    ["invalid structured result", browser.ChatGptWebStructuredResultError, "ChatGPT structured result is not exactly one JSON value", "ChatGPT Web failure: rejected structured-result budget exhausted; structured result invalid", 2],
+  ];
+
+  for (const [label, ErrorType, message, expectedReason, budget] of cases) {
+    const { root, run } = await fixture();
+    const fake = createFakeChatGptWebBrowserAdapter([
+      ...Array.from({ length: 4 }, () => new ErrorType(message)),
+    ]);
+    const executor = createWebReasoningExecutor({
+      workerRoot: root, adapter: fake.adapter,
+      ...(label === "invalid structured result" ? { maxRejectedIntents: budget } : { maxTurnsPerStage: budget }),
+      runDesktopIntent: async () => { throw new Error("unused"); },
+    });
+    const result = await executor.execute(run);
+    assert.deepEqual(result, { type: "retryable-failure", reason: expectedReason }, label);
+    assert.doesNotMatch(JSON.stringify(result), /browser session disappeared|reference is unavailable|limit reached|exactly one JSON/);
+  }
 });

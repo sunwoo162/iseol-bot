@@ -336,8 +336,8 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
         const result = await hybrid.execute(run);
         if (result.type === "retryable-failure"
           && ["ANALYZE", "PLAN", "IMPLEMENT", "SELF_REVIEW"].includes(run.state.stage)
-          && /Rejected reasoning result budget exhausted: ChatGPT (?:patch|PROPOSE_PATCH)/i.test(result.reason)) {
-          return { type: "final-failure" as const, reason: SAFE_FINAL_FAILURE };
+          && /ChatGPT Web failure: rejected structured-result budget exhausted; patch appendix invalid/i.test(result.reason)) {
+          return { type: "final-failure" as const, reason: result.reason };
         }
         return result;
       },

@@ -78,6 +78,23 @@ function structuredCorrection(reason: string): string {
   const boundedReason = reason.replace(/\s+/g, " ").trim().slice(0, 240);
   return `${STRUCTURED_JSON_CORRECTION} Validation failure: ${boundedReason}`;
 }
+function structuredResultFailureClass(error: ChatGptWebStructuredResultError): "patch appendix invalid" | "structured result invalid" {
+  return /patch|propose_patch/i.test(error.message) ? "patch appendix invalid" : "structured result invalid";
+}
+function browserFailureClass(error: unknown): string {
+  if (error instanceof ChatGptWebTemporarilyLimitedError) return "temporary rate limit";
+  if (error instanceof ChatGptWebUsageLimitError) return "usage limit";
+  if (error instanceof ChatGptWebConversationLimitError) return "conversation limit";
+  if (error instanceof ChatGptWebStructuredResultError) return structuredResultFailureClass(error);
+  if (error instanceof ChatGptWebSessionLostError) {
+    if (/structured result timed out/i.test(error.message)) return "structured result timeout";
+    if (/conversation (?:reference|identity).*(?:unavailable|missing|not assign)|canonical conversation identity.*(?:unavailable|not assign)/i.test(error.message)) {
+      return "conversation identity unavailable";
+    }
+    return "session lost";
+  }
+  return "browser failure";
+}
 async function ensureSession(input: CreateWebReasoningExecutorInput, run: HarnessRuntimeRunEnvelope, at: string): Promise<WebWorkerSession> {
   const existing = await getActiveWebWorkerSession(input.workerRoot, run.request.runId, run.state.stage);
   if (existing) return existing;
@@ -140,7 +157,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
       let acceptedTurns = 0;
       let rejectedCount = 0;
       let recoveries = 0;
-      let finalRecoveryTrigger: "ChatGptWebSessionLostError" | "ChatGptWebConversationLimitError" = "ChatGptWebSessionLostError";
+      let finalRecoveryClass = "session lost";
 
       while (acceptedTurns < maxTurns) {
         let rawResult: unknown;
@@ -159,29 +176,27 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           rawResult = await input.adapter.awaitStructuredResult(session, resultTimeoutMs);
         } catch (error) {
           if (error instanceof ChatGptWebTemporarilyLimitedError) {
-            return { type: "waiting-external", reason: "ChatGPT Web is temporarily rate limited" };
+            return { type: "waiting-external", reason: "ChatGPT Web failure: temporary rate limit" };
           }
           if (error instanceof ChatGptWebUsageLimitError) {
-            return { type: "waiting-external", reason: "ChatGPT Web usage limit reached" };
+            return { type: "waiting-external", reason: "ChatGPT Web failure: usage limit" };
           }
           if (error instanceof ChatGptWebStructuredResultError) {
             rejectedCount += 1;
             if (rejectedCount >= maxRejected) {
-              return { type: "retryable-failure", reason: `Rejected reasoning result budget exhausted: ${error.message}` };
+              return { type: "retryable-failure", reason: `ChatGPT Web failure: rejected structured-result budget exhausted; ${structuredResultFailureClass(error)}` };
             }
             desktopEvidence = [...desktopEvidence, { kind: "reasoning-rejection", summary: structuredCorrection(error.message) }];
             prompt = compileWebPrompt({ kind: "feedback", run, session, priorTurns, desktopEvidence });
             continue;
           }
           if (!(error instanceof ChatGptWebSessionLostError) && !(error instanceof ChatGptWebConversationLimitError)) {
-            return { type: "retryable-failure", reason: error instanceof Error ? error.message : String(error) };
+            return { type: "retryable-failure", reason: `ChatGPT Web failure: ${browserFailureClass(error)}` };
           }
-          finalRecoveryTrigger = error instanceof ChatGptWebConversationLimitError
-            ? "ChatGptWebConversationLimitError"
-            : "ChatGptWebSessionLostError";
+          finalRecoveryClass = browserFailureClass(error);
           recoveries += 1;
           if (recoveries > maxTurns) {
-            return { type: "retryable-failure", reason: `ChatGPT Web session recovery budget exhausted (${finalRecoveryTrigger})` };
+            return { type: "retryable-failure", reason: `ChatGPT Web recovery budget exhausted: ${finalRecoveryClass}` };
           }
           const recovered = await recoverWebWorkerSession({
             workerRoot: input.workerRoot, run, session, priorTurns, desktopEvidence, at: now(),
@@ -197,10 +212,10 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           assertReasoningTurnResult(rawResult);
           result = await assertActiveWebWorkerResult(input.workerRoot, run, session, rawResult);
         } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
+          const reason = error instanceof Error ? error.message : "Structured result validation failed";
           if (/result generation is stale/i.test(reason)) {
             rejectedCount += 1;
-            if (rejectedCount >= maxRejected) return { type: "retryable-failure", reason: `Rejected reasoning result budget exhausted: ${reason}` };
+            if (rejectedCount >= maxRejected) return { type: "retryable-failure", reason: "ChatGPT Web failure: rejected structured-result budget exhausted; structured result invalid" };
             const receivedGeneration = (rawResult as { generation?: unknown }).generation;
             desktopEvidence = [...desktopEvidence, {
               kind: "reasoning-rejection",
@@ -211,7 +226,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           }
           if (/policy|stale|generation|active session/i.test(reason)) return { type: "retryable-failure", reason };
           rejectedCount += 1;
-          if (rejectedCount >= maxRejected) return { type: "retryable-failure", reason: `Rejected reasoning result budget exhausted: ${reason}` };
+          if (rejectedCount >= maxRejected) return { type: "retryable-failure", reason: "ChatGPT Web failure: rejected structured-result budget exhausted; structured result invalid" };
           desktopEvidence = [...desktopEvidence, { kind: "reasoning-rejection", summary: reason }];
           prompt = compileWebPrompt({ kind: "feedback", run, session, priorTurns, desktopEvidence });
           continue;
