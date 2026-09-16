@@ -132,6 +132,7 @@ function verifiedReceipt(production: PrototypeProduction): PrototypeDeploymentRe
 export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRuntimeDriverInput) {
   const now = input.now ?? (() => new Date().toISOString());
   const webWorkerRoot = input.roots.webWorkerRoot ?? input.roots.webRoot;
+  const activeAdvances = new Map<string, Promise<PrototypeProduction>>();
 
   async function createProduction(proposal: IdeaProposal, ordinal: number): Promise<PrototypeProduction> {
     const id = `${proposal.campaignId}-prod-${ordinal}`;
@@ -416,7 +417,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
     return ready;
   }
 
-  async function advanceProduction(production: PrototypeProduction): Promise<PrototypeProduction> {
+  async function advanceProductionOnce(production: PrototypeProduction): Promise<PrototypeProduction> {
     const proposal = await loadIdeaProposal(input.roots.modelRoot, production.proposalId);
     const run = await loadHarnessRun(input.roots.runRoot, production.runId);
     if (!proposal || !run) throw new Error("Idea Lab production dependency is missing");
@@ -470,6 +471,15 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
     }
     const latest = await loadPrototypeProduction(input.roots.modelRoot, production.id) ?? canonical;
     return finalizeReady(latest, proposal, final);
+  }
+
+  async function advanceProduction(production: PrototypeProduction): Promise<PrototypeProduction> {
+    const existing = activeAdvances.get(production.id);
+    if (existing) return existing;
+    const operation = advanceProductionOnce(production);
+    activeAdvances.set(production.id, operation);
+    try { return await operation; }
+    finally { if (activeAdvances.get(production.id) === operation) activeAdvances.delete(production.id); }
   }
 
   return { createProduction, advanceProduction };
