@@ -424,6 +424,9 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
 
     if (run.state.status === "FAILED_FINAL") return persistFailure(canonical);
     if (run.state.status === "DONE") return finalizeReady(canonical, proposal, run);
+    if (run.state.status === "FAILED_RETRYABLE") {
+      throw new Error("Idea Lab Harness retryable failure is awaiting runtime recovery ownership");
+    }
 
     const final = await superviseHarnessRun({
       storeRoot: input.roots.runRoot,

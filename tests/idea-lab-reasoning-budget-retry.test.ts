@@ -184,7 +184,7 @@ test("retryable Harness exhaustion yields campaign supervision instead of resett
   assert.match(finalRun?.state.reason ?? "", /recovery budget exhausted: session lost/);
   assert.equal((await loadDesktopIntent(root, production.runId, intentId))?.status, "accepted");
   assert.equal((await findDesktopJobByIdempotencyKey(root, `web-intent:${production.runId}:${intentId}`))?.status, "completed");
-  assert.ok(fake.openedSessions.length <= 288, `expected at most two Harness budgets, got ${fake.openedSessions.length} sessions`);
+  assert.ok(fake.openedSessions.length <= 144, `expected one bounded Harness budget, got ${fake.openedSessions.length} sessions`);
   assert.equal(supervisionPasses, 2, "runtime owns exactly one bounded supervision retry");
   assert.equal((await loadPrototypeProduction(root, production.id))?.status, "running");
   assert.equal((await loadIdeaLabCampaign(root, proposalValue.campaignId))?.status, "producing");
