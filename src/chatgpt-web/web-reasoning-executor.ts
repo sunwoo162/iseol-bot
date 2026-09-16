@@ -73,7 +73,7 @@ function completedStageContext(turns: ReasoningTurn[], run: HarnessRuntimeRunEnv
     reference: `reasoning-turn:${turn.turnId}`,
   }));
 }
-const STRUCTURED_JSON_CORRECTION = "Previous response was not valid structured output. Return no markdown or prose. Without PROPOSE_PATCH, return exactly one JSON object. With PROPOSE_PATCH, emit exactly one PROPOSE_PATCH intent and one patch appendix; defer remaining file changes to a later turn. Use a single-line JSON header where patch is @@ISEOL_PATCH:<intentId>@@, then emit the raw git apply-compatible unified diff between @@ISEOL_PATCH_BEGIN:<intentId>@@ and @@ISEOL_PATCH_END:<intentId>@@. Each begin/end marker must be a standalone line with a newline immediately before and after it (EOF allowed after the final end marker). Each appendix must contain exactly one file diff; every hunk body line needs a unified-diff prefix (space, +, -, or \\), blank added lines are +, and hunk counts must match. Never use *** Begin Patch markers.";
+const STRUCTURED_JSON_CORRECTION = "Previous response was not valid structured output. Return no markdown or prose. Return exactly one JSON object. For PROPOSE_PATCH, include exactly one intent with path, patch compatibility token, and patchText containing the complete git-apply-compatible unified diff as a JSON string. Encode newlines using JSON escaping; do not add markers, appendices, code fences, or prose. The patchText must contain one file diff with valid headers, hunk prefixes, and matching hunk counts; defer remaining file changes to a later turn.";
 function structuredCorrection(reason: string): string {
   const boundedReason = reason.replace(/\s+/g, " ").trim().slice(0, 240);
   return `${STRUCTURED_JSON_CORRECTION} Validation failure: ${boundedReason}`;

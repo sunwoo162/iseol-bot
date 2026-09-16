@@ -93,7 +93,7 @@ test("prompt pins the exact reasoning result envelope and Desktop intent contrac
     session: session("PLAN", 3),
   });
   const payload = JSON.parse(compiled.body) as any;
-  assert.match(payload.outputContract.responseFormat, /JSON object.*patch append/i);
+  assert.match(payload.outputContract.responseFormat, /exactly one JSON object/i);
   assert.deepEqual(payload.outputContract.reasoningTurnResult, {
     version: 1,
     runId: "run-prompt",
@@ -137,43 +137,36 @@ test("prompt explains JSON-safe git-apply patch transport", () => {
   assert.match(payload.outputContract.jsonStringEncodingRule, /JSON string escaping/i);
   assert.match(payload.outputContract.jsonStringEncodingRule, /double quotes/i);
   assert.match(payload.outputContract.jsonStringEncodingRule, /newlines/i);
-  assert.match(payload.outputContract.proposePatchRule, /git apply/i);
+  assert.match(payload.outputContract.proposePatchRule, /git-apply/i);
   assert.match(payload.outputContract.proposePatchRule, /unified diff/i);
-  assert.match(payload.outputContract.proposePatchRule, /Begin Patch/i);
-  assert.match(payload.outputContract.proposePatchExample.appendix, /diff --git a\/index\.html b\/index\.html/);
-  assert.match(payload.outputContract.proposePatchExample.appendix, /class="card"/);
+  assert.match(payload.outputContract.proposePatchRule, /patchText/);
+  assert.match(payload.outputContract.proposePatchExample.intent.patchText, /diff --git a\/index\.html b\/index\.html/);
+  assert.match(payload.outputContract.proposePatchExample.intent.patchText, /class="card"/);
 });
 
 
-test("prompt transports PROPOSE_PATCH diff outside the JSON header", () => {
+test("prompt transports PROPOSE_PATCH diff in structured patchText", () => {
   const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
-  assert.match(payload.outputContract.responseFormat, /patch append/i);
-  assert.match(payload.outputContract.proposePatchRule, /@@ISEOL_PATCH:<intentId>@@/);
-  assert.match(payload.outputContract.proposePatchRule, /single-line JSON/i);
-  assert.match(payload.outputContract.proposePatchRule, /after the JSON/i);
+  assert.doesNotMatch(payload.outputContract.responseFormat, /appendix/i);
+  assert.doesNotMatch(payload.outputContract.proposePatchRule, /appendix|marker/i);
+  assert.match(payload.outputContract.proposePatchRule, /patchText/);
   assert.equal(payload.outputContract.proposePatchExample.intent.patch, "@@ISEOL_PATCH:patch-example@@");
-  assert.match(payload.outputContract.proposePatchExample.appendix, /@@ISEOL_PATCH_BEGIN:patch-example@@/);
-  assert.match(payload.outputContract.proposePatchExample.appendix, /diff --git a\/index\.html b\/index\.html/);
-  assert.match(payload.outputContract.proposePatchExample.appendix, /class="card"/);
-  assert.match(payload.outputContract.proposePatchExample.appendix, /@@ISEOL_PATCH_END:patch-example@@/);
+  assert.match(payload.outputContract.proposePatchExample.intent.patchText, /diff --git a\/index\.html b\/index\.html/);
 });
 
-test("prompt constrains each patch appendix to one syntactically valid file diff", () => {
+test("prompt constrains each structured patch to one syntactically valid file diff", () => {
   const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
   const rule = payload.outputContract.proposePatchRule as string;
-  assert.match(rule, /exactly one file/i);
-  assert.match(rule, /hunk/i);
-  assert.match(rule, /prefix/i);
-  assert.match(rule, /blank added line/i);
+  assert.match(rule, /unified diff/i);
+  assert.match(rule, /later turn/i);
   assert.match(rule, /at most one PROPOSE_PATCH/i);
   assert.match(rule, /later turn/i);
 });
 
 
-test("prompt requires patch markers to be standalone lines", () => {
+test("prompt does not advertise legacy patch markers", () => {
   const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
-  assert.match(payload.outputContract.proposePatchRule, /standalone line/i);
-  assert.match(payload.outputContract.proposePatchRule, /newline.*before.*after/i);
+  assert.doesNotMatch(payload.outputContract.proposePatchRule, /marker|appendix/i);
 });
 
 

@@ -198,12 +198,10 @@ test("structured JSON syntax errors get bounded corrective feedback", async () =
   assert.equal((await executor.execute(run)).type, "completed");
   assert.equal(fake.submittedPrompts.length, 2);
   const feedback = JSON.parse(fake.submittedPrompts[1]!.body) as any;
-  assert.match(JSON.stringify(feedback.desktopEvidence), /single-line JSON header/i);
-  assert.match(JSON.stringify(feedback.desktopEvidence), /ISEOL_PATCH:<intentId>/);
-  assert.match(JSON.stringify(feedback.desktopEvidence), /git apply/i);
-  assert.match(JSON.stringify(feedback.desktopEvidence), /ISEOL_PATCH_BEGIN/);
-  assert.match(JSON.stringify(feedback.desktopEvidence), /exactly one file/i);
-  assert.match(JSON.stringify(feedback.desktopEvidence), /hunk.*prefix/i);
+  assert.match(JSON.stringify(feedback.desktopEvidence), /patchText/i);
+  assert.match(JSON.stringify(feedback.desktopEvidence), /git-apply-compatible/i);
+  assert.match(JSON.stringify(feedback.desktopEvidence), /valid headers/i);
+  assert.match(JSON.stringify(feedback.desktopEvidence), /hunk prefixes/i);
 });
 
 
@@ -236,7 +234,7 @@ test("restart advances past a lost session still referenced by the active pointe
 });
 
 
-test("structured correction includes the exact validation reason and marker-line rule", async () => {
+test("structured correction includes the exact validation reason and structured patch contract", async () => {
   const { root, run } = await fixture();
   const { ChatGptWebStructuredResultError } = await import("../src/chatgpt-web/browser-adapter.js");
   const fake = createFakeChatGptWebBrowserAdapter([
@@ -249,8 +247,10 @@ test("structured correction includes the exact validation reason and marker-line
   const feedback = JSON.parse(fake.submittedPrompts[1]!.body) as any;
   const text = JSON.stringify(feedback.desktopEvidence);
   assert.match(text, /patch appendix end marker is missing/i);
-  assert.match(text, /standalone line/i);
-  assert.match(text, /exactly one PROPOSE_PATCH/i);
+  assert.match(text, /patchText/i);
+  assert.doesNotMatch(text, /ISEOL_PATCH_BEGIN|ISEOL_PATCH_END/i);
+  assert.match(text, /JSON string/i);
+  assert.match(text, /exactly one intent/i);
   assert.match(text, /later turn/i);
 });
 

@@ -201,7 +201,7 @@ function parseStructuredResult(text: string): unknown {
         intent.patch = patchText;
       }
     }
-    if (intents.some((intent: any) => intent?.kind === "PROPOSE_PATCH" && typeof intent.patchText !== "string")) structured("ChatGPT PROPOSE_PATCH requires raw patch appendix transport");
+    if (intents.some((intent: any) => intent?.kind === "PROPOSE_PATCH" && typeof intent.patchText !== "string")) structured("ChatGPT PROPOSE_PATCH requires structured patchText payload");
     return parsed;
   } catch (error) {
     if (error instanceof ChatGptWebStructuredResultError) throw error;

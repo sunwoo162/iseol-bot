@@ -84,22 +84,12 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
     desktopEvidence: evidence,
     recovery: input.kind === "recovery" ? "Resume from the first unfinished verified step; do not repeat verified side effects." : null,
     outputContract: {
-      responseFormat: "exactly one JSON object only, unless PROPOSE_PATCH is present; then use one single-line JSON header followed only by exact patch appendices, with no markdown or prose",
-      jsonStringEncodingRule: "Use valid JSON string escaping for every JSON value. Inside JSON strings, encode newlines as \\n, double quotes as \\\", and backslashes as \\\\; raw patch appendix bodies are outside JSON and must not be JSON-escaped.",
+      responseFormat: "exactly one JSON object only, with no markdown or prose",
+      jsonStringEncodingRule: "Use valid JSON string escaping for every JSON value. Inside JSON strings, encode newlines as \\n, double quotes as \\\", and backslashes as \\\\. Put the complete unified diff in patchText as a JSON string.",
       cwdRule: "For RUN_TEST, RUN_BUILD, GIT_INSPECT, and REQUEST_COMMIT, cwd must be workspace-relative. Use '.' for the workspace root; never copy the absolute workspaceRoot into cwd.",
-      proposePatchRule: "Emit at most one PROPOSE_PATCH intent per response. If more files need changes, complete one focused patch and continue the remaining changes in a later turn. For each PROPOSE_PATCH intent, set patchText to the exact multiline unified diff string in the JSON intent; do not emit a trailing appendix. Each appendix must contain exactly one file unified diff and be git apply-compatible using one diff --git / --- / +++ file header pair and valid @@ hunks. Both begin and end markers must each be a standalone line with a newline immediately before and after each marker (EOF is allowed after the final end marker). Every hunk body line needs a unified-diff prefix: space for context, + for additions, - for deletions, or \\ for the no-newline marker; a blank added line must be a single +. Hunk range counts must match their body lines. Never use *** Begin Patch, *** Update File, *** Add File, or *** Delete File markers.",
+      proposePatchRule: "Emit at most one PROPOSE_PATCH intent per response. If more files need changes, complete one focused patch and continue remaining changes in a later turn. Put the exact complete git-apply-compatible unified diff in patchText. Do not include markdown or prose.",
       proposePatchExample: {
-        intent: { intentId: "patch-example", kind: "PROPOSE_PATCH", path: "index.html", patch: "@@ISEOL_PATCH:patch-example@@" },
-        appendix: [
-          "@@ISEOL_PATCH_BEGIN:patch-example@@",
-          "diff --git a/index.html b/index.html",
-          "--- a/index.html",
-          "+++ b/index.html",
-          "@@ -1 +1 @@",
-          "-<div>old</div>",
-          "+<div class=\"card\">new</div>",
-          "@@ISEOL_PATCH_END:patch-example@@",
-        ].join("\n"),
+        intent: { intentId: "patch-example", kind: "PROPOSE_PATCH", path: "index.html", patch: "@@ISEOL_PATCH:patch-example@@", patchText: "diff --git a/index.html b/index.html\\n--- a/index.html\\n+++ b/index.html\\n@@ -1 +1 @@\\n-<div>old</div>\\n+<div class=\"card\">new</div>" },
       },
       reasoningTurnResult: {
         version: 1,
@@ -122,7 +112,7 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
       },
       requiredFieldsByIntentKind: {
         READ_CONTEXT: ["path"],
-        PROPOSE_PATCH: ["path", "patch"],
+        PROPOSE_PATCH: ["path", "patch", "patchText"],
         RUN_TEST: ["cwd", "executable", "args", "timeoutMs"],
         RUN_BUILD: ["cwd", "executable", "args", "timeoutMs"],
         GIT_INSPECT: ["cwd"],
