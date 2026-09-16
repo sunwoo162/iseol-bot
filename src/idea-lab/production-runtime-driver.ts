@@ -168,23 +168,33 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
       iseolRoot: input.roots.iseolRoot,
       runStoreRoot: input.roots.runRoot,
     };
-    const allocation = await input.sandboxAdapter.inspect(allocationInput)
-      ?? await input.sandboxAdapter.allocate(allocationInput);
-    assertAllocationIdentity(allocation, input, proposal.campaignId, id, targetRoot);
-
-    const created: PrototypeProduction = {
+    const provisional: PrototypeProduction = {
       version: 1,
       id,
       campaignId: proposal.campaignId,
       proposalId: proposal.id,
       runId,
+      repositoryUrl: input.repositoryUrl,
+      sandboxRoot: input.sandboxRoot,
+      worktreeRoot: targetRoot,
+      branch: expectedProductionBranch(proposal.campaignId, id),
+      baseRef: input.baseRef,
+      status: "queued",
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    await savePrototypeProduction(input.roots.modelRoot, provisional);
+    const allocation = await input.sandboxAdapter.inspect(allocationInput)
+      ?? await input.sandboxAdapter.allocate(allocationInput);
+    assertAllocationIdentity(allocation, input, proposal.campaignId, id, targetRoot);
+
+    const created: PrototypeProduction = {
+      ...provisional,
       repositoryUrl: allocation.repositoryUrl,
       sandboxRoot: input.sandboxRoot,
       worktreeRoot: allocation.worktreeRoot,
       branch: allocation.branch,
       baseRef: allocation.baseRef,
-      status: "queued",
-      createdAt: now(),
       updatedAt: now(),
     };
     await savePrototypeProduction(input.roots.modelRoot, created);

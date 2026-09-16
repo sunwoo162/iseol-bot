@@ -256,6 +256,11 @@ export async function superviseIdeaLabCampaign(
   while (steps < maxSteps) {
     const productions = (await listPrototypeProductions(input.root))
       .filter((item) => item.campaignId === campaign!.id);
+    const linkedIds = productions.map((item) => item.id).filter((id) => !campaign!.productionIds.includes(id));
+    if (linkedIds.length > 0) {
+      campaign = { ...campaign!, productionIds: [...campaign!.productionIds, ...linkedIds], updatedAt: (input.now ?? (() => new Date().toISOString()))() };
+      await saveIdeaLabCampaign(input.root, campaign);
+    }
     const readyCount = productions.filter((item) => item.status === "ready").length;
     if (readyCount >= campaign.targetReadyCount) return completeCampaign(input, campaign);
 
