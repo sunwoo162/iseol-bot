@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createIdeaLabProductionRuntimeDriver } from "../src/idea-lab/production-runtime-driver.js";
@@ -57,6 +57,12 @@ function makeDriver(root: string, browserAdapter: any) {
 
 test("Idea Lab retries after structured-result rejection budget instead of permanently failing", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-driver-structured-retry-"));
+  await mkdir(join(root, "docs"), { recursive: true });
+  await writeFile(
+    join(root, "docs", "HARNESS_ENGINEERING.md"),
+    "# Test Harness\n\nOnly operate inside this fixture.\n",
+    "utf8",
+  );
   const proposalValue = proposal();
   const bootstrap = makeDriver(root, {} as never);
   const production = await bootstrap.createProduction(proposalValue, 1);
@@ -66,17 +72,6 @@ test("Idea Lab retries after structured-result rejection budget instead of perma
   assert.ok(run);
   await saveHarnessRun(root, {
     ...run,
-    preflight: {
-      version: 1,
-      runId: production.runId,
-      status: "ready",
-      policy: {
-        version: 1,
-        loadedAt: "2026-09-16T00:00:00.000Z",
-        sources: [],
-        effectiveSha256: "policy",
-      },
-    },
     state: {
       ...run.state,
       stage: "IMPLEMENT",
