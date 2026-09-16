@@ -47,7 +47,7 @@ function classify(error: unknown): never {
 export function createProductionChatGptWebAdapter(driver: ChatGptBrowserDriver): ChatGptWebBrowserAdapter {
   const recordFailure = async (operation: string, session: any, error: unknown) => {
     const message = error instanceof Error ? error.message : "unknown";
-    const failureClass = /conversation identity/i.test(message) ? "conversation-identity-failure" : /composer/i.test(message) ? "composer-failure" : /assistant/i.test(message) ? "assistant-response-failure" : /timeout/i.test(message) ? "response-timeout" : "browser-operation-unknown";
+    const failureClass = error instanceof ChatGptWebStructuredResultError ? "structured-result-parser-rejection" : /conversation identity/i.test(message) ? "conversation-identity-failure" : /composer/i.test(message) ? "composer-failure" : /assistant/i.test(message) ? "assistant-response-failure" : /timeout/i.test(message) ? "response-timeout" : "browser-operation-unknown";
     await driver.recordOperationDiagnostic?.({ operation, phase: "failure", stage: session.stage, sessionId: session.sessionId, generation: session.generation, ...(session.conversationRef ? { conversationRef: session.conversationRef } : {}), failureClass }).catch(() => undefined);
   };
   const promptInput = (prompt: CompiledWebPrompt) => ({ prompt: prompt.body, promptSha256: prompt.sha256 });

@@ -405,14 +405,18 @@ export async function createPlaywrightChatGptBrowserDriver(
     },
     async recordParserDiagnostic(input) {
       if (!config.lifecycleRoot) return;
-      const category = /begin marker is invalid|placeholder/i.test(input.message) ? "appendix-marker-malformed"
+      const category = /structured result is not exactly one JSON value|structured result fence is malformed/i.test(input.message) ? "response-envelope-malformed"
+        : /structured result is empty/i.test(input.message) ? "response-envelope-missing"
+          : /patchText payload/i.test(input.message) ? "patch-text-missing"
+            : /patch appendix is empty/i.test(input.message) ? "patch-text-empty"
+              : /begin marker is invalid|placeholder/i.test(input.message) ? "appendix-marker-malformed"
         : /end marker is missing|appendix is missing/i.test(input.message) ? "appendix-marker-missing"
           : /appendix.*empty/i.test(input.message) ? "appendix-empty"
             : /hunk.*header/i.test(input.message) ? "hunk-header-invalid"
               : /line counts/i.test(input.message) ? "hunk-count-mismatch"
                 : /diff.*header|exactly one file diff/i.test(input.message) ? "diff-header-invalid"
                   : /body lines require/i.test(input.message) ? "unsupported-diff-shape"
-                    : /not referenced/i.test(input.message) ? "parser-contract-violation" : "unknown-safe-parser-rejection";
+                    : /not referenced|must be one JSON object/i.test(input.message) ? "parser-contract-violation" : "unknown-safe-parser-rejection";
       const file = resolve(config.lifecycleRoot, "web-workers", "parser-diagnostics.jsonl");
       try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "parser-rejection", stage: input.stage, sessionId: input.sessionId, generation: input.generation, conversationRefPresent: Boolean(input.conversationRef), category })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
     },
