@@ -88,10 +88,15 @@ function browserFailureClass(error: unknown): string {
   if (error instanceof ChatGptWebStructuredResultError) return structuredResultFailureClass(error);
   if (error instanceof ChatGptWebSessionLostError) {
     if (/structured result timed out/i.test(error.message)) return "structured result timeout";
+    if (/composer is missing or ambiguous/i.test(error.message)) return "owned-page-stale";
+    if (/identity changed while reading result|identity changed after prompt submission/i.test(error.message)) return "conversation-identity-changed";
+    if (/identity changed during navigation/i.test(error.message)) return "navigation-state-unexpected";
+    if (/assistant source is unavailable/i.test(error.message)) return "assistant-baseline-missing";
+    if (/no pending ChatGPT submission/i.test(error.message)) return "persisted-session-stale";
     if (/conversation (?:reference|identity).*(?:unavailable|missing|not assign)|canonical conversation identity.*(?:unavailable|not assign)/i.test(error.message)) {
       return "conversation identity unavailable";
     }
-    return "session lost";
+    return "unknown-session-loss";
   }
   return "browser failure";
 }

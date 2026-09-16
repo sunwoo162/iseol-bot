@@ -387,7 +387,9 @@ test("account or model usage limits wait without creating a replacement conversa
 test("bounded browser failures persist safe semantic classifications", async () => {
   const browser = await import("../src/chatgpt-web/browser-adapter.js");
   const cases: Array<[string, new (message: string) => Error, string, string, number]> = [
-    ["session lost", browser.ChatGptWebSessionLostError, "browser session disappeared", "ChatGPT Web recovery budget exhausted: session lost", 1],
+    ["session lost", browser.ChatGptWebSessionLostError, "browser session disappeared", "ChatGPT Web recovery budget exhausted: unknown-session-loss", 1],
+    ["identity changed", browser.ChatGptWebSessionLostError, "ChatGPT conversation identity changed while reading result", "ChatGPT Web recovery budget exhausted: conversation-identity-changed", 1],
+    ["stale session", browser.ChatGptWebSessionLostError, "No pending ChatGPT submission is available for structured result reading", "ChatGPT Web recovery budget exhausted: persisted-session-stale", 1],
     ["conversation identity", browser.ChatGptWebSessionLostError, "ChatGPT Web conversation reference is unavailable", "ChatGPT Web recovery budget exhausted: conversation identity unavailable", 1],
     ["structured result timeout", browser.ChatGptWebSessionLostError, "ChatGPT structured result timed out", "ChatGPT Web recovery budget exhausted: structured result timeout", 1],
     ["conversation limit", browser.ChatGptWebConversationLimitError, "conversation limit reached", "ChatGPT Web recovery budget exhausted: conversation limit", 1],
