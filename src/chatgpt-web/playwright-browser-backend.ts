@@ -1,4 +1,6 @@
 import { chromium, type BrowserContext, type Page } from "playwright-core";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import type { PlaywrightBrowserDriverConfig } from "./playwright-browser-config.js";
 
 export interface PlaywrightBrowserBackend {
@@ -98,10 +100,27 @@ export async function createPlaywrightBrowserBackend(
   });
   let page: Page | null = await context.newPage();
   let disposed = false;
+  const lifecycleFile = config.lifecycleRoot ? resolve(config.lifecycleRoot, "web-workers", "lifecycle.jsonl") : null;
+  let lifecycleWrites = Promise.resolve();
+  const lifecycle = (type: string, reason?: string) => {
+    if (!lifecycleFile) return;
+    lifecycleWrites = lifecycleWrites.then(async () => {
+      await mkdir(dirname(lifecycleFile), { recursive: true });
+      let lines: string[] = [];
+      try { lines = (await readFile(lifecycleFile, "utf8")).trim().split("\n").filter(Boolean); } catch {}
+      lines.push(JSON.stringify({ version: 1, at: new Date().toISOString(), type, ...(reason ? { reason } : {}) }));
+      await writeFile(lifecycleFile, `${lines.slice(-1000).join("\n")}\n`, "utf8");
+    }).catch(() => undefined);
+  };
+  lifecycle("context-created");
+  lifecycle("page-created");
+  (context as any).on?.("close", () => lifecycle("context-closed"));
+  (page as any).on?.("close", () => lifecycle("page-closed"));
+  (page as any).on?.("crash", () => lifecycle("page-crashed"));
 
   async function ownedPage(): Promise<Page> {
     if (disposed) throw new Error("ChatGPT browser backend is disposed");
-    if (!page || page.isClosed()) page = await context.newPage();
+    if (!page || page.isClosed()) { page = await context.newPage(); lifecycle("page-created"); }
     return page;
   }
 
@@ -169,6 +188,7 @@ export async function createPlaywrightBrowserBackend(
     async closeOwnedPage() {
       if (disposed || !page || page.isClosed()) return;
       await page.close();
+      lifecycle("page-closed", "owned-page-release");
       page = null;
     },
     async dispose() {
@@ -176,6 +196,8 @@ export async function createPlaywrightBrowserBackend(
       disposed = true;
       page = null;
       await context.close();
+      lifecycle("context-disposed");
+      await lifecycleWrites;
     },
   };
 }
