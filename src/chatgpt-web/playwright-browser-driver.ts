@@ -416,6 +416,11 @@ export async function createPlaywrightChatGptBrowserDriver(
       const file = resolve(config.lifecycleRoot, "web-workers", "parser-diagnostics.jsonl");
       try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "parser-rejection", stage: input.stage, sessionId: input.sessionId, generation: input.generation, conversationRefPresent: Boolean(input.conversationRef), category })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
     },
+    async recordOperationDiagnostic(input) {
+      if (!config.lifecycleRoot) return;
+      const file = resolve(config.lifecycleRoot, "web-workers", "operation-diagnostics.jsonl");
+      try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "browser-operation", ...input })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
+    },
     async dispose() { await backend.dispose(); },
   };
 }
