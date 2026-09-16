@@ -417,8 +417,12 @@ export async function createPlaywrightChatGptBrowserDriver(
                 : /diff.*header|exactly one file diff/i.test(input.message) ? "diff-header-invalid"
                   : /body lines require/i.test(input.message) ? "unsupported-diff-shape"
                     : /not referenced|must be one JSON object/i.test(input.message) ? "parser-contract-violation" : "unknown-safe-parser-rejection";
+      const phase = /not exactly one JSON value|fence is malformed/i.test(input.message) ? "json-decode"
+        : /structured result is empty/i.test(input.message) ? "response-envelope"
+          : /PROPOSE_PATCH requires/i.test(input.message) ? "intent-specific-shape"
+            : /patch appendix|patch hunk|unified-diff/i.test(input.message) ? "structured-patch-validation" : "contract-validation";
       const file = resolve(config.lifecycleRoot, "web-workers", "parser-diagnostics.jsonl");
-      try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "parser-rejection", stage: input.stage, sessionId: input.sessionId, generation: input.generation, conversationRefPresent: Boolean(input.conversationRef), category })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
+      try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "parser-rejection", stage: input.stage, sessionId: input.sessionId, generation: input.generation, conversationRefPresent: Boolean(input.conversationRef), category, phase })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
     },
     async recordOperationDiagnostic(input) {
       if (!config.lifecycleRoot) return;
