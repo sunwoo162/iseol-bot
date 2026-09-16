@@ -406,6 +406,9 @@ test("bounded browser failures persist safe semantic classifications", async () 
     });
     const result = await executor.execute(run);
     assert.deepEqual(result, { type: "retryable-failure", reason: expectedReason }, label);
+    if (label === "session lost" || label === "conversation identity") {
+      assert.ok(fake.openedSessions.length <= 2, `${label} recovery must remain bounded`);
+    }
     assert.doesNotMatch(JSON.stringify(result), /browser session disappeared|reference is unavailable|limit reached|exactly one JSON/);
   }
 });

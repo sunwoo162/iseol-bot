@@ -157,6 +157,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
       let acceptedTurns = 0;
       let rejectedCount = 0;
       let recoveries = 0;
+      let identitylessRecoveries = 0;
       let finalRecoveryClass = "session lost";
 
       while (acceptedTurns < maxTurns) {
@@ -194,6 +195,12 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
             return { type: "retryable-failure", reason: `ChatGPT Web failure: ${browserFailureClass(error)}` };
           }
           finalRecoveryClass = browserFailureClass(error);
+          if (!session.conversationRef) {
+            identitylessRecoveries += 1;
+            if (identitylessRecoveries > 1) {
+              return { type: "retryable-failure", reason: `ChatGPT Web recovery budget exhausted: ${finalRecoveryClass}` };
+            }
+          }
           recoveries += 1;
           if (recoveries > maxTurns) {
             return { type: "retryable-failure", reason: `ChatGPT Web recovery budget exhausted: ${finalRecoveryClass}` };
