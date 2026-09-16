@@ -397,11 +397,14 @@ export async function createPlaywrightChatGptBrowserDriver(
     },
     async recordParserDiagnostic(input) {
       if (!config.lifecycleRoot) return;
-      const category = /marker.*begin|begin marker/i.test(input.message) ? "appendix-marker-malformed"
-        : /end marker|missing/i.test(input.message) ? "appendix-marker-missing"
-          : /hunk.*header/i.test(input.message) ? "hunk-header-invalid"
-            : /line counts/i.test(input.message) ? "hunk-count-mismatch"
-              : /file diff|header/i.test(input.message) ? "file-header-invalid" : "unknown-safe-parser-rejection";
+      const category = /begin marker is invalid|placeholder/i.test(input.message) ? "appendix-marker-malformed"
+        : /end marker is missing|appendix is missing/i.test(input.message) ? "appendix-marker-missing"
+          : /appendix.*empty/i.test(input.message) ? "appendix-empty"
+            : /hunk.*header/i.test(input.message) ? "hunk-header-invalid"
+              : /line counts/i.test(input.message) ? "hunk-count-mismatch"
+                : /diff.*header|exactly one file diff/i.test(input.message) ? "diff-header-invalid"
+                  : /body lines require/i.test(input.message) ? "unsupported-diff-shape"
+                    : /not referenced/i.test(input.message) ? "parser-contract-violation" : "unknown-safe-parser-rejection";
       const file = resolve(config.lifecycleRoot, "web-workers", "parser-diagnostics.jsonl");
       try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "parser-rejection", stage: input.stage, sessionId: input.sessionId, generation: input.generation, conversationRefPresent: Boolean(input.conversationRef), category })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
     },
