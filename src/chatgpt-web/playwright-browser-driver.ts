@@ -6,6 +6,8 @@ import {
   ChatGptWebUsageLimitError,
   ChatGptWebStructuredResultError,
 } from "./browser-adapter.js";
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import type { ChatGptWebSessionProbe } from "./browser-adapter.js";
 import type { ChatGptBrowserDriver } from "./production-browser-adapter.js";
 import type { PlaywrightBrowserDriverConfig } from "./playwright-browser-config.js";
@@ -392,6 +394,16 @@ export async function createPlaywrightChatGptBrowserDriver(
       for (const [key, submittedConversationRef] of submittedByTurn) {
         if (submittedConversationRef === conversationRef) submittedByTurn.delete(key);
       }
+    },
+    async recordParserDiagnostic(input) {
+      if (!config.lifecycleRoot) return;
+      const category = /marker.*begin|begin marker/i.test(input.message) ? "appendix-marker-malformed"
+        : /end marker|missing/i.test(input.message) ? "appendix-marker-missing"
+          : /hunk.*header/i.test(input.message) ? "hunk-header-invalid"
+            : /line counts/i.test(input.message) ? "hunk-count-mismatch"
+              : /file diff|header/i.test(input.message) ? "file-header-invalid" : "unknown-safe-parser-rejection";
+      const file = resolve(config.lifecycleRoot, "web-workers", "parser-diagnostics.jsonl");
+      try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "parser-rejection", stage: input.stage, sessionId: input.sessionId, generation: input.generation, conversationRefPresent: Boolean(input.conversationRef), category })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
     },
     async dispose() { await backend.dispose(); },
   };

@@ -15,6 +15,7 @@ export interface ChatGptBrowserDriver {
   readStructuredResult(input: { conversationRef: string; timeoutMs: number }): Promise<unknown>;
   probeConversation(conversationRef: string): Promise<ChatGptWebSessionProbe>;
   closeConversation(conversationRef: string): Promise<void>;
+  recordParserDiagnostic?(input: { stage: string; sessionId: string; generation: number; conversationRef?: string; message: string }): Promise<void>;
   dispose?(): Promise<void>;
 }
 
@@ -65,7 +66,7 @@ export function createProductionChatGptWebAdapter(driver: ChatGptBrowserDriver):
     },
     async awaitStructuredResult(session, timeoutMs) {
       try { return await driver.readStructuredResult({ conversationRef: requireRef(session.conversationRef), timeoutMs }); }
-      catch (error) { return classify(error); }
+      catch (error) { if (error instanceof ChatGptWebStructuredResultError) await driver.recordParserDiagnostic?.({ stage: session.stage, sessionId: session.sessionId, generation: session.generation, ...(session.conversationRef ? { conversationRef: session.conversationRef } : {}), message: error.message }); return classify(error); }
     },
     async probeSession(session) {
       try { return await driver.probeConversation(requireRef(session.conversationRef)); }
