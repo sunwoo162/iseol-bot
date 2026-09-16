@@ -30,7 +30,7 @@ export type DesktopIntentBase = {
 };
 export type DesktopIntent =
   | (DesktopIntentBase & { kind: "READ_CONTEXT"; path: string })
-  | (DesktopIntentBase & { kind: "PROPOSE_PATCH"; path: string; patch: string })
+  | (DesktopIntentBase & { kind: "PROPOSE_PATCH"; path: string; patch: string; patchText?: string })
   | (DesktopIntentBase & { kind: "RUN_TEST" | "RUN_BUILD"; cwd: string; executable: string; args: string[]; timeoutMs: number })
   | (DesktopIntentBase & { kind: "GIT_INSPECT"; cwd: string })
   | (DesktopIntentBase & { kind: "REQUEST_COMMIT"; cwd: string; message: string; expectedHead?: string })
@@ -135,7 +135,7 @@ export function assertDesktopIntent(value: unknown): asserts value is DesktopInt
     exactKeys(item, [...COMMON_INTENT_KEYS, "path"], "Desktop intent"); text(item.path, "path"); return;
   }
   if (kind === "PROPOSE_PATCH") {
-    exactKeys(item, [...COMMON_INTENT_KEYS, "path", "patch"], "Desktop intent"); text(item.path, "path"); text(item.patch, "patch"); return;
+    exactKeys(item, [...COMMON_INTENT_KEYS, "path", "patch", "patchText"], "Desktop intent"); text(item.path, "path"); text(item.patch, "patch"); if (item.patchText !== undefined) text(item.patchText, "patchText"); return;
   }
   if (kind === "RUN_TEST" || kind === "RUN_BUILD") {
     exactKeys(item, [...COMMON_INTENT_KEYS, "cwd", "executable", "args", "timeoutMs"], "Desktop intent");

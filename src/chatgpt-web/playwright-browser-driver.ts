@@ -193,7 +193,15 @@ function parseStructuredResult(text: string): unknown {
   try {
     const parsed = JSON.parse(candidate);
     const intents = parsed && typeof parsed === "object" && Array.isArray((parsed as any).intents) ? (parsed as any).intents : [];
-    if (intents.some((intent: any) => intent?.kind === "PROPOSE_PATCH")) structured("ChatGPT PROPOSE_PATCH requires raw patch appendix transport");
+    for (const intent of intents) {
+      if (intent?.kind === "PROPOSE_PATCH" && typeof intent.patchText === "string") {
+        const patchText = intent.patchText.replaceAll("\r\n", "\n");
+        if (!patchText.trim()) structured("ChatGPT patch appendix is empty");
+        validatePatchAppendixSyntax(patchText);
+        intent.patch = patchText;
+      }
+    }
+    if (intents.some((intent: any) => intent?.kind === "PROPOSE_PATCH" && typeof intent.patchText !== "string")) structured("ChatGPT PROPOSE_PATCH requires raw patch appendix transport");
     return parsed;
   } catch (error) {
     if (error instanceof ChatGptWebStructuredResultError) throw error;
