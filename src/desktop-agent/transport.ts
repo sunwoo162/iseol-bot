@@ -113,7 +113,10 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
     const sessionId = sessionByAgent.get(agentId);
     const session = sessionId ? sessionsById.get(sessionId) : undefined;
     if (!session) throw new Error(`Desktop Agent is not connected: ${agentId}`);
-    if (pending.has(pack.jobId)) throw new Error(`Desktop Job already awaiting result: ${pack.jobId}`);
+    // A retry of the same logical job joins the in-flight operation. Re-sending
+    // would create a second physical execution and turn a transient wait into
+    // duplicate-id retry amplification.
+    if (pending.has(pack.jobId)) return;
     let resolveResult!: (result: DesktopJobResult) => void;
     const promise = new Promise<DesktopJobResult>((resolve) => { resolveResult = resolve; });
     pending.set(pack.jobId, { promise, resolve: resolveResult });

@@ -94,6 +94,21 @@ test("task/result correlation rejects unknown results and disconnect only drops 
   assert.equal(transport.isAgentConnected("agent-001"), false);
 });
 
+test("duplicate dispatch joins the existing pending logical job", async () => {
+  const registryRoot = await root();
+  const transport = createDesktopAgentTransport({ registryRoot, expectedToken: "secret-token" });
+  const wire = new FakeWire();
+  await transport.acceptHello("session-1", hello, wire);
+  transport.sendTask("agent-001", task("job-join"));
+  assert.doesNotThrow(() => transport.sendTask("agent-001", task("job-join")));
+  const first = transport.awaitResult("job-join", 1_000);
+  const second = transport.awaitResult("job-join", 1_000);
+  await transport.handleMessage("session-1", { version: 1, type: "result", result: result("job-join") });
+  assert.equal((await first).jobId, "job-join");
+  assert.equal((await second).jobId, "job-join");
+  assert.equal(wire.messages.length, 1);
+});
+
 async function waitFor(predicate: () => boolean, timeoutMs = 2_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
