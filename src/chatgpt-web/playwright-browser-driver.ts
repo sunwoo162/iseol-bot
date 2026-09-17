@@ -235,7 +235,7 @@ function parsePatchMultipart(candidate: string): unknown | null {
   if (blocks.size !== used.size) structured("ChatGPT patch appendix is not referenced by a PROPOSE_PATCH intent");
   return header;
 }
-function parseStructuredResult(text: string): unknown {
+function parseStructuredResult(text: string, legacyCompatibility = false): unknown {
   if (Buffer.byteLength(text, "utf8") > MAX_STRUCTURED_RESULT_BYTES) structured("ChatGPT structured result exceeds the allowed size");
   const trimmed = text.trim();
   if (!trimmed) structured("ChatGPT structured result is empty");
@@ -243,20 +243,27 @@ function parseStructuredResult(text: string): unknown {
   const fenced = trimmed.match(/^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i);
   if (fenced) candidate = fenced[1]?.trim() ?? "";
   else if (trimmed.startsWith("```") || trimmed.endsWith("```")) structured("ChatGPT structured result fence is malformed");
-  const multipart = parsePatchMultipart(candidate);
-  if (multipart !== null) return multipart;
+  if (legacyCompatibility) {
+    const multipart = parsePatchMultipart(candidate);
+    if (multipart !== null) return multipart;
+  }
   try {
     const parsed = JSON.parse(candidate);
     const intents = parsed && typeof parsed === "object" && Array.isArray((parsed as any).intents) ? (parsed as any).intents : [];
-    for (const intent of intents) {
-      if (intent?.kind === "PROPOSE_PATCH" && typeof intent.patchText === "string") {
-        const patchText = intent.patchText.replaceAll("\r\n", "\n");
-        if (!patchText.trim()) structured("ChatGPT patch appendix is empty");
-        validatePatchAppendixSyntax(patchText);
-        intent.patch = patchText;
-      }
+    if (!legacyCompatibility && intents.some((intent: any) => intent?.kind === "PROPOSE_PATCH")) {
+      structured("ChatGPT structured JSON contract does not accept PROPOSE_PATCH payloads");
     }
-    if (intents.some((intent: any) => intent?.kind === "PROPOSE_PATCH" && typeof intent.patchText !== "string")) structured("ChatGPT PROPOSE_PATCH requires structured patchText payload");
+    if (legacyCompatibility) {
+      for (const intent of intents) {
+        if (intent?.kind === "PROPOSE_PATCH" && typeof intent.patchText === "string") {
+          const patchText = intent.patchText.replaceAll("\r\n", "\n");
+          if (!patchText.trim()) structured("ChatGPT patch appendix is empty");
+          validatePatchAppendixSyntax(patchText);
+          intent.patch = patchText;
+        }
+      }
+      if (intents.some((intent: any) => intent?.kind === "PROPOSE_PATCH" && typeof intent.patchText !== "string")) structured("ChatGPT PROPOSE_PATCH requires structured patchText payload");
+    }
     return parsed;
   } catch (error) {
     if (error instanceof ChatGptWebStructuredResultError) throw error;
@@ -425,7 +432,10 @@ export async function createPlaywrightChatGptBrowserDriver(
               const rawText = await backend.latestAssistantRawText();
               if (!rawText?.trim()) lost("ChatGPT assistant source is unavailable");
               pendingByConversation.delete(input.conversationRef);
-              return parseStructuredResult(rawText);
+              if (input.contract === "structured-json") return parseStructuredResult(rawText);
+              if (input.contract === "patch-frame-v1") return parsePatchFrameV1(rawText);
+              if (input.contract === "legacy-structured-json") return parseStructuredResult(rawText, true);
+              structured("ChatGPT result contract is unsupported");
             }
           } else {
             stableText = latestText;

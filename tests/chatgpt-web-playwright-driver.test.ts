@@ -67,6 +67,48 @@ test("PATCH_FRAME_V1 rejects missing leading and empty framing", () => {
   }
 });
 
+test("result reading routes only the explicitly selected stage contract", async () => {
+  const patch = [
+    "diff --git a/app.js b/app.js",
+    "--- a/app.js",
+    "+++ b/app.js",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "",
+  ].join("\n");
+
+  const read = async (text: string, contract: "structured-json" | "patch-frame-v1" | "legacy-structured-json") => {
+    let now = 0;
+    const item = fakeBackend();
+    item.setUrl("https://chatgpt.com/c/conv-contract");
+    const driver = await createPlaywrightChatGptBrowserDriver(config, {
+      backend: item.backend,
+      now: () => now,
+      sleep: async (ms: number) => { now += ms; },
+    } as any);
+    await driver.submitPrompt({ conversationRef: "conv-contract", prompt: "payload", promptSha256: `contract-${contract}` });
+    item.setAssistant(text, 1);
+    return driver.readStructuredResult({ conversationRef: "conv-contract", timeoutMs: 2000, contract } as any);
+  };
+
+  assert.equal(await read(`ISEOL_PATCH_V1\n${patch}`, "patch-frame-v1"), patch);
+  await assert.rejects(
+    () => read('{"version":1}', "patch-frame-v1"),
+    (error: unknown) => error instanceof Error && error.name === "ChatGptWebStructuredResultError",
+  );
+
+  const legacy = JSON.stringify({
+    version: 1,
+    intents: [{ intentId: "patch-1", kind: "PROPOSE_PATCH", path: "app.js", patchText: patch }],
+  });
+  await assert.rejects(
+    () => read(legacy, "structured-json"),
+    (error: unknown) => error instanceof Error && error.name === "ChatGptWebStructuredResultError",
+  );
+  assert.equal((await read(legacy, "legacy-structured-json") as any).intents[0].patch, patch);
+});
+
  test("new conversation opens only the canonical root and may remain unassigned before submit", async () => {
   const { backend, urls } = fakeBackend();
   const driver = await createPlaywrightChatGptBrowserDriver(config, { backend });
@@ -198,12 +240,12 @@ test("structured result waits for a stable completed assistant message and parse
   const driver = await createPlaywrightChatGptBrowserDriver(config, deps);
   await driver.submitPrompt({ conversationRef: "conv-1", prompt: "first", promptSha256: "result-sha-1" });
   item.setAssistant('{"version":1}', 1);
-  assert.deepEqual(await driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 2000 }), { version: 1 });
+  assert.deepEqual(await driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 2000, contract: "structured-json" }), { version: 1 });
 
   now = 0;
   await driver.submitPrompt({ conversationRef: "conv-1", prompt: "second", promptSha256: "result-sha-2" });
   item.setAssistant('```json\n{"version":2}\n```', 2);
-  assert.deepEqual(await driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 2000 }), { version: 2 });
+  assert.deepEqual(await driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 2000, contract: "structured-json" }), { version: 2 });
 });
 
 test("structured result rejects prose multiple JSON malformed JSON and oversized output", async () => {
@@ -221,7 +263,7 @@ test("structured result rejects prose multiple JSON malformed JSON and oversized
     await driver.submitPrompt({ conversationRef: "conv-1", prompt: "payload", promptSha256: "reject-sha" });
     item.setAssistant(text, 1);
     await assert.rejects(
-      () => driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 2000 }),
+      () => driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 2000, contract: "structured-json" }),
       (error: unknown) => error instanceof Error && error.name === "ChatGptWebStructuredResultError",
     );
   }
@@ -236,7 +278,7 @@ test("generation must settle for 750ms and timeout is session loss", async () =>
   await driver.submitPrompt({ conversationRef: "conv-1", prompt: "payload", promptSha256: "settle-sha" });
   item.setAssistant('{"ok":true}', 1);
   item.setGenerating(1);
-  assert.deepEqual(await driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 2000 }), { ok: true });
+  assert.deepEqual(await driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 2000, contract: "structured-json" }), { ok: true });
   assert.ok(now >= 1150);
 
   let timedNow = 0;
@@ -249,7 +291,7 @@ test("generation must settle for 750ms and timeout is session loss", async () =>
   timedItem.setAssistant('{"late":true}', 1);
   timedItem.setGenerating(1);
   await assert.rejects(
-    () => timed.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 500 }),
+    () => timed.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 500, contract: "structured-json" }),
     ChatGptWebSessionLostError,
   );
 });
@@ -320,7 +362,7 @@ test("result reading ignores assistant messages that existed before the submitte
   await driver.submitPrompt({ conversationRef: "conv-1", prompt: "next", promptSha256: "new-turn" });
 
   assert.deepEqual(
-    await driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 2500 }),
+    await driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 2500, contract: "structured-json" }),
     { new: true },
   );
   assert.ok(now >= 1650);
@@ -336,7 +378,7 @@ test("result reading fails closed when this driver has no pending submission bas
   } as any);
 
   await assert.rejects(
-    () => driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 1000 }),
+    () => driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 1000, contract: "structured-json" }),
     ChatGptWebSessionLostError,
   );
 });
@@ -439,7 +481,7 @@ test("structured result hydrates a raw unified diff patch appendix", async () =>
   ].join("\n") + "\n";
   const header = { version: 1, intents: [{ intentId: "patch-1", kind: "PROPOSE_PATCH", path: "index.html", patch: "@@ISEOL_PATCH:patch-1@@" }] };
   item.setAssistant(`${JSON.stringify(header)}\n@@ISEOL_PATCH_BEGIN:patch-1@@\n${patch.trimEnd()}\n@@ISEOL_PATCH_END:patch-1@@`, 1);
-  const result = await driver.readStructuredResult({ conversationRef: "conv-patch", timeoutMs: 2000 }) as any;
+  const result = await driver.readStructuredResult({ conversationRef: "conv-patch", timeoutMs: 2000, contract: "legacy-structured-json" }) as any;
   assert.equal(result.intents[0].patch, patch);
 });
 
@@ -455,7 +497,7 @@ test("structured result requires raw appendix transport for PROPOSE_PATCH", asyn
     await driver.submitPrompt({ conversationRef: "conv-patch-required", prompt: "payload", promptSha256: `required-${patch.length}` });
     item.setAssistant(JSON.stringify({ version: 1, intents: [{ intentId: "patch-1", kind: "PROPOSE_PATCH", path: "a", patch }] }), 1);
     await assert.rejects(
-      () => driver.readStructuredResult({ conversationRef: "conv-patch-required", timeoutMs: 2000 }),
+      () => driver.readStructuredResult({ conversationRef: "conv-patch-required", timeoutMs: 2000, contract: "legacy-structured-json" }),
       (error: unknown) => error instanceof Error && error.name === "ChatGptWebStructuredResultError",
     );
   }
@@ -486,7 +528,7 @@ test("structured result rejects invalid raw unified diff syntax before Desktop d
     const header = { version: 1, intents: [{ intentId: "patch-1", kind: "PROPOSE_PATCH", path: "app.test.js", patch: "@@ISEOL_PATCH:patch-1@@" }] };
     item.setAssistant(`${JSON.stringify(header)}\n@@ISEOL_PATCH_BEGIN:patch-1@@\n${patch.trimEnd()}\n@@ISEOL_PATCH_END:patch-1@@`, 1);
     await assert.rejects(
-      () => driver.readStructuredResult({ conversationRef: "conv-invalid-patch", timeoutMs: 2000 }),
+      () => driver.readStructuredResult({ conversationRef: "conv-invalid-patch", timeoutMs: 2000, contract: "legacy-structured-json" }),
       (error: unknown) => error instanceof Error && error.name === "ChatGptWebStructuredResultError",
     );
   }
@@ -507,7 +549,7 @@ test("structured result canonicalizes unprefixed body lines only for a new-file 
   ].join("\n");
   const header = { version: 1, intents: [{ intentId: "patch-new", kind: "PROPOSE_PATCH", path: "smoke.test.js", patch: "@@ISEOL_PATCH:patch-new@@" }] };
   item.setAssistant(`${JSON.stringify(header)}\n@@ISEOL_PATCH_BEGIN:patch-new@@\n${patch}\n@@ISEOL_PATCH_END:patch-new@@`, 1);
-  const result = await driver.readStructuredResult({ conversationRef: "conv-new-file-patch", timeoutMs: 2000 }) as any;
+  const result = await driver.readStructuredResult({ conversationRef: "conv-new-file-patch", timeoutMs: 2000, contract: "legacy-structured-json" }) as any;
   assert.equal(result.intents[0].patch, [
     "diff --git a/smoke.test.js b/smoke.test.js", "new file mode 100644", "--- /dev/null", "+++ b/smoke.test.js",
     "@@ -0,0 +1,4 @@", "+line one", "+", "+line two", "+line three", "",
@@ -532,7 +574,7 @@ test("structured result parses lossless copied source when rendered markdown con
   } as any);
   await driver.submitPrompt({ conversationRef: "conv-lossless", prompt: "payload", promptSha256: "lossless-sha" });
   item.setAssistant(rendered, 1);
-  const result = await driver.readStructuredResult({ conversationRef: "conv-lossless", timeoutMs: 2000 }) as any;
+  const result = await driver.readStructuredResult({ conversationRef: "conv-lossless", timeoutMs: 2000, contract: "legacy-structured-json" }) as any;
   assert.equal(result.intents[0].patch, rawPatch);
 });
 
@@ -551,7 +593,7 @@ test("structured result drops unprefixed blank-line noise inside an existing-fil
   ].join("\n");
   const header = { version: 1, intents: [{ intentId: "patch-blank", kind: "PROPOSE_PATCH", path: "index.html", patch: "@@ISEOL_PATCH:patch-blank@@" }] };
   item.setAssistant(`${JSON.stringify(header)}\n@@ISEOL_PATCH_BEGIN:patch-blank@@\n${noisyPatch}\n@@ISEOL_PATCH_END:patch-blank@@`, 1);
-  const result = await driver.readStructuredResult({ conversationRef: "conv-blank-noise", timeoutMs: 2000 }) as any;
+  const result = await driver.readStructuredResult({ conversationRef: "conv-blank-noise", timeoutMs: 2000, contract: "legacy-structured-json" }) as any;
   assert.equal(result.intents[0].patch, [
     "diff --git a/index.html b/index.html", "--- a/index.html", "+++ b/index.html", "@@ -1,2 +1,2 @@",
     " <!doctype html>", "-<title>Old</title>", "+<title>New</title>", "",

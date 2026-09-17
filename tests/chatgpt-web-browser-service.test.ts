@@ -37,10 +37,11 @@ test("enabled bridge fails closed when no browser driver is installed", async ()
 });
 test("production adapter exposes only bounded conversation operations", async () => {
   const calls: string[] = [];
+  const contracts: string[] = [];
   const driver: ChatGptBrowserDriver = {
     openOrResumeConversation: async () => { calls.push("open"); return { conversationRef: "conv-1" }; },
     submitPrompt: async () => { calls.push("submit"); },
-    readStructuredResult: async () => { calls.push("read"); return { version: 1 }; },
+    readStructuredResult: async (input) => { calls.push("read"); contracts.push(input.contract); return { version: 1 }; },
     probeConversation: async () => { calls.push("probe"); return "ready"; },
     closeConversation: async () => { calls.push("close"); },
   };
@@ -49,10 +50,11 @@ test("production adapter exposes only bounded conversation operations", async ()
   const opened = await adapter.openOrResumeSession(session, prompt);
   assert.deepEqual(opened, { conversationRef: "conv-1" });
   await adapter.submitTurn({ ...session, conversationRef: "conv-1" }, prompt);
-  await adapter.awaitStructuredResult({ ...session, conversationRef: "conv-1" }, 1000);
+  await adapter.awaitStructuredResult({ ...session, conversationRef: "conv-1" }, 1000, "patch-frame-v1");
   assert.equal(await adapter.probeSession({ ...session, conversationRef: "conv-1" }), "ready");
   await adapter.closeSession({ ...session, conversationRef: "conv-1" });
   assert.deepEqual(calls, ["open", "submit", "read", "probe", "close"]);
+  assert.deepEqual(contracts, ["patch-frame-v1"]);
 });
 test("auth and navigation failures are classified without leaking browser credentials", async () => {
   const authDriver: ChatGptBrowserDriver = {
@@ -74,7 +76,7 @@ test("auth and navigation failures are classified without leaking browser creden
   };
   const lostAdapter = createProductionChatGptWebAdapter(lostDriver);
   await assert.rejects(lostAdapter.submitTurn({ ...session, conversationRef: "conv-2" }, prompt), ChatGptWebSessionLostError);
-  await assert.rejects(lostAdapter.awaitStructuredResult({ ...session, conversationRef: "conv-2" }, 1000), ChatGptWebSessionLostError);
+  await assert.rejects(lostAdapter.awaitStructuredResult({ ...session, conversationRef: "conv-2" }, 1000, "patch-frame-v1"), ChatGptWebSessionLostError);
 });
 test("controlled smoke rejects mutation intents unless an explicit workspace is allowed", async () => {
   const smokeDriver: ChatGptBrowserDriver = {

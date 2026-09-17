@@ -5,7 +5,7 @@ export type ChatGptWebSessionProbe =
   | "ready" | "lost" | "auth-required" | "temporarily-limited"
   | "conversation-exhausted" | "usage-limited";
 export type ChatGptWebOpenResult = { conversationRef?: string };
-export type ChatGptWebResultContract = "structured-json" | "patch-frame-v1";
+export type ChatGptWebResultContract = "structured-json" | "patch-frame-v1" | "legacy-structured-json";
 
 export class ChatGptWebSessionLostError extends Error {
   constructor(message: string) { super(message); this.name = "ChatGptWebSessionLostError"; }
