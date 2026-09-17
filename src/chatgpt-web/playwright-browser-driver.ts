@@ -63,13 +63,25 @@ function jsonSyntaxShape(text: string, error: unknown): Record<string, string | 
   }
   const next = at >= 0 ? text[at] : undefined;
   const lower = message.toLowerCase();
-  const parseFailureClass = /unexpected end|end of json|unterminated/i.test(lower)
+  const before = at >= 0 ? text.slice(0, at) : text;
+  const singleQuotePresent = text.includes("'");
+  const bareAlphaRunDetected = /[A-Za-z]{2,}/.test(at >= 0 ? text.slice(Math.max(0, at - 16), Math.min(text.length, at + 16)) : "");
+  const objectKey = /\{\s*[A-Za-z_][A-Za-z0-9_]*\s*$/.test(before);
+  const afterColon = /:\s*$/.test(before);
+  const afterValue = /(?:true|false|null|\d+|"(?:[^"\\]|\\.)*")\s*$/.test(before);
+  const parseFailureClass = objectKey ? "unquoted-property-name"
+    : singleQuotePresent && next === "'" ? "single-quoted-string"
+      : afterColon && bareAlphaRunDetected ? "bareword-value"
+        : afterValue && next !== "," && next !== "}" && next !== "]" ? (before.includes("[") ? "missing-comma-array" : "missing-comma-object")
+          : /unexpected end|end of json|unterminated/i.test(lower)
     ? "unexpected-end"
     : /escape/i.test(lower) ? "invalid-string-escape"
       : /number/i.test(lower) ? "invalid-number"
         : /unexpected token/i.test(lower) && next === "," ? "unexpected-comma"
           : /unexpected token/i.test(lower) ? "unexpected-token-in-value" : "other-json-syntax";
   const lexicalContext = inString ? "string" : /[,:]/.test(prefix.at(-1) ?? "") ? "delimiter" : "unknown";
+  const containerContext = before.lastIndexOf("[") > before.lastIndexOf("{") ? "array" : before.includes("{") ? "object" : "root";
+  const expectedToken = objectKey ? "object-key" : afterColon ? "value" : afterValue ? (containerContext === "array" ? "comma-or-array-end" : "comma-or-object-end") : "unknown";
   return {
     parseFailurePositionBucket: at < 0 ? "unknown" : at < text.length * .1 ? "early" : at > text.length * .9 ? "late" : "middle",
     parseFailureClass,
@@ -77,6 +89,11 @@ function jsonSyntaxShape(text: string, error: unknown): Record<string, string | 
     insideStringAtFailure: inString ? "yes" : "no",
     nestingDepthBucket: depth < 3 ? "shallow" : depth < 8 ? "medium" : "deep",
     nearbyCharacterClass: next === '"' ? "quote" : next === "\\" ? "backslash" : next === "," ? "comma" : next === ":" ? "colon" : next === "{" || next === "}" ? "brace" : next === "[" || next === "]" ? "bracket" : /\d/.test(next ?? "") ? "digit" : /[A-Za-z]/.test(next ?? "") ? "alpha" : /\s/.test(next ?? "") ? "whitespace" : "other",
+    containerContext,
+    expectedToken,
+    tokenClassAtFailure: next === '"' ? "quote" : next === "'" ? "single-quote" : next === ":" ? "colon" : next === "," ? "comma" : /[A-Za-z]/.test(next ?? "") ? "alpha" : /\d/.test(next ?? "") ? "digit" : "other",
+    singleQuotePresent: singleQuotePresent ? "yes" : "no",
+    bareAlphaRunDetected: bareAlphaRunDetected ? "yes" : "no",
   };
 }
 function jsonShape(text: string, error: unknown): Record<string, string | boolean> {
