@@ -6,7 +6,9 @@ import { loadDesktopIntent } from "../chatgpt-web/intent-store.js";
 import { createWebReasoningExecutor, type WebDesktopIntentRunner } from "../chatgpt-web/web-reasoning-executor.js";
 import { createDesktopStageExecutor, desktopJobFeedback, type DesktopExecutionTransport, type DesktopTaskCompiler } from "../desktop-agent/desktop-executor.js";
 import { findDesktopJobByIdempotencyKey } from "../desktop-agent/job-store.js";
+import { createDesktopRealityInspector } from "../desktop-agent/reality-inspector.js";
 import type { HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
+import { recoverHarnessRun } from "../harness/recovery.js";
 import { createDevelopmentRun } from "../harness/run-service.js";
 import { loadHarnessRun } from "../harness/run-store.js";
 import { superviseHarnessRun, type HarnessStageExecutor } from "../harness/run-supervisor.js";
@@ -450,7 +452,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
 
   async function advanceProductionOnce(production: PrototypeProduction): Promise<PrototypeProduction> {
     const proposal = await loadIdeaProposal(input.roots.modelRoot, production.proposalId);
-    const run = await loadHarnessRun(input.roots.runRoot, production.runId);
+    let run = await loadHarnessRun(input.roots.runRoot, production.runId);
     if (!proposal || !run) throw new Error("Idea Lab production dependency is missing");
     assertRunIdentity(run, proposal, production.runId, resolve(input.sandboxRoot, proposal.campaignId, production.id));
 
@@ -468,6 +470,35 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
     if (run.state.status === "DONE") return finalizeReady(canonical, proposal, run);
     if (run.state.status === "FAILED_RETRYABLE") {
       throw new Error("Idea Lab Harness retryable failure is awaiting runtime recovery ownership");
+    }
+
+    if (run.state.status === "WAITING_AGENT") {
+      run = await recoverHarnessRun({
+        storeRoot: input.roots.runRoot,
+        runId: production.runId,
+        inspector: createDesktopRealityInspector({
+          registryRoot: input.desktopStateRoot,
+          jobRoot: input.desktopStateRoot,
+          transport: input.desktopTransport,
+          now,
+        }),
+        at: now(),
+      });
+
+      if (run.state.status === "WAITING_AGENT") {
+        const latest =
+          await loadPrototypeProduction(input.roots.modelRoot, production.id)
+          ?? canonical;
+
+        const running: PrototypeProduction = {
+          ...latest,
+          status: "running",
+          updatedAt: now(),
+        };
+
+        await savePrototypeProduction(input.roots.modelRoot, running);
+        return running;
+      }
     }
 
     const final = await superviseHarnessRun({
