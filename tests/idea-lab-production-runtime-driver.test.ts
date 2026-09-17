@@ -593,6 +593,8 @@ test("Idea Lab validates a patch frame before runtime-owned PROPOSE_PATCH dispat
   await driver.advanceProduction(production);
 
   assert.equal(dispatched.length, 1);
+  const patchPromptContracts = browser.submittedPrompts.map((prompt) => JSON.parse(prompt.body).outputContract.contract);
+  assert.deepEqual(patchPromptContracts, ["patch-frame-v1", "patch-frame-v1"]);
   assert.equal(browser.submittedPrompts.length, 2);
   assert.match(browser.submittedPrompts[1]?.body ?? "", /hunk line counts/i);
   assert.deepEqual(dispatched[0].operations[0], {
