@@ -33,6 +33,16 @@ type SmokeDeps = {
   timeoutMs?: number;
   cleanupTimeoutMs?: number;
 };
+
+export function assertLiveSmokeDesktopAgentReady(
+  services: Pick<IseolRuntimeServices, "desktopCore">,
+  agentId: string,
+): void {
+  const transport = services.desktopCore?.transport;
+  if (!transport || !transport.isAgentConnected(agentId)) {
+    throw new LiveSmokeExternalBlocker(`Desktop Agent preflight failed: ${agentId} is not connected to the smoke Core`);
+  }
+}
 function smokeWebConfig(env: Record<string, string | undefined>, cwd: string) {
   return {
     host: "127.0.0.1",
@@ -274,6 +284,10 @@ export async function runIdeaLabLiveSmokeCli(
     if (services.ideaLabCapability.state !== "ready" || !services.ideaLabRuntime) {
       throw new LiveSmokeExternalBlocker("Idea Lab live runtime composition is blocked");
     }
+    activeStage = "desktop-agent-preflight";
+    const agentId = env.ISEOL_IDEA_LAB_AGENT_ID?.trim();
+    if (!agentId) throw new LiveSmokeExternalBlocker("Desktop Agent preflight failed: agent id is not configured");
+    assertLiveSmokeDesktopAgentReady(services, agentId);
     activeStage = "post-campaign";
     const created = await within(postCampaign(services.webServer, webConfig.token), timeoutMs);
     activeStage = "runtime-idle";

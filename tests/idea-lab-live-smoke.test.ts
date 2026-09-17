@@ -104,7 +104,7 @@ function successDeps(onDispose: () => void = () => undefined) {
   return {
     startServices: async () => ({
       webServer: {} as any,
-      desktopCore: null,
+      desktopCore: { transport: { isAgentConnected: () => true } } as any,
       ideaLabRuntime: { idle: async () => undefined },
       ideaLabCapability: { state: "ready" as const },
       dispose: async () => onDispose(),
@@ -171,7 +171,7 @@ test("live smoke restarts composition and re-verifies the same durable identitie
       starts += 1;
       return {
         webServer: {} as any,
-        desktopCore: null,
+        desktopCore: { transport: { isAgentConnected: () => true } } as any,
         ideaLabRuntime: { idle: async () => undefined },
         ideaLabCapability: { state: "ready" as const },
         dispose: async () => { disposes += 1; },
@@ -261,6 +261,23 @@ test("live smoke reports the stage that timed out", async () => {
   assert.equal(code, 2);
   assert.ok(lines.some((line) => line.includes("runtime-idle")));
 });
+
+test("live smoke does not create a campaign before same-Core Desktop Agent readiness", async () => {
+  let posted = false;
+  const code = await runIdeaLabLiveSmokeCli(configuredEnv(), {
+    ...successDeps(),
+    startServices: async () => ({
+      webServer: {} as any,
+      desktopCore: { transport: { isAgentConnected: () => false } } as any,
+      ideaLabRuntime: { idle: async () => undefined },
+      ideaLabCapability: { state: "ready" as const },
+      dispose: async () => undefined,
+    }),
+    postCampaign: async () => { posted = true; return campaign; },
+  });
+  assert.equal(code, 2);
+  assert.equal(posted, false);
+});
 test("live smoke uses a short cleanup timeout independent of the main budget", async () => {
   const never = new Promise<void>(() => undefined);
   const result = await Promise.race([
@@ -268,7 +285,7 @@ test("live smoke uses a short cleanup timeout independent of the main budget", a
       ...successDeps(),
       startServices: async () => ({
         webServer: {} as any,
-        desktopCore: null,
+        desktopCore: { transport: { isAgentConnected: () => true } } as any,
         ideaLabRuntime: { idle: async () => undefined },
         ideaLabCapability: { state: "ready" as const },
         dispose: async () => { await never; },
