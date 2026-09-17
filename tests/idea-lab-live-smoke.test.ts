@@ -352,6 +352,7 @@ test("live smoke preserves an authoritative waiting-agent run failure", async ()
   assert.equal(persisted.smokeRoot, root);
   assert.equal(persisted.terminalStage, "CONTEXT");
   assert.equal(persisted.terminalClassification, "required-live-capability-unavailable");
+  assert.match(lines.at(-1) ?? "", /^Idea Lab live smoke blocked-external:/);
   assert.match(lines.at(-1) ?? "", /stage=CONTEXT; reason=required-live-capability-unavailable/);
 });
 

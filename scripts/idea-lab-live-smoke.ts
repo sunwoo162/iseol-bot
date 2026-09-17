@@ -443,7 +443,8 @@ export async function runIdeaLabLiveSmokeCli(
     correlation.terminalStage = authoritative?.stage ?? activeStage;
     correlation.terminalClassification = authoritative?.classification ?? terminalReason(error);
     await persistSmokeCorrelation(correlation).catch(() => undefined);
-    if (externalError(error)) {
+    const authoritativeExternalBlock = correlation.terminalClassification === "required-live-capability-unavailable";
+    if (externalError(error) || authoritativeExternalBlock) {
       stderr(formatTerminal("Idea Lab live smoke blocked-external", correlation));
       exitCode = 2;
     } else {
