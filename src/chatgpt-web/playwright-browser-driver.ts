@@ -273,15 +273,15 @@ function parseStructuredResult(text: string, legacyCompatibility = false): unkno
 
 export function parsePatchFrameV1(text: string): string {
   if (Buffer.byteLength(text, "utf8") > MAX_STRUCTURED_RESULT_BYTES) {
-    structured("ChatGPT PATCH_FRAME_V1 result exceeds the allowed size");
+    structured("ChatGPT PATCH_FRAME_V1 result exceeds the allowed size", { diagnosticCategory: "patch-frame-format-failure", frameHeaderPresent: false, payloadEmpty: false });
   }
   const normalized = text.replaceAll("\r\n", "\n");
   const headerEnd = normalized.indexOf("\n");
   if (headerEnd < 0 || normalized.slice(0, headerEnd) !== "ISEOL_PATCH_V1") {
-    structured("ChatGPT PATCH_FRAME_V1 header is missing or invalid");
+    structured("ChatGPT PATCH_FRAME_V1 header is missing or invalid", { diagnosticCategory: "patch-frame-format-failure", frameHeaderPresent: normalized.startsWith("ISEOL_PATCH_V1"), payloadEmpty: false });
   }
   const payload = normalized.slice(headerEnd + 1);
-  if (!payload.trim()) structured("ChatGPT PATCH_FRAME_V1 payload is empty");
+  if (!payload.trim()) structured("ChatGPT PATCH_FRAME_V1 payload is empty", { diagnosticCategory: "patch-frame-format-failure", frameHeaderPresent: true, payloadEmpty: true });
   return payload;
 }
 
@@ -484,7 +484,7 @@ export async function createPlaywrightChatGptBrowserDriver(
     },
     async recordParserDiagnostic(input) {
       if (!config.lifecycleRoot) return;
-      const category = /structured result is not exactly one JSON value|structured result fence is malformed/i.test(input.message) ? "response-envelope-malformed"
+      const category = input.diagnostic?.diagnosticCategory ?? (/structured result is not exactly one JSON value|structured result fence is malformed/i.test(input.message) ? "response-envelope-malformed"
         : /structured result is empty/i.test(input.message) ? "response-envelope-missing"
           : /patchText payload/i.test(input.message) ? "patch-text-missing"
             : /patch appendix is empty/i.test(input.message) ? "patch-text-empty"
@@ -495,13 +495,13 @@ export async function createPlaywrightChatGptBrowserDriver(
               : /line counts/i.test(input.message) ? "hunk-count-mismatch"
                 : /diff.*header|exactly one file diff/i.test(input.message) ? "diff-header-invalid"
                   : /body lines require/i.test(input.message) ? "unsupported-diff-shape"
-                    : /not referenced|must be one JSON object/i.test(input.message) ? "parser-contract-violation" : "unknown-safe-parser-rejection";
+                : /not referenced|must be one JSON object/i.test(input.message) ? "parser-contract-violation" : "unknown-safe-parser-rejection");
       const phase = /not exactly one JSON value|fence is malformed/i.test(input.message) ? "json-decode"
         : /structured result is empty/i.test(input.message) ? "response-envelope"
           : /PROPOSE_PATCH requires/i.test(input.message) ? "intent-specific-shape"
             : /patch appendix|patch hunk|unified-diff/i.test(input.message) ? "structured-patch-validation" : "contract-validation";
       const file = resolve(config.lifecycleRoot, "web-workers", "parser-diagnostics.jsonl");
-      try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "parser-rejection", stage: input.stage, sessionId: input.sessionId, generation: input.generation, conversationRefPresent: Boolean(input.conversationRef), category, phase, ...(input.diagnostic ?? {}) })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
+      try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "parser-rejection", stage: input.stage, sessionId: input.sessionId, generation: input.generation, ...(input.resultContract ? { resultContract: input.resultContract } : {}), conversationRefPresent: Boolean(input.conversationRef), category, phase, ...(input.diagnostic ?? {}) })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
     },
     async recordOperationDiagnostic(input) {
       if (!config.lifecycleRoot) return;

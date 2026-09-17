@@ -306,7 +306,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
           };
         } catch (error) {
           const reason = error instanceof Error ? error.message : "Patch validation failed";
-          throw new ChatGptWebStructuredResultError(`ChatGPT patch validation failed: ${reason}`);
+          throw new ChatGptWebStructuredResultError(`ChatGPT patch validation failed: ${reason}`, { diagnosticCategory: "patch-validation-failure", validationResult: "rejected" });
         }
       },
     };

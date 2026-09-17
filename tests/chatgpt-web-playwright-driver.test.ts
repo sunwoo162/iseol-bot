@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ChatGptWebAuthenticationRequiredError, ChatGptWebSessionLostError } from "../src/chatgpt-web/browser-adapter.js";
+import { ChatGptWebAuthenticationRequiredError, ChatGptWebSessionLostError, ChatGptWebStructuredResultError } from "../src/chatgpt-web/browser-adapter.js";
 import { createPlaywrightChatGptBrowserDriver, parsePatchFrameV1, type PlaywrightBrowserBackend } from "../src/chatgpt-web/playwright-browser-driver.js";
 
 function fakeBackend(overrides: Partial<PlaywrightBrowserBackend> = {}) {
@@ -65,6 +65,19 @@ test("PATCH_FRAME_V1 rejects missing leading and empty framing", () => {
       (error: unknown) => error instanceof Error && error.name === "ChatGptWebStructuredResultError",
     );
   }
+});
+
+test("PATCH_FRAME_V1 failures carry a bounded format diagnostic", () => {
+  assert.throws(() => parsePatchFrameV1("prose\nISEOL_PATCH_V1\ndiff"), (error: unknown) => {
+    assert.ok(error instanceof ChatGptWebStructuredResultError);
+    assert.deepEqual(error.diagnostic, { diagnosticCategory: "patch-frame-format-failure", frameHeaderPresent: false, payloadEmpty: false });
+    return true;
+  });
+  assert.throws(() => parsePatchFrameV1("ISEOL_PATCH_V1\n"), (error: unknown) => {
+    assert.ok(error instanceof ChatGptWebStructuredResultError);
+    assert.deepEqual(error.diagnostic, { diagnosticCategory: "patch-frame-format-failure", frameHeaderPresent: true, payloadEmpty: true });
+    return true;
+  });
 });
 
 test("result reading routes only the explicitly selected stage contract", async () => {

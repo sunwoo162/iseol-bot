@@ -15,7 +15,7 @@ export interface ChatGptBrowserDriver {
   readStructuredResult(input: { conversationRef: string; timeoutMs: number; contract: ChatGptWebResultContract }): Promise<unknown>;
   probeConversation(conversationRef: string): Promise<ChatGptWebSessionProbe>;
   closeConversation(conversationRef: string): Promise<void>;
-  recordParserDiagnostic?(input: { stage: string; sessionId: string; generation: number; conversationRef?: string; message: string; diagnostic?: Record<string, string | boolean> }): Promise<void>;
+  recordParserDiagnostic?(input: { stage: string; sessionId: string; generation: number; conversationRef?: string; resultContract?: ChatGptWebResultContract; message: string; diagnostic?: Record<string, string | boolean> }): Promise<void>;
   recordOperationDiagnostic?(input: { operation: string; phase: "failure"; stage: string; sessionId: string; generation: number; conversationRef?: string; failureClass: string }): Promise<void>;
   dispose?(): Promise<void>;
 }
@@ -72,7 +72,7 @@ export function createProductionChatGptWebAdapter(driver: ChatGptBrowserDriver):
     },
     async awaitStructuredResult(session, timeoutMs, contract) {
       try { return await driver.readStructuredResult({ conversationRef: requireRef(session.conversationRef), timeoutMs, contract }); }
-      catch (error) { await recordFailure("extract-structured-result", session, error); if (error instanceof ChatGptWebStructuredResultError) await driver.recordParserDiagnostic?.({ stage: session.stage, sessionId: session.sessionId, generation: session.generation, ...(session.conversationRef ? { conversationRef: session.conversationRef } : {}), message: error.message, diagnostic: error.diagnostic }); return classify(error); }
+      catch (error) { await recordFailure("extract-structured-result", session, error); if (error instanceof ChatGptWebStructuredResultError) await driver.recordParserDiagnostic?.({ stage: session.stage, sessionId: session.sessionId, generation: session.generation, resultContract: contract, ...(session.conversationRef ? { conversationRef: session.conversationRef } : {}), message: error.message, diagnostic: error.diagnostic }); return classify(error); }
     },
     async probeSession(session) {
       try { return await driver.probeConversation(requireRef(session.conversationRef)); }

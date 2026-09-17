@@ -53,7 +53,7 @@ test("provider compiles bounded proposal context and uses the first assigned con
   assert.match(open.prompt, /mobile-first/);
   assert.match(open.prompt, /Already Accepted/);
   assert.match(open.prompt, /materially different/i);
-  assert.deepEqual(fake.calls[2]![1], { conversationRef: "proposal-conv", timeoutMs: 4321 });
+  assert.deepEqual(fake.calls[2]![1], { conversationRef: "proposal-conv", timeoutMs: 4321, contract: "structured-json" });
   assert.equal(fake.calls[3]![1], "proposal-conv");
 });
 test("provider rejects invalid proposal payloads and still closes the owned conversation", async () => {
