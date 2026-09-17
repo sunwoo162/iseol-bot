@@ -250,7 +250,7 @@ test("live smoke reports the stage that timed out", async () => {
     ...successDeps(),
     startServices: async () => ({
       webServer: {} as any,
-      desktopCore: null,
+      desktopCore: { transport: { isAgentConnected: () => true } } as any,
       ideaLabRuntime: { idle: async () => { await never; } },
       ideaLabCapability: { state: "ready" as const },
       dispose: async () => undefined,
