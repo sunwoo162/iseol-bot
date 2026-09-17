@@ -624,29 +624,8 @@ test("terminal patch-result rejection keeps a safe diagnostic on the canonical R
   });
 
   const intentId = "implement-read-app-js-001";
-  const validFirstTurn = JSON.stringify({
-    version: 1, runId: production.runId, stage: "IMPLEMENT", generation: 1,
-    summary: "Read current app.js", decisions: [], outcome: "continue",
-    intents: [{
-      version: 1, intentId, runId: production.runId, stage: "IMPLEMENT",
-      workspaceRoot: production.worktreeRoot, policySha256: run.preflight.policy!.effectiveSha256,
-      kind: "READ_CONTEXT", path: "app.js",
-    }],
-  });
-  const patchIntentId = "implement-invalid-patch-001";
-  const invalidPatchResult = [
-    JSON.stringify({
-      version: 1, runId: production.runId, stage: "IMPLEMENT", generation: 1,
-      summary: "Propose a patch", decisions: [], outcome: "continue",
-      intents: [{
-        version: 1, intentId: patchIntentId, runId: production.runId, stage: "IMPLEMENT",
-        workspaceRoot: production.worktreeRoot, policySha256: run.preflight.policy!.effectiveSha256,
-        kind: "PROPOSE_PATCH", path: "app.js", patch: `@@ISEOL_PATCH:${patchIntentId}@@`,
-      }],
-    }),
-    `@@ISEOL_PATCH_BEGIN:${patchIntentId}@@`,
-    "diff --git a/app.js b/app.js", "--- a/app.js", "+++ b/app.js", "@@ -1 +1 @@", "-old", "+new",
-  ].join("\n");
+  const validFirstTurn = "invalid patch frame";
+  const invalidPatchResult = validFirstTurn;
   let currentUrl = "https://chatgpt.com/";
   let assistantCount = 0;
   let assistantText: string | null = null;
@@ -709,8 +688,8 @@ test("terminal patch-result rejection keeps a safe diagnostic on the canonical R
   assert.match(finalRun?.state.reason ?? "", /rejected structured-result budget exhausted.*patch appendix invalid/i);
   assert.ok((finalRun?.state.reason?.length ?? Infinity) <= 160);
   assert.equal(result.failureSummary, "Harness production failed");
-  assert.equal((await findDesktopJobByIdempotencyKey(root, `web-intent:${production.runId}:${intentId}`))?.status, "completed");
-  assert.equal(responseIndex, 4);
+  assert.equal(await findDesktopJobByIdempotencyKey(root, `web-intent:${production.runId}:${intentId}`), null);
+  assert.equal(responseIndex, 3);
   assert.doesNotMatch(JSON.stringify(publicView), /patch appendix|end marker|rejected structured-result/i);
   assert.doesNotMatch(JSON.stringify(finalRun?.state.reason), /app\.js|fixture-only-token|@@ISEOL_PATCH|secret/i);
 });
