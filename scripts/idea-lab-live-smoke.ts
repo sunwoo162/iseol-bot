@@ -1,6 +1,7 @@
 import "dotenv/config";
 import type { Server } from "node:http";
 import { resolve } from "node:path";
+import { spawn, type ChildProcess } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { startIseolRuntimeServices, type IseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
 import { listPrototypeProductions } from "../src/idea-lab/production-store.js";
@@ -275,10 +276,20 @@ export async function runIdeaLabLiveSmokeCli(
   const loadRun = deps.loadRun ?? loadHarnessRun;
   const loadCampaign = deps.loadCampaign ?? loadIdeaLabCampaign;
   let services: IseolRuntimeServices | undefined;
+  let ownedAgent: ChildProcess | undefined;
   let exitCode = 1;
   let activeStage = "start-services";
 
   try {
+    const agentUrl = env.ISEOL_DESKTOP_AGENT_URL?.trim();
+    if (agentUrl) {
+      ownedAgent = spawn(process.execPath, ["--import", "tsx", "src/desktop-agent/main.ts"], {
+        cwd,
+        env: { ...process.env, ...env },
+        stdio: ["ignore", "ignore", "ignore"],
+        windowsHide: true,
+      });
+    }
     activeStage = "start-services";
     services = await within(startServices({ env, webConfig }), timeoutMs);
     if (services.ideaLabCapability.state !== "ready" || !services.ideaLabRuntime) {
@@ -348,6 +359,9 @@ export async function runIdeaLabLiveSmokeCli(
         stderr("Idea Lab live smoke failed during service disposal.");
         if (exitCode !== 2) exitCode = 1;
       }
+    }
+    if (ownedAgent && !ownedAgent.killed) {
+      ownedAgent.kill();
     }
   }
   return exitCode;
