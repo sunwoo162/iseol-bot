@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ChatGptWebAuthenticationRequiredError, ChatGptWebSessionLostError } from "../src/chatgpt-web/browser-adapter.js";
-import { createPlaywrightChatGptBrowserDriver, type PlaywrightBrowserBackend } from "../src/chatgpt-web/playwright-browser-driver.js";
+import { createPlaywrightChatGptBrowserDriver, parsePatchFrameV1, type PlaywrightBrowserBackend } from "../src/chatgpt-web/playwright-browser-driver.js";
 
 function fakeBackend(overrides: Partial<PlaywrightBrowserBackend> = {}) {
   const urls: string[] = [];
@@ -34,6 +34,38 @@ function fakeBackend(overrides: Partial<PlaywrightBrowserBackend> = {}) {
 }
 
 const config = { enabled: true as const, profileRoot: "C:\\temp\\chatgpt-profile", headless: true };
+
+test("PATCH_FRAME_V1 extracts the raw EOF payload without interpreting patch content", () => {
+  const patch = [
+    "diff --git a/example.ts b/example.ts",
+    "--- a/example.ts",
+    "+++ b/example.ts",
+    "@@ -1 +1 @@",
+    "-const oldValue = { items: [\"a,b:c\"] };",
+    "+const newValue = { path: \"C:\\\\work\\\\file\", items: [\"a,b:c\"] };",
+    " ISEOL_PATCH_V1",
+    " trailing prose remains payload",
+    "",
+  ].join("\n");
+
+  assert.equal(parsePatchFrameV1(`ISEOL_PATCH_V1\n${patch}`), patch);
+  assert.equal(parsePatchFrameV1(`ISEOL_PATCH_V1\r\n${patch.replaceAll("\n", "\r\n")}`), patch);
+});
+
+test("PATCH_FRAME_V1 rejects missing leading and empty framing", () => {
+  for (const input of [
+    "diff --git a/a b/a\n",
+    "prose\nISEOL_PATCH_V1\ndiff --git a/a b/a\n",
+    "ISEOL_PATCH_V1",
+    "ISEOL_PATCH_V1\n",
+    "ISEOL_PATCH_V1\r\n",
+  ]) {
+    assert.throws(
+      () => parsePatchFrameV1(input),
+      (error: unknown) => error instanceof Error && error.name === "ChatGptWebStructuredResultError",
+    );
+  }
+});
 
  test("new conversation opens only the canonical root and may remain unassigned before submit", async () => {
   const { backend, urls } = fakeBackend();

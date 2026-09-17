@@ -264,6 +264,20 @@ function parseStructuredResult(text: string): unknown {
   }
 }
 
+export function parsePatchFrameV1(text: string): string {
+  if (Buffer.byteLength(text, "utf8") > MAX_STRUCTURED_RESULT_BYTES) {
+    structured("ChatGPT PATCH_FRAME_V1 result exceeds the allowed size");
+  }
+  const normalized = text.replaceAll("\r\n", "\n");
+  const headerEnd = normalized.indexOf("\n");
+  if (headerEnd < 0 || normalized.slice(0, headerEnd) !== "ISEOL_PATCH_V1") {
+    structured("ChatGPT PATCH_FRAME_V1 header is missing or invalid");
+  }
+  const payload = normalized.slice(headerEnd + 1);
+  if (!payload.trim()) structured("ChatGPT PATCH_FRAME_V1 payload is empty");
+  return payload;
+}
+
 export async function createPlaywrightChatGptBrowserDriver(
   config: Extract<PlaywrightBrowserDriverConfig, { enabled: true }>,
   deps?: DriverDeps,
