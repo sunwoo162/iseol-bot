@@ -4,6 +4,7 @@ import { assertNoCredentialShapedWebData } from "./credential-safety.js";
 export const ISEOL_CHATGPT_WEB_PROTOCOL_VERSION = 1 as const;
 
 export type WebWorkerSessionStatus = "starting" | "ready" | "busy" | "lost" | "closed";
+export type WebWorkerResultContract = "structured-json" | "patch-frame-v1" | "legacy-structured-json";
 export type ReasoningOutcome = "continue" | "stage-complete" | "blocked-user" | "retryable";
 
 export type WebWorkerSession = {
@@ -15,6 +16,7 @@ export type WebWorkerSession = {
   conversationRef?: string;
   policySha256: string;
   status: WebWorkerSessionStatus;
+  resultContract?: WebWorkerResultContract;
   createdAt: string;
   lastTurnAt?: string;
   closedAt?: string;
@@ -70,6 +72,7 @@ const STAGES = new Set<HarnessRunStage>([
 ]);
 const OUTCOMES = new Set<ReasoningOutcome>(["continue", "stage-complete", "blocked-user", "retryable"]);
 const SESSION_STATUSES = new Set<WebWorkerSessionStatus>(["starting", "ready", "busy", "lost", "closed"]);
+const RESULT_CONTRACTS = new Set<WebWorkerResultContract>(["structured-json", "patch-frame-v1", "legacy-structured-json"]);
 const COMMON_INTENT_KEYS = ["version", "intentId", "runId", "stage", "workspaceRoot", "policySha256", "kind"] as const;
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -121,9 +124,20 @@ export function assertWebWorkerSession(value: unknown): asserts value is WebWork
   version(item.version); id(item.sessionId, "sessionId"); id(item.runId, "runId"); stage(item.stage); generation(item.generation);
   text(item.policySha256, "policySha256"); iso(item.createdAt, "createdAt");
   if (!SESSION_STATUSES.has(item.status as WebWorkerSessionStatus)) throw new Error(`Unsupported session status: ${String(item.status)}`);
+  if (item.resultContract !== undefined) {
+    if (!RESULT_CONTRACTS.has(item.resultContract as WebWorkerResultContract)) throw new Error(`Unsupported Web worker result contract: ${String(item.resultContract)}`);
+    if (item.stage === "IMPLEMENT" ? item.resultContract === "structured-json" : item.resultContract !== "structured-json") {
+      throw new Error(`Web worker result contract is incompatible with stage ${String(item.stage)}`);
+    }
+  }
   if (item.conversationRef !== undefined) text(item.conversationRef, "conversationRef");
   if (item.lastTurnAt !== undefined) iso(item.lastTurnAt, "lastTurnAt");
   if (item.closedAt !== undefined) iso(item.closedAt, "closedAt");
+}
+
+export function persistedWebWorkerResultContract(session: WebWorkerSession): WebWorkerResultContract {
+  if (session.resultContract) return session.resultContract;
+  return session.stage === "IMPLEMENT" ? "legacy-structured-json" : "structured-json";
 }
 export function assertDesktopIntent(value: unknown): asserts value is DesktopIntent {
   const item = record(value, "Desktop intent");

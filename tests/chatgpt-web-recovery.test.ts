@@ -28,7 +28,7 @@ async function fixture() {
 }
 test("lost session is replaced by the next generation with a recovery prompt", async () => {
   const { root, run } = await fixture();
-  const session = { version: 1 as const, sessionId: "session-old", runId: "run-recovery", stage: "IMPLEMENT" as const, generation: 1, policySha256: run.preflight.policy!.effectiveSha256, status: "ready" as const, createdAt: "2026-09-08T01:00:00.000Z" };
+  const session = { version: 1 as const, sessionId: "session-old", runId: "run-recovery", stage: "IMPLEMENT" as const, generation: 1, policySha256: run.preflight.policy!.effectiveSha256, status: "ready" as const, resultContract: "patch-frame-v1" as const, createdAt: "2026-09-08T01:00:00.000Z" };
   await createWebWorkerSession(root, session);
   const recovered = await recoverWebWorkerSession({ workerRoot: root, run, session, priorTurns: [], desktopEvidence: [{ kind: "file-change", summary: "Already patched feature.txt" }], at: "2026-09-08T01:05:00.000Z" });
   assert.equal(recovered.session.generation, 2);
@@ -41,7 +41,7 @@ test("lost session is replaced by the next generation with a recovery prompt", a
 
 test("late old-generation result is rejected after replacement", async () => {
   const { root, run } = await fixture();
-  const session = { version: 1 as const, sessionId: "session-old", runId: "run-recovery", stage: "IMPLEMENT" as const, generation: 1, policySha256: run.preflight.policy!.effectiveSha256, status: "ready" as const, createdAt: "2026-09-08T01:00:00.000Z" };
+  const session = { version: 1 as const, sessionId: "session-old", runId: "run-recovery", stage: "IMPLEMENT" as const, generation: 1, policySha256: run.preflight.policy!.effectiveSha256, status: "ready" as const, resultContract: "patch-frame-v1" as const, createdAt: "2026-09-08T01:00:00.000Z" };
   await createWebWorkerSession(root, session);
   await recoverWebWorkerSession({ workerRoot: root, run, session, priorTurns: [], desktopEvidence: [], at: "2026-09-08T01:05:00.000Z" });
   await assert.rejects(
@@ -71,4 +71,32 @@ test("executor recovers a lost browser session and continues the same Run", asyn
   assert.equal((await getActiveWebWorkerSession(root, "run-recovery", "IMPLEMENT"))?.generation, 2);
   assert.equal(fake.submittedPrompts.length, 2);
   assert.equal(fake.submittedPrompts[1]?.kind, "recovery");
+});
+
+test("recovery preserves an explicitly persisted legacy result contract", async () => {
+  const { root, run } = await fixture();
+  const session = {
+    version: 1 as const,
+    sessionId: "session-legacy",
+    runId: "run-recovery",
+    stage: "IMPLEMENT" as const,
+    generation: 1,
+    policySha256: run.preflight.policy!.effectiveSha256,
+    status: "ready" as const,
+    resultContract: "legacy-structured-json" as const,
+    createdAt: "2026-09-08T01:00:00.000Z",
+  };
+  await createWebWorkerSession(root, session);
+
+  const recovered = await recoverWebWorkerSession({
+    workerRoot: root,
+    run,
+    session,
+    priorTurns: [],
+    desktopEvidence: [],
+    at: "2026-09-08T01:05:00.000Z",
+  });
+
+  assert.equal(recovered.session.resultContract, "legacy-structured-json");
+  assert.equal((await getActiveWebWorkerSession(root, "run-recovery", "IMPLEMENT"))?.resultContract, "legacy-structured-json");
 });

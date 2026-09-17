@@ -171,6 +171,58 @@ test("reasoning executor persists a conversation ref assigned by first submit be
   assert.equal((await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"))?.conversationRef, "conv-after-submit");
 });
 
+test("fresh IMPLEMENT sessions persist their selected result contract", async () => {
+  const { root, run } = await fixture();
+  const fake = createFakeChatGptWebBrowserAdapter([
+    { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1, summary: "done", decisions: [], intents: [], outcome: "stage-complete" },
+  ]);
+  const executor = createWebReasoningExecutor({
+    workerRoot: root,
+    adapter: fake.adapter,
+    now: () => "2026-09-08T01:05:00.000Z",
+    runDesktopIntent: async () => { throw new Error("unused"); },
+  });
+
+  assert.equal((await executor.execute(run)).type, "completed");
+  assert.equal((await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"))?.resultContract, "patch-frame-v1");
+});
+
+test("restart reads the explicit persisted legacy contract without stage fallback", async () => {
+  const { root, run } = await fixture();
+  const { createWebWorkerSession } = await import("../src/chatgpt-web/session-store.js");
+  await createWebWorkerSession(root, {
+    version: 1,
+    sessionId: "session-legacy-restart",
+    runId: "run-web",
+    stage: "IMPLEMENT",
+    generation: 1,
+    policySha256: run.preflight.policy!.effectiveSha256,
+    status: "ready",
+    resultContract: "legacy-structured-json",
+    createdAt: "2026-09-08T01:00:00.000Z",
+  });
+  const observedContracts: unknown[] = [];
+  const adapter = {
+    openOrResumeSession: async () => ({ conversationRef: "conv-legacy" }),
+    submitTurn: async () => ({ conversationRef: "conv-legacy" }),
+    awaitStructuredResult: async (_session: unknown, _timeoutMs: number, contract: unknown) => {
+      observedContracts.push(contract);
+      return { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1, summary: "legacy done", decisions: [], intents: [], outcome: "stage-complete" };
+    },
+    probeSession: async () => "ready",
+    closeSession: async () => undefined,
+  } as any;
+  const executor = createWebReasoningExecutor({
+    workerRoot: root,
+    adapter,
+    now: () => "2026-09-08T01:06:00.000Z",
+    runDesktopIntent: async () => { throw new Error("unused"); },
+  });
+
+  assert.equal((await executor.execute(run)).type, "completed");
+  assert.deepEqual(observedContracts, ["legacy-structured-json"]);
+});
+
 test("reasoning feedback prefers ephemeral Desktop payload over durable completion summary", async () => {
   const { root, run } = await fixture();
   const policySha256 = run.preflight.policy!.effectiveSha256;
@@ -248,6 +300,7 @@ test("restart advances past a lost session still referenced by the active pointe
   const stale = {
     version: 1 as const, sessionId: staleId, runId: "run-web", stage: "IMPLEMENT" as const,
     generation: 1, policySha256: run.preflight.policy!.effectiveSha256, status: "ready" as const,
+    resultContract: "patch-frame-v1" as const,
     createdAt: "2026-09-08T01:00:00.000Z",
   };
   await createWebWorkerSession(root, stale);

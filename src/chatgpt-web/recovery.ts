@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import type { ReasoningTurn, ReasoningTurnResult, WebWorkerSession } from "./contracts.js";
-import { assertReasoningTurnResult } from "./contracts.js";
+import { assertReasoningTurnResult, persistedWebWorkerResultContract } from "./contracts.js";
 import { compileWebPrompt, type WebPromptEvidence } from "./prompt-compiler.js";
 import {
   getActiveWebWorkerSession,
@@ -70,6 +70,7 @@ export async function recoverWebWorkerSession(input: {
     generation,
     policySha256: policy.effectiveSha256,
     status: "ready",
+    resultContract: persistedWebWorkerResultContract(input.session),
     createdAt: input.at,
   };
   const session = await replaceLostWebWorkerSession(input.workerRoot, input.session.sessionId, replacement, input.at);

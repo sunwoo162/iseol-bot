@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { HarnessEvidenceRecord, HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import type { HarnessStageExecutor, HarnessStageExecutionResult } from "../harness/run-supervisor.js";
 import type { DesktopIntent, ReasoningTurn, WebWorkerSession } from "./contracts.js";
-import { assertReasoningTurnResult } from "./contracts.js";
+import { assertReasoningTurnResult, persistedWebWorkerResultContract } from "./contracts.js";
 import type { ChatGptWebBrowserAdapter, ChatGptWebResultContract } from "./browser-adapter.js";
 import { ChatGptWebConversationLimitError, ChatGptWebSessionLostError, ChatGptWebStructuredResultError, ChatGptWebTemporarilyLimitedError, ChatGptWebUsageLimitError } from "./browser-adapter.js";
 import { compileWebPrompt, type CompiledWebPrompt, type WebPromptEvidence } from "./prompt-compiler.js";
@@ -110,7 +110,10 @@ function browserFailureClass(error: unknown): string {
 }
 async function ensureSession(input: CreateWebReasoningExecutorInput, run: HarnessRuntimeRunEnvelope, at: string): Promise<WebWorkerSession> {
   const existing = await getActiveWebWorkerSession(input.workerRoot, run.request.runId, run.state.stage);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.resultContract) return existing;
+    return updateWebWorkerSession(input.workerRoot, { ...existing, resultContract: persistedWebWorkerResultContract(existing) });
+  }
   const policy = run.preflight.policy;
   if (run.preflight.status !== "ready" || !policy) throw new Error("Web reasoning requires ready Harness policy");
   const pointed = await getPointedWebWorkerSession(input.workerRoot, run.request.runId, run.state.stage);
@@ -124,6 +127,7 @@ async function ensureSession(input: CreateWebReasoningExecutorInput, run: Harnes
       generation,
       policySha256: policy.effectiveSha256,
       status: "ready",
+      resultContract: persistedWebWorkerResultContract(pointed),
       createdAt: at,
     }, at);
   }
@@ -135,6 +139,7 @@ async function ensureSession(input: CreateWebReasoningExecutorInput, run: Harnes
     generation: 1,
     policySha256: policy.effectiveSha256,
     status: "ready",
+    resultContract: resultContractForStage(run.state.stage as ChatGptWebResultStage),
     createdAt: at,
   });
 }
@@ -172,7 +177,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
       let recoveries = 0;
       let identitylessRecoveries = 0;
       let finalRecoveryClass = "session lost";
-      const resultContract = resultContractForStage(run.state.stage as ChatGptWebResultStage);
+      const resultContract = persistedWebWorkerResultContract(session);
 
       while (acceptedTurns < maxTurns) {
         let rawResult: unknown;

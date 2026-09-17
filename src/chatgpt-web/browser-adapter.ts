@@ -1,11 +1,11 @@
-import type { ReasoningTurnResult, WebWorkerSession } from "./contracts.js";
+import type { ReasoningTurnResult, WebWorkerResultContract, WebWorkerSession } from "./contracts.js";
 import type { CompiledWebPrompt } from "./prompt-compiler.js";
 
 export type ChatGptWebSessionProbe =
   | "ready" | "lost" | "auth-required" | "temporarily-limited"
   | "conversation-exhausted" | "usage-limited";
 export type ChatGptWebOpenResult = { conversationRef?: string };
-export type ChatGptWebResultContract = "structured-json" | "patch-frame-v1" | "legacy-structured-json";
+export type ChatGptWebResultContract = WebWorkerResultContract;
 
 export class ChatGptWebSessionLostError extends Error {
   constructor(message: string) { super(message); this.name = "ChatGptWebSessionLostError"; }

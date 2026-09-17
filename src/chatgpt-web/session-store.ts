@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { HarnessRunStage } from "../harness/contracts.js";
 import type { WebWorkerSession } from "./contracts.js";
-import { assertWebWorkerSession } from "./contracts.js";
+import { assertWebWorkerSession, persistedWebWorkerResultContract } from "./contracts.js";
 
 const writeQueues = new Map<string, Promise<unknown>>();
 
@@ -59,6 +59,7 @@ export async function getActiveWebWorkerSession(root: string, runId: string, sta
 }
 export async function createWebWorkerSession(root: string, session: WebWorkerSession): Promise<WebWorkerSession> {
   assertWebWorkerSession(session);
+  if (!session.resultContract) throw new Error("Web worker session result contract is required");
   const key = activeFile(root, session.runId, session.stage);
   return serialized(key, async () => {
     const existingById = await loadWebWorkerSession(root, session.sessionId);
@@ -81,6 +82,7 @@ export async function replaceLostWebWorkerSession(
   at: string,
 ): Promise<WebWorkerSession> {
   assertWebWorkerSession(replacement);
+  if (!replacement.resultContract) throw new Error("Replacement session result contract is required");
   const current = await loadWebWorkerSession(root, currentSessionId);
   if (!current) throw new Error(`Web worker session not found: ${currentSessionId}`);
   const key = activeFile(root, current.runId, current.stage);
@@ -90,6 +92,7 @@ export async function replaceLostWebWorkerSession(
     if (replacement.runId !== latest.runId || replacement.stage !== latest.stage) throw new Error("Replacement session run/stage mismatch");
     if (replacement.generation !== latest.generation + 1) throw new Error("Replacement session generation must increment by one");
     if (replacement.policySha256 !== latest.policySha256) throw new Error("Replacement session policySha256 mismatch");
+    if (replacement.resultContract !== persistedWebWorkerResultContract(latest)) throw new Error("Replacement session result contract mismatch");
     const lost: WebWorkerSession = { ...latest, status: "lost", closedAt: at };
     await atomicJson(sessionFile(root, latest.sessionId), lost);
     await atomicJson(sessionFile(root, replacement.sessionId), replacement);
@@ -109,6 +112,9 @@ export async function updateWebWorkerSession(
     if (!current) throw new Error(`Web worker session not found: ${session.sessionId}`);
     if (current.runId !== session.runId || current.stage !== session.stage || current.generation !== session.generation) {
       throw new Error(`Web worker session identity mismatch: ${session.sessionId}`);
+    }
+    if (persistedWebWorkerResultContract(current) !== persistedWebWorkerResultContract(session)) {
+      throw new Error(`Web worker session result contract mismatch: ${session.sessionId}`);
     }
     const active = await getActiveWebWorkerSession(root, session.runId, session.stage);
     if (!active || active.sessionId !== session.sessionId || active.generation !== session.generation) {

@@ -16,6 +16,7 @@ async function root() { return mkdtemp(join(tmpdir(), "iseol-chatgpt-store-")); 
 const session1 = {
   version: 1 as const, sessionId: "session-1", runId: "run-1", stage: "IMPLEMENT" as const,
   generation: 1, policySha256: "policy-1", status: "ready" as const,
+  resultContract: "patch-frame-v1" as const,
   createdAt: "2026-09-08T01:00:00.000Z",
 };
 test("session store keeps one active generation and replaces lost sessions", async () => {
@@ -41,6 +42,20 @@ test("session store rejects unsafe ids and invalid replacement generation", asyn
   await assert.rejects(
     replaceLostWebWorkerSession(store, "session-1", { ...session1, sessionId: "session-3", generation: 3 }, "2026-09-08T01:02:00.000Z"),
     /generation/i,
+  );
+});
+
+test("session store rejects a replacement that changes the persisted result contract", async () => {
+  const store = await root();
+  await createWebWorkerSession(store, session1);
+  await assert.rejects(
+    replaceLostWebWorkerSession(
+      store,
+      "session-1",
+      { ...session1, sessionId: "session-2", generation: 2, resultContract: "legacy-structured-json" as const },
+      "2026-09-08T01:02:00.000Z",
+    ),
+    /result contract/i,
   );
 });
 test("reasoning turns append once by semantic identity", async () => {
