@@ -107,6 +107,15 @@ test("result reading routes only the explicitly selected stage contract", async 
     (error: unknown) => error instanceof Error && error.name === "ChatGptWebStructuredResultError",
   );
   assert.equal((await read(legacy, "legacy-structured-json") as any).intents[0].patch, patch);
+
+  await assert.rejects(
+    () => read(`ISEOL_PATCH_V1\n${patch}`, "legacy-structured-json"),
+    (error: unknown) => error instanceof Error && error.name === "ChatGptWebStructuredResultError",
+  );
+  await assert.rejects(
+    () => read(legacy, "patch-frame-v1"),
+    (error: unknown) => error instanceof Error && error.name === "ChatGptWebStructuredResultError",
+  );
 });
 
  test("new conversation opens only the canonical root and may remain unassigned before submit", async () => {
