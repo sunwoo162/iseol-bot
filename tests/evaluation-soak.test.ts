@@ -52,6 +52,7 @@ test("resource observer detects only explicitly owned leaked jobs sessions proce
     generation: 1,
     policySha256: "a".repeat(64),
     status: "ready",
+    resultContract: "structured-json",
     createdAt: AT,
   });
   await writeFile(join(f.jobRoot, "leaked.tmp"), "temporary", "utf8");

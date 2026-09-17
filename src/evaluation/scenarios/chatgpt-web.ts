@@ -124,6 +124,7 @@ const oldGenerationLateResult = webScenario({
       generation: 1,
       policySha256: f.policy.effectiveSha256,
       status: "ready" as const,
+      resultContract: "legacy-structured-json" as const,
       createdAt: AT,
     };
     await createWebWorkerSession(f.workerRoot, session);
