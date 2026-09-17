@@ -22,7 +22,8 @@ export class ChatGptWebUsageLimitError extends Error {
   constructor(message: string) { super(message); this.name = "ChatGptWebUsageLimitError"; }
 }
 export class ChatGptWebStructuredResultError extends Error {
-  constructor(message: string) { super(message); this.name = "ChatGptWebStructuredResultError"; }
+  readonly diagnostic?: Record<string, string | boolean>;
+  constructor(message: string, diagnostic?: Record<string, string | boolean>) { super(message); this.name = "ChatGptWebStructuredResultError"; this.diagnostic = diagnostic; }
 }
 
 export interface ChatGptWebBrowserAdapter {

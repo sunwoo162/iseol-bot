@@ -48,7 +48,13 @@ function authUrl(url: string): boolean {
   return /\/((auth\/)?login|signup|sign-up)(\/|$)/i.test(url);
 }
 function lost(message: string): never { throw new ChatGptWebSessionLostError(message); }
-function structured(message: string): never { throw new ChatGptWebStructuredResultError(message); }
+function structured(message: string, diagnostic?: Record<string, string | boolean>): never { throw new ChatGptWebStructuredResultError(message, diagnostic); }
+function jsonShape(text: string, error: unknown): Record<string, string | boolean> {
+  const t = text.trim(); const opens = (t.match(/\{/g) ?? []).length; const closes = (t.match(/\}/g) ?? []).length;
+  const brackets = (t.match(/\[/g) ?? []).length; const closeBrackets = (t.match(/\]/g) ?? []).length;
+  const msg = error instanceof Error ? error.message : "";
+  return { responseLengthBucket: t.length < 256 ? "short" : t.length < 4096 ? "medium" : "large", startsWithObjectToken: t.startsWith("{"), endsWithObjectToken: t.endsWith("}"), startsWithArrayToken: t.startsWith("["), endsWithArrayToken: t.endsWith("]"), markdownFencePresent: /^```/.test(t), leadingWrapperPresent: !/^[\[{]/.test(t), trailingWrapperPresent: !/[\]}]$/.test(t), topLevelBraceBalance: opens === closes ? "balanced" : opens > closes ? "more-open" : "more-close", topLevelBracketBalance: brackets === closeBrackets ? "balanced" : brackets > closeBrackets ? "more-open" : "more-close", likelyTruncated: /end of json|unexpected end|unterminated/i.test(msg) ? "yes" : "unknown", parseFailureClass: /unexpected end|end of json/i.test(msg) ? "unexpected-end" : /escape/i.test(msg) ? "invalid-string-escape" : /unexpected token/i.test(msg) ? "unexpected-token" : "other-safe-json-decode" };
+}
 
 function classifyBrowserFailure(error: unknown): never {
   if (
@@ -205,7 +211,7 @@ function parseStructuredResult(text: string): unknown {
     return parsed;
   } catch (error) {
     if (error instanceof ChatGptWebStructuredResultError) throw error;
-    return structured("ChatGPT structured result is not exactly one JSON value");
+    return structured("ChatGPT structured result is not exactly one JSON value", jsonShape(candidate, error));
   }
 }
 
@@ -422,7 +428,7 @@ export async function createPlaywrightChatGptBrowserDriver(
           : /PROPOSE_PATCH requires/i.test(input.message) ? "intent-specific-shape"
             : /patch appendix|patch hunk|unified-diff/i.test(input.message) ? "structured-patch-validation" : "contract-validation";
       const file = resolve(config.lifecycleRoot, "web-workers", "parser-diagnostics.jsonl");
-      try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "parser-rejection", stage: input.stage, sessionId: input.sessionId, generation: input.generation, conversationRefPresent: Boolean(input.conversationRef), category, phase })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
+      try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "parser-rejection", stage: input.stage, sessionId: input.sessionId, generation: input.generation, conversationRefPresent: Boolean(input.conversationRef), category, phase, ...(input.diagnostic ?? {}) })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
     },
     async recordOperationDiagnostic(input) {
       if (!config.lifecycleRoot) return;
