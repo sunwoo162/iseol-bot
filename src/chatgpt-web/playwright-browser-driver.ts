@@ -49,11 +49,41 @@ function authUrl(url: string): boolean {
 }
 function lost(message: string): never { throw new ChatGptWebSessionLostError(message); }
 function structured(message: string, diagnostic?: Record<string, string | boolean>): never { throw new ChatGptWebStructuredResultError(message, diagnostic); }
+function jsonSyntaxShape(text: string, error: unknown): Record<string, string | boolean> {
+  const message = error instanceof Error ? error.message : "";
+  const position = Number(message.match(/position\s+(\d+)/i)?.[1] ?? NaN);
+  const at = Number.isFinite(position) ? Math.min(position, text.length) : -1;
+  const prefix = at >= 0 ? text.slice(0, at) : text;
+  let inString = false; let escaped = false; let depth = 0;
+  for (const ch of prefix) {
+    if (inString) { if (escaped) escaped = false; else if (ch === "\\") escaped = true; else if (ch === '"') inString = false; continue; }
+    if (ch === '"') inString = true;
+    else if (ch === "{" || ch === "[") depth += 1;
+    else if (ch === "}" || ch === "]") depth = Math.max(0, depth - 1);
+  }
+  const next = at >= 0 ? text[at] : undefined;
+  const lower = message.toLowerCase();
+  const parseFailureClass = /unexpected end|end of json|unterminated/i.test(lower)
+    ? "unexpected-end"
+    : /escape/i.test(lower) ? "invalid-string-escape"
+      : /number/i.test(lower) ? "invalid-number"
+        : /unexpected token/i.test(lower) && next === "," ? "unexpected-comma"
+          : /unexpected token/i.test(lower) ? "unexpected-token-in-value" : "other-json-syntax";
+  const lexicalContext = inString ? "string" : /[,:]/.test(prefix.at(-1) ?? "") ? "delimiter" : "unknown";
+  return {
+    parseFailurePositionBucket: at < 0 ? "unknown" : at < text.length * .1 ? "early" : at > text.length * .9 ? "late" : "middle",
+    parseFailureClass,
+    lexicalContext,
+    insideStringAtFailure: inString ? "yes" : "no",
+    nestingDepthBucket: depth < 3 ? "shallow" : depth < 8 ? "medium" : "deep",
+    nearbyCharacterClass: next === '"' ? "quote" : next === "\\" ? "backslash" : next === "," ? "comma" : next === ":" ? "colon" : next === "{" || next === "}" ? "brace" : next === "[" || next === "]" ? "bracket" : /\d/.test(next ?? "") ? "digit" : /[A-Za-z]/.test(next ?? "") ? "alpha" : /\s/.test(next ?? "") ? "whitespace" : "other",
+  };
+}
 function jsonShape(text: string, error: unknown): Record<string, string | boolean> {
   const t = text.trim(); const opens = (t.match(/\{/g) ?? []).length; const closes = (t.match(/\}/g) ?? []).length;
   const brackets = (t.match(/\[/g) ?? []).length; const closeBrackets = (t.match(/\]/g) ?? []).length;
   const msg = error instanceof Error ? error.message : "";
-  return { responseLengthBucket: t.length < 256 ? "short" : t.length < 4096 ? "medium" : "large", startsWithObjectToken: t.startsWith("{"), endsWithObjectToken: t.endsWith("}"), startsWithArrayToken: t.startsWith("["), endsWithArrayToken: t.endsWith("]"), markdownFencePresent: /^```/.test(t), leadingWrapperPresent: !/^[\[{]/.test(t), trailingWrapperPresent: !/[\]}]$/.test(t), topLevelBraceBalance: opens === closes ? "balanced" : opens > closes ? "more-open" : "more-close", topLevelBracketBalance: brackets === closeBrackets ? "balanced" : brackets > closeBrackets ? "more-open" : "more-close", likelyTruncated: /end of json|unexpected end|unterminated/i.test(msg) ? "yes" : "unknown", parseFailureClass: /unexpected end|end of json/i.test(msg) ? "unexpected-end" : /escape/i.test(msg) ? "invalid-string-escape" : /unexpected token/i.test(msg) ? "unexpected-token" : "other-safe-json-decode" };
+  return { responseLengthBucket: t.length < 256 ? "short" : t.length < 4096 ? "medium" : "large", startsWithObjectToken: t.startsWith("{"), endsWithObjectToken: t.endsWith("}"), startsWithArrayToken: t.startsWith("["), endsWithArrayToken: t.endsWith("]"), markdownFencePresent: /^```/.test(t), leadingWrapperPresent: !/^[\[{]/.test(t), trailingWrapperPresent: !/[\]}]$/.test(t), topLevelBraceBalance: opens === closes ? "balanced" : opens > closes ? "more-open" : "more-close", topLevelBracketBalance: brackets === closeBrackets ? "balanced" : brackets > closeBrackets ? "more-open" : "more-close", likelyTruncated: /end of json|unexpected end|unterminated/i.test(msg) ? "yes" : "unknown", ...jsonSyntaxShape(t, error) };
 }
 
 function classifyBrowserFailure(error: unknown): never {
