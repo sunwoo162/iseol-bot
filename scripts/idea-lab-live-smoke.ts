@@ -2,6 +2,8 @@ import "dotenv/config";
 import type { Server } from "node:http";
 import { resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { startIseolRuntimeServices, type IseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
 import { listPrototypeProductions } from "../src/idea-lab/production-store.js";
@@ -34,6 +36,46 @@ type SmokeDeps = {
   timeoutMs?: number;
   cleanupTimeoutMs?: number;
 };
+
+type SmokeCorrelation = {
+  smokeExecutionId: string;
+  smokeRoot: string;
+  startedAt: string;
+  pid: number;
+  campaignId: string | null;
+  productionId: string | null;
+  runId: string | null;
+  terminalStage: string | null;
+  terminalClassification: string | null;
+  desktopAgentConnected: boolean;
+  desktopAgentEligible: boolean;
+  desktopAgentIdMatches: boolean;
+  sameCoreTransport: boolean;
+  readinessCheckedAt: string | null;
+};
+
+export function createSmokeCorrelation(smokeRoot: string, now = new Date().toISOString()): SmokeCorrelation {
+  return {
+    smokeExecutionId: randomUUID(), smokeRoot, startedAt: now, pid: process.pid,
+    campaignId: null, productionId: null, runId: null, terminalStage: null,
+    terminalClassification: null, desktopAgentConnected: false, desktopAgentEligible: false,
+    desktopAgentIdMatches: false, sameCoreTransport: false, readinessCheckedAt: null,
+  };
+}
+
+async function persistSmokeCorrelation(correlation: SmokeCorrelation): Promise<void> {
+  await mkdir(correlation.smokeRoot, { recursive: true });
+  await writeFile(`${correlation.smokeRoot}/smoke-correlation.json`, `${JSON.stringify(correlation, null, 2)}\n`, "utf8");
+}
+
+function terminalReason(error: unknown): string {
+  if (error instanceof LiveSmokeExternalBlocker) return "required-live-capability-unavailable";
+  return "domain-verification-failed";
+}
+
+function formatTerminal(prefix: string, correlation: SmokeCorrelation): string {
+  return `${prefix}: smoke=${correlation.smokeExecutionId}; campaign=${correlation.campaignId ?? "none"}; run=${correlation.runId ?? "none"}; stage=${correlation.terminalStage ?? "unknown"}; reason=${correlation.terminalClassification ?? "unknown"}`;
+}
 
 export function assertLiveSmokeDesktopAgentReady(
   services: Pick<IseolRuntimeServices, "desktopCore">,
@@ -258,13 +300,21 @@ export async function runIdeaLabLiveSmokeCli(
   const stderr = deps.stderr ?? console.error;
   const cwd = deps.cwd ?? process.cwd();
   const webConfig = smokeWebConfig(env, cwd);
+  const correlation = createSmokeCorrelation(webConfig.modelRoot);
+  await persistSmokeCorrelation(correlation);
   const prerequisite = prerequisiteState(env, cwd, webConfig);
   if (prerequisite === "invalid") {
-    stderr("Idea Lab live smoke failed: live configuration is invalid.");
+    correlation.terminalStage = "prerequisite";
+    correlation.terminalClassification = "invalid-live-configuration";
+    await persistSmokeCorrelation(correlation).catch(() => undefined);
+    stderr(formatTerminal("Idea Lab live smoke failed", correlation));
     return 1;
   }
   if (prerequisite === "blocked") {
-    stderr("Idea Lab live smoke blocked-external: required live settings are unavailable.");
+    correlation.terminalStage = "prerequisite";
+    correlation.terminalClassification = "required-live-settings-unavailable";
+    await persistSmokeCorrelation(correlation).catch(() => undefined);
+    stderr(formatTerminal("Idea Lab live smoke blocked-external", correlation));
     return 2;
   }
   const timeoutMs = deps.timeoutMs ?? 15 * 60_000;
@@ -279,7 +329,6 @@ export async function runIdeaLabLiveSmokeCli(
   let ownedAgent: ChildProcess | undefined;
   let exitCode = 1;
   let activeStage = "start-services";
-
   try {
     const agentUrl = env.ISEOL_DESKTOP_AGENT_URL?.trim();
     if (agentUrl) {
@@ -298,9 +347,18 @@ export async function runIdeaLabLiveSmokeCli(
     activeStage = "desktop-agent-preflight";
     const agentId = env.ISEOL_IDEA_LAB_AGENT_ID?.trim();
     if (!agentId) throw new LiveSmokeExternalBlocker("Desktop Agent preflight failed: agent id is not configured");
+    const connected = Boolean(services.desktopCore?.transport?.isAgentConnected(agentId));
+    correlation.desktopAgentConnected = connected;
+    correlation.desktopAgentIdMatches = connected;
+    correlation.desktopAgentEligible = connected;
+    correlation.sameCoreTransport = connected;
+    correlation.readinessCheckedAt = new Date().toISOString();
+    await persistSmokeCorrelation(correlation);
     assertLiveSmokeDesktopAgentReady(services, agentId);
     activeStage = "post-campaign";
     const created = await within(postCampaign(services.webServer, webConfig.token), timeoutMs);
+    correlation.campaignId = created.id;
+    await persistSmokeCorrelation(correlation);
     activeStage = "runtime-idle";
     await within(services.ideaLabRuntime.idle(), timeoutMs);
     const finalCampaign = await within(loadCampaign(webConfig.modelRoot, created.id), timeoutMs);
@@ -310,6 +368,11 @@ export async function runIdeaLabLiveSmokeCli(
     const candidates = await within(listCandidates(webConfig.modelRoot), timeoutMs);
     const campaignProductions = productions.filter((item) => item.campaignId === finalCampaign.id);
     const canonicalProduction = campaignProductions.length === 1 ? campaignProductions[0] : undefined;
+    if (canonicalProduction) {
+      correlation.productionId = canonicalProduction.id;
+      correlation.runId = canonicalProduction.runId;
+      await persistSmokeCorrelation(correlation);
+    }
     const run = canonicalProduction
       ? await within(loadRun(webConfig.harnessRoot, canonicalProduction.runId), timeoutMs)
       : null;
@@ -339,16 +402,22 @@ export async function runIdeaLabLiveSmokeCli(
         throw new Error(`Idea Lab live smoke durable identity changed across restart: ${key}`);
       }
     }
+    correlation.terminalStage = "restart-idle";
+    correlation.terminalClassification = "success";
+    await persistSmokeCorrelation(correlation);
     stdout(
-      `Idea Lab live smoke passed: campaign=${finalCampaign.id}; production=${verified.productionId}; candidate=${verified.candidateId}; run=${verified.runId}; restart=verified`,
+      `Idea Lab live smoke passed: smoke=${correlation.smokeExecutionId}; campaign=${finalCampaign.id}; production=${verified.productionId}; candidate=${verified.candidateId}; run=${verified.runId}; restart=verified`,
     );
     exitCode = 0;
   } catch (error) {
+    correlation.terminalStage = activeStage;
+    correlation.terminalClassification = terminalReason(error);
+    await persistSmokeCorrelation(correlation).catch(() => undefined);
     if (externalError(error)) {
-      stderr(`Idea Lab live smoke blocked-external: stage=${activeStage}; required live capability is unavailable.`);
+      stderr(formatTerminal("Idea Lab live smoke blocked-external", correlation));
       exitCode = 2;
     } else {
-      stderr("Idea Lab live smoke failed during domain verification.");
+      stderr(formatTerminal("Idea Lab live smoke failed during domain verification", correlation));
       exitCode = 1;
     }
   } finally {
@@ -356,7 +425,10 @@ export async function runIdeaLabLiveSmokeCli(
       try {
         await within(services.dispose(), cleanupTimeoutMs);
       } catch {
-        stderr("Idea Lab live smoke failed during service disposal.");
+        correlation.terminalStage = "service-disposal";
+        correlation.terminalClassification = "service-disposal-failed";
+        await persistSmokeCorrelation(correlation).catch(() => undefined);
+        stderr(formatTerminal("Idea Lab live smoke failed during service disposal", correlation));
         if (exitCode !== 2) exitCode = 1;
       }
     }

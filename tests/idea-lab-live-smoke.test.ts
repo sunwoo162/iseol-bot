@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { IdeaLabCampaign, PrototypeProduction } from "../src/idea-lab/contracts.js";
 import type { PrototypeCandidate } from "../src/project-model/contracts.js";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
@@ -277,6 +280,51 @@ test("live smoke does not create a campaign before same-Core Desktop Agent readi
   });
   assert.equal(code, 2);
   assert.equal(posted, false);
+});
+
+test("live smoke correlates terminal success with persisted smoke identity", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-smoke-correlation-"));
+  const output: string[] = [];
+  const env = { ...configuredEnv(), ISEOL_MODEL_ROOT: root };
+  const code = await runIdeaLabLiveSmokeCli(env, { ...successDeps(), stdout: (line) => output.push(line) });
+  assert.equal(code, 0);
+  const persisted = JSON.parse(await readFile(join(root, "smoke-correlation.json"), "utf8")) as {
+    smokeExecutionId: string; smokeRoot: string; campaignId: string | null; runId: string | null;
+    terminalClassification: string;
+  };
+  assert.equal(persisted.smokeRoot, root);
+  assert.equal(persisted.campaignId, campaign.id);
+  assert.equal(persisted.runId, production.runId);
+  assert.equal(persisted.terminalClassification, "success");
+  assert.match(output[0] ?? "", new RegExp(`smoke=${persisted.smokeExecutionId}`));
+});
+
+test("live smoke persists failed pre-campaign readiness without creating a campaign", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-smoke-readiness-"));
+  let posted = false;
+  const env = { ...configuredEnv(), ISEOL_MODEL_ROOT: root };
+  const code = await runIdeaLabLiveSmokeCli(env, {
+    ...successDeps(),
+    startServices: async () => ({
+      webServer: {} as any,
+      desktopCore: { transport: { isAgentConnected: () => false } } as any,
+      ideaLabRuntime: { idle: async () => undefined },
+      ideaLabCapability: { state: "ready" as const },
+      dispose: async () => undefined,
+    }),
+    postCampaign: async () => { posted = true; return campaign; },
+  });
+  assert.equal(code, 2);
+  assert.equal(posted, false);
+  const persisted = JSON.parse(await readFile(join(root, "smoke-correlation.json"), "utf8")) as {
+    campaignId: string | null; desktopAgentConnected: boolean; sameCoreTransport: boolean;
+    terminalStage: string; terminalClassification: string;
+  };
+  assert.equal(persisted.campaignId, null);
+  assert.equal(persisted.desktopAgentConnected, false);
+  assert.equal(persisted.sameCoreTransport, false);
+  assert.equal(persisted.terminalStage, "desktop-agent-preflight");
+  assert.equal(persisted.terminalClassification, "required-live-capability-unavailable");
 });
 test("live smoke uses a short cleanup timeout independent of the main budget", async () => {
   const never = new Promise<void>(() => undefined);
