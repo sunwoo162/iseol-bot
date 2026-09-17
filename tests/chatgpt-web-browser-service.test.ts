@@ -5,6 +5,7 @@ import type { WebWorkerSession } from "../src/chatgpt-web/contracts.js";
 import type { CompiledWebPrompt } from "../src/chatgpt-web/prompt-compiler.js";
 import {
   createProductionChatGptWebAdapter,
+  classifyChatGptBrowserOperationFailure,
   type ChatGptBrowserDriver,
 } from "../src/chatgpt-web/production-browser-adapter.js";
 import {
@@ -77,6 +78,30 @@ test("auth and navigation failures are classified without leaking browser creden
   const lostAdapter = createProductionChatGptWebAdapter(lostDriver);
   await assert.rejects(lostAdapter.submitTurn({ ...session, conversationRef: "conv-2" }, prompt), ChatGptWebSessionLostError);
   await assert.rejects(lostAdapter.awaitStructuredResult({ ...session, conversationRef: "conv-2" }, 1000, "patch-frame-v1"), ChatGptWebSessionLostError);
+});
+
+test("browser operation failures map to bounded classes without exposing exception text", async () => {
+  const sentinel = "ISEOL_BROWSER_SECRET_SENTINEL";
+  assert.equal(classifyChatGptBrowserOperationFailure(new Error("Page has been closed")), "page-closed");
+  assert.equal(classifyChatGptBrowserOperationFailure(new Error("Execution context was destroyed")), "execution-context-destroyed");
+  assert.equal(classifyChatGptBrowserOperationFailure(new Error("Timeout 1000ms exceeded")), "timeout");
+  assert.equal(classifyChatGptBrowserOperationFailure(new Error("owned page missing")), "owned-page-missing");
+  assert.equal(classifyChatGptBrowserOperationFailure(new Error("Browser disconnected")), "browser-disconnected");
+  assert.equal(classifyChatGptBrowserOperationFailure(new Error(sentinel)), "unknown");
+
+  let diagnostic: unknown;
+  const driver: ChatGptBrowserDriver = {
+    openOrResumeConversation: async () => { throw new Error(sentinel); },
+    submitPrompt: async () => undefined,
+    readStructuredResult: async () => ({}),
+    probeConversation: async () => "ready",
+    closeConversation: async () => undefined,
+    recordOperationDiagnostic: async (input) => { diagnostic = input; },
+  };
+  await assert.rejects(createProductionChatGptWebAdapter(driver).openOrResumeSession(session, prompt), ChatGptWebSessionLostError);
+  assert.equal((diagnostic as { operation: string }).operation, "acquire-owned-page");
+  assert.equal((diagnostic as { failureClass: string }).failureClass, "unknown");
+  assert.doesNotMatch(JSON.stringify(diagnostic), new RegExp(sentinel));
 });
 test("controlled smoke rejects mutation intents unless an explicit workspace is allowed", async () => {
   const smokeDriver: ChatGptBrowserDriver = {

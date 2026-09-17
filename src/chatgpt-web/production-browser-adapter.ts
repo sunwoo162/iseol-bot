@@ -20,6 +20,34 @@ export interface ChatGptBrowserDriver {
   dispose?(): Promise<void>;
 }
 
+export type ChatGptBrowserOperationFailureClass =
+  | "page-closed" | "context-closed" | "browser-disconnected" | "target-closed"
+  | "page-missing" | "owned-page-missing" | "navigation-failed" | "locator-missing"
+  | "execution-context-destroyed" | "timeout" | "session-not-found"
+  | "conversation-not-found" | "auth-or-login-page" | "operation-aborted"
+  | "driver-error" | "unknown";
+
+export function classifyChatGptBrowserOperationFailure(error: unknown): ChatGptBrowserOperationFailureClass {
+  const message = error instanceof Error ? error.message : "";
+  const name = error instanceof Error ? error.name : "";
+  const text = `${name} ${message}`.toLowerCase();
+  if (/browser.*disconnect|disconnected.*browser|browser has been closed/.test(text)) return "browser-disconnected";
+  if (/execution context.*destroyed|cannot find context/.test(text)) return "execution-context-destroyed";
+  if (/target.*closed|target page, context or browser has been closed/.test(text)) return "target-closed";
+  if (/page.*closed|page has been closed/.test(text)) return "page-closed";
+  if (/context.*closed|context has been closed/.test(text)) return "context-closed";
+  if (/owned page.*missing|owned page.*unavailable/.test(text)) return "owned-page-missing";
+  if (/page.*missing|page.*not found/.test(text)) return "page-missing";
+  if (/navigation|net::|goto/.test(text)) return "navigation-failed";
+  if (/locator|selector|composer/.test(text)) return "locator-missing";
+  if (/timeout|timed out/.test(text)) return "timeout";
+  if (/session.*not found|no session/.test(text)) return "session-not-found";
+  if (/conversation.*not found|conversation.*unavailable/.test(text)) return "conversation-not-found";
+  if (/auth|login|sign.?in/.test(text)) return "auth-or-login-page";
+  if (/abort|aborted/.test(text)) return "operation-aborted";
+  return "unknown";
+}
+
 function safeRef(value: unknown): string {
   if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(value)) {
     throw new ChatGptWebSessionLostError("Browser returned an unsafe conversation reference");
@@ -39,15 +67,15 @@ function classify(error: unknown): never {
     || error instanceof ChatGptWebUsageLimitError
     || error instanceof ChatGptWebStructuredResultError
   ) throw error;
-  const message = error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error ? error.message : "ChatGPT browser operation failed";
   if (/auth|login|sign.?in/i.test(message)) throw new ChatGptWebAuthenticationRequiredError(message);
-  throw new ChatGptWebSessionLostError(message);
+  throw new ChatGptWebSessionLostError("ChatGPT browser operation failed");
 }
 
 export function createProductionChatGptWebAdapter(driver: ChatGptBrowserDriver): ChatGptWebBrowserAdapter {
   const recordFailure = async (operation: string, session: any, error: unknown) => {
-    const message = error instanceof Error ? error.message : "unknown";
-    const failureClass = error instanceof ChatGptWebStructuredResultError ? "structured-result-parser-rejection" : /conversation identity/i.test(message) ? "conversation-identity-failure" : /composer/i.test(message) ? "composer-failure" : /assistant/i.test(message) ? "assistant-response-failure" : /timeout/i.test(message) ? "response-timeout" : "browser-operation-unknown";
+    const message = error instanceof Error ? error.message : "";
+    const failureClass = error instanceof ChatGptWebStructuredResultError ? "structured-result-parser-rejection" : /conversation identity/i.test(message) ? "conversation-identity-failure" : /composer/i.test(message) ? "composer-failure" : /assistant/i.test(message) ? "assistant-response-failure" : /timeout/i.test(message) ? "response-timeout" : classifyChatGptBrowserOperationFailure(error);
     await driver.recordOperationDiagnostic?.({ operation, phase: "failure", stage: session.stage, sessionId: session.sessionId, generation: session.generation, ...(session.conversationRef ? { conversationRef: session.conversationRef } : {}), failureClass }).catch(() => undefined);
   };
   const promptInput = (prompt: CompiledWebPrompt) => ({ prompt: prompt.body, promptSha256: prompt.sha256 });
