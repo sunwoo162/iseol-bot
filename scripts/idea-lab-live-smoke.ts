@@ -1,6 +1,6 @@
 import "dotenv/config";
 import type { Server } from "node:http";
-import { resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -63,6 +63,11 @@ export function createSmokeCorrelation(smokeRoot: string, now = new Date().toISO
   };
 }
 
+function smokeBaseRoot(modelRoot: string): string {
+  const resolved = resolve(modelRoot);
+  return basename(resolved).toLowerCase() === "model" ? dirname(resolved) : resolved;
+}
+
 async function persistSmokeCorrelation(correlation: SmokeCorrelation): Promise<void> {
   await mkdir(correlation.smokeRoot, { recursive: true });
   await writeFile(`${correlation.smokeRoot}/smoke-correlation.json`, `${JSON.stringify(correlation, null, 2)}\n`, "utf8");
@@ -71,6 +76,19 @@ async function persistSmokeCorrelation(correlation: SmokeCorrelation): Promise<v
 function terminalReason(error: unknown): string {
   if (error instanceof LiveSmokeExternalBlocker) return "required-live-capability-unavailable";
   return "domain-verification-failed";
+}
+
+function authoritativeRunTerminalState(run: Awaited<ReturnType<typeof loadHarnessRun>>):
+  { stage: string; classification: string } | undefined {
+  const state = run?.state as { status?: string; stage?: string; reason?: string } | undefined;
+  if (!state?.stage || !state.status || state.status === "DONE") return undefined;
+  if (state.status === "WAITING_AGENT" || /Desktop Agent session is unavailable/i.test(state.reason ?? "")) {
+    return { stage: state.stage, classification: "required-live-capability-unavailable" };
+  }
+  if (state.status === "FAILED_RETRYABLE" || state.status === "FAILED_FINAL") {
+    return { stage: state.stage, classification: state.status === "FAILED_FINAL" ? "run-failed-final" : "run-failed-retryable" };
+  }
+  return undefined;
 }
 
 function formatTerminal(prefix: string, correlation: SmokeCorrelation): string {
@@ -300,7 +318,7 @@ export async function runIdeaLabLiveSmokeCli(
   const stderr = deps.stderr ?? console.error;
   const cwd = deps.cwd ?? process.cwd();
   const webConfig = smokeWebConfig(env, cwd);
-  const correlation = createSmokeCorrelation(webConfig.modelRoot);
+  const correlation = createSmokeCorrelation(smokeBaseRoot(webConfig.modelRoot));
   await persistSmokeCorrelation(correlation);
   const prerequisite = prerequisiteState(env, cwd, webConfig);
   if (prerequisite === "invalid") {
@@ -410,8 +428,20 @@ export async function runIdeaLabLiveSmokeCli(
     );
     exitCode = 0;
   } catch (error) {
-    correlation.terminalStage = activeStage;
-    correlation.terminalClassification = terminalReason(error);
+    let authoritative: { stage: string; classification: string } | undefined;
+    if (correlation.campaignId) {
+      try {
+        const productions = await listProductions(webConfig.modelRoot);
+        const production = productions.find((item) => item.campaignId === correlation.campaignId);
+        if (production) {
+          correlation.productionId ??= production.id;
+          correlation.runId ??= production.runId;
+          authoritative = authoritativeRunTerminalState(await loadRun(webConfig.harnessRoot, production.runId));
+        }
+      } catch { /* preserve the original failure if durable state cannot be read */ }
+    }
+    correlation.terminalStage = authoritative?.stage ?? activeStage;
+    correlation.terminalClassification = authoritative?.classification ?? terminalReason(error);
     await persistSmokeCorrelation(correlation).catch(() => undefined);
     if (externalError(error)) {
       stderr(formatTerminal("Idea Lab live smoke blocked-external", correlation));
@@ -425,8 +455,12 @@ export async function runIdeaLabLiveSmokeCli(
       try {
         await within(services.dispose(), cleanupTimeoutMs);
       } catch {
-        correlation.terminalStage = "service-disposal";
-        correlation.terminalClassification = "service-disposal-failed";
+        const preserveAuthoritativeFailure = correlation.terminalClassification !== null
+          && correlation.terminalClassification !== "success";
+        if (!preserveAuthoritativeFailure) {
+          correlation.terminalStage = "service-disposal";
+          correlation.terminalClassification = "service-disposal-failed";
+        }
         await persistSmokeCorrelation(correlation).catch(() => undefined);
         stderr(formatTerminal("Idea Lab live smoke failed during service disposal", correlation));
         if (exitCode !== 2) exitCode = 1;

@@ -310,7 +310,7 @@ test("live smoke persists failed pre-campaign readiness without creating a campa
       desktopCore: { transport: { isAgentConnected: () => false } } as any,
       ideaLabRuntime: { idle: async () => undefined },
       ideaLabCapability: { state: "ready" as const },
-      dispose: async () => undefined,
+      dispose: async () => { throw new Error("dispose failed"); },
     }),
     postCampaign: async () => { posted = true; return campaign; },
   });
@@ -326,6 +326,41 @@ test("live smoke persists failed pre-campaign readiness without creating a campa
   assert.equal(persisted.terminalStage, "desktop-agent-preflight");
   assert.equal(persisted.terminalClassification, "required-live-capability-unavailable");
 });
+
+test("live smoke preserves an authoritative waiting-agent run failure", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-smoke-authoritative-run-"));
+  const lines: string[] = [];
+  const env = { ...configuredEnv(), ISEOL_MODEL_ROOT: join(root, "model") };
+  const waitingRun = {
+    ...run,
+    state: { status: "WAITING_AGENT", stage: "CONTEXT", reason: "Desktop Agent session is unavailable" },
+  } as unknown as HarnessRuntimeRunEnvelope;
+  const code = await runIdeaLabLiveSmokeCli(env, {
+    ...successDeps(),
+    startServices: async () => ({
+      webServer: {} as any,
+      desktopCore: { transport: { isAgentConnected: () => true } } as any,
+      ideaLabRuntime: { idle: async () => { throw new Error("WAITING_AGENT: Desktop Agent session is unavailable"); } },
+      ideaLabCapability: { state: "ready" as const },
+      dispose: async () => undefined,
+    }),
+    loadRun: async () => waitingRun,
+    stderr: (line) => lines.push(line),
+  });
+  assert.equal(code, 2);
+  const persisted = JSON.parse(await readFile(join(root, "smoke-correlation.json"), "utf8")) as SmokeCorrelationLike;
+  assert.equal(persisted.smokeRoot, root);
+  assert.equal(persisted.terminalStage, "CONTEXT");
+  assert.equal(persisted.terminalClassification, "required-live-capability-unavailable");
+  assert.match(lines.at(-1) ?? "", /stage=CONTEXT; reason=required-live-capability-unavailable/);
+});
+
+type SmokeCorrelationLike = {
+  smokeRoot: string;
+  terminalStage: string;
+  terminalClassification: string;
+};
+
 test("live smoke uses a short cleanup timeout independent of the main budget", async () => {
   const never = new Promise<void>(() => undefined);
   const result = await Promise.race([
