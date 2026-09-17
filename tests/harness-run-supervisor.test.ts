@@ -121,7 +121,7 @@ test("blocking result stops immediately and persists state", async () => {
   assert.equal(result.state.stage, "ANALYZE");
   assert.match(result.state.reason ?? "", /product direction/);
 });
-test("retryable failures are bounded by maxSteps", async () => {
+test("retryable failure yields the current supervision pass", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-supervisor-retry-"));
   await saveHarnessRun(root, runtimeRun("IMPLEMENT"));
   let calls = 0;
@@ -140,10 +140,37 @@ test("retryable failures are bounded by maxSteps", async () => {
     now: clock(),
   });
 
-  assert.equal(calls, 3);
+  assert.equal(
+    calls,
+    1,
+    "FAILED_RETRYABLE must yield to external runtime recovery instead of hot-looping",
+  );
   assert.equal(result.state.stage, "IMPLEMENT");
   assert.equal(result.state.status, "FAILED_RETRYABLE");
-  assert.match(result.state.reason ?? "", /step budget/i);
+  assert.equal(result.state.reason, "transient worker failure");
+});
+
+test("retryable failure preserves its reason when the pass step budget is one", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-supervisor-retry-reason-"));
+  await saveHarnessRun(root, runtimeRun("IMPLEMENT"));
+
+  const executor: HarnessStageExecutor = {
+    execute: async () => ({
+      type: "retryable-failure",
+      reason: "transient worker failure",
+    }),
+  };
+
+  const result = await superviseHarnessRun({
+    storeRoot: root,
+    runId: "run-001",
+    executor,
+    maxSteps: 1,
+    now: clock(),
+  });
+
+  assert.equal(result.state.status, "FAILED_RETRYABLE");
+  assert.equal(result.state.reason, "transient worker failure");
 });
 
 test("DONE is rejected when full delivery evidence is missing", async () => {

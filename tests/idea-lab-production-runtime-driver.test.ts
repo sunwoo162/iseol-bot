@@ -118,6 +118,10 @@ test("FAILED_FINAL is persisted and sanitized", async () => {
 test("lost deploy response recovers once and materializes persisted candidate", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-driver-lost-")); const proposal = baseProposal("camp-lost"); const fake = createFakePrototypeDeployAdapter({ loseFirstResponse: true, now: () => "2026-09-11T00:00:00.000Z" }); const driver = makeDriver(root, { proposal, deployAdapter: fake }); const production = await driver.createProduction(proposal, 1); await saveIdeaProposal(root, proposal);
   const { loadHarnessRun } = await import("../src/harness/run-store.js"); const run = await loadHarnessRun(root, production.runId); const sha = "c".repeat(40); await saveHarnessRun(root, { ...run!, preflight: { version: 1, runId: run!.request.runId, status: "ready", policy: { version: 1, loadedAt: "now", sources: [], effectiveSha256: "policy" } }, state: { ...run!.state, stage: "DEPLOY", status: "READY", completedStages: ["CONTEXT", "ANALYZE", "PLAN", "IMPLEMENT", "TEST", "SELF_REVIEW", "COMMIT"] }, evidence: [{ version: 1, id: "test", kind: "test", stage: "TEST", recordedAt: "now", summary: "tested" }, { version: 1, id: "review", kind: "review", stage: "SELF_REVIEW", recordedAt: "now", summary: "reviewed" }, { version: 1, id: "commit", kind: "commit", stage: "COMMIT", recordedAt: "now", summary: "committed", reference: sha }] });
+  await assert.rejects(
+    () => driver.advanceProduction(production),
+    /Idea Lab Harness retryable failure; yield campaign supervision for recovery/,
+  );
   const result = await driver.advanceProduction(production); const saved = await loadPrototypeProduction(root, production.id); assert.equal(result.status, "ready"); assert.equal(fake.deployCalls.length, 1); assert.equal(saved?.id, production.id); assert.equal((await loadPrototypeCandidate(root, production.id))?.ideaLabOrigin?.productionId, production.id);
 });
 

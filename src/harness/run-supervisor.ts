@@ -225,10 +225,7 @@ export async function superviseHarnessRun(
     }
     const at = now();
     if (result.type === "retryable-failure") {
-      const exhausted = steps >= maxSteps;
-      const reason = exhausted
-        ? `Step budget exhausted after ${steps} attempts: ${result.reason}`
-        : result.reason;
+      const reason = result.reason;
       run = updateRun(
         run,
         transitionRunState(run.state, { type: "retryable-failure", at, reason }),
@@ -239,8 +236,7 @@ export async function superviseHarnessRun(
         type: "status-changed",
         summary: reason,
       });
-      if (exhausted) return run;
-      continue;
+      return run;
     }
 
     run = transitionForResult(run, result, at);

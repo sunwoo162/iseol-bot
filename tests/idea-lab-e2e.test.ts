@@ -25,7 +25,10 @@ import type { IdeaProposal, PrototypeProduction } from "../src/idea-lab/contract
 import { saveIdeaLabCampaign, loadIdeaLabCampaign } from "../src/idea-lab/campaign-store.js";
 import { loadIdeaProposal } from "../src/idea-lab/proposal-store.js";
 import { listPrototypeProductions } from "../src/idea-lab/production-store.js";
-import { superviseIdeaLabCampaign } from "../src/idea-lab/campaign-supervisor.js";
+import {
+  superviseIdeaLabCampaign,
+  type ProductionAdvanceResult,
+} from "../src/idea-lab/campaign-supervisor.js";
 import { createDesktopPrototypeSandboxAdapter } from "../src/idea-lab/sandbox-adapter.js";
 import { createFakePrototypeDeployAdapter } from "../src/idea-lab/test-support/fake-deploy-adapter.js";
 import { FakeIdeaProposalProvider } from "../src/idea-lab/test-support/fake-proposal-provider.js";
@@ -192,7 +195,7 @@ async function runProduction(
   deployAdapter: ReturnType<typeof createFakePrototypeDeployAdapter>,
   failTest = false,
   recoverBrowser = false,
-): Promise<PrototypeProduction> {
+): Promise<ProductionAdvanceResult> {
   const run = await loadHarnessRun(system.runRoot, production.runId);
   if (!run?.preflight.policy) throw new Error(`Run missing for production ${production.id}`);
   const expectedValue = `candidate-${production.id}`;
@@ -241,6 +244,17 @@ async function runProduction(
     maxSteps: 40,
     now: () => NOW,
   });
+  if (final.state.status === "FAILED_RETRYABLE" && !failTest) {
+    return {
+      production: {
+        ...production,
+        status: "running",
+        updatedAt: NOW,
+      },
+      directive: "yield",
+    };
+  }
+
   if (final.state.status !== "DONE") {
     return {
       ...production,
@@ -343,7 +357,7 @@ function campaignDriver(
         branch: allocation.branch, baseRef: allocation.baseRef, status: "queued", createdAt: NOW, updatedAt: NOW,
       };
     },
-    async advanceProduction(production: PrototypeProduction): Promise<PrototypeProduction> {
+    async advanceProduction(production: PrototypeProduction): Promise<ProductionAdvanceResult> {
       const proposal = await loadIdeaProposal(system.modelRoot, production.proposalId);
       if (!proposal) throw new Error(`Proposal missing for ${production.id}`);
       const ordinal = Number(production.id.replace("prod-", ""));
@@ -429,6 +443,32 @@ test("restart recovers browser generation and lost preview response without dupl
   assert.deepEqual(first.productionIds, ["prod-1"]);
 
   const restartedDriver = campaignDriver(system, resources, { recoverBrowserOrdinals: [1], deployAdapter });
+  const interrupted = await superviseIdeaLabCampaign({
+    root: system.modelRoot,
+    campaignId: "camp-restart",
+    proposalProvider: proposalProvider(1),
+    createProduction: restartedDriver.createProduction,
+    advanceProduction: restartedDriver.advanceProduction,
+    maxSteps: 12,
+    now: () => NOW,
+  });
+
+  assert.equal(interrupted.status, "producing");
+  assert.deepEqual(interrupted.productionIds, ["prod-1"]);
+
+  const interruptedRun = await loadHarnessRun(
+    system.runRoot,
+    "run-camp-restart-prod-1",
+  );
+
+  assert.equal(interruptedRun?.state.stage, "DEPLOY");
+  assert.equal(interruptedRun?.state.status, "FAILED_RETRYABLE");
+  assert.equal(
+    deployAdapter.deployCalls.length,
+    1,
+    "lost deploy response must not create a second deployment before recovery",
+  );
+
   const final = await superviseIdeaLabCampaign({
     root: system.modelRoot,
     campaignId: "camp-restart",
@@ -438,6 +478,7 @@ test("restart recovers browser generation and lost preview response without dupl
     maxSteps: 12,
     now: () => NOW,
   });
+
   assert.equal(final.status, "complete");
   assert.deepEqual(final.productionIds, ["prod-1"]);
   assert.equal(deployAdapter.deployCalls.length, 1);

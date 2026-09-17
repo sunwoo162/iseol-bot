@@ -469,10 +469,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
 
     if (run.state.status === "FAILED_FINAL") return persistFailure(canonical);
     if (run.state.status === "DONE") return finalizeReady(canonical, proposal, run);
-    if (
-      run.state.status === "FAILED_RETRYABLE"
-      || run.state.status === "WAITING_AGENT"
-    ) {
+    if (run.state.status === "WAITING_AGENT") {
       run = await recoverHarnessRun({
         storeRoot: input.roots.runRoot,
         runId: production.runId,
@@ -522,7 +519,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
         status: "running",
         updatedAt: now(),
       });
-      throw new Error("Idea Lab Harness retry budget exhausted; yield campaign supervision for recovery");
+      throw new Error("Idea Lab Harness retryable failure; yield campaign supervision for recovery");
     }
     if (final.state.status !== "DONE") {
       const latest = await loadPrototypeProduction(input.roots.modelRoot, production.id) ?? canonical;
