@@ -69,6 +69,47 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
     summary: redact(item.summary),
     ...(item.reference === undefined ? {} : { reference: redact(item.reference) }),
   }));
+  const structuredJsonOutputContract = {
+    responseFormat: "exactly one JSON object only, with no markdown or prose",
+    jsonStringEncodingRule: "Use valid JSON string escaping for every JSON value. Inside JSON strings, encode newlines as \\n, double quotes as \\\", and backslashes as \\\\.",
+    cwdRule: "For RUN_TEST, RUN_BUILD, GIT_INSPECT, and REQUEST_COMMIT, cwd must be workspace-relative. Use '.' for the workspace root; never copy the absolute workspaceRoot into cwd.",
+    reasoningTurnResult: {
+      version: 1,
+      runId: input.run.request.runId,
+      stage: input.run.state.stage,
+      generation: input.session.generation,
+      summary: "non-empty string",
+      decisions: ["string"],
+      intents: [],
+      outcome: "continue|stage-complete|blocked-user|retryable",
+    },
+    desktopIntentCommonRule: "Every Desktop intent MUST include every field in desktopIntentCommonRequired, especially workspaceRoot and policySha256, in addition to its kind-specific required fields.",
+    desktopIntentCommonRequired: {
+      version: 1,
+      intentId: "unique non-empty id",
+      runId: input.run.request.runId,
+      stage: input.run.state.stage,
+      workspaceRoot: input.run.request.targetRoot.replaceAll("\\", "/"),
+      policySha256: policy.effectiveSha256,
+    },
+    requiredFieldsByIntentKind: {
+      READ_CONTEXT: ["path"],
+      PROPOSE_PATCH: ["path", "patch", "patchText"],
+      RUN_TEST: ["cwd", "executable", "args", "timeoutMs"],
+      RUN_BUILD: ["cwd", "executable", "args", "timeoutMs"],
+      GIT_INSPECT: ["cwd"],
+      REQUEST_COMMIT: ["cwd", "message", "expectedHead?"],
+      CHECK_HTTP: ["url", "timeoutMs"],
+    },
+    blockerReasonRule: "Include blockerReason only when outcome is blocked-user; otherwise omit it.",
+  };
+  const patchFrameOutputContract = {
+    contract: "patch-frame-v1",
+    header: "ISEOL_PATCH_V1",
+    responseFormat: "The exact first line must be ISEOL_PATCH_V1, with no leading markdown or prose.",
+    payloadRule: "After the first newline, return exactly one raw unified diff through EOF that is git-apply-compatible. Do not add a closing marker, structured control envelope, markdown fences, or trailing prose.",
+  };
+  const implement = input.run.state.stage === "IMPLEMENT";
   const payload = {
     protocolVersion: 1,
     promptKind: input.kind,
@@ -79,48 +120,11 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
       sources: policy.sources.map((source) => ({ kind: source.kind, path: source.path, sha256: source.sha256 })),
     },
     completion: COMPLETION_TARGETS[input.run.state.stage] ?? `Complete ${input.run.state.stage} according to Harness evidence requirements.`,
-    allowedDesktopIntents: ALLOWED_INTENTS,
+    ...(implement ? {} : { allowedDesktopIntents: ALLOWED_INTENTS }),
     priorDecisions,
     desktopEvidence: evidence,
     recovery: input.kind === "recovery" ? "Resume from the first unfinished verified step; do not repeat verified side effects." : null,
-    outputContract: {
-      responseFormat: "exactly one JSON object only, with no markdown or prose",
-      jsonStringEncodingRule: "Use valid JSON string escaping for every JSON value. Inside JSON strings, encode newlines as \\n, double quotes as \\\", and backslashes as \\\\. Put the complete unified diff in patchText as a JSON string.",
-      cwdRule: "For RUN_TEST, RUN_BUILD, GIT_INSPECT, and REQUEST_COMMIT, cwd must be workspace-relative. Use '.' for the workspace root; never copy the absolute workspaceRoot into cwd.",
-      proposePatchRule: "Emit at most one PROPOSE_PATCH intent per response. If more files need changes, complete one focused patch and continue remaining changes in a later turn. Put the exact complete git-apply-compatible unified diff in patchText. Do not include markdown or prose.",
-      proposePatchExample: {
-        intent: { intentId: "patch-example", kind: "PROPOSE_PATCH", path: "index.html", patch: "@@ISEOL_PATCH:patch-example@@", patchText: "diff --git a/index.html b/index.html\\n--- a/index.html\\n+++ b/index.html\\n@@ -1 +1 @@\\n-<div>old</div>\\n+<div class=\"card\">new</div>" },
-      },
-      reasoningTurnResult: {
-        version: 1,
-        runId: input.run.request.runId,
-        stage: input.run.state.stage,
-        generation: input.session.generation,
-        summary: "non-empty string",
-        decisions: ["string"],
-        intents: [],
-        outcome: "continue|stage-complete|blocked-user|retryable",
-      },
-      desktopIntentCommonRule: "Every Desktop intent MUST include every field in desktopIntentCommonRequired, especially workspaceRoot and policySha256, in addition to its kind-specific required fields.",
-      desktopIntentCommonRequired: {
-        version: 1,
-        intentId: "unique non-empty id",
-        runId: input.run.request.runId,
-        stage: input.run.state.stage,
-        workspaceRoot: input.run.request.targetRoot.replaceAll("\\", "/"),
-        policySha256: policy.effectiveSha256,
-      },
-      requiredFieldsByIntentKind: {
-        READ_CONTEXT: ["path"],
-        PROPOSE_PATCH: ["path", "patch", "patchText"],
-        RUN_TEST: ["cwd", "executable", "args", "timeoutMs"],
-        RUN_BUILD: ["cwd", "executable", "args", "timeoutMs"],
-        GIT_INSPECT: ["cwd"],
-        REQUEST_COMMIT: ["cwd", "message", "expectedHead?"],
-        CHECK_HTTP: ["url", "timeoutMs"],
-      },
-      blockerReasonRule: "Include blockerReason only when outcome is blocked-user; otherwise omit it.",
-    },
+    outputContract: implement ? patchFrameOutputContract : structuredJsonOutputContract,
   };
   const body = JSON.stringify(stable(payload), null, 2);
   return {

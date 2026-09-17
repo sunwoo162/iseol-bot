@@ -234,10 +234,9 @@ test("structured JSON syntax errors get bounded corrective feedback", async () =
   assert.equal((await executor.execute(run)).type, "completed");
   assert.equal(fake.submittedPrompts.length, 2);
   const feedback = JSON.parse(fake.submittedPrompts[1]!.body) as any;
-  assert.match(JSON.stringify(feedback.desktopEvidence), /patchText/i);
+  assert.match(JSON.stringify(feedback.desktopEvidence), /ISEOL_PATCH_V1/i);
   assert.match(JSON.stringify(feedback.desktopEvidence), /git-apply-compatible/i);
-  assert.match(JSON.stringify(feedback.desktopEvidence), /valid headers/i);
-  assert.match(JSON.stringify(feedback.desktopEvidence), /hunk prefixes/i);
+  assert.doesNotMatch(JSON.stringify(feedback.desktopEvidence), /patchText|JSON string/i);
 });
 
 
@@ -270,7 +269,7 @@ test("restart advances past a lost session still referenced by the active pointe
 });
 
 
-test("structured correction includes the exact validation reason and structured patch contract", async () => {
+test("IMPLEMENT correction repeats the exact PATCH_FRAME_V1 contract", async () => {
   const { root, run } = await fixture();
   const { ChatGptWebStructuredResultError } = await import("../src/chatgpt-web/browser-adapter.js");
   const fake = createFakeChatGptWebBrowserAdapter([
@@ -283,11 +282,10 @@ test("structured correction includes the exact validation reason and structured 
   const feedback = JSON.parse(fake.submittedPrompts[1]!.body) as any;
   const text = JSON.stringify(feedback.desktopEvidence);
   assert.match(text, /patch appendix end marker is missing/i);
-  assert.match(text, /patchText/i);
-  assert.doesNotMatch(text, /ISEOL_PATCH_BEGIN|ISEOL_PATCH_END/i);
-  assert.match(text, /JSON string/i);
-  assert.match(text, /exactly one intent/i);
-  assert.match(text, /later turn/i);
+  assert.match(text, /ISEOL_PATCH_V1/i);
+  assert.match(text, /first line/i);
+  assert.match(text, /raw unified diff through EOF/i);
+  assert.doesNotMatch(text, /patchText|JSON string|ISEOL_PATCH_BEGIN|ISEOL_PATCH_END/i);
 });
 
 

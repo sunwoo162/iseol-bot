@@ -56,9 +56,9 @@ test("prompt digest changes with stage generation policy decisions or evidence",
 });
 
 test("prompt contains bounded durable context and allowed intent vocabulary", () => {
-  const compiled = compileWebPrompt(baseInput());
+  const compiled = compileWebPrompt({ ...baseInput(), run: run("PLAN"), session: session("PLAN") });
   for (const expected of [
-    "Add profile editing", "IMPLEMENT", "policy-sha", "Keep the existing API contract",
+    "Add profile editing", "PLAN", "policy-sha", "Keep the existing API contract",
     "unit tests pending", "READ_CONTEXT", "PROPOSE_PATCH", "RUN_TEST", "RUN_BUILD", "GIT_INSPECT", "REQUEST_COMMIT", "CHECK_HTTP",
   ]) assert.match(compiled.body, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(compiled.body, /completion/i);
@@ -121,6 +121,8 @@ test("prompt pins the exact reasoning result envelope and Desktop intent contrac
 test("prompt renders Windows workspace roots with JSON-safe forward slashes", () => {
   const input = baseInput();
   input.run.request.targetRoot = "C:\\Users\\user\\IseolLiveSmoke\\sandbox\\campaign-1";
+  input.run.state.stage = "PLAN";
+  input.session.stage = "PLAN";
 
   const compiled = compileWebPrompt(input);
   const payload = JSON.parse(compiled.body) as any;
@@ -132,46 +134,31 @@ test("prompt renders Windows workspace roots with JSON-safe forward slashes", ()
 });
 
 
-test("prompt explains JSON-safe git-apply patch transport", () => {
+test("IMPLEMENT prompt requests the exact PATCH_FRAME_V1 EOF transport", () => {
   const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
-  assert.match(payload.outputContract.jsonStringEncodingRule, /JSON string escaping/i);
-  assert.match(payload.outputContract.jsonStringEncodingRule, /double quotes/i);
-  assert.match(payload.outputContract.jsonStringEncodingRule, /newlines/i);
-  assert.match(payload.outputContract.proposePatchRule, /git-apply/i);
-  assert.match(payload.outputContract.proposePatchRule, /unified diff/i);
-  assert.match(payload.outputContract.proposePatchRule, /patchText/);
-  assert.match(payload.outputContract.proposePatchExample.intent.patchText, /diff --git a\/index\.html b\/index\.html/);
-  assert.match(payload.outputContract.proposePatchExample.intent.patchText, /class="card"/);
+  assert.equal(payload.outputContract.contract, "patch-frame-v1");
+  assert.equal(payload.outputContract.header, "ISEOL_PATCH_V1");
+  assert.match(payload.outputContract.responseFormat, /exact first line/i);
+  assert.match(payload.outputContract.payloadRule, /raw unified diff through EOF/i);
+  assert.match(payload.outputContract.payloadRule, /git-apply-compatible/i);
+  assert.doesNotMatch(JSON.stringify(payload.outputContract), /patchText|JSON string|appendix|ISEOL_PATCH_BEGIN|ISEOL_PATCH_END/i);
+  assert.equal(payload.outputContract.reasoningTurnResult, undefined);
+  assert.equal(payload.outputContract.desktopIntentCommonRequired, undefined);
+  assert.equal(payload.outputContract.requiredFieldsByIntentKind, undefined);
 });
 
-
-test("prompt transports PROPOSE_PATCH diff in structured patchText", () => {
-  const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
-  assert.doesNotMatch(payload.outputContract.responseFormat, /appendix/i);
-  assert.doesNotMatch(payload.outputContract.proposePatchRule, /appendix|marker/i);
-  assert.match(payload.outputContract.proposePatchRule, /patchText/);
-  assert.equal(payload.outputContract.proposePatchExample.intent.patch, "@@ISEOL_PATCH:patch-example@@");
-  assert.match(payload.outputContract.proposePatchExample.intent.patchText, /diff --git a\/index\.html b\/index\.html/);
-});
-
-test("prompt constrains each structured patch to one syntactically valid file diff", () => {
-  const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
-  const rule = payload.outputContract.proposePatchRule as string;
-  assert.match(rule, /unified diff/i);
-  assert.match(rule, /later turn/i);
-  assert.match(rule, /at most one PROPOSE_PATCH/i);
-  assert.match(rule, /later turn/i);
-});
-
-
-test("prompt does not advertise legacy patch markers", () => {
-  const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
-  assert.doesNotMatch(payload.outputContract.proposePatchRule, /marker|appendix/i);
+test("non-IMPLEMENT prompts retain the strict structured JSON contract", () => {
+  for (const stage of ["ANALYZE", "PLAN", "SELF_REVIEW"] as const) {
+    const payload = JSON.parse(compileWebPrompt({ ...baseInput(), run: run(stage), session: session(stage) }).body) as any;
+    assert.match(payload.outputContract.responseFormat, /exactly one JSON object/i);
+    assert.equal(payload.outputContract.reasoningTurnResult.stage, stage);
+    assert.deepEqual(payload.outputContract.requiredFieldsByIntentKind.READ_CONTEXT, ["path"]);
+  }
 });
 
 
 test("prompt requires cwd to stay workspace-relative", () => {
-  const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
+  const payload = JSON.parse(compileWebPrompt({ ...baseInput(), run: run("PLAN"), session: session("PLAN") }).body) as any;
   const rule = String(payload.outputContract.cwdRule ?? "");
   assert.match(rule, /workspace-relative/i);
   assert.match(rule, /use ['"]?\.['"]? for (?:the )?workspace root/i);
