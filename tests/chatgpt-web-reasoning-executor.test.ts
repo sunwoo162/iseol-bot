@@ -276,9 +276,18 @@ test("IMPLEMENT correction repeats the exact PATCH_FRAME_V1 contract", async () 
     new ChatGptWebStructuredResultError("ChatGPT patch appendix end marker is missing"),
     { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1, summary: "Corrected", decisions: [], intents: [], outcome: "stage-complete" },
   ]);
-  const executor = createWebReasoningExecutor({ workerRoot: root, adapter: fake.adapter, maxRejectedIntents: 2,
+  const observedContracts: unknown[] = [];
+  const adapter = {
+    ...fake.adapter,
+    async awaitStructuredResult(session: any, timeoutMs: number, contract: unknown) {
+      observedContracts.push(contract);
+      return fake.adapter.awaitStructuredResult(session, timeoutMs, contract as any);
+    },
+  };
+  const executor = createWebReasoningExecutor({ workerRoot: root, adapter, maxRejectedIntents: 2,
     now: () => "2026-09-08T01:08:00.000Z", runDesktopIntent: async () => { throw new Error("unused"); } });
   assert.equal((await executor.execute(run)).type, "completed");
+  assert.deepEqual(observedContracts, ["patch-frame-v1", "patch-frame-v1"]);
   const feedback = JSON.parse(fake.submittedPrompts[1]!.body) as any;
   const text = JSON.stringify(feedback.desktopEvidence);
   assert.match(text, /patch appendix end marker is missing/i);
@@ -368,6 +377,7 @@ test("conversation length exhaustion replaces only the Web session and continues
   assert.equal(typeof ConversationLimitError, "function", "conversation-limit error type must exist");
   const openedGenerations: number[] = [];
   const submittedGenerations: number[] = [];
+  const observedContracts: unknown[] = [];
   const adapter = {
     openOrResumeSession: async (session: any) => {
       openedGenerations.push(session.generation);
@@ -375,13 +385,16 @@ test("conversation length exhaustion replaces only the Web session and continues
     },
     submitTurn: async (session: any) => {
       submittedGenerations.push(session.generation);
-      if (session.generation === 1) throw new ConversationLimitError("conversation exhausted");
-      return { conversationRef: "conv-new" };
+      return { conversationRef: session.generation === 1 ? "conv-old" : "conv-new" };
     },
-    awaitStructuredResult: async (session: any) => ({
-      version: 1, runId: "run-web", stage: "IMPLEMENT", generation: session.generation,
-      summary: "continued in replacement conversation", decisions: [], intents: [], outcome: "stage-complete",
-    }),
+    awaitStructuredResult: async (session: any, _timeoutMs: number, contract: unknown) => {
+      observedContracts.push(contract);
+      if (session.generation === 1) throw new ConversationLimitError("conversation exhausted");
+      return {
+        version: 1, runId: "run-web", stage: "IMPLEMENT", generation: session.generation,
+        summary: "continued in replacement conversation", decisions: [], intents: [], outcome: "stage-complete",
+      };
+    },
     probeSession: async () => "ready",
     closeSession: async () => undefined,
   } as any;
@@ -390,6 +403,7 @@ test("conversation length exhaustion replaces only the Web session and continues
   assert.equal((await executor.execute(run)).type, "completed");
   assert.deepEqual(openedGenerations, [1, 2]);
   assert.deepEqual(submittedGenerations, [1, 2]);
+  assert.deepEqual(observedContracts, ["patch-frame-v1", "patch-frame-v1"]);
   const active = await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT");
   assert.equal(active?.generation, 2);
   assert.equal(active?.conversationRef, "conv-new");

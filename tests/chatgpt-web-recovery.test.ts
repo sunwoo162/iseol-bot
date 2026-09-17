@@ -56,9 +56,18 @@ test("executor recovers a lost browser session and continues the same Run", asyn
     new ChatGptWebSessionLostError("tab disappeared"),
     { version: 1, runId: "run-recovery", stage: "IMPLEMENT", generation: 2, summary: "Recovered and complete", decisions: ["Continue same Run"], intents: [], outcome: "stage-complete" },
   ]);
-  const executor = createWebReasoningExecutor({ workerRoot: root, adapter: fake.adapter, now: () => "2026-09-08T01:06:00.000Z", runDesktopIntent: async () => { throw new Error("unused"); } });
+  const observedContracts: unknown[] = [];
+  const adapter = {
+    ...fake.adapter,
+    async awaitStructuredResult(session: any, timeoutMs: number, contract: unknown) {
+      observedContracts.push(contract);
+      return fake.adapter.awaitStructuredResult(session, timeoutMs, contract as any);
+    },
+  };
+  const executor = createWebReasoningExecutor({ workerRoot: root, adapter, now: () => "2026-09-08T01:06:00.000Z", runDesktopIntent: async () => { throw new Error("unused"); } });
   const result = await executor.execute(run);
   assert.equal(result.type, "completed");
+  assert.deepEqual(observedContracts, ["patch-frame-v1", "patch-frame-v1"]);
   assert.equal((await getActiveWebWorkerSession(root, "run-recovery", "IMPLEMENT"))?.generation, 2);
   assert.equal(fake.submittedPrompts.length, 2);
   assert.equal(fake.submittedPrompts[1]?.kind, "recovery");
