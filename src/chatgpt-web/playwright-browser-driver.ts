@@ -55,11 +55,12 @@ function jsonSyntaxShape(text: string, error: unknown): Record<string, string | 
   const at = Number.isFinite(position) ? Math.min(position, text.length) : -1;
   const prefix = at >= 0 ? text.slice(0, at) : text;
   let inString = false; let escaped = false; let depth = 0;
+  const stack: Array<"object" | "array"> = [];
   for (const ch of prefix) {
     if (inString) { if (escaped) escaped = false; else if (ch === "\\") escaped = true; else if (ch === '"') inString = false; continue; }
     if (ch === '"') inString = true;
-    else if (ch === "{" || ch === "[") depth += 1;
-    else if (ch === "}" || ch === "]") depth = Math.max(0, depth - 1);
+    else if (ch === "{" || ch === "[") { depth += 1; stack.push(ch === "{" ? "object" : "array"); }
+    else if (ch === "}" || ch === "]") { depth = Math.max(0, depth - 1); stack.pop(); }
   }
   const next = at >= 0 ? text[at] : undefined;
   const lower = message.toLowerCase();
@@ -69,10 +70,11 @@ function jsonSyntaxShape(text: string, error: unknown): Record<string, string | 
   const objectKey = /\{\s*[A-Za-z_][A-Za-z0-9_]*\s*$/.test(before);
   const afterColon = /:\s*$/.test(before);
   const afterValue = /(?:true|false|null|\d+|"(?:[^"\\]|\\.)*")\s*$/.test(before);
-  const parseFailureClass = objectKey ? "unquoted-property-name"
+  const activeContainer = stack.at(-1) ?? "root";
+  const parseFailureClass = objectKey && activeContainer === "object" ? "unquoted-property-name"
     : singleQuotePresent && next === "'" ? "single-quoted-string"
       : afterColon && bareAlphaRunDetected ? "bareword-value"
-        : afterValue && next !== "," && next !== "}" && next !== "]" ? (before.includes("[") ? "missing-comma-array" : "missing-comma-object")
+        : afterValue && next !== "," && next !== "}" && next !== "]" ? (activeContainer === "array" ? "missing-comma-array" : activeContainer === "object" ? "missing-comma-object" : "unexpected-value-token")
           : /unexpected end|end of json|unterminated/i.test(lower)
     ? "unexpected-end"
     : /escape/i.test(lower) ? "invalid-string-escape"
@@ -80,8 +82,8 @@ function jsonSyntaxShape(text: string, error: unknown): Record<string, string | 
         : /unexpected token/i.test(lower) && next === "," ? "unexpected-comma"
           : /unexpected token/i.test(lower) ? "unexpected-token-in-value" : "other-json-syntax";
   const lexicalContext = inString ? "string" : /[,:]/.test(prefix.at(-1) ?? "") ? "delimiter" : "unknown";
-  const containerContext = before.lastIndexOf("[") > before.lastIndexOf("{") ? "array" : before.includes("{") ? "object" : "root";
-  const expectedToken = objectKey ? "object-key" : afterColon ? "value" : afterValue ? (containerContext === "array" ? "comma-or-array-end" : "comma-or-object-end") : "unknown";
+  const containerContext = activeContainer;
+  const expectedToken = objectKey ? "object-key" : afterColon ? "value" : afterValue ? (activeContainer === "array" ? "comma-or-array-end" : activeContainer === "object" ? "comma-or-object-end" : "end-of-document") : "unknown";
   return {
     parseFailurePositionBucket: at < 0 ? "unknown" : at < text.length * .1 ? "early" : at > text.length * .9 ? "late" : "middle",
     parseFailureClass,
