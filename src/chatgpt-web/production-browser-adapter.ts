@@ -1,4 +1,4 @@
-import type { ChatGptWebBrowserAdapter, ChatGptWebSessionProbe } from "./browser-adapter.js";
+import type { ChatGptWebBrowserAdapter, ChatGptWebResultContract, ChatGptWebSessionProbe } from "./browser-adapter.js";
 import {
   ChatGptWebAuthenticationRequiredError,
   ChatGptWebSessionLostError,
@@ -12,7 +12,7 @@ import type { CompiledWebPrompt } from "./prompt-compiler.js";
 export interface ChatGptBrowserDriver {
   openOrResumeConversation(input: { conversationRef?: string; prompt: string; promptSha256: string }): Promise<{ conversationRef?: string }>;
   submitPrompt(input: { conversationRef?: string; prompt: string; promptSha256: string }): Promise<{ conversationRef?: string } | void>;
-  readStructuredResult(input: { conversationRef: string; timeoutMs: number }): Promise<unknown>;
+  readStructuredResult(input: { conversationRef: string; timeoutMs: number; contract: ChatGptWebResultContract }): Promise<unknown>;
   probeConversation(conversationRef: string): Promise<ChatGptWebSessionProbe>;
   closeConversation(conversationRef: string): Promise<void>;
   recordParserDiagnostic?(input: { stage: string; sessionId: string; generation: number; conversationRef?: string; message: string; diagnostic?: Record<string, string | boolean> }): Promise<void>;
@@ -70,8 +70,8 @@ export function createProductionChatGptWebAdapter(driver: ChatGptBrowserDriver):
         return result?.conversationRef ? { conversationRef: safeRef(result.conversationRef) } : {};
       } catch (error) { await recordFailure("submit-prompt", session, error); return classify(error); }
     },
-    async awaitStructuredResult(session, timeoutMs) {
-      try { return await driver.readStructuredResult({ conversationRef: requireRef(session.conversationRef), timeoutMs }); }
+    async awaitStructuredResult(session, timeoutMs, contract) {
+      try { return await driver.readStructuredResult({ conversationRef: requireRef(session.conversationRef), timeoutMs, contract }); }
       catch (error) { await recordFailure("extract-structured-result", session, error); if (error instanceof ChatGptWebStructuredResultError) await driver.recordParserDiagnostic?.({ stage: session.stage, sessionId: session.sessionId, generation: session.generation, ...(session.conversationRef ? { conversationRef: session.conversationRef } : {}), message: error.message, diagnostic: error.diagnostic }); return classify(error); }
     },
     async probeSession(session) {

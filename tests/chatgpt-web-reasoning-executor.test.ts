@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveHarnessPolicy } from "../src/harness/policy-resolver.js";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
-import { createWebReasoningExecutor } from "../src/chatgpt-web/web-reasoning-executor.js";
+import { createWebReasoningExecutor, resultContractForStage } from "../src/chatgpt-web/web-reasoning-executor.js";
 import { createFakeChatGptWebBrowserAdapter, ChatGptWebSessionLostError } from "../src/chatgpt-web/test-support/fake-browser-adapter.js";
 import { getActiveWebWorkerSession } from "../src/chatgpt-web/session-store.js";
 import { appendReasoningTurn, listReasoningTurns } from "../src/chatgpt-web/turn-store.js";
@@ -28,6 +28,42 @@ async function fixture() {
   };
   return { root, repo, run };
 }
+test("reasoning selects the result contract explicitly from the Harness stage", async () => {
+  assert.equal(resultContractForStage("CONTEXT"), "structured-json");
+  assert.equal(resultContractForStage("ANALYZE"), "structured-json");
+  assert.equal(resultContractForStage("PLAN"), "structured-json");
+  assert.equal(resultContractForStage("IMPLEMENT"), "patch-frame-v1");
+  assert.equal(resultContractForStage("SELF_REVIEW"), "structured-json");
+
+  for (const stage of ["ANALYZE", "PLAN", "IMPLEMENT", "SELF_REVIEW"] as const) {
+    const { root, run } = await fixture();
+    const observedContracts: unknown[] = [];
+    const adapter = {
+      openOrResumeSession: async () => ({ conversationRef: `conv-${stage.toLowerCase()}` }),
+      submitTurn: async () => undefined,
+      awaitStructuredResult: async (_session: unknown, _timeoutMs: number, contract: unknown) => {
+        observedContracts.push(contract);
+        return {
+          version: 1, runId: run.request.runId, stage, generation: 1,
+          summary: `${stage} complete`, decisions: [], intents: [], outcome: "stage-complete",
+        };
+      },
+      probeSession: async () => "ready",
+      closeSession: async () => undefined,
+    } as any;
+    const executor = createWebReasoningExecutor({
+      workerRoot: root,
+      adapter,
+      now: () => "2026-09-08T01:00:00.000Z",
+      runDesktopIntent: async () => { throw new Error("unused"); },
+    });
+
+    const result = await executor.execute({ ...run, state: { ...run.state, stage } });
+
+    assert.equal(result.type, "completed");
+    assert.deepEqual(observedContracts, [stage === "IMPLEMENT" ? "patch-frame-v1" : "structured-json"]);
+  }
+});
 test("reasoning stage loops through Desktop feedback and completes from structured output", async () => {
   const { root, repo, run } = await fixture();
   const policySha256 = run.preflight.policy!.effectiveSha256;

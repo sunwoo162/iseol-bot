@@ -8,7 +8,7 @@ import {
 } from "./browser-adapter.js";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import type { ChatGptWebSessionProbe } from "./browser-adapter.js";
+import type { ChatGptWebResultContract, ChatGptWebSessionProbe } from "./browser-adapter.js";
 import type { ChatGptBrowserDriver } from "./production-browser-adapter.js";
 import type { PlaywrightBrowserDriverConfig } from "./playwright-browser-config.js";
 import { createPlaywrightBrowserBackend, type PlaywrightBrowserBackend } from "./playwright-browser-backend.js";
@@ -386,7 +386,7 @@ export async function createPlaywrightChatGptBrowserDriver(
     return operation;
   }
 
-  async function readStructuredResult(input: { conversationRef: string; timeoutMs: number }): Promise<unknown> {
+  async function readStructuredResult(input: { conversationRef: string; timeoutMs: number; contract: ChatGptWebResultContract }): Promise<unknown> {
     try {
       if (!REF.test(input.conversationRef)) lost("Conversation identity is invalid");
       if (!Number.isFinite(input.timeoutMs) || input.timeoutMs <= 0) lost("Structured result timeout is invalid");

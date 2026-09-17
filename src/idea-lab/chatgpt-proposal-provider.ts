@@ -62,7 +62,7 @@ export function createChatGptIdeaProposalProvider(
         if (!conversationRef) {
           throw new ChatGptWebSessionLostError("Idea proposal conversation reference is unavailable after submit");
         }
-        const result = await driver.readStructuredResult({ conversationRef, timeoutMs });
+        const result = await driver.readStructuredResult({ conversationRef, timeoutMs, contract: "structured-json" });
         assertIdeaProposalProviderResult(result, input.requestedCount);
         return result.map((item) => ({ ...item }));
       } catch (error) {

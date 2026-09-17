@@ -28,7 +28,7 @@ export async function runChatGptWebControlledSmoke(input: {
   let active = { ...session, ...opened };
   const submitted = await adapter.submitTurn(active, prompt);
   active = { ...active, ...(submitted ?? {}) };
-  const result = await adapter.awaitStructuredResult(active, input.timeoutMs ?? 30_000);
+  const result = await adapter.awaitStructuredResult(active, input.timeoutMs ?? 30_000, "structured-json");
   assertReasoningTurnResult(result);
   if (result.intents.length > 0) {
     if (!input.mutationWorkspace) throw new Error("Controlled ChatGPT Web smoke rejects Desktop intents without an explicit temporary workspace");

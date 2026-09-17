@@ -3,7 +3,7 @@ import type { HarnessEvidenceRecord, HarnessRuntimeRunEnvelope } from "../harnes
 import type { HarnessStageExecutor, HarnessStageExecutionResult } from "../harness/run-supervisor.js";
 import type { DesktopIntent, ReasoningTurn, WebWorkerSession } from "./contracts.js";
 import { assertReasoningTurnResult } from "./contracts.js";
-import type { ChatGptWebBrowserAdapter } from "./browser-adapter.js";
+import type { ChatGptWebBrowserAdapter, ChatGptWebResultContract } from "./browser-adapter.js";
 import { ChatGptWebConversationLimitError, ChatGptWebSessionLostError, ChatGptWebStructuredResultError, ChatGptWebTemporarilyLimitedError, ChatGptWebUsageLimitError } from "./browser-adapter.js";
 import { compileWebPrompt, type CompiledWebPrompt, type WebPromptEvidence } from "./prompt-compiler.js";
 import { createWebWorkerSession, getActiveWebWorkerSession, getPointedWebWorkerSession, replaceLostWebWorkerSession, updateWebWorkerSession } from "./session-store.js";
@@ -21,6 +21,12 @@ export type WebDesktopIntentExecutionResult =
   | { type: "completed"; evidence: HarnessEvidenceRecord[]; feedback?: WebPromptEvidence[] }
   | Exclude<HarnessStageExecutionResult, { type: "completed" }>;
 export type WebDesktopIntentRunner = (input: WebDesktopIntentRunnerInput) => Promise<WebDesktopIntentExecutionResult>;
+
+export type ChatGptWebResultStage = "CONTEXT" | "ANALYZE" | "PLAN" | "IMPLEMENT" | "SELF_REVIEW";
+
+export function resultContractForStage(stage: ChatGptWebResultStage): ChatGptWebResultContract {
+  return stage === "IMPLEMENT" ? "patch-frame-v1" : "structured-json";
+}
 
 export type CreateWebReasoningExecutorInput = {
   workerRoot: string;
@@ -179,7 +185,11 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           if (submitted?.conversationRef && submitted.conversationRef !== session.conversationRef) {
             session = await updateWebWorkerSession(input.workerRoot, { ...session, conversationRef: submitted.conversationRef });
           }
-          rawResult = await input.adapter.awaitStructuredResult(session, resultTimeoutMs);
+          rawResult = await input.adapter.awaitStructuredResult(
+            session,
+            resultTimeoutMs,
+            resultContractForStage(run.state.stage as ChatGptWebResultStage),
+          );
         } catch (error) {
           if (error instanceof ChatGptWebTemporarilyLimitedError) {
             return { type: "waiting-external", reason: "ChatGPT Web failure: temporary rate limit" };

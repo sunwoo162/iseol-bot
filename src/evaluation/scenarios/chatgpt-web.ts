@@ -70,12 +70,12 @@ function sessionLossAdapter(
       const decision = await boundary.hit("after-prompt-submit");
       if (decision.action === "lose-session") loseNextResult = true;
     },
-    async awaitStructuredResult(session, timeoutMs) {
+    async awaitStructuredResult(session, timeoutMs, contract) {
       if (loseNextResult) {
         loseNextResult = false;
         throw new ChatGptWebSessionLostError("evaluation browser session lost after prompt submit");
       }
-      return base.awaitStructuredResult(session, timeoutMs);
+      return base.awaitStructuredResult(session, timeoutMs, contract);
     },
     probeSession: (session) => base.probeSession(session),
     closeSession: (session) => base.closeSession(session),

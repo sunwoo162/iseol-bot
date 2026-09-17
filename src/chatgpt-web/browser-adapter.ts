@@ -5,6 +5,7 @@ export type ChatGptWebSessionProbe =
   | "ready" | "lost" | "auth-required" | "temporarily-limited"
   | "conversation-exhausted" | "usage-limited";
 export type ChatGptWebOpenResult = { conversationRef?: string };
+export type ChatGptWebResultContract = "structured-json" | "patch-frame-v1";
 
 export class ChatGptWebSessionLostError extends Error {
   constructor(message: string) { super(message); this.name = "ChatGptWebSessionLostError"; }
@@ -29,7 +30,7 @@ export class ChatGptWebStructuredResultError extends Error {
 export interface ChatGptWebBrowserAdapter {
   openOrResumeSession(session: WebWorkerSession, prompt: CompiledWebPrompt): Promise<ChatGptWebOpenResult>;
   submitTurn(session: WebWorkerSession, prompt: CompiledWebPrompt): Promise<ChatGptWebOpenResult | void>;
-  awaitStructuredResult(session: WebWorkerSession, timeoutMs: number): Promise<unknown>;
+  awaitStructuredResult(session: WebWorkerSession, timeoutMs: number, contract: ChatGptWebResultContract): Promise<unknown>;
   probeSession(session: WebWorkerSession): Promise<ChatGptWebSessionProbe>;
   closeSession(session: WebWorkerSession): Promise<void>;
 }
