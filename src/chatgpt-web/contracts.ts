@@ -137,7 +137,7 @@ export function assertWebWorkerSession(value: unknown): asserts value is WebWork
 
 export function persistedWebWorkerResultContract(session: WebWorkerSession): WebWorkerResultContract {
   if (session.resultContract) return session.resultContract;
-  return session.stage === "IMPLEMENT" ? "legacy-structured-json" : "structured-json";
+  return session.stage === "IMPLEMENT" ? "patch-frame-v1" : "structured-json";
 }
 export function assertDesktopIntent(value: unknown): asserts value is DesktopIntent {
   const item = record(value, "Desktop intent");

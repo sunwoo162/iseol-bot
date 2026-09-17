@@ -223,6 +223,51 @@ test("restart reads the explicit persisted legacy contract without stage fallbac
   assert.deepEqual(observedContracts, ["legacy-structured-json"]);
 });
 
+test("restart normalizes a persisted IMPLEMENT session without contract metadata to patch-frame-v1", async () => {
+  const { root, run } = await fixture();
+  const session = {
+    version: 1,
+    sessionId: "session-pre-contract-restart",
+    runId: "run-web",
+    stage: "IMPLEMENT",
+    generation: 1,
+    policySha256: run.preflight.policy!.effectiveSha256,
+    status: "ready",
+    createdAt: "2026-09-08T01:00:00.000Z",
+  };
+  const sessionDirectory = join(root, "web-workers", "sessions");
+  const activeDirectory = join(root, "web-workers", "runs", "run-web", "stages", "IMPLEMENT");
+  await mkdir(sessionDirectory, { recursive: true });
+  await mkdir(activeDirectory, { recursive: true });
+  await writeFile(join(sessionDirectory, `${session.sessionId}.json`), JSON.stringify(session), "utf8");
+  await writeFile(
+    join(activeDirectory, "active-session.json"),
+    JSON.stringify({ version: 1, sessionId: session.sessionId, generation: 1 }),
+    "utf8",
+  );
+  const observedContracts: unknown[] = [];
+  const adapter = {
+    openOrResumeSession: async () => ({ conversationRef: "conv-pre-contract" }),
+    submitTurn: async () => ({ conversationRef: "conv-pre-contract" }),
+    awaitStructuredResult: async (_session: unknown, _timeoutMs: number, contract: unknown) => {
+      observedContracts.push(contract);
+      return { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1, summary: "done", decisions: [], intents: [], outcome: "stage-complete" };
+    },
+    probeSession: async () => "ready",
+    closeSession: async () => undefined,
+  } as any;
+  const executor = createWebReasoningExecutor({
+    workerRoot: root,
+    adapter,
+    now: () => "2026-09-08T01:06:00.000Z",
+    runDesktopIntent: async () => { throw new Error("unused"); },
+  });
+
+  assert.equal((await executor.execute(run)).type, "completed");
+  assert.deepEqual(observedContracts, ["patch-frame-v1"]);
+  assert.equal((await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"))?.resultContract, "patch-frame-v1");
+});
+
 test("reasoning feedback prefers ephemeral Desktop payload over durable completion summary", async () => {
   const { root, run } = await fixture();
   const policySha256 = run.preflight.policy!.effectiveSha256;
