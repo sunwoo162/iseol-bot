@@ -180,3 +180,60 @@ test("runtime retries interrupted campaign supervision once and reuses an alread
   assert.equal(advances, 1);
   await runtime.dispose();
 });
+
+
+test("recover requested during an active campaign schedules one follow-up pass", async () => {
+  const root = await mkdtemp(
+    join(tmpdir(), "idea-lab-runtime-active-recovery-"),
+  );
+
+  await saveIdeaLabCampaign(
+    root,
+    campaign("recover-active", "producing"),
+  );
+
+  let calls = 0;
+  let releaseFirst!: () => void;
+  let markStarted!: () => void;
+
+  const firstStarted = new Promise<void>((resolve) => {
+    markStarted = resolve;
+  });
+
+  const firstPass = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+
+  const runtime = createIdeaLabRuntimeService({
+    modelRoot: root,
+    superviseCampaign: async (id) => {
+      assert.equal(id, "recover-active");
+      calls += 1;
+
+      if (calls === 1) {
+        markStarted();
+        await firstPass;
+      }
+    },
+  });
+
+  runtime.enqueue("recover-active");
+
+  await firstStarted;
+
+  // Models an Agent reconnect arriving while the WAITING_AGENT
+  // supervision pass is still unwinding.
+  await runtime.recover();
+
+  releaseFirst();
+
+  await runtime.idle();
+
+  assert.equal(
+    calls,
+    2,
+    "recovery requested during an active pass must survive deduplication",
+  );
+
+  await runtime.dispose();
+});

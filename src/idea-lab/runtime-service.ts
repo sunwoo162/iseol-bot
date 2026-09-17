@@ -25,9 +25,11 @@ export function createIdeaLabRuntimeService(options: IdeaLabRuntimeOptions): Ide
   const recoveryQueue: string[] = [];
   const scheduled = new Set<string>();
   const failedPasses = new Map<string, number>();
+  const pendingRecoveryAfterPass = new Set<string>();
   const MAX_AUTOMATIC_RETRIES = 1;
   let accepting = true;
   let running = false;
+  let activeCampaignId: string | null = null;
   let drainWaiters: Array<() => void> = [];
 
   const signalIdle = () => {
@@ -45,6 +47,7 @@ export function createIdeaLabRuntimeService(options: IdeaLabRuntimeOptions): Ide
       while (freshQueue.length || recoveryQueue.length) {
         const campaignId = freshQueue.shift() ?? recoveryQueue.shift()!;
         let retryAfterFailure = false;
+        activeCampaignId = campaignId;
         try {
           await options.superviseCampaign(campaignId);
           failedPasses.delete(campaignId);
@@ -68,8 +71,15 @@ export function createIdeaLabRuntimeService(options: IdeaLabRuntimeOptions): Ide
             failedPasses.delete(campaignId);
           }
         } finally {
+          activeCampaignId = null;
           scheduled.delete(campaignId);
-          if (retryAfterFailure) schedule(campaignId, "recovery");
+
+          const recoverAfterPass =
+            pendingRecoveryAfterPass.delete(campaignId);
+
+          if (retryAfterFailure || recoverAfterPass) {
+            schedule(campaignId, "recovery");
+          }
         }
       }
     } finally {
@@ -79,7 +89,14 @@ export function createIdeaLabRuntimeService(options: IdeaLabRuntimeOptions): Ide
   };
 
   const schedule = (campaignId: string, source: "fresh" | "recovery"): void => {
-    if (!accepting || scheduled.has(campaignId)) return;
+    if (!accepting) return;
+
+    if (scheduled.has(campaignId)) {
+      if (source === "recovery" && activeCampaignId === campaignId) {
+        pendingRecoveryAfterPass.add(campaignId);
+      }
+      return;
+    }
     scheduled.add(campaignId);
     (source === "fresh" ? freshQueue : recoveryQueue).push(campaignId);
     void pump();

@@ -939,3 +939,109 @@ test("FAILED_RETRYABLE production resumes the same Run through runtime recovery 
   assert.equal(recovered.state.status, "BLOCKED_USER");
   assert.equal(recovered.state.stage, "ANALYZE");
 });
+
+
+test("WAITING_AGENT production explicitly yields while Desktop Agent remains unavailable", async () => {
+  const root = await mkdtemp(
+    join(tmpdir(), "iseol-driver-waiting-agent-yield-"),
+  );
+
+  const proposal = baseProposal("camp-waiting-agent-yield");
+  const at = "2026-09-17T14:50:00.000Z";
+
+  const browser = createFakeChatGptWebBrowserAdapter([]);
+
+  const desktopTransport = {
+    isAgentConnected: () => false,
+    getAgentSessionId: () => null,
+    sendTask: () => {
+      throw new Error("unexpected Desktop dispatch");
+    },
+    awaitResult: async () => {
+      throw new Error("unexpected Desktop result wait");
+    },
+  };
+
+  const sandbox = {
+    inspect: async () => null,
+    allocate: async (input: any) => ({
+      repositoryUrl: input.repositoryUrl,
+      branch: `idea/${proposal.campaignId}/${proposal.campaignId}-prod-1`,
+      worktreeRoot: input.run.request.targetRoot,
+      baseRef: input.baseRef,
+    }),
+  };
+
+  const driver = createIdeaLabProductionRuntimeDriver({
+    roots: {
+      iseolRoot: root,
+      modelRoot: root,
+      runRoot: root,
+      webRoot: root,
+      browserProfileRoot: root,
+    },
+    repositoryRoot: root,
+    repositoryUrl: "https://github.com/acme/proto",
+    baseRef: "main",
+    sandboxRoot: root,
+    agentId: "agent-1",
+    sandboxAdapter: sandbox,
+    desktopTransport,
+    browserAdapter: browser.adapter,
+    desktopStateRoot: root,
+    desktopTaskCompiler: async () => null,
+    deployAdapter: {} as never,
+    now: () => at,
+  });
+
+  const production = await driver.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+
+  const { loadHarnessRun } =
+    await import("../src/harness/run-store.js");
+
+  const run = await loadHarnessRun(root, production.runId);
+  assert.ok(run);
+
+  await saveHarnessRun(root, {
+    ...run,
+    preflight: {
+      version: 1,
+      runId: production.runId,
+      status: "ready",
+      policy: {
+        version: 1,
+        loadedAt: at,
+        sources: [],
+        effectiveSha256: "policy",
+      },
+    },
+    state: {
+      ...run.state,
+      stage: "ANALYZE",
+      status: "WAITING_AGENT",
+      completedStages: ["CONTEXT"],
+      reason: "Desktop Agent session is unavailable",
+    },
+  });
+
+  const result = await driver.advanceProduction(production);
+
+  assert.equal(
+    (result as any).directive,
+    "yield",
+    "WAITING_AGENT must explicitly yield campaign supervision",
+  );
+
+  assert.equal(
+    (result as any).production?.id,
+    production.id,
+  );
+
+  const recovered =
+    await loadHarnessRun(root, production.runId);
+
+  assert.ok(recovered);
+  assert.equal(recovered.state.status, "WAITING_AGENT");
+  assert.equal(browser.submittedPrompts.length, 0);
+});

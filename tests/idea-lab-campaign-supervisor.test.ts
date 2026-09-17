@@ -118,3 +118,217 @@ test("missing provider or protected production blocker moves Campaign to blocked
   assert.match(blocked.blockerSummary ?? "", /Desktop Agent unavailable/);
   assert.doesNotMatch(blocked.blockerSummary ?? "", /token|cookie|secret=/i);
 });
+
+
+test("explicit yield directive stops campaign supervision after one advance", async () => {
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { default: localAssert } = await import("node:assert/strict");
+
+  const { saveIdeaLabCampaign } =
+    await import("../src/idea-lab/campaign-store.js");
+  const { saveIdeaProposal } =
+    await import("../src/idea-lab/proposal-store.js");
+  const { savePrototypeProduction } =
+    await import("../src/idea-lab/production-store.js");
+  const { superviseIdeaLabCampaign } =
+    await import("../src/idea-lab/campaign-supervisor.js");
+
+  const root = await mkdtemp(
+    join(tmpdir(), "idea-lab-explicit-yield-"),
+  );
+
+  const now = "2026-09-17T12:30:00.000Z";
+
+  await saveIdeaLabCampaign(root, {
+    version: 1,
+    id: "campaign-yield",
+    seed: "yield",
+    constraints: [],
+    targetReadyCount: 1,
+    productionConcurrency: 1,
+    proposalIds: ["proposal-yield"],
+    productionIds: ["production-yield"],
+    status: "producing",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await saveIdeaProposal(root, {
+    version: 1,
+    id: "proposal-yield",
+    campaignId: "campaign-yield",
+    title: "Yield proposal",
+    concept: "Yield externally waiting production",
+    problemDomain: "Runtime scheduling",
+    targetUser: "Idea Lab runtime",
+    jobToBeDone: "Avoid retry amplification",
+    coreInteractionLoop: "advance then explicitly yield",
+    dataModel: "campaign production run",
+    primaryDifferentiator: "explicit scheduler directive",
+    whyMateriallyDifferent: "does not infer waiting from production metadata",
+    status: "accepted",
+    createdAt: now,
+  });
+
+  await savePrototypeProduction(root, {
+    version: 1,
+    id: "production-yield",
+    campaignId: "campaign-yield",
+    proposalId: "proposal-yield",
+    runId: "run-yield",
+    repositoryUrl: "https://example.com/repo.git",
+    sandboxRoot: "C:\\sandbox",
+    worktreeRoot: "C:\\sandbox\\worktree",
+    branch: "idea/yield",
+    baseRef: "main",
+    status: "running",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  let advanceCalls = 0;
+
+  const result = await superviseIdeaLabCampaign({
+    root,
+    campaignId: "campaign-yield",
+    maxSteps: 64,
+    now: () => now,
+
+    createProduction: async () => {
+      throw new Error("production must not be recreated");
+    },
+
+    advanceProduction: async (current) => {
+      advanceCalls += 1;
+
+      return {
+        production: {
+          ...current,
+          status: "running",
+          updatedAt: "2026-09-17T12:30:01.000Z",
+        },
+        directive: "yield",
+      };
+    },
+  });
+
+  localAssert.equal(
+    advanceCalls,
+    1,
+    "an explicit yield must stop the current campaign supervision pass",
+  );
+
+  localAssert.equal(result.status, "producing");
+});
+
+test("timestamp-only production result may still hide durable Run progress", async () => {
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { default: localAssert } = await import("node:assert/strict");
+
+  const { saveIdeaLabCampaign } =
+    await import("../src/idea-lab/campaign-store.js");
+  const { saveIdeaProposal } =
+    await import("../src/idea-lab/proposal-store.js");
+  const { savePrototypeProduction } =
+    await import("../src/idea-lab/production-store.js");
+  const { superviseIdeaLabCampaign } =
+    await import("../src/idea-lab/campaign-supervisor.js");
+
+  const root = await mkdtemp(
+    join(tmpdir(), "idea-lab-hidden-run-progress-"),
+  );
+
+  const now = "2026-09-17T13:10:00.000Z";
+
+  await saveIdeaLabCampaign(root, {
+    version: 1,
+    id: "campaign-hidden-progress",
+    seed: "hidden progress",
+    constraints: [],
+    targetReadyCount: 1,
+    productionConcurrency: 1,
+    proposalIds: ["proposal-hidden-progress"],
+    productionIds: ["production-hidden-progress"],
+    status: "producing",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await saveIdeaProposal(root, {
+    version: 1,
+    id: "proposal-hidden-progress",
+    campaignId: "campaign-hidden-progress",
+    title: "Hidden progress",
+    concept: "Production metadata can stay stable while its durable Run advances",
+    problemDomain: "Runtime scheduling",
+    targetUser: "Idea Lab runtime",
+    jobToBeDone: "Do not confuse stable production metadata with a stalled Run",
+    coreInteractionLoop: "advance durable Run then continue campaign supervision",
+    dataModel: "campaign production run",
+    primaryDifferentiator: "distinguishes scheduler yield from hidden Run progress",
+    whyMateriallyDifferent: "tests progress outside PrototypeProduction metadata",
+    status: "accepted",
+    createdAt: now,
+  });
+
+  await savePrototypeProduction(root, {
+    version: 1,
+    id: "production-hidden-progress",
+    campaignId: "campaign-hidden-progress",
+    proposalId: "proposal-hidden-progress",
+    runId: "run-hidden-progress",
+    repositoryUrl: "https://example.com/repo.git",
+    sandboxRoot: "C:\\sandbox",
+    worktreeRoot: "C:\\sandbox\\worktree",
+    branch: "idea/hidden-progress",
+    baseRef: "main",
+    status: "running",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  let advanceCalls = 0;
+
+  const result = await superviseIdeaLabCampaign({
+    root,
+    campaignId: "campaign-hidden-progress",
+    maxSteps: 4,
+    now: () => now,
+
+    createProduction: async () => {
+      throw new Error("production must not be recreated");
+    },
+
+    advanceProduction: async (current) => {
+      advanceCalls += 1;
+
+      if (advanceCalls === 1) {
+        // The PrototypeProduction metadata is effectively unchanged,
+        // but its canonical Harness Run may have advanced underneath it.
+        return {
+          ...current,
+          updatedAt: "2026-09-17T13:10:01.000Z",
+        };
+      }
+
+      return {
+        ...current,
+        status: "ready",
+        commitSha: "a".repeat(40),
+        updatedAt: "2026-09-17T13:10:02.000Z",
+      };
+    },
+  });
+
+  localAssert.equal(
+    advanceCalls,
+    2,
+    "stable production metadata must not itself mean the durable Run stalled",
+  );
+
+  localAssert.equal(result.status, "complete");
+});

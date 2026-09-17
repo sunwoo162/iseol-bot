@@ -224,6 +224,7 @@ export async function startIseolRuntimeServices(
   let bridge: ChatGptWebBridgeService | undefined;
   let runtime: IdeaLabRuntimeService | undefined;
   let webServer: Server | undefined;
+  let unsubscribeAgentConnected: (() => void) | undefined;
   let capability: IseolRuntimeCapability = ideaLabRequested
     ? { state: "blocked" }
     : { state: "disabled" };
@@ -294,6 +295,16 @@ export async function startIseolRuntimeServices(
             });
           },
         });
+        const liveRuntime = runtime;
+
+        unsubscribeAgentConnected = desktopCore.transport.onAgentConnected?.(
+          (agentId: string) => {
+            if (agentId !== ideaLabConfig.agentId) return;
+
+            void liveRuntime.recover().catch(() => undefined);
+          },
+        );
+
         await runtime.recover();
         capability = { state: "ready", enqueue: (campaignId) => runtime!.enqueue(campaignId) };
       }
@@ -301,6 +312,8 @@ export async function startIseolRuntimeServices(
 
     webServer = await startWeb({ ...webConfig, ideaLabRuntime: capability });
   } catch (error) {
+    unsubscribeAgentConnected?.();
+    unsubscribeAgentConnected = undefined;
     await disposeOwnedResources({ webServer, bridge, runtime, desktopCore, browser }, true);
     throw error;
   }
@@ -314,6 +327,9 @@ export async function startIseolRuntimeServices(
     ideaLabCapability: capability,
     async dispose() {
       if (disposed) return;
+
+      unsubscribeAgentConnected?.();
+      unsubscribeAgentConnected = undefined;
       disposed = true;
       await disposeOwnedResources({ webServer, bridge, runtime, desktopCore, browser });
     },

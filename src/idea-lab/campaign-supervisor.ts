@@ -14,12 +14,21 @@ export class IdeaLabCampaignBlockedError extends Error {
   }
 }
 
+export type ProductionAdvanceDirective = "continue" | "yield";
+
+export type ProductionAdvanceResult =
+  | PrototypeProduction
+  | {
+      production: PrototypeProduction;
+      directive: ProductionAdvanceDirective;
+    };
+
 export type SuperviseIdeaLabCampaignInput = {
   root: string;
   campaignId: string;
   proposalProvider?: IdeaProposalProvider;
   createProduction(proposal: IdeaProposal, ordinal: number): Promise<PrototypeProduction>;
-  advanceProduction(production: PrototypeProduction): Promise<PrototypeProduction>;
+  advanceProduction(production: PrototypeProduction): Promise<ProductionAdvanceResult>;
   maxSteps?: number;
   proposalAttemptBudget?: number;
   now?: () => string;
@@ -204,9 +213,18 @@ async function advanceOneProduction(
   input: SuperviseIdeaLabCampaignInput,
   campaign: IdeaLabCampaign,
   production: PrototypeProduction,
-): Promise<IdeaLabCampaign | null> {
+): Promise<{
+  blockedCampaign: IdeaLabCampaign | null;
+  directive: ProductionAdvanceDirective;
+}> {
   try {
-    const nextProduction = await input.advanceProduction(production);
+    const advanced = await input.advanceProduction(production);
+    const nextProduction = "production" in advanced
+      ? advanced.production
+      : advanced;
+    const directive: ProductionAdvanceDirective = "production" in advanced
+      ? advanced.directive
+      : "continue";
     if (nextProduction.id !== production.id
       || nextProduction.campaignId !== production.campaignId
       || nextProduction.proposalId !== production.proposalId
@@ -227,12 +245,24 @@ async function advanceOneProduction(
       runId: production.runId,
     });
     if (nextProduction.status === "blocked") {
-      return blockCampaign(input, campaign, nextProduction.blockerSummary ?? `Production ${production.id} is blocked`);
+      return {
+        blockedCampaign: await blockCampaign(
+          input,
+          campaign,
+          nextProduction.blockerSummary
+            ?? `Production ${production.id} is blocked`,
+        ),
+        directive,
+      };
     }
-    return null;
+
+    return { blockedCampaign: null, directive };
   } catch (error) {
     if (error instanceof IdeaLabCampaignBlockedError) {
-      return blockCampaign(input, campaign, error.message);
+      return {
+        blockedCampaign: await blockCampaign(input, campaign, error.message),
+        directive: "continue",
+      };
     }
     throw error;
   }
@@ -269,10 +299,11 @@ export async function superviseIdeaLabCampaign(
 
     const active = productions.filter((item) => ACTIVE_PRODUCTION_STATUSES.has(item.status));
     if (active.length > 0) {
-      const blockedCampaign = await advanceOneProduction(input, campaign, active[0]!);
+      const advanced = await advanceOneProduction(input, campaign, active[0]!);
       steps += 1;
-      if (blockedCampaign) return blockedCampaign;
+      if (advanced.blockedCampaign) return advanced.blockedCampaign;
       campaign = (await loadIdeaLabCampaign(input.root, campaign.id))!;
+      if (advanced.directive === "yield") return campaign;
       continue;
     }
 

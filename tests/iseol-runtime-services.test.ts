@@ -332,3 +332,183 @@ test("default live Idea Lab wait covers the persistent Agent max reconnect backo
   assert.ok(sleeps >= 600);
   await services.dispose();
 });
+
+test("configured Desktop Agent reconnect wakes live Idea Lab runtime recovery", async () => {
+  let reconnectListener:
+    | ((agentId: string) => void)
+    | undefined;
+
+  let recoverCalls = 0;
+
+  const transport = {
+    isAgentConnected: (agentId: string) => {
+      assert.equal(agentId, "agent-live");
+      return true;
+    },
+    onAgentConnected(listener: (agentId: string) => void) {
+      reconnectListener = listener;
+
+      return () => {
+        if (reconnectListener === listener) {
+          reconnectListener = undefined;
+        }
+      };
+    },
+    sendTask() {},
+    awaitResult: async () => {
+      throw new Error("unused");
+    },
+  };
+
+  const value = fixture({ ideaLabConfig: liveConfig() });
+
+  value.deps.startDesktop = async () => ({
+    transport,
+    close: async () => undefined,
+  });
+
+  value.deps.resolveDeploy = async () => ({});
+  value.deps.createProductionDriver = () => ({});
+  value.deps.createRuntime = () => ({
+    recover: async () => {
+      recoverCalls += 1;
+    },
+    dispose: async () => undefined,
+  });
+
+  const services = await startIseolRuntimeServices(value);
+
+  assert.equal(
+    recoverCalls,
+    1,
+    "startup still owns the initial recovery pass",
+  );
+
+  assert.equal(
+    typeof reconnectListener,
+    "function",
+    "runtime composition must subscribe to Agent reconnects",
+  );
+
+  reconnectListener!("other-agent");
+  assert.equal(
+    recoverCalls,
+    1,
+    "an unrelated Agent must not wake this Idea Lab runtime",
+  );
+
+  reconnectListener!("agent-live");
+
+  assert.equal(
+    recoverCalls,
+    2,
+    "the configured Agent reconnect must trigger recovery",
+  );
+
+  await services.dispose();
+});
+
+test("disposing runtime services unsubscribes Desktop Agent reconnect listener", async () => {
+  let reconnectListener:
+    | ((agentId: string) => void)
+    | undefined;
+
+  let unsubscribeCalls = 0;
+
+  const transport = {
+    isAgentConnected: () => true,
+    onAgentConnected(listener: (agentId: string) => void) {
+      reconnectListener = listener;
+
+      return () => {
+        unsubscribeCalls += 1;
+
+        if (reconnectListener === listener) {
+          reconnectListener = undefined;
+        }
+      };
+    },
+    sendTask() {},
+    awaitResult: async () => {
+      throw new Error("unused");
+    },
+  };
+
+  const value = fixture({ ideaLabConfig: liveConfig() });
+
+  value.deps.startDesktop = async () => ({
+    transport,
+    close: async () => undefined,
+  });
+
+  value.deps.resolveDeploy = async () => ({});
+  value.deps.createProductionDriver = () => ({});
+  value.deps.createRuntime = () => ({
+    recover: async () => undefined,
+    dispose: async () => undefined,
+  });
+
+  const services = await startIseolRuntimeServices(value);
+
+  assert.equal(typeof reconnectListener, "function");
+
+  await services.dispose();
+
+  assert.equal(
+    unsubscribeCalls,
+    1,
+    "dispose must unsubscribe the Desktop Agent reconnect listener",
+  );
+
+  assert.equal(
+    reconnectListener,
+    undefined,
+    "disposed runtime must not retain its reconnect listener",
+  );
+});
+
+test("startup failure unsubscribes Desktop Agent reconnect listener", async () => {
+  let unsubscribeCalls = 0;
+
+  const transport = {
+    isAgentConnected: () => true,
+    onAgentConnected() {
+      return () => {
+        unsubscribeCalls += 1;
+      };
+    },
+    sendTask() {},
+    awaitResult: async () => {
+      throw new Error("unused");
+    },
+  };
+
+  const value = fixture({ ideaLabConfig: liveConfig() });
+
+  value.deps.startDesktop = async () => ({
+    transport,
+    close: async () => undefined,
+  });
+
+  value.deps.resolveDeploy = async () => ({});
+  value.deps.createProductionDriver = () => ({});
+  value.deps.createRuntime = () => ({
+    recover: async () => undefined,
+    dispose: async () => undefined,
+  });
+
+  value.deps.startWeb = async () => {
+    throw new Error("web startup failed");
+  };
+
+  await assert.rejects(
+    () => startIseolRuntimeServices(value),
+    /web startup failed/,
+  );
+
+  assert.equal(
+    unsubscribeCalls,
+    1,
+    "startup failure must unsubscribe the Desktop Agent reconnect listener",
+  );
+});

@@ -172,3 +172,81 @@ test("transport frames require the supported protocol version", async () => {
   transport.sendTask("agent-001", task("job-versioned"));
   assert.equal((wire.messages[0] as any)?.version, 1);
 });
+
+test("accepted Desktop Agent hello notifies connection listeners", async () => {
+  const registryRoot = await root();
+  const transport = createDesktopAgentTransport({
+    registryRoot,
+    expectedToken: "secret-token",
+  });
+
+  const connected: string[] = [];
+
+  const unsubscribe = (transport as any).onAgentConnected?.(
+    (agentId: string) => {
+      connected.push(agentId);
+    },
+  );
+
+  assert.equal(
+    typeof unsubscribe,
+    "function",
+    "transport must expose an Agent connection subscription",
+  );
+
+  await transport.acceptHello(
+    "session-listener-1",
+    hello,
+    new FakeWire(),
+  );
+
+  await transport.acceptHello(
+    "session-listener-2",
+    hello,
+    new FakeWire(),
+  );
+
+  assert.deepEqual(
+    connected,
+    ["agent-001", "agent-001"],
+    "initial connect and replacement reconnect must both emit",
+  );
+
+  unsubscribe();
+});
+
+test("connection listener failure does not reject an accepted Desktop Agent hello", async () => {
+  const registryRoot = await root();
+  const transport = createDesktopAgentTransport({
+    registryRoot,
+    expectedToken: "secret-token",
+  });
+
+  const observed: string[] = [];
+
+  transport.onAgentConnected(() => {
+    throw new Error("listener failed");
+  });
+
+  transport.onAgentConnected((agentId) => {
+    observed.push(agentId);
+  });
+
+  await transport.acceptHello(
+    "session-listener-isolation",
+    hello,
+    new FakeWire(),
+  );
+
+  assert.equal(
+    transport.isAgentConnected("agent-001"),
+    true,
+    "accepted hello must remain connected even if one listener fails",
+  );
+
+  assert.deepEqual(
+    observed,
+    ["agent-001"],
+    "one failing listener must not prevent later listeners",
+  );
+});

@@ -47,6 +47,8 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
   const sessionByAgent = new Map<string, string>();
   const pending = new Map<string, DeferredResult>();
   const completed = new Map<string, DesktopJobResult>();
+  const connectionListeners =
+    new Set<(agentId: string) => void>();
 
   async function acceptHello(
     sessionId: string,
@@ -68,6 +70,14 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
     const session = { sessionId, agentId: hello.agentId, connectedAt: at, wire };
     sessionsById.set(sessionId, session);
     sessionByAgent.set(hello.agentId, sessionId);
+
+    for (const listener of connectionListeners) {
+      try {
+        listener(hello.agentId);
+      } catch {
+        // Listener failure must not invalidate an accepted Agent session.
+      }
+    }
     return session;
   }
 
@@ -86,6 +96,16 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
     }
     pending.delete(message.result.jobId);
     waiting.resolve(message.result);
+  }
+
+  function onAgentConnected(
+    listener: (agentId: string) => void,
+  ): () => void {
+    connectionListeners.add(listener);
+
+    return () => {
+      connectionListeners.delete(listener);
+    };
   }
 
   function disconnect(sessionId: string): void {
@@ -143,6 +163,7 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
 
   return {
     acceptHello,
+    onAgentConnected,
     handleMessage,
     disconnect,
     isAgentConnected,

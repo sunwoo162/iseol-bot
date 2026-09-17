@@ -13,6 +13,7 @@ import { createDevelopmentRun } from "../harness/run-service.js";
 import { loadHarnessRun } from "../harness/run-store.js";
 import { superviseHarnessRun, type HarnessStageExecutor } from "../harness/run-supervisor.js";
 import type { IdeaProposal, PrototypeProduction } from "./contracts.js";
+import type { ProductionAdvanceResult } from "./campaign-supervisor.js";
 import type { PrototypeDeployAdapter, PrototypeDeploymentReceipt } from "./deploy-adapter.js";
 import { deployPrototypeProduction, materializePrototypeCandidate, verifyPrototypeProductionDeployment } from "./production-service.js";
 import { loadPrototypeProduction, savePrototypeProduction } from "./production-store.js";
@@ -134,7 +135,7 @@ function verifiedReceipt(production: PrototypeProduction): PrototypeDeploymentRe
 export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRuntimeDriverInput) {
   const now = input.now ?? (() => new Date().toISOString());
   const webWorkerRoot = input.roots.webWorkerRoot ?? input.roots.webRoot;
-  const activeAdvances = new Map<string, Promise<PrototypeProduction>>();
+  const activeAdvances = new Map<string, Promise<ProductionAdvanceResult>>();
 
   async function createProduction(proposal: IdeaProposal, ordinal: number): Promise<PrototypeProduction> {
     const id = `${proposal.campaignId}-prod-${ordinal}`;
@@ -450,7 +451,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
     return ready;
   }
 
-  async function advanceProductionOnce(production: PrototypeProduction): Promise<PrototypeProduction> {
+  async function advanceProductionOnce(production: PrototypeProduction): Promise<ProductionAdvanceResult> {
     const proposal = await loadIdeaProposal(input.roots.modelRoot, production.proposalId);
     let run = await loadHarnessRun(input.roots.runRoot, production.runId);
     if (!proposal || !run) throw new Error("Idea Lab production dependency is missing");
@@ -496,7 +497,10 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
         };
 
         await savePrototypeProduction(input.roots.modelRoot, running);
-        return running;
+        return {
+          production: running,
+          directive: "yield",
+        };
       }
     }
 
@@ -534,7 +538,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
     return finalizeReady(latest, proposal, final);
   }
 
-  async function advanceProduction(production: PrototypeProduction): Promise<PrototypeProduction> {
+  async function advanceProduction(production: PrototypeProduction): Promise<ProductionAdvanceResult> {
     const existing = activeAdvances.get(production.id);
     if (existing) return existing;
     const operation = advanceProductionOnce(production);
