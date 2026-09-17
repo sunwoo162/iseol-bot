@@ -816,3 +816,126 @@ test("WAITING_AGENT production resumes the same Run after Desktop Agent reconnec
   assert.equal(recovered.state.status, "BLOCKED_USER");
   assert.equal(recovered.state.stage, "ANALYZE");
 });
+
+test("FAILED_RETRYABLE production resumes the same Run through runtime recovery ownership", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-waiting-agent-recovery-"));
+  const proposal = baseProposal("camp-waiting-agent-recovery");
+  const expectedRunId = "run-camp-waiting-agent-recovery-prod-1";
+  const at = "2026-09-17T10:00:00.000Z";
+  const policySha256 = createHash("sha256").update("").digest("hex");
+
+  const browser = createFakeChatGptWebBrowserAdapter([
+    {
+      version: 1,
+      runId: expectedRunId,
+      stage: "ANALYZE",
+      generation: 1,
+      summary: "Recovery reached reasoning again",
+      decisions: [],
+      intents: [],
+      outcome: "blocked-user",
+      blockerReason: "stop after WAITING_AGENT recovery verification",
+    },
+  ]);
+
+  const desktopTransport = {
+    isAgentConnected: (agentId: string) => agentId === "agent-1",
+    getAgentSessionId: (agentId: string) => agentId === "agent-1" ? "session-reconnected" : null,
+    sendTask: () => {
+      throw new Error("unexpected Desktop dispatch");
+    },
+    awaitResult: async () => {
+      throw new Error("unexpected Desktop result wait");
+    },
+  };
+
+  const sandbox = {
+    inspect: async () => null,
+    allocate: async (input: any) => ({
+      repositoryUrl: input.repositoryUrl,
+      branch: `idea/${proposal.campaignId}/${proposal.campaignId}-prod-1`,
+      worktreeRoot: input.run.request.targetRoot,
+      baseRef: input.baseRef,
+    }),
+  };
+
+  const driver = createIdeaLabProductionRuntimeDriver({
+    roots: {
+      iseolRoot: root,
+      modelRoot: root,
+      runRoot: root,
+      webRoot: root,
+      browserProfileRoot: root,
+    },
+    repositoryRoot: root,
+    repositoryUrl: "https://github.com/acme/proto",
+    baseRef: "main",
+    sandboxRoot: root,
+    agentId: "agent-1",
+    sandboxAdapter: sandbox,
+    desktopTransport,
+    browserAdapter: browser.adapter,
+    desktopStateRoot: root,
+    desktopTaskCompiler: async () => null,
+    deployAdapter: {} as never,
+    now: () => at,
+  });
+
+  const production = await driver.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const run = await loadHarnessRun(root, production.runId);
+  assert.ok(run);
+
+  await mkdir(join(root, "agents"), { recursive: true });
+  await writeFile(
+    join(root, "agents", "agent-1.json"),
+    JSON.stringify({
+      version: 1,
+      agentId: "agent-1",
+      agentVersion: "0.1.0",
+      os: "win32",
+      capabilities: ["files", "test", "build", "git", "http"],
+      workspaceRoots: [root],
+      registeredAt: at,
+      lastHeartbeatAt: at,
+    }, null, 2),
+    "utf8",
+  );
+
+  await saveHarnessRun(root, {
+    ...run,
+    preflight: {
+      version: 1,
+      runId: production.runId,
+      status: "ready",
+      policy: {
+        version: 1,
+        loadedAt: at,
+        sources: [],
+        effectiveSha256: policySha256,
+      },
+    },
+    state: {
+      ...run.state,
+      stage: "ANALYZE",
+      status: "FAILED_RETRYABLE",
+      completedStages: ["CONTEXT"],
+      reason: "ChatGPT Web recovery budget exhausted: unknown-session-loss",
+    },
+  });
+
+  await driver.advanceProduction(production);
+
+  const recovered = await loadHarnessRun(root, production.runId);
+  assert.ok(recovered);
+
+  assert.equal(
+    browser.submittedPrompts.length,
+    1,
+    "runtime recovery should resume the FAILED_RETRYABLE Run",
+  );
+  assert.equal(recovered.state.status, "BLOCKED_USER");
+  assert.equal(recovered.state.stage, "ANALYZE");
+});
