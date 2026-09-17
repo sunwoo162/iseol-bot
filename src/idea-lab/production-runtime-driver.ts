@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
-import type { ChatGptWebBrowserAdapter } from "../chatgpt-web/browser-adapter.js";
+import { ChatGptWebStructuredResultError, type ChatGptWebBrowserAdapter } from "../chatgpt-web/browser-adapter.js";
 import { createHybridStageExecutor } from "../chatgpt-web/hybrid-executor.js";
-import { compileDesktopIntentToTaskPack } from "../chatgpt-web/intent-compiler.js";
+import { buildValidatedPatchIntent, compileDesktopIntentToTaskPack } from "../chatgpt-web/intent-compiler.js";
 import { loadDesktopIntent } from "../chatgpt-web/intent-store.js";
 import { createWebReasoningExecutor, type WebDesktopIntentRunner } from "../chatgpt-web/web-reasoning-executor.js";
 import { createDesktopStageExecutor, desktopJobFeedback, type DesktopExecutionTransport, type DesktopTaskCompiler } from "../desktop-agent/desktop-executor.js";
@@ -279,6 +279,37 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
 
   function createExecutor(productionId: string): HarnessStageExecutor {
     let desktop: HarnessStageExecutor;
+    const browserAdapter: ChatGptWebBrowserAdapter = {
+      openOrResumeSession: (session, prompt) => input.browserAdapter.openOrResumeSession(session, prompt),
+      submitTurn: (session, prompt) => input.browserAdapter.submitTurn(session, prompt),
+      probeSession: (session) => input.browserAdapter.probeSession(session),
+      closeSession: (session) => input.browserAdapter.closeSession(session),
+      async awaitStructuredResult(session, timeoutMs, contract) {
+        const raw = await input.browserAdapter.awaitStructuredResult(session, timeoutMs, contract);
+        if (contract !== "patch-frame-v1" || typeof raw !== "string") return raw;
+        const run = await loadHarnessRun(input.roots.runRoot, session.runId);
+        if (!run) throw new ChatGptWebStructuredResultError("ChatGPT patch validation requires the active Run");
+        try {
+          const intent = buildValidatedPatchIntent(
+            { run, session, resultGeneration: session.generation, commitAuthorized: false },
+            raw,
+          );
+          return {
+            version: 1,
+            runId: run.request.runId,
+            stage: run.state.stage,
+            generation: session.generation,
+            summary: "Validated IMPLEMENT patch",
+            decisions: [],
+            intents: [intent],
+            outcome: "stage-complete",
+          };
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : "Patch validation failed";
+          throw new ChatGptWebStructuredResultError(`ChatGPT patch validation failed: ${reason}`);
+        }
+      },
+    };
     const runDesktopIntent: WebDesktopIntentRunner = async ({ run, session, intent }) => {
       const pack = compileDesktopIntentToTaskPack(
         { run, session, resultGeneration: session.generation },
@@ -324,7 +355,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
 
     const web = createWebReasoningExecutor({
       workerRoot: webWorkerRoot,
-      adapter: input.browserAdapter,
+      adapter: browserAdapter,
       runDesktopIntent,
       recoverDesktopFeedback,
       now,

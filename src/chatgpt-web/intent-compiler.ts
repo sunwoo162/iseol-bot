@@ -36,6 +36,81 @@ function assertProcessIntent(intent: Extract<DesktopIntent, { kind: "RUN_TEST" |
   assertBoundedProcessRequest(intent.kind === "RUN_TEST" ? "test" : "build", intent.executable, intent.args);
 }
 
+function validatedPatchTarget(root: string, input: string): { path: string; patch: string } {
+  const patch = input.replaceAll("\r\n", "\n");
+  const lines = patch.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  if (lines[0]?.startsWith("diff --git ") !== true) throw new Error("Patch must start with one unified diff header");
+  const diffHeaders = lines.filter((line) => line.startsWith("diff --git "));
+  const oldHeaders = lines.filter((line) => line.startsWith("--- "));
+  const newHeaders = lines.filter((line) => line.startsWith("+++ "));
+  if (diffHeaders.length !== 1 || oldHeaders.length !== 1 || newHeaders.length !== 1) {
+    throw new Error("Patch must contain exactly one file diff and header pair");
+  }
+  const headerPath = (line: string) => line.slice(4).split("\t", 1)[0] ?? "";
+  const oldPath = headerPath(oldHeaders[0]!);
+  const newPath = headerPath(newHeaders[0]!);
+  const oldTarget = oldPath === "/dev/null" ? null : oldPath.startsWith("a/") ? oldPath.slice(2) : null;
+  const newTarget = newPath === "/dev/null" ? null : newPath.startsWith("b/") ? newPath.slice(2) : null;
+  if ((!oldTarget && !newTarget) || (oldPath !== "/dev/null" && !oldTarget) || (newPath !== "/dev/null" && !newTarget)) {
+    throw new Error("Patch file path is invalid");
+  }
+  if (oldTarget && newTarget && oldTarget !== newTarget) throw new Error("Patch file paths do not match");
+  const path = oldTarget ?? newTarget!;
+  assertRelativeWorkspacePath(root, path, "Patch file path");
+  if (diffHeaders[0] !== `diff --git a/${path} b/${path}`) throw new Error("Patch diff header does not match its guarded path");
+
+  let hunks = 0;
+  for (let index = 0; index < lines.length;) {
+    const header = lines[index]!;
+    if (!header.startsWith("@@ ")) { index += 1; continue; }
+    const match = header.match(/^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@(?: .*)?$/);
+    if (!match) throw new Error("Patch hunk header is invalid");
+    const expectedOld = match[1] === undefined ? 1 : Number.parseInt(match[1], 10);
+    const expectedNew = match[2] === undefined ? 1 : Number.parseInt(match[2], 10);
+    let seenOld = 0;
+    let seenNew = 0;
+    hunks += 1;
+    index += 1;
+    while (index < lines.length && !lines[index]!.startsWith("@@ ")) {
+      const line = lines[index]!;
+      if (line === "\\ No newline at end of file") { index += 1; continue; }
+      if (line.startsWith("diff --git ") || line.startsWith("--- ") || line.startsWith("+++ ")) {
+        throw new Error("Patch must contain exactly one file diff");
+      }
+      if (line.startsWith(" ")) { seenOld += 1; seenNew += 1; }
+      else if (line.startsWith("-")) seenOld += 1;
+      else if (line.startsWith("+")) seenNew += 1;
+      else throw new Error("Patch hunk body line is invalid");
+      index += 1;
+    }
+    if (seenOld !== expectedOld || seenNew !== expectedNew) throw new Error("Patch hunk line counts do not match the hunk header");
+  }
+  if (hunks === 0) throw new Error("Patch must include at least one hunk");
+  return { path, patch };
+}
+
+export function buildValidatedPatchIntent(
+  context: DesktopIntentCompilerContext,
+  payload: string,
+): Extract<DesktopIntent, { kind: "PROPOSE_PATCH" }> {
+  const validated = validatedPatchTarget(context.run.request.targetRoot, payload);
+  const digest = createHash("sha256").update(`${context.run.request.runId}\n${context.run.state.stage}\n${context.resultGeneration}\n${validated.patch}`, "utf8").digest("hex").slice(0, 24);
+  const intent: Extract<DesktopIntent, { kind: "PROPOSE_PATCH" }> = {
+    version: 1,
+    intentId: `implement-patch-${digest}`,
+    runId: context.run.request.runId,
+    stage: context.run.state.stage,
+    workspaceRoot: context.run.request.targetRoot,
+    policySha256: context.run.preflight.policy?.effectiveSha256 ?? "",
+    kind: "PROPOSE_PATCH",
+    path: validated.path,
+    patch: validated.patch,
+  };
+  validateDesktopIntent(context, intent);
+  return intent;
+}
+
 export function validateDesktopIntent(
   context: DesktopIntentCompilerContext,
   intent: DesktopIntent,

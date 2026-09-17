@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -546,6 +547,62 @@ test("Idea Lab fails one production after the Web reasoning retry budget is exha
   assert.equal(result.status, "failed");
   assert.equal(fake.submittedPrompts.length, 3);
   assert.equal((await loadPrototypeProduction(root, production.id))?.status, "failed");
+});
+
+test("Idea Lab validates a patch frame before runtime-owned PROPOSE_PATCH dispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-patch-frame-dispatch-"));
+  const proposal = baseProposal("camp-patch-frame-dispatch");
+  const bootstrap = makeDriver(root, { proposal });
+  const production = await bootstrap.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const { registerDesktopAgent } = await import("../src/desktop-agent/agent-registry.js");
+  const run = await loadHarnessRun(root, production.runId);
+  assert.ok(run);
+  const policyPath = join(root, "HARNESS_ENGINEERING.md");
+  const policyContent = "policy";
+  await writeFile(policyPath, policyContent, "utf8");
+  const policySourceSha256 = createHash("sha256").update(policyContent).digest("hex");
+  const policySha256 = createHash("sha256").update(`project-harness\n${policyPath}\n${policySourceSha256}`).digest("hex");
+  await saveHarnessRun(root, {
+    ...run,
+    preflight: { version: 1, runId: production.runId, status: "ready", policy: { version: 1, loadedAt: "now", sources: [{ kind: "project-harness", path: policyPath, sha256: policySourceSha256, content: policyContent }], effectiveSha256: policySha256 } },
+    state: { ...run.state, stage: "IMPLEMENT", status: "READY", completedStages: ["CONTEXT", "ANALYZE", "PLAN"] },
+  });
+  await registerDesktopAgent(root, {
+    version: 1, agentId: "agent-1", agentVersion: "test", os: "win32", capabilities: ["process"],
+    workspaceRoots: [production.worktreeRoot], token: "not-persisted",
+  }, new Date().toISOString());
+  const rawPatch = [
+    "diff --git a/app.js b/app.js", "--- a/app.js", "+++ b/app.js", "@@ -1 +1 @@", "-old", "+new", "",
+  ].join("\r\n");
+  const malformedPatch = rawPatch.replace("+new\r\n", "+new\r\n+unexpected\r\n");
+  const browser = createFakeChatGptWebBrowserAdapter([malformedPatch, rawPatch]);
+  const dispatched: any[] = [];
+  const transport = {
+    isAgentConnected: () => true,
+    getAgentSessionId: () => "patch-frame-session",
+    sendTask: (_agentId: string, pack: any) => { dispatched.push(pack); },
+    awaitResult: async (jobId: string) => ({
+      version: 1 as const, jobId, runId: production.runId, agentId: "agent-1", status: "completed" as const,
+      completedAt: new Date().toISOString(), operations: [{ operationId: dispatched[0].operations[0].id, ok: true, summary: "Applied app.js" }],
+    }),
+  };
+  const driver = makeDriver(root, { proposal, browserAdapter: browser.adapter, desktopTransport: transport });
+
+  await driver.advanceProduction(production);
+
+  assert.equal(dispatched.length, 1);
+  assert.equal(browser.submittedPrompts.length, 2);
+  assert.match(browser.submittedPrompts[1]?.body ?? "", /hunk line counts/i);
+  assert.deepEqual(dispatched[0].operations[0], {
+    id: dispatched[0].operations[0].id,
+    type: "APPLY_PATCH",
+    path: "app.js",
+    patch: rawPatch.replaceAll("\r\n", "\n"),
+  });
+  assert.match(dispatched[0].operations[0].id, /^implement-patch-[0-9a-f]{24}$/);
+  assert.equal((await loadDesktopIntent(root, production.runId, dispatched[0].operations[0].id))?.status, "accepted");
 });
 
 test("terminal patch-result rejection keeps a safe diagnostic on the canonical Run", async () => {

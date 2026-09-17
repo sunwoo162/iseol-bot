@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 import type { WebWorkerSession, DesktopIntent } from "../src/chatgpt-web/contracts.js";
 import {
+  buildValidatedPatchIntent,
   compileDesktopIntentToTaskPack,
   validateDesktopIntent,
 } from "../src/chatgpt-web/intent-compiler.js";
@@ -33,6 +34,48 @@ const base = {
   policySha256,
 };
 const context = { run, session, resultGeneration: 2, commitAuthorized: false };
+
+test("validated patch intent is runtime-owned and preserves the normalized payload", () => {
+  const payload = [
+    "diff --git a/src/index.ts b/src/index.ts",
+    "--- a/src/index.ts",
+    "+++ b/src/index.ts",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "",
+  ].join("\r\n");
+
+  const intent = buildValidatedPatchIntent(context, payload);
+
+  assert.deepEqual(intent, {
+    ...base,
+    intentId: "implement-patch-eaf79b8ece9e515be0e9753e",
+    kind: "PROPOSE_PATCH",
+    path: "src/index.ts",
+    patch: payload.replaceAll("\r\n", "\n"),
+  });
+  assert.equal((compileDesktopIntentToTaskPack(context, intent, "agent-1", "2026-09-08T01:00:00.000Z").operations[0] as any).patch, payload.replaceAll("\r\n", "\n"));
+});
+
+test("malformed patch is rejected before a PROPOSE_PATCH intent can be built", () => {
+  const malformed = [
+    "diff --git a/src/index.ts b/src/index.ts",
+    "--- a/src/index.ts",
+    "+++ b/src/index.ts",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "+extra",
+    "",
+  ].join("\n");
+
+  assert.throws(() => buildValidatedPatchIntent(context, malformed), /hunk.*count/i);
+  assert.throws(
+    () => buildValidatedPatchIntent(context, malformed.replaceAll("src/index.ts", "../secret.txt")),
+    /relative|workspace|path/i,
+  );
+});
 
 test("intent validation binds run stage generation policy and workspace", () => {
   const intent: DesktopIntent = { ...base, kind: "GIT_INSPECT", cwd: "." };
