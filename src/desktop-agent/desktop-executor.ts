@@ -67,6 +67,7 @@ export type DesktopFeedback = { kind: HarnessEvidenceKind; summary: string; refe
 type DesktopCompletedExecutionResult = HarnessStageExecutionResult & { feedback: DesktopFeedback[] };
 const MAX_DESKTOP_FEEDBACK_CHARS = 8_000;
 const DESKTOP_RESULT_GRACE_MS = 30_000;
+const MAX_READ_ONLY_RESULT_TIMEOUT_RETRIES = 1;
 
 function declaredTaskExecutionBudgetMs(pack: DesktopTaskPack): number {
   return pack.operations.reduce((total, operation) => {
@@ -92,6 +93,11 @@ function protectedExecutionWindowMs(
     configuredMs,
     declaredMs + DESKTOP_RESULT_GRACE_MS,
   );
+}
+
+function isDesktopResultTimeout(error: unknown): boolean {
+  return error instanceof Error
+    && /^Desktop Job result timeout: /.test(error.message);
 }
 
 function operationFeedback(item: DesktopOperationResult): string {
@@ -170,33 +176,103 @@ export function createDesktopStageExecutor(
       if (job.status === "indeterminate") {
         return { type: "waiting-agent", reason: `Desktop Job ${job.jobId} requires reality reconciliation` };
       }
-      const sessionId = input.transport.getAgentSessionId(agent.agentId);
+      let sessionId = input.transport.getAgentSessionId(agent.agentId);
       if (!sessionId) return { type: "waiting-agent", reason: "Desktop Agent session is unavailable" };
-      const leased = await acquireDesktopJobLease(
+
+      let leased = await acquireDesktopJobLease(
         input.jobRoot,
         job.jobId,
         sessionId,
         at,
         leaseDurationMs,
       );
-      const dispatchPack: DesktopTaskPack = {
+
+      let dispatchPack: DesktopTaskPack = {
         ...leased.pack,
         attempt: leased.attempts,
         leaseUntil: leased.lease?.expiresAt ?? leased.pack.leaseUntil,
       };
 
       let result: DesktopJobResult;
-      try {
-        input.transport.sendTask(agent.agentId, dispatchPack);
-        result = await input.transport.awaitResult(job.jobId, resultTimeoutMs);
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        if (desktopTaskPackMutates(dispatchPack)) {
-          await markDesktopJobIndeterminate(input.jobRoot, job.jobId, sessionId, now());
-          return { type: "waiting-agent", reason: `Desktop mutation result is indeterminate: ${reason}` };
+      let readOnlyTimeoutRetries = 0;
+
+      while (true) {
+        try {
+          input.transport.sendTask(agent.agentId, dispatchPack);
+          result = await input.transport.awaitResult(
+            job.jobId,
+            resultTimeoutMs,
+          );
+          break;
+        } catch (error) {
+          const reason =
+            error instanceof Error
+              ? error.message
+              : String(error);
+
+          if (desktopTaskPackMutates(dispatchPack)) {
+            await markDesktopJobIndeterminate(
+              input.jobRoot,
+              job.jobId,
+              sessionId,
+              now(),
+            );
+
+            return {
+              type: "waiting-agent",
+              reason: `Desktop mutation result is indeterminate: ${reason}`,
+            };
+          }
+
+          await requeueDesktopJob(
+            input.jobRoot,
+            job.jobId,
+            sessionId,
+            now(),
+          );
+
+          if (
+            !isDesktopResultTimeout(error)
+            || readOnlyTimeoutRetries
+              >= MAX_READ_ONLY_RESULT_TIMEOUT_RETRIES
+          ) {
+            return {
+              type: "retryable-failure",
+              reason,
+            };
+          }
+
+          readOnlyTimeoutRetries += 1;
+
+          const retrySessionId =
+            input.transport.getAgentSessionId(agent.agentId);
+
+          if (!retrySessionId) {
+            return {
+              type: "waiting-agent",
+              reason: "Desktop Agent session is unavailable",
+            };
+          }
+
+          sessionId = retrySessionId;
+          const retryAt = now();
+
+          leased = await acquireDesktopJobLease(
+            input.jobRoot,
+            job.jobId,
+            sessionId,
+            retryAt,
+            leaseDurationMs,
+          );
+
+          dispatchPack = {
+            ...leased.pack,
+            attempt: leased.attempts,
+            leaseUntil:
+              leased.lease?.expiresAt
+              ?? leased.pack.leaseUntil,
+          };
         }
-        await requeueDesktopJob(input.jobRoot, job.jobId, sessionId, now());
-        return { type: "retryable-failure", reason };
       }
 
       if (result.status === "retryable-failure") {

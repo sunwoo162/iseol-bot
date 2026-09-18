@@ -69,16 +69,23 @@ function completed(jobId = "job-test", status: DesktopJobResult["status"] = "com
 class FakeTransport {
   connected = true;
   sendCount = 0;
+  sentAttempts: number[] = [];
+  awaitErrors: Error[] = [];
   lastAwaitTimeoutMs: number | null = null;
   nextResult: DesktopJobResult = completed();
   isAgentConnected() { return this.connected; }
   getAgentSessionId() { return this.connected ? "session-001" : null; }
   sendTask(_agentId: string, pack: DesktopTaskPack) {
     this.sendCount += 1;
+    this.sentAttempts.push(pack.attempt);
     this.nextResult = { ...this.nextResult, jobId: pack.jobId, runId: pack.runId, agentId: pack.agentId };
   }
   async awaitResult(_jobId: string, timeoutMs: number) {
     this.lastAwaitTimeoutMs = timeoutMs;
+
+    const error = this.awaitErrors.shift();
+    if (error) throw error;
+
     return this.nextResult;
   }
 }
@@ -241,6 +248,44 @@ test("explicit Desktop result timeout remains an exact caller override", async (
     stored?.lease?.expiresAt,
     "2026-09-08T03:00:12.000Z",
   );
+});
+
+test("read-only result timeout retries once with a higher durable attempt", async () => {
+  const { registryRoot, jobRoot, targetRoot } = await roots();
+  await register(registryRoot, targetRoot);
+
+  const transport = new FakeTransport();
+
+  transport.awaitErrors.push(
+    new Error("Desktop Job result timeout: job-test"),
+  );
+
+  const executor = createDesktopStageExecutor({
+    registryRoot,
+    jobRoot,
+    transport,
+    leaseDurationMs: 2_000,
+    resultTimeoutMs: 1_000,
+    compileTaskPack: async () => task(targetRoot),
+    now: () => "2026-09-08T03:00:10.000Z",
+  });
+
+  const result = await executor.execute(run(targetRoot));
+
+  assert.equal(result.type, "completed");
+  assert.equal(transport.sendCount, 2);
+  assert.deepEqual(
+    transport.sentAttempts,
+    [1, 2],
+  );
+
+  const stored = await loadDesktopJob(
+    jobRoot,
+    "job-test",
+  );
+
+  assert.equal(stored?.attempts, 2);
+  assert.equal(stored?.status, "completed");
 });
 
 test("lost result for a mutating task becomes indeterminate instead of requeueing", async () => {
