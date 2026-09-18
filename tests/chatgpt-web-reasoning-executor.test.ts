@@ -479,6 +479,144 @@ test("reasoning default result timeout allows slow live ChatGPT responses", asyn
 });
 
 
+test("configured temporary rate-limit backoff retries before submit and resumes the same session", async () => {
+  const { root, run } = await fixture();
+  const browserModule = await import("../src/chatgpt-web/browser-adapter.js") as any;
+  const LimitedError = browserModule.ChatGptWebTemporarilyLimitedError;
+
+  let openCalls = 0;
+  let submitCalls = 0;
+  const delays: number[] = [];
+
+  const adapter = {
+    openOrResumeSession: async () => {
+      openCalls += 1;
+      if (openCalls <= 2) {
+        throw new LimitedError("ChatGPT Web is temporarily rate limited");
+      }
+      return {};
+    },
+    submitTurn: async () => {
+      submitCalls += 1;
+      return undefined;
+    },
+    awaitStructuredResult: async (session: any) => ({
+      version: 1,
+      runId: session.runId,
+      stage: session.stage,
+      generation: session.generation,
+      summary: "Recovered after temporary rate limit",
+      decisions: [],
+      intents: [],
+      outcome: "stage-complete",
+    }),
+    probeSession: async () => "ready",
+    closeSession: async () => undefined,
+  } as any;
+
+  const executor = createWebReasoningExecutor({
+    workerRoot: root,
+    adapter,
+    rateLimitBackoffMs: [30_000, 60_000, 120_000],
+    sleep: async (ms) => { delays.push(ms); },
+    now: () => "2026-09-08T01:10:30.000Z",
+    runDesktopIntent: async () => { throw new Error("desktop must not run"); },
+  });
+
+  const result = await executor.execute(run);
+
+  assert.equal(result.type, "completed");
+  assert.equal(openCalls, 3);
+  assert.equal(submitCalls, 1);
+  assert.deepEqual(delays, [30_000, 60_000]);
+  assert.equal(
+    (await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT"))?.generation,
+    1,
+  );
+});
+
+test("temporary rate limit after submit never automatically resubmits the turn", async () => {
+  const { root, run } = await fixture();
+  const browserModule = await import("../src/chatgpt-web/browser-adapter.js") as any;
+  const LimitedError = browserModule.ChatGptWebTemporarilyLimitedError;
+
+  let submitCalls = 0;
+  const delays: number[] = [];
+
+  const adapter = {
+    openOrResumeSession: async () => ({}),
+    submitTurn: async () => {
+      submitCalls += 1;
+      return undefined;
+    },
+    awaitStructuredResult: async () => {
+      throw new LimitedError("ChatGPT Web is temporarily rate limited");
+    },
+    probeSession: async () => "ready",
+    closeSession: async () => undefined,
+  } as any;
+
+  const executor = createWebReasoningExecutor({
+    workerRoot: root,
+    adapter,
+    rateLimitBackoffMs: [30_000, 60_000, 120_000],
+    sleep: async (ms) => { delays.push(ms); },
+    now: () => "2026-09-08T01:10:45.000Z",
+    runDesktopIntent: async () => { throw new Error("desktop must not run"); },
+  });
+
+  assert.deepEqual(await executor.execute(run), {
+    type: "waiting-external",
+    reason: "ChatGPT Web failure: temporary rate limit",
+  });
+
+  assert.equal(submitCalls, 1);
+  assert.deepEqual(delays, []);
+});
+
+test("configured temporary rate-limit retries exhaust the bounded backoff budget", async () => {
+  const { root, run } = await fixture();
+  const browserModule = await import("../src/chatgpt-web/browser-adapter.js") as any;
+  const LimitedError = browserModule.ChatGptWebTemporarilyLimitedError;
+
+  let openCalls = 0;
+  let submitCalls = 0;
+  const delays: number[] = [];
+
+  const adapter = {
+    openOrResumeSession: async () => {
+      openCalls += 1;
+      throw new LimitedError("ChatGPT Web is temporarily rate limited");
+    },
+    submitTurn: async () => {
+      submitCalls += 1;
+    },
+    awaitStructuredResult: async () => {
+      throw new Error("must not read");
+    },
+    probeSession: async () => "ready",
+    closeSession: async () => undefined,
+  } as any;
+
+  const executor = createWebReasoningExecutor({
+    workerRoot: root,
+    adapter,
+    rateLimitBackoffMs: [30_000, 60_000, 120_000],
+    sleep: async (ms) => { delays.push(ms); },
+    now: () => "2026-09-08T01:10:50.000Z",
+    runDesktopIntent: async () => { throw new Error("desktop must not run"); },
+  });
+
+  assert.deepEqual(await executor.execute(run), {
+    type: "waiting-external",
+    reason: "ChatGPT Web failure: temporary rate limit",
+  });
+
+  assert.equal(openCalls, 4);
+  assert.equal(submitCalls, 0);
+  assert.deepEqual(delays, [30_000, 60_000, 120_000]);
+});
+
 test("temporary ChatGPT rate limits stop reasoning without session recovery or extra submits", async () => {
   const { root, run } = await fixture();
   const browserModule = await import("../src/chatgpt-web/browser-adapter.js") as any;

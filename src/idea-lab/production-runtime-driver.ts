@@ -362,6 +362,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
       runDesktopIntent,
       recoverDesktopFeedback,
       now,
+      rateLimitBackoffMs: [30_000, 60_000, 120_000],
       commitAuthorized: false,
     });
     desktop = createDesktopStageExecutor({

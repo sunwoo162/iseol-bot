@@ -37,6 +37,8 @@ export type CreateWebReasoningExecutorInput = {
   resultTimeoutMs?: number;
   maxTurnsPerStage?: number;
   maxRejectedIntents?: number;
+  sleep?: (ms: number) => Promise<void>;
+  rateLimitBackoffMs?: readonly number[];
   commitAuthorized?: boolean;
 };
 function digest(value: string): string {
@@ -181,8 +183,15 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
   const resultTimeoutMs = input.resultTimeoutMs ?? 240_000;
   const maxTurns = input.maxTurnsPerStage ?? 8;
   const maxRejected = input.maxRejectedIntents ?? 3;
+  const sleep = input.sleep
+    ?? ((ms: number) => new Promise<void>((resolveDelay) => setTimeout(resolveDelay, ms)));
+  const rateLimitBackoffMs = [...(input.rateLimitBackoffMs ?? [])];
+
   if (!Number.isInteger(maxTurns) || maxTurns <= 0) throw new Error("maxTurnsPerStage must be a positive integer");
   if (!Number.isInteger(maxRejected) || maxRejected <= 0) throw new Error("maxRejectedIntents must be a positive integer");
+  if (rateLimitBackoffMs.some((ms) => !Number.isInteger(ms) || ms < 0)) {
+    throw new Error("rateLimitBackoffMs must contain non-negative integers");
+  }
 
   return {
     async execute(run): Promise<HarnessStageExecutionResult> {
@@ -209,11 +218,13 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
       let rejectedCount = 0;
       let recoveries = 0;
       let identitylessRecoveries = 0;
+      let rateLimitRetries = 0;
       let finalRecoveryClass = "session lost";
       const resultContract = persistedWebWorkerResultContract(session);
 
       while (acceptedTurns < maxTurns) {
         let rawResult: unknown;
+        let submittedThisAttempt = false;
         try {
           if (openedSessionId !== session.sessionId) {
             const opened = await input.adapter.openOrResumeSession(session, prompt);
@@ -226,6 +237,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           if (submitted?.conversationRef && submitted.conversationRef !== session.conversationRef) {
             session = await updateWebWorkerSession(input.workerRoot, { ...session, conversationRef: submitted.conversationRef });
           }
+          submittedThisAttempt = true;
           rawResult = await input.adapter.awaitStructuredResult(
             session,
             resultTimeoutMs,
@@ -233,7 +245,19 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           );
         } catch (error) {
           if (error instanceof ChatGptWebTemporarilyLimitedError) {
-            return { type: "waiting-external", reason: "ChatGPT Web failure: temporary rate limit" };
+            if (submittedThisAttempt) {
+              return { type: "waiting-external", reason: "ChatGPT Web failure: temporary rate limit" };
+            }
+
+            const delayMs = rateLimitBackoffMs[rateLimitRetries];
+
+            if (delayMs === undefined) {
+              return { type: "waiting-external", reason: "ChatGPT Web failure: temporary rate limit" };
+            }
+
+            rateLimitRetries += 1;
+            await sleep(delayMs);
+            continue;
           }
           if (error instanceof ChatGptWebUsageLimitError) {
             return { type: "waiting-external", reason: "ChatGPT Web failure: usage limit" };
@@ -269,6 +293,8 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           openedSessionId = null;
           continue;
         }
+
+        rateLimitRetries = 0;
 
         let result;
         try {
