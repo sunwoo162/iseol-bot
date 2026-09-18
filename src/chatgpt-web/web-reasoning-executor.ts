@@ -81,7 +81,7 @@ function completedStageContext(turns: ReasoningTurn[], run: HarnessRuntimeRunEnv
     reference: `reasoning-turn:${turn.turnId}`,
   }));
 }
-const STRUCTURED_JSON_CORRECTION = "Previous response was not valid structured output. Return no markdown or prose. Return exactly one JSON object matching the current stage's ReasoningTurnResult contract and only the Desktop intent kinds explicitly allowed by the prompt.";
+const STRUCTURED_JSON_CORRECTION = "Previous response was not valid structured output. Return no markdown or prose. Return exactly one JSON object matching the current stage's ReasoningTurnResult contract and only the Desktop intent kinds explicitly allowed by the prompt. All string values must be valid JSON strings. Never place an unescaped double quote inside a string value. In summary and decisions, rewrite quoted identifiers, action keys, commands, and commit messages using single quotes or plain wording.";
 const PATCH_FRAME_V1_CORRECTION = "Previous IMPLEMENT response was invalid. The exact first line must be ISEOL_PATCH_V1. After the first newline, return exactly one raw unified diff through EOF that is git-apply-compatible. Do not return a structured control envelope, markdown, prose, an appendix, or a closing marker.";
 function structuredCorrection(reason: string, contract: ChatGptWebResultContract): string {
   const boundedReason = reason.replace(/\s+/g, " ").trim().slice(0, 240);

@@ -182,6 +182,23 @@ test("structured-json stages do not advertise PROPOSE_PATCH", () => {
   }
 });
 
+test("structured-json contract prevents raw double quotes inside human text fields", () => {
+  const compiled = compileWebPrompt({
+    ...baseInput(),
+    run: run("PLAN"),
+    session: session("PLAN"),
+  });
+
+  const payload = JSON.parse(compiled.body) as any;
+  const rule = String(
+    payload.outputContract.jsonStringEncodingRule ?? "",
+  );
+
+  assert.match(rule, /unescaped double quote/i);
+  assert.match(rule, /single quotes/i);
+  assert.match(rule, /summary and decisions/i);
+});
+
 test("prompt requires cwd to stay workspace-relative", () => {
   const payload = JSON.parse(compileWebPrompt({ ...baseInput(), run: run("PLAN"), session: session("PLAN") }).body) as any;
   const rule = String(payload.outputContract.cwdRule ?? "");

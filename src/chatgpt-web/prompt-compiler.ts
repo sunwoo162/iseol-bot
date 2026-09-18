@@ -71,7 +71,7 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
   }));
   const structuredJsonOutputContract = {
     responseFormat: "exactly one JSON object only, with no markdown or prose",
-    jsonStringEncodingRule: "Use valid JSON string escaping for every JSON value. Inside JSON strings, encode newlines as \\n, double quotes as \\\", and backslashes as \\\\.",
+    jsonStringEncodingRule: "All output must be valid JSON. Never place an unescaped double quote character inside any JSON string value. In summary and decisions, use single quotes or plain wording for identifiers, action keys, commands, and commit messages. Use standard JSON escaping whenever a backslash, newline, or double quote is unavoidable.",
     cwdRule: "For RUN_TEST, RUN_BUILD, GIT_INSPECT, and REQUEST_COMMIT, cwd must be workspace-relative. Use '.' for the workspace root; never copy the absolute workspaceRoot into cwd.",
     reasoningTurnResult: {
       version: 1,

@@ -221,6 +221,16 @@ test("structured-json PROPOSE_PATCH rejection stays a generic structured-result 
     submittedPrompts[1]?.body ?? "",
     /include exactly one intent with path|patchText containing|complete git-apply-compatible unified diff/i,
   );
+
+  assert.match(
+    submittedPrompts[1]?.body ?? "",
+    /unescaped double quote/i,
+  );
+
+  assert.match(
+    submittedPrompts[1]?.body ?? "",
+    /single quotes/i,
+  );
 });
 
 test("IMPLEMENT rejection preserves the safe patch-frame failure class", async () => {
