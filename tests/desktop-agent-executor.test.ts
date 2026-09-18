@@ -69,6 +69,7 @@ function completed(jobId = "job-test", status: DesktopJobResult["status"] = "com
 class FakeTransport {
   connected = true;
   sendCount = 0;
+  lastAwaitTimeoutMs: number | null = null;
   nextResult: DesktopJobResult = completed();
   isAgentConnected() { return this.connected; }
   getAgentSessionId() { return this.connected ? "session-001" : null; }
@@ -76,7 +77,10 @@ class FakeTransport {
     this.sendCount += 1;
     this.nextResult = { ...this.nextResult, jobId: pack.jobId, runId: pack.runId, agentId: pack.agentId };
   }
-  async awaitResult() { return this.nextResult; }
+  async awaitResult(_jobId: string, timeoutMs: number) {
+    this.lastAwaitTimeoutMs = timeoutMs;
+    return this.nextResult;
+  }
 }
 
 test("offline agent returns waiting-agent and missing task intent waits for external planner", async () => {
@@ -143,6 +147,100 @@ test("retryable and protected desktop results map to Harness meanings", async ()
     now: () => "2026-09-08T03:00:10.000Z",
   });
   assert.equal((await blockedExecutor.execute(run(targetRoot))).type, "blocked-user");
+});
+
+test("long-running Desktop operations extend lease and result wait beyond their own timeout", async () => {
+  const { registryRoot, jobRoot, targetRoot } = await roots();
+  await register(registryRoot, targetRoot);
+
+  const transport = new FakeTransport();
+
+  const executor = createDesktopStageExecutor({
+    registryRoot,
+    jobRoot,
+    transport,
+    compileTaskPack: async () => ({
+      ...task(targetRoot),
+      policyDigest: "digest",
+      policySources: [{
+        kind: "project-harness",
+        path: targetRoot,
+        sha256: "hash",
+        required: true,
+      }],
+      operations: [{
+        id: "op-1",
+        type: "RUN_PROCESS",
+        purpose: "test",
+        cwd: ".",
+        executable: "npm",
+        args: ["test"],
+        timeoutMs: 120_000,
+      }],
+    }),
+    now: () => "2026-09-08T03:00:10.000Z",
+  });
+
+  const result = await executor.execute(run(targetRoot));
+
+  assert.equal(result.type, "completed");
+
+  // 120s operation budget + 30s result delivery grace.
+  assert.equal(transport.lastAwaitTimeoutMs, 150_000);
+
+  const stored = await loadDesktopJob(jobRoot, "job-test");
+
+  assert.equal(
+    stored?.lease?.expiresAt,
+    "2026-09-08T03:02:40.000Z",
+  );
+});
+
+test("explicit Desktop result timeout remains an exact caller override", async () => {
+  const { registryRoot, jobRoot, targetRoot } = await roots();
+  await register(registryRoot, targetRoot);
+
+  const transport = new FakeTransport();
+
+  const executor = createDesktopStageExecutor({
+    registryRoot,
+    jobRoot,
+    transport,
+    leaseDurationMs: 2_000,
+    resultTimeoutMs: 1_000,
+    compileTaskPack: async () => ({
+      ...task(targetRoot),
+      policyDigest: "digest",
+      policySources: [{
+        kind: "project-harness",
+        path: targetRoot,
+        sha256: "hash",
+        required: true,
+      }],
+      operations: [{
+        id: "op-1",
+        type: "RUN_PROCESS",
+        purpose: "test",
+        cwd: ".",
+        executable: "node",
+        args: ["--test"],
+        timeoutMs: 2_000,
+      }],
+    }),
+    now: () => "2026-09-08T03:00:10.000Z",
+  });
+
+  const result = await executor.execute(run(targetRoot));
+
+  assert.equal(result.type, "completed");
+  assert.equal(transport.lastAwaitTimeoutMs, 1_000);
+
+  const stored = await loadDesktopJob(jobRoot, "job-test");
+
+  assert.equal(
+    stored?.lease?.expiresAt,
+    "2026-09-08T03:00:12.000Z",
+  );
 });
 
 test("lost result for a mutating task becomes indeterminate instead of requeueing", async () => {

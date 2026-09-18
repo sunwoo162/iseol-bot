@@ -66,6 +66,34 @@ function evidenceKindForStage(stage: HarnessRuntimeRunEnvelope["state"]["stage"]
 export type DesktopFeedback = { kind: HarnessEvidenceKind; summary: string; reference?: string };
 type DesktopCompletedExecutionResult = HarnessStageExecutionResult & { feedback: DesktopFeedback[] };
 const MAX_DESKTOP_FEEDBACK_CHARS = 8_000;
+const DESKTOP_RESULT_GRACE_MS = 30_000;
+
+function declaredTaskExecutionBudgetMs(pack: DesktopTaskPack): number {
+  return pack.operations.reduce((total, operation) => {
+    if (operation.type === "RUN_PROCESS" || operation.type === "CHECK_HTTP") {
+      return total + operation.timeoutMs;
+    }
+
+    return total;
+  }, 0);
+}
+
+function protectedExecutionWindowMs(
+  pack: DesktopTaskPack,
+  configuredMs: number,
+): number {
+  const declaredMs = declaredTaskExecutionBudgetMs(pack);
+
+  if (declaredMs <= 0) {
+    return configuredMs;
+  }
+
+  return Math.max(
+    configuredMs,
+    declaredMs + DESKTOP_RESULT_GRACE_MS,
+  );
+}
+
 function operationFeedback(item: DesktopOperationResult): string {
   const parts = [`Desktop operation ${item.operationId}: ${item.summary}`];
   if (item.stdout?.trim()) parts.push(`stdout:\n${item.stdout.trim()}`);
@@ -115,9 +143,6 @@ export function createDesktopStageExecutor(
   input: CreateDesktopStageExecutorInput,
 ): HarnessStageExecutor {
   const now = input.now ?? (() => new Date().toISOString());
-  const leaseDurationMs = input.leaseDurationMs ?? 60_000;
-  const resultTimeoutMs = input.resultTimeoutMs ?? 120_000;
-
   return {
     async execute(run): Promise<HarnessStageExecutionResult> {
       const at = now();
@@ -134,6 +159,11 @@ export function createDesktopStageExecutor(
       if (compiled.agentId !== agent.agentId) {
         return { type: "final-failure", reason: "Desktop Task Pack targets a different Agent" };
       }
+
+      const leaseDurationMs = input.leaseDurationMs
+        ?? protectedExecutionWindowMs(compiled, 60_000);
+      const resultTimeoutMs = input.resultTimeoutMs
+        ?? protectedExecutionWindowMs(compiled, 120_000);
 
       const job = await createDesktopJob(input.jobRoot, compiled, at);
       if (job.status === "completed" && job.result) return completedResult(run, job.result);
