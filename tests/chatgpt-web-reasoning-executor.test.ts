@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { resolveHarnessPolicy } from "../src/harness/policy-resolver.js";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 import { createWebReasoningExecutor, resultContractForStage } from "../src/chatgpt-web/web-reasoning-executor.js";
+import { ChatGptWebStructuredResultError } from "../src/chatgpt-web/browser-adapter.js";
 import { createFakeChatGptWebBrowserAdapter, ChatGptWebSessionLostError } from "../src/chatgpt-web/test-support/fake-browser-adapter.js";
 import { getActiveWebWorkerSession } from "../src/chatgpt-web/session-store.js";
 import { appendReasoningTurn, listReasoningTurns } from "../src/chatgpt-web/turn-store.js";
@@ -149,6 +150,43 @@ test("malformed structured results use the same bounded rejection budget", async
   assert.equal(result.reason, "ChatGPT Web failure: rejected structured-result budget exhausted; structured result invalid");
   assert.equal(fake.submittedPrompts.length, 2);
 });
+test("IMPLEMENT rejection preserves the safe patch-frame failure class", async () => {
+  const { root, run } = await fixture();
+
+  const adapter = {
+    openOrResumeSession: async () => ({}),
+    submitTurn: async () => undefined,
+    awaitStructuredResult: async () => {
+      throw new ChatGptWebStructuredResultError(
+        "ChatGPT PATCH_FRAME_V1 header is missing or invalid",
+        {
+          diagnosticCategory: "patch-frame-format-failure",
+          frameHeaderPresent: false,
+          payloadEmpty: false,
+        },
+      );
+    },
+    probeSession: async () => "ready",
+    closeSession: async () => undefined,
+  } as any;
+
+  const executor = createWebReasoningExecutor({
+    workerRoot: root,
+    adapter,
+    maxRejectedIntents: 1,
+    now: () => "2026-09-08T01:04:30.000Z",
+    runDesktopIntent: async () => { throw new Error("unused"); },
+  });
+
+  const result = await executor.execute(run);
+
+  assert.equal(result.type, "retryable-failure");
+  assert.equal(
+    result.reason,
+    "ChatGPT Web failure: rejected structured-result budget exhausted; patch frame invalid: header missing or invalid",
+  );
+});
+
 test("reasoning executor persists a conversation ref assigned by first submit before reading the result", async () => {
   const { root, run } = await fixture();
   const adapter = {

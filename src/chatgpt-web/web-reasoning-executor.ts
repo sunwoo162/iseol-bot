@@ -86,8 +86,41 @@ function structuredCorrection(reason: string, contract: ChatGptWebResultContract
   const instruction = contract === "patch-frame-v1" ? PATCH_FRAME_V1_CORRECTION : STRUCTURED_JSON_CORRECTION;
   return `${instruction} Validation failure: ${boundedReason}`;
 }
-function structuredResultFailureClass(error: ChatGptWebStructuredResultError): "patch appendix invalid" | "structured result invalid" {
-  return /patch|propose_patch/i.test(error.message) ? "patch appendix invalid" : "structured result invalid";
+function structuredResultFailureClass(error: ChatGptWebStructuredResultError): string {
+  const category = error.diagnostic?.diagnosticCategory;
+
+  if (category === "patch-frame-format-failure") {
+    if (error.diagnostic?.payloadEmpty === true) {
+      return "patch frame invalid: payload empty";
+    }
+    if (/exceeds the allowed size/i.test(error.message)) {
+      return "patch frame invalid: result too large";
+    }
+    return "patch frame invalid: header missing or invalid";
+  }
+
+  if (category === "patch-validation-failure") {
+    if (/exactly one file diff/i.test(error.message)) {
+      return "patch validation invalid: file diff count";
+    }
+    if (/hunk header is invalid/i.test(error.message)) {
+      return "patch validation invalid: hunk header";
+    }
+    if (/hunk line counts do not match/i.test(error.message)) {
+      return "patch validation invalid: hunk line counts";
+    }
+    if (/hunk body lines require/i.test(error.message)) {
+      return "patch validation invalid: hunk body";
+    }
+    if (/at least one hunk/i.test(error.message)) {
+      return "patch validation invalid: missing hunk";
+    }
+    return "patch validation invalid";
+  }
+
+  return /patch|propose_patch/i.test(error.message)
+    ? "patch appendix invalid"
+    : "structured result invalid";
 }
 function browserFailureClass(error: unknown): string {
   if (error instanceof ChatGptWebTemporarilyLimitedError) return "temporary rate limit";

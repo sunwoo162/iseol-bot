@@ -689,7 +689,7 @@ test("terminal patch-result rejection keeps a safe diagnostic on the canonical R
 
   assert.equal(result.status, "failed");
   assert.equal(finalRun?.state.status, "FAILED_FINAL");
-  assert.match(finalRun?.state.reason ?? "", /rejected structured-result budget exhausted.*patch appendix invalid/i);
+  assert.match(finalRun?.state.reason ?? "", /rejected structured-result budget exhausted.*patch frame invalid: header missing or invalid/i);
   assert.ok((finalRun?.state.reason?.length ?? Infinity) <= 160);
   assert.equal(result.failureSummary, "Harness production failed");
   assert.equal(await findDesktopJobByIdempotencyKey(root, `web-intent:${production.runId}:${intentId}`), null);
