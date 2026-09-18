@@ -109,6 +109,37 @@ test("duplicate dispatch joins the existing pending logical job", async () => {
   assert.equal(wire.messages.length, 1);
 });
 
+test("higher read-only retry attempt redispatches a pending logical job", async () => {
+  const registryRoot = await root();
+  const transport = createDesktopAgentTransport({
+    registryRoot,
+    expectedToken: "secret-token",
+  });
+  const wire = new FakeWire();
+
+  await transport.acceptHello("session-1", hello, wire);
+
+  const first = task("job-retry");
+  transport.sendTask("agent-001", first);
+
+  transport.sendTask("agent-001", {
+    ...first,
+    attempt: first.attempt + 1,
+  });
+
+  assert.equal(wire.messages.length, 2);
+
+  const waiting = transport.awaitResult("job-retry", 1_000);
+  await transport.handleMessage("session-1", {
+    version: 1,
+    type: "result",
+    result: result("job-retry"),
+  });
+
+  assert.equal((await waiting).jobId, "job-retry");
+});
+
+
 async function waitFor(predicate: () => boolean, timeoutMs = 2_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

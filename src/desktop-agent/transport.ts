@@ -1,6 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
 import type { DesktopAgentHello, DesktopJobResult, DesktopTaskPack } from "./contracts.js";
-import { assertDesktopProtocolVersion, assertDesktopTaskPack } from "./contracts.js";
+import {
+  assertDesktopProtocolVersion,
+  assertDesktopTaskPack,
+  desktopTaskPackMutates,
+} from "./contracts.js";
 import { heartbeatDesktopAgent, registerDesktopAgent } from "./agent-registry.js";
 
 export type DesktopServerMessage =
@@ -26,6 +30,7 @@ export type DesktopAgentSession = {
 type DeferredResult = {
   promise: Promise<DesktopJobResult>;
   resolve(result: DesktopJobResult): void;
+  attempt: number;
 };
 
 export type DesktopAgentTransportOptions = {
@@ -133,13 +138,28 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
     const sessionId = sessionByAgent.get(agentId);
     const session = sessionId ? sessionsById.get(sessionId) : undefined;
     if (!session) throw new Error(`Desktop Agent is not connected: ${agentId}`);
-    // A retry of the same logical job joins the in-flight operation. Re-sending
-    // would create a second physical execution and turn a transient wait into
-    // duplicate-id retry amplification.
-    if (pending.has(pack.jobId)) return;
+    const existing = pending.get(pack.jobId);
+
+    if (existing) {
+      // Duplicate dispatch of the same physical attempt joins the current wait.
+      if (pack.attempt <= existing.attempt) return;
+
+      // Mutations remain single-shot because their outcome is indeterminate
+      // after a lost response. Read-only work can safely be retried.
+      if (desktopTaskPackMutates(pack)) return;
+
+      existing.attempt = pack.attempt;
+      session.wire.send({ version: 1, type: "task", pack });
+      return;
+    }
+
     let resolveResult!: (result: DesktopJobResult) => void;
     const promise = new Promise<DesktopJobResult>((resolve) => { resolveResult = resolve; });
-    pending.set(pack.jobId, { promise, resolve: resolveResult });
+    pending.set(pack.jobId, {
+      promise,
+      resolve: resolveResult,
+      attempt: pack.attempt,
+    });
     session.wire.send({ version: 1, type: "task", pack });
   }
 
