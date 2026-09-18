@@ -1,3 +1,4 @@
+import { IMPLEMENT_DONE_PAYLOAD } from "./patch-frame-contract.js";
 import { createHash } from "node:crypto";
 import type { HarnessEvidenceRecord, HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import type { HarnessStageExecutor, HarnessStageExecutionResult } from "../harness/run-supervisor.js";
@@ -82,7 +83,7 @@ function completedStageContext(turns: ReasoningTurn[], run: HarnessRuntimeRunEnv
   }));
 }
 const STRUCTURED_JSON_CORRECTION = "Previous response was not valid structured output. Return no markdown or prose. Return exactly one JSON object matching the current stage's ReasoningTurnResult contract and only the Desktop intent kinds explicitly allowed by the prompt. All string values must be valid JSON strings. Never place an unescaped double quote inside a string value. In summary and decisions, rewrite quoted identifiers, action keys, commands, and commit messages using single quotes or plain wording.";
-const PATCH_FRAME_V1_CORRECTION = "Previous IMPLEMENT response was invalid. The exact first line must be ISEOL_PATCH_V1. After the first newline, return exactly one raw unified diff through EOF that is git-apply-compatible. Do not return a structured control envelope, markdown, prose, an appendix, or a closing marker.";
+const PATCH_FRAME_V1_CORRECTION = `Previous IMPLEMENT response was invalid. The exact first line must be ISEOL_PATCH_V1. For implementation work, after the first newline return exactly one raw unified diff through EOF for exactly one file. The single-file diff must be git-apply-compatible, contain exactly one ---/+++ file header pair, and contain no second file diff. If more files remain, return only the next single-file patch now. Only if all intended implementation changes were already applied in prior accepted patch turns may the payload instead be exactly ${IMPLEMENT_DONE_PAYLOAD}. Do not return a structured control envelope, markdown, prose, an appendix, or a closing marker.`;
 function structuredCorrection(reason: string, contract: ChatGptWebResultContract): string {
   const boundedReason = reason.replace(/\s+/g, " ").trim().slice(0, 240);
   const instruction = contract === "patch-frame-v1" ? PATCH_FRAME_V1_CORRECTION : STRUCTURED_JSON_CORRECTION;

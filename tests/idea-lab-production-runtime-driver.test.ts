@@ -581,7 +581,11 @@ test("Idea Lab validates a patch frame before runtime-owned PROPOSE_PATCH dispat
     "diff --git a/app.js b/app.js", "--- a/app.js", "+++ b/app.js", "@@ -1 +1 @@", "-old", "+new", "",
   ].join("\r\n");
   const malformedPatch = rawPatch.replace("+new\r\n", "+new\r\n+unexpected\r\n");
-  const browser = createFakeChatGptWebBrowserAdapter([malformedPatch, rawPatch]);
+  const browser = createFakeChatGptWebBrowserAdapter([
+    malformedPatch,
+    rawPatch,
+    "ISEOL_IMPLEMENT_DONE",
+  ]);
   const dispatched: any[] = [];
   const transport = {
     isAgentConnected: () => true,
@@ -598,8 +602,11 @@ test("Idea Lab validates a patch frame before runtime-owned PROPOSE_PATCH dispat
 
   assert.equal(dispatched.length, 1);
   const patchPromptContracts = browser.submittedPrompts.map((prompt) => JSON.parse(prompt.body).outputContract.contract);
-  assert.deepEqual(patchPromptContracts, ["patch-frame-v1", "patch-frame-v1"]);
-  assert.equal(browser.submittedPrompts.length, 2);
+  assert.deepEqual(
+    patchPromptContracts,
+    ["patch-frame-v1", "patch-frame-v1", "patch-frame-v1"],
+  );
+  assert.equal(browser.submittedPrompts.length, 3);
   assert.match(browser.submittedPrompts[1]?.body ?? "", /hunk line counts/i);
   assert.deepEqual(dispatched[0].operations[0], {
     id: dispatched[0].operations[0].id,

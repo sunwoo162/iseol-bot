@@ -138,8 +138,15 @@ test("IMPLEMENT prompt requests the exact PATCH_FRAME_V1 EOF transport", () => {
   const payload = JSON.parse(compileWebPrompt(baseInput()).body) as any;
   assert.equal(payload.outputContract.contract, "patch-frame-v1");
   assert.equal(payload.outputContract.header, "ISEOL_PATCH_V1");
+  assert.equal(
+    payload.outputContract.completionSignal,
+    "ISEOL_IMPLEMENT_DONE",
+  );
   assert.match(payload.outputContract.responseFormat, /exact first line/i);
   assert.match(payload.outputContract.payloadRule, /raw unified diff through EOF/i);
+  assert.match(payload.outputContract.payloadRule, /exactly one file/i);
+  assert.match(payload.outputContract.payloadRule, /next single-file patch/i);
+  assert.match(payload.outputContract.payloadRule, /ISEOL_IMPLEMENT_DONE/i);
   assert.match(payload.outputContract.payloadRule, /git-apply-compatible/i);
   assert.doesNotMatch(JSON.stringify(payload.outputContract), /patchText|JSON string|appendix|ISEOL_PATCH_BEGIN|ISEOL_PATCH_END/i);
   assert.equal(payload.outputContract.reasoningTurnResult, undefined);

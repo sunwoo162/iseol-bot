@@ -1,3 +1,4 @@
+import { IMPLEMENT_DONE_PAYLOAD } from "./patch-frame-contract.js";
 import { createHash } from "node:crypto";
 import type { HarnessEvidenceKind, HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import type { ReasoningTurn, WebWorkerSession } from "./contracts.js";
@@ -105,8 +106,9 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
   const patchFrameOutputContract = {
     contract: "patch-frame-v1",
     header: "ISEOL_PATCH_V1",
+    completionSignal: IMPLEMENT_DONE_PAYLOAD,
     responseFormat: "The exact first line must be ISEOL_PATCH_V1, with no leading markdown or prose.",
-    payloadRule: "After the first newline, return exactly one raw unified diff through EOF that is git-apply-compatible. Do not add a closing marker, structured control envelope, markdown fences, or trailing prose.",
+    payloadRule: `After the first newline, return exactly one of two payloads. For implementation work, return exactly one raw unified diff through EOF for exactly one file. The patch must be git-apply-compatible, contain exactly one ---/+++ file header pair, and must not include a second file diff. If more files remain, return only the next single-file patch in this turn. Only after every intended implementation change has already been applied in prior accepted patch turns, return exactly ${IMPLEMENT_DONE_PAYLOAD}. Do not add a closing marker, structured control envelope, markdown fences, or trailing prose.`,
   };
   const implement = input.run.state.stage === "IMPLEMENT";
   const payload = {

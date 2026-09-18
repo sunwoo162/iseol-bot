@@ -1,3 +1,4 @@
+import { IMPLEMENT_DONE_PAYLOAD } from "../chatgpt-web/patch-frame-contract.js";
 import { resolve } from "node:path";
 import { ChatGptWebStructuredResultError, type ChatGptWebBrowserAdapter } from "../chatgpt-web/browser-adapter.js";
 import { createHybridStageExecutor } from "../chatgpt-web/hybrid-executor.js";
@@ -293,10 +294,24 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
         const run = await loadHarnessRun(input.roots.runRoot, session.runId);
         if (!run) throw new ChatGptWebStructuredResultError("ChatGPT patch validation requires the active Run");
         try {
+          if (raw.trim() === IMPLEMENT_DONE_PAYLOAD) {
+            return {
+              version: 1,
+              runId: run.request.runId,
+              stage: run.state.stage,
+              generation: session.generation,
+              summary: "IMPLEMENT patch sequence complete",
+              decisions: [],
+              intents: [],
+              outcome: "stage-complete",
+            };
+          }
+
           const intent = buildValidatedPatchIntent(
             { run, session, resultGeneration: session.generation, commitAuthorized: false },
             raw,
           );
+
           return {
             version: 1,
             runId: run.request.runId,
@@ -305,7 +320,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
             summary: "Validated IMPLEMENT patch",
             decisions: [],
             intents: [intent],
-            outcome: "stage-complete",
+            outcome: "continue",
           };
         } catch (error) {
           const reason = error instanceof Error ? error.message : "Patch validation failed";
