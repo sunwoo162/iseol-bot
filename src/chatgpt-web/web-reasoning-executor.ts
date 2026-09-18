@@ -81,14 +81,17 @@ function completedStageContext(turns: ReasoningTurn[], run: HarnessRuntimeRunEnv
     reference: `reasoning-turn:${turn.turnId}`,
   }));
 }
-const STRUCTURED_JSON_CORRECTION = "Previous response was not valid structured output. Return no markdown or prose. Return exactly one JSON object. For PROPOSE_PATCH, include exactly one intent with path, patch compatibility token, and patchText containing the complete git-apply-compatible unified diff as a JSON string. Encode newlines using JSON escaping; do not add markers, appendices, code fences, or prose. The patchText must contain one file diff with valid headers, hunk prefixes, and matching hunk counts; defer remaining file changes to a later turn.";
+const STRUCTURED_JSON_CORRECTION = "Previous response was not valid structured output. Return no markdown or prose. Return exactly one JSON object matching the current stage's ReasoningTurnResult contract and only the Desktop intent kinds explicitly allowed by the prompt.";
 const PATCH_FRAME_V1_CORRECTION = "Previous IMPLEMENT response was invalid. The exact first line must be ISEOL_PATCH_V1. After the first newline, return exactly one raw unified diff through EOF that is git-apply-compatible. Do not return a structured control envelope, markdown, prose, an appendix, or a closing marker.";
 function structuredCorrection(reason: string, contract: ChatGptWebResultContract): string {
   const boundedReason = reason.replace(/\s+/g, " ").trim().slice(0, 240);
   const instruction = contract === "patch-frame-v1" ? PATCH_FRAME_V1_CORRECTION : STRUCTURED_JSON_CORRECTION;
   return `${instruction} Validation failure: ${boundedReason}`;
 }
-function structuredResultFailureClass(error: ChatGptWebStructuredResultError): string {
+function structuredResultFailureClass(
+  error: ChatGptWebStructuredResultError,
+  contract?: ChatGptWebResultContract,
+): string {
   const category = error.diagnostic?.diagnosticCategory;
 
   if (category === "patch-frame-format-failure") {
@@ -120,7 +123,7 @@ function structuredResultFailureClass(error: ChatGptWebStructuredResultError): s
     return "patch validation invalid";
   }
 
-  return /patch|propose_patch/i.test(error.message)
+  return contract === "patch-frame-v1" && /patch|propose_patch/i.test(error.message)
     ? "patch appendix invalid"
     : "structured result invalid";
 }
@@ -265,7 +268,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           if (error instanceof ChatGptWebStructuredResultError) {
             rejectedCount += 1;
             if (rejectedCount >= maxRejected) {
-              return { type: "retryable-failure", reason: `ChatGPT Web failure: rejected structured-result budget exhausted; ${structuredResultFailureClass(error)}` };
+              return { type: "retryable-failure", reason: `ChatGPT Web failure: rejected structured-result budget exhausted; ${structuredResultFailureClass(error, resultContract)}` };
             }
             desktopEvidence = [...desktopEvidence, { kind: "reasoning-rejection", summary: structuredCorrection(error.message, resultContract) }];
             prompt = compileWebPrompt({ kind: "feedback", run, session, priorTurns, desktopEvidence });

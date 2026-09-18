@@ -59,7 +59,7 @@ test("prompt contains bounded durable context and allowed intent vocabulary", ()
   const compiled = compileWebPrompt({ ...baseInput(), run: run("PLAN"), session: session("PLAN") });
   for (const expected of [
     "Add profile editing", "PLAN", "policy-sha", "Keep the existing API contract",
-    "unit tests pending", "READ_CONTEXT", "PROPOSE_PATCH", "RUN_TEST", "RUN_BUILD", "GIT_INSPECT", "REQUEST_COMMIT", "CHECK_HTTP",
+    "unit tests pending", "READ_CONTEXT", "RUN_TEST", "RUN_BUILD", "GIT_INSPECT", "REQUEST_COMMIT", "CHECK_HTTP",
   ]) assert.match(compiled.body, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.match(compiled.body, /completion/i);
   assert.doesNotMatch(compiled.body, /SUPER_SECRET_POLICY_BODY|PROJECT_SECRET_BODY/);
@@ -156,6 +156,31 @@ test("non-IMPLEMENT prompts retain the strict structured JSON contract", () => {
   }
 });
 
+
+test("structured-json stages do not advertise PROPOSE_PATCH", () => {
+  for (const stage of ["ANALYZE", "PLAN", "SELF_REVIEW"] as const) {
+    const compiled = compileWebPrompt({
+      ...baseInput(),
+      run: run(stage),
+      session: session(stage),
+    });
+
+    const payload = JSON.parse(compiled.body) as any;
+
+    assert.equal(
+      payload.allowedDesktopIntents.includes("PROPOSE_PATCH"),
+      false,
+    );
+
+    assert.equal(
+      Object.hasOwn(
+        payload.outputContract.requiredFieldsByIntentKind,
+        "PROPOSE_PATCH",
+      ),
+      false,
+    );
+  }
+});
 
 test("prompt requires cwd to stay workspace-relative", () => {
   const payload = JSON.parse(compileWebPrompt({ ...baseInput(), run: run("PLAN"), session: session("PLAN") }).body) as any;

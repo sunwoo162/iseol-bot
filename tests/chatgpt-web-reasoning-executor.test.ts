@@ -150,6 +150,79 @@ test("malformed structured results use the same bounded rejection budget", async
   assert.equal(result.reason, "ChatGPT Web failure: rejected structured-result budget exhausted; structured result invalid");
   assert.equal(fake.submittedPrompts.length, 2);
 });
+test("structured-json PROPOSE_PATCH rejection stays a generic structured-result failure", async () => {
+  const { root, run } = await fixture();
+
+  const planRun = {
+    ...run,
+    state: {
+      ...run.state,
+      stage: "PLAN" as const,
+    },
+  };
+
+  const submittedPrompts: Array<{ body: string }> = [];
+  let resultReads = 0;
+
+  const adapter = {
+    openOrResumeSession: async () => ({}),
+
+    submitTurn: async (_session: unknown, prompt: { body: string }) => {
+      submittedPrompts.push(prompt);
+      return undefined;
+    },
+
+    awaitStructuredResult: async () => {
+      resultReads += 1;
+
+      if (resultReads === 1) {
+        throw new ChatGptWebStructuredResultError(
+          "ChatGPT structured JSON contract does not accept PROPOSE_PATCH payloads",
+        );
+      }
+
+      return {
+        version: 1,
+        runId: planRun.request.runId,
+        stage: "PLAN",
+        generation: 1,
+        summary: "Plan completed",
+        decisions: [],
+        intents: [],
+        outcome: "stage-complete",
+      };
+    },
+
+    probeSession: async () => "ready",
+    closeSession: async () => undefined,
+  } as any;
+
+  const executor = createWebReasoningExecutor({
+    workerRoot: root,
+    adapter,
+    maxRejectedIntents: 2,
+    now: () => "2026-09-08T01:04:20.000Z",
+    runDesktopIntent: async () => {
+      throw new Error("unused");
+    },
+  });
+
+  const result = await executor.execute(planRun);
+
+  assert.equal(result.type, "completed");
+  assert.equal(submittedPrompts.length, 2);
+
+  assert.match(
+    submittedPrompts[1]?.body ?? "",
+    /matching the current stage's ReasoningTurnResult contract/i,
+  );
+
+  assert.doesNotMatch(
+    submittedPrompts[1]?.body ?? "",
+    /include exactly one intent with path|patchText containing|complete git-apply-compatible unified diff/i,
+  );
+});
+
 test("IMPLEMENT rejection preserves the safe patch-frame failure class", async () => {
   const { root, run } = await fixture();
 

@@ -25,8 +25,8 @@ export type CompiledWebPrompt = {
   body: string;
   sha256: string;
 };
-const ALLOWED_INTENTS = [
-  "READ_CONTEXT", "PROPOSE_PATCH", "RUN_TEST", "RUN_BUILD",
+const STRUCTURED_JSON_ALLOWED_INTENTS = [
+  "READ_CONTEXT", "RUN_TEST", "RUN_BUILD",
   "GIT_INSPECT", "REQUEST_COMMIT", "CHECK_HTTP",
 ] as const;
 
@@ -94,7 +94,6 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
     },
     requiredFieldsByIntentKind: {
       READ_CONTEXT: ["path"],
-      PROPOSE_PATCH: ["path", "patch", "patchText"],
       RUN_TEST: ["cwd", "executable", "args", "timeoutMs"],
       RUN_BUILD: ["cwd", "executable", "args", "timeoutMs"],
       GIT_INSPECT: ["cwd"],
@@ -120,7 +119,7 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
       sources: policy.sources.map((source) => ({ kind: source.kind, path: source.path, sha256: source.sha256 })),
     },
     completion: COMPLETION_TARGETS[input.run.state.stage] ?? `Complete ${input.run.state.stage} according to Harness evidence requirements.`,
-    ...(implement ? {} : { allowedDesktopIntents: ALLOWED_INTENTS }),
+    ...(implement ? {} : { allowedDesktopIntents: STRUCTURED_JSON_ALLOWED_INTENTS }),
     priorDecisions,
     desktopEvidence: evidence,
     recovery: input.kind === "recovery" ? "Resume from the first unfinished verified step; do not repeat verified side effects." : null,

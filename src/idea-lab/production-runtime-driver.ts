@@ -381,7 +381,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
       async execute(run: HarnessRuntimeRunEnvelope) {
         const result = await hybrid.execute(run);
         if (result.type === "retryable-failure"
-          && ["ANALYZE", "PLAN", "IMPLEMENT", "SELF_REVIEW"].includes(run.state.stage)
+          && run.state.stage === "IMPLEMENT"
           && /ChatGPT Web failure: rejected structured-result budget exhausted; patch (?:appendix|frame|validation) invalid/i.test(result.reason)) {
           return { type: "final-failure" as const, reason: result.reason };
         }
