@@ -273,15 +273,61 @@ function parseStructuredResult(text: string, legacyCompatibility = false): unkno
 
 export function parsePatchFrameV1(text: string): string {
   if (Buffer.byteLength(text, "utf8") > MAX_STRUCTURED_RESULT_BYTES) {
-    structured("ChatGPT PATCH_FRAME_V1 result exceeds the allowed size", { diagnosticCategory: "patch-frame-format-failure", frameHeaderPresent: false, payloadEmpty: false });
+    structured("ChatGPT PATCH_FRAME_V1 result exceeds the allowed size", {
+      diagnosticCategory: "patch-frame-format-failure",
+      frameHeaderPresent: false,
+      payloadEmpty: false,
+    });
   }
+
   const normalized = text.replaceAll("\r\n", "\n");
   const headerEnd = normalized.indexOf("\n");
+
   if (headerEnd < 0 || normalized.slice(0, headerEnd) !== "ISEOL_PATCH_V1") {
-    structured("ChatGPT PATCH_FRAME_V1 header is missing or invalid", { diagnosticCategory: "patch-frame-format-failure", frameHeaderPresent: normalized.startsWith("ISEOL_PATCH_V1"), payloadEmpty: false });
+    structured("ChatGPT PATCH_FRAME_V1 header is missing or invalid", {
+      diagnosticCategory: "patch-frame-format-failure",
+      frameHeaderPresent: normalized.startsWith("ISEOL_PATCH_V1"),
+      payloadEmpty: false,
+    });
   }
+
   const payload = normalized.slice(headerEnd + 1);
-  if (!payload.trim()) structured("ChatGPT PATCH_FRAME_V1 payload is empty", { diagnosticCategory: "patch-frame-format-failure", frameHeaderPresent: true, payloadEmpty: true });
+
+  if (!payload.trim()) {
+    structured("ChatGPT PATCH_FRAME_V1 payload is empty", {
+      diagnosticCategory: "patch-frame-format-failure",
+      frameHeaderPresent: true,
+      payloadEmpty: true,
+    });
+  }
+
+  const trimmed = payload.trim();
+  const fenced = trimmed.match(
+    /^```diff[ \t]*\n([\s\S]*?)\n```$/i,
+  );
+
+  if (fenced) {
+    const inner = fenced[1] ?? "";
+
+    if (!inner.trim()) {
+      structured("ChatGPT PATCH_FRAME_V1 fenced payload is empty", {
+        diagnosticCategory: "patch-frame-format-failure",
+        frameHeaderPresent: true,
+        payloadEmpty: true,
+      });
+    }
+
+    return inner.endsWith("\n") ? inner : `${inner}\n`;
+  }
+
+  if (trimmed.startsWith("```") || trimmed.endsWith("```")) {
+    structured("ChatGPT PATCH_FRAME_V1 diff fence is malformed", {
+      diagnosticCategory: "patch-frame-format-failure",
+      frameHeaderPresent: true,
+      payloadEmpty: false,
+    });
+  }
+
   return payload;
 }
 

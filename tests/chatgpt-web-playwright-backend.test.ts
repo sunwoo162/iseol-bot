@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createPlaywrightBrowserBackend } from "../src/chatgpt-web/playwright-browser-backend.js";
+import { parsePatchFrameV1 } from "../src/chatgpt-web/playwright-browser-driver.js";
 
 const config = { enabled: true as const, profileRoot: "C:\\temp\\chatgpt-profile", headless: true };
 
@@ -99,6 +100,64 @@ test("backend captures the latest assistant source through its turn copy action"
   await backend.dispose();
 });
 
+
+test("PATCH_FRAME_V1 unwraps a diff fence without losing prefixes", () => {
+  const frame = [
+    "ISEOL_PATCH_V1",
+    "```diff",
+    "--- /dev/null",
+    "+++ b/mirror-state.js",
+    "@@ -0,0 +1,3 @@",
+    "+export function captureLiveSnapshot(value) {",
+    "+  return String(value);",
+    "+}",
+    "```",
+  ].join("\n");
+
+  assert.equal(
+    parsePatchFrameV1(frame),
+    [
+      "--- /dev/null",
+      "+++ b/mirror-state.js",
+      "@@ -0,0 +1,3 @@",
+      "+export function captureLiveSnapshot(value) {",
+      "+  return String(value);",
+      "+}",
+      "",
+    ].join("\n"),
+  );
+});
+
+test("PATCH_FRAME_V1 keeps raw diff backward compatible", () => {
+  const raw = [
+    "--- a/app.js",
+    "+++ b/app.js",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "",
+  ].join("\n");
+
+  assert.equal(
+    parsePatchFrameV1(`ISEOL_PATCH_V1\n${raw}`),
+    raw,
+  );
+});
+
+test("PATCH_FRAME_V1 rejects malformed diff fences", () => {
+  assert.throws(
+    () => parsePatchFrameV1([
+      "ISEOL_PATCH_V1",
+      "```diff",
+      "--- a/app.js",
+      "+++ b/app.js",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+    ].join("\n")),
+    /fence is malformed/i,
+  );
+});
 
 test("backend detects the visible ChatGPT temporary request-limit message", async () => {
   const page = {
