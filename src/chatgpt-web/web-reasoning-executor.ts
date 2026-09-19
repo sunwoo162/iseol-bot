@@ -207,7 +207,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
       const allTurns = await listReasoningTurns(input.workerRoot, run.request.runId);
       let priorTurns = allTurns.filter((turn) => turn.stage === run.state.stage);
       const accumulatedEvidence: HarnessEvidenceRecord[] = [];
-      const recoveredCurrentStageEvidence = priorTurns.length > 0 && input.recoverDesktopFeedback
+      const recoveredCurrentStageEvidence = input.recoverDesktopFeedback
         ? await input.recoverDesktopFeedback({ run, priorTurns })
         : [];
       let desktopEvidence: WebPromptEvidence[] = [

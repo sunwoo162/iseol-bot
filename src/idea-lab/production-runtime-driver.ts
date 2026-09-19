@@ -4,7 +4,7 @@ import { ChatGptWebStructuredResultError, type ChatGptWebBrowserAdapter } from "
 import { patchRejectionDiagnostic } from "../chatgpt-web/patch-diagnostics.js";
 import { createHybridStageExecutor } from "../chatgpt-web/hybrid-executor.js";
 import { buildValidatedPatchIntent, compileDesktopIntentToTaskPack } from "../chatgpt-web/intent-compiler.js";
-import { loadDesktopIntent } from "../chatgpt-web/intent-store.js";
+import { listDesktopIntents, loadDesktopIntent } from "../chatgpt-web/intent-store.js";
 import { createWebReasoningExecutor, type WebDesktopIntentRunner } from "../chatgpt-web/web-reasoning-executor.js";
 import { createDesktopStageExecutor, desktopJobFeedback, type DesktopExecutionTransport, type DesktopTaskCompiler } from "../desktop-agent/desktop-executor.js";
 import { findDesktopJobByIdempotencyKey } from "../desktop-agent/job-store.js";
@@ -374,6 +374,19 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
           }
           feedback.push(...desktopJobFeedback(run, job.result));
         }
+      }
+      const persistedIntents = await listDesktopIntents(webWorkerRoot, run.request.runId);
+      for (const intentRecord of persistedIntents) {
+        const intentId = intentRecord.intent.intentId;
+        if (seen.has(intentId) || intentRecord.status !== "accepted") continue;
+        if (intentRecord.intent.runId !== run.request.runId || intentRecord.intent.stage !== run.state.stage) continue;
+        const job = await findDesktopJobByIdempotencyKey(input.desktopStateRoot, `web-intent:${run.request.runId}:${intentId}`);
+        if (!job || job.status !== "completed" || !job.result) continue;
+        if (job.runId !== run.request.runId || job.stage !== run.state.stage) {
+          throw new Error(`Recovered Desktop Job identity mismatch: ${intentId}`);
+        }
+        seen.add(intentId);
+        feedback.push(...desktopJobFeedback(run, job.result));
       }
       return feedback;
     };

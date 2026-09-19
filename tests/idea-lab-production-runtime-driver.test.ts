@@ -14,7 +14,7 @@ import { createFakePrototypeDeployAdapter } from "../src/idea-lab/test-support/f
 import { loadPrototypeCandidate } from "../src/project-model/prototype-store.js";
 import { loadPrototypeProduction, savePrototypeProduction } from "../src/idea-lab/production-store.js";
 import { createFakeChatGptWebBrowserAdapter } from "../src/chatgpt-web/test-support/fake-browser-adapter.js";
-import { loadDesktopIntent } from "../src/chatgpt-web/intent-store.js";
+import { loadDesktopIntent, recordDesktopIntent } from "../src/chatgpt-web/intent-store.js";
 import { saveIdeaLabCampaign } from "../src/idea-lab/campaign-store.js";
 import { buildIdeaLabView } from "../src/web-control-plane/view-model.js";
 import { findDesktopJobByIdempotencyKey } from "../src/desktop-agent/job-store.js";
@@ -412,6 +412,37 @@ test("Idea Lab restart hydrates completed Desktop output without rerunning the i
   await driver.advanceProduction(production);
   assert.equal(browser.submittedPrompts[0]?.kind, "feedback");
   assert.match(browser.submittedPrompts[0]!.body, /node --test/);
+  assert.equal((await loadDesktopJob(root, jobId))?.attempts, 1);
+});
+
+test("recovered completed Desktop intent without a persisted turn feeds the same IMPLEMENT continuation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-web-recovery-intent-"));
+  const proposal = baseProposal("camp-web-recovery-intent");
+  const bootstrap = makeDriver(root, { proposal });
+  const production = await bootstrap.createProduction(proposal, 1);
+  await saveIdeaProposal(root, proposal);
+  const { loadHarnessRun } = await import("../src/harness/run-store.js");
+  const run = await loadHarnessRun(root, production.runId);
+  assert.ok(run);
+  const runId = production.runId;
+  const intentId = "implement-recovered-patch";
+  const policySha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+  const at = "2026-09-14T11:00:00.000Z";
+  const intent = { version: 1 as const, intentId, runId, stage: "IMPLEMENT" as const, workspaceRoot: production.worktreeRoot, policySha256, kind: "PROPOSE_PATCH" as const, path: "tracker.js", patch: "diff --git a/tracker.js b/tracker.js\n--- a/tracker.js\n+++ b/tracker.js\n@@ -1 +1 @@\n-old\n+new\n" };
+  await recordDesktopIntent(root, { intent, status: "accepted", recordedAt: at });
+  const { createDesktopJob, acquireDesktopJobLease, completeDesktopJob, loadDesktopJob } = await import("../src/desktop-agent/job-store.js");
+  const jobId = "web-recovered-intent-job";
+  await createDesktopJob(root, { version: 1, jobId, runId, stage: "IMPLEMENT", attempt: 0, agentId: "agent-1", workspaceRoot: production.worktreeRoot, policyDigest: policySha256, policySources: [{ kind: "test", path: "policy", sha256: policySha256 }], idempotencyKey: `web-intent:${runId}:${intentId}`, leaseUntil: "2026-09-14T11:10:00.000Z", operations: [{ id: intentId, type: "APPLY_PATCH", path: "tracker.js", patch: intent.patch }] }, at);
+  await acquireDesktopJobLease(root, jobId, "test-owner", at, 60_000);
+  await completeDesktopJob(root, jobId, "test-owner", { version: 1, jobId, runId, agentId: "agent-1", status: "completed", completedAt: "2026-09-14T11:00:01.000Z", operations: [{ operationId: intentId, ok: true, summary: "Applied patch to tracker.js" }] });
+  await saveHarnessRun(root, { ...run, preflight: { version: 1, runId, status: "ready", policy: { version: 1, loadedAt: at, sources: [], effectiveSha256: policySha256 } }, state: { ...run.state, stage: "IMPLEMENT", status: "READY", completedStages: ["CONTEXT", "ANALYZE", "PLAN"] } });
+  const browser = createFakeChatGptWebBrowserAdapter([
+    { version: 1, runId, stage: "IMPLEMENT", generation: 1, summary: "Continue after recovered patch", decisions: [], intents: [], outcome: "blocked-user", blockerReason: "stop after recovery verification" },
+  ]);
+  const driver = makeDriver(root, { proposal, browserAdapter: browser.adapter });
+  await driver.advanceProduction(production);
+  assert.equal(browser.submittedPrompts[0]?.kind, "initial");
+  assert.match(browser.submittedPrompts[0]!.body, /Applied patch to tracker\.js/);
   assert.equal((await loadDesktopJob(root, jobId))?.attempts, 1);
 });
 function runnableAtDeploy(run: HarnessRuntimeRunEnvelope, sha: string): HarnessRuntimeRunEnvelope {

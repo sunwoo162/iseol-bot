@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { DesktopIntent } from "./contracts.js";
 import { assertDesktopIntent } from "./contracts.js";
@@ -59,6 +59,24 @@ export async function loadDesktopIntent(root: string, runId: string, intentId: s
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function listDesktopIntents(root: string, runId: string): Promise<DesktopIntentRecord[]> {
+  const directory = resolve(root, "web-workers", "runs", safeId(runId, "runId"), "intents");
+  let names: string[];
+  try {
+    names = await readdir(directory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const records: DesktopIntentRecord[] = [];
+  for (const name of names.filter((item) => item.endsWith(".json"))) {
+    const intentId = name.slice(0, -5);
+    const record = await loadDesktopIntent(root, runId, intentId);
+    if (record) records.push(record);
+  }
+  return records.sort((a, b) => a.recordedAt.localeCompare(b.recordedAt));
 }
 
 export async function recordDesktopIntent(root: string, input: RecordDesktopIntentInput): Promise<DesktopIntentRecord> {
