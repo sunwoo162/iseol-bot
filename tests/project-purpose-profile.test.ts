@@ -86,5 +86,22 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
     method: "GET", path: "/api/projects/project-study/portfolio", headers: {},
   }, { modelRoot: root, harnessRoot: join(root, "runs"), now: () => at });
   assert.equal(portfolio.status, 200);
-  assert.equal((portfolio.body as { grounding: { grounded: boolean } }).grounding.grounded, true);
+  assert.equal((portfolio.body as { grounding: { grounded: boolean; documentGrounded: boolean } }).grounding.grounded, true);
+  assert.equal((portfolio.body as { grounding: { documentGrounded: boolean } }).grounding.documentGrounded, true);
+  const document = (portfolio.body as { document: { sections: Array<{ id: string; content: string; generatedContent: string; included: boolean }>; readme: string } }).document;
+  const edited = await routeWebControlPlaneRequest({
+    method: "PUT", path: "/api/projects/project-study/portfolio", headers: {},
+    body: { sections: [{ id: "features", content: "사용자 편집 기능", included: true }, { id: "technology", content: "", included: false }], readme: "# Study Log\n\n사용자 편집 README" },
+  }, { modelRoot: root, harnessRoot: join(root, "runs"), now: () => at });
+  assert.equal(edited.status, 200);
+  const saved = (edited.body as { document: typeof document }).document;
+  assert.equal(saved.sections.find((section) => section.id === "features")?.content, "사용자 편집 기능");
+  assert.equal(saved.sections.find((section) => section.id === "features")?.generatedContent, document.sections.find((section) => section.id === "features")?.generatedContent);
+  assert.equal(saved.sections.find((section) => section.id === "technology")?.included, false);
+  const reloaded = await routeWebControlPlaneRequest({
+    method: "GET", path: "/api/projects/project-study/portfolio", headers: {},
+  }, { modelRoot: root, harnessRoot: join(root, "runs"), now: () => at });
+  assert.equal((reloaded.body as { document: typeof document }).document.readme, "# Study Log\n\n사용자 편집 README");
+  assert.equal((reloaded.body as { grounding: { documentGrounded: boolean; needsReview: string[] } }).grounding.documentGrounded, false);
+  assert.equal((reloaded.body as { grounding: { needsReview: string[] } }).grounding.needsReview.includes("features"), true);
 });

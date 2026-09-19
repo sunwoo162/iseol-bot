@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { assertProjectModelId } from "../project-model/contracts.js";
 import { defaultAgentRoleRegistrations, resolveExecutionProfile } from "../project-model/execution-profile.js";
 import { buildPortfolioDraft, collectProjectEvidence, verifyPortfolioGrounding } from "../project-model/portfolio.js";
+import { ensurePortfolioDocument, updatePortfolioDocument, verifyStoredPortfolioGrounding } from "../project-model/portfolio-store.js";
 import { archivePrototypeCandidate } from "../idea-lab/prototype-actions.js";
 import { promotePrototype } from "../project-model/promotion.js";
 import {
@@ -137,13 +138,27 @@ export async function routeWebControlPlaneRequest(
 
   const portfolioMatch = /^\/api\/projects\/([^/]+)\/portfolio$/.exec(path);
   if (portfolioMatch) {
-    if (request.method !== "GET") return methodNotAllowed();
     const projectId = decodeId(portfolioMatch[1] ?? "");
     if (!projectId) return response(404, { error: "not found" });
+    if (request.method === "PUT") {
+      if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+      if (!request.body || typeof request.body !== "object") return response(400, { error: "invalid portfolio update" });
+      try {
+        return response(200, { document: await updatePortfolioDocument(deps.modelRoot, projectId, request.body as { sections?: Array<{ id: string; content: string; included: boolean }>; readme?: string }, (deps.now ?? (() => new Date().toISOString()))()) });
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("Portfolio document not found:")) return response(404, { error: "not found" });
+        if (error instanceof Error && /Invalid portfolio/.test(error.message)) return response(400, { error: "invalid portfolio update" });
+        throw error;
+      }
+    }
+    if (request.method !== "GET") return methodNotAllowed();
     try {
       const evidence = await collectProjectEvidence(deps.modelRoot, deps.harnessRoot, projectId);
       const draft = buildPortfolioDraft(evidence, (deps.now ?? (() => new Date().toISOString()))());
-      return response(200, { draft, grounding: verifyPortfolioGrounding(draft, evidence) });
+      const document = await ensurePortfolioDocument(deps.modelRoot, draft, (deps.now ?? (() => new Date().toISOString()))());
+      const generatedGrounding = verifyPortfolioGrounding(draft, evidence);
+      const documentGrounding = verifyStoredPortfolioGrounding(document, new Set(evidence.evidence.map((item) => item.id)));
+      return response(200, { draft, document, grounding: { ...generatedGrounding, documentGrounded: documentGrounding.grounded, needsReview: documentGrounding.needsReview } });
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Project workspace not found:")) return response(404, { error: "not found" });
       throw error;

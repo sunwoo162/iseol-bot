@@ -5,6 +5,8 @@ const state = {
   evaluation: { quick: null, soak: null },
   selectedProjectId: "",
   project: null,
+  portfolio: null,
+  executionProfile: null,
   loading: false,
 };
 
@@ -282,8 +284,12 @@ function switchMode(mode) {
 
 function clearProjectView() {
   state.project = null;
+  state.portfolio = null;
+  state.executionProfile = null;
   $("#project-empty").hidden = false;
   $("#project-content").hidden = true;
+  $("#execution-profile-content").replaceChildren();
+  $("#portfolio-content").replaceChildren();
 }
 
 function infoRow(label, value, mono = false) {
@@ -410,6 +416,123 @@ function renderProject(view) {
   renderTree(view.tree);
   renderRuns(view.runs);
   renderHistory(view.history);
+  $("#project-objective").value = view.project.name;
+  $("#execution-profile-content").replaceChildren(element("p", "muted", "목적을 선택하고 실행 프로필을 확인하세요."));
+  $("#portfolio-content").replaceChildren(element("p", "muted", "실제 개발 기록으로 생성한 초안을 불러오세요."));
+}
+
+function renderExecutionProfile(profile) {
+  state.executionProfile = profile;
+  const root = $("#execution-profile-content");
+  root.replaceChildren();
+  root.append(element("p", "profile-summary", profile.koreanSummary));
+  const grid = element("div", "profile-grid");
+  const executable = element("div", "profile-role-group");
+  executable.append(element("strong", "", "현재 실행 가능한 역할"));
+  executable.append(element("p", "mono muted", profile.executableRoles.join(" · ") || "없음"));
+  const planned = element("div", "profile-role-group");
+  planned.append(element("strong", "", "계획 또는 추천 역할"));
+  planned.append(element("p", "mono muted", profile.plannedRoles.join(" · ") || "없음"));
+  const gates = element("div", "profile-role-group");
+  gates.append(element("strong", "", "검증 범위"));
+  gates.append(element("p", "mono muted", profile.verificationStages.join(" → ")));
+  grid.append(executable, planned, gates);
+  root.append(grid);
+}
+
+async function previewExecutionProfile() {
+  const objective = $("#project-objective").value.trim();
+  const purpose = $("#project-purpose").value;
+  if (!objective) { setStatus("error", "개발 목표를 입력해 주세요."); return; }
+  setLoading(true, "실행 프로필을 계산하는 중입니다.");
+  try {
+    const profile = await fetchJson("/api/execution-profile", {
+      method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ purpose, objective }),
+    });
+    renderExecutionProfile(profile);
+    setStatus("success", "실행 가능한 역할과 계획 역할을 구분했습니다.");
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+  finally { setLoading(false); }
+}
+
+function renderPortfolio(result) {
+  state.portfolio = result;
+  const root = $("#portfolio-content");
+  root.replaceChildren();
+  const document = result.document;
+  if (!document) { root.append(element("p", "muted", "포트폴리오 evidence가 아직 없습니다.")); return; }
+  if (!result.grounding?.grounded || result.grounding?.documentGrounded === false) root.append(element("p", "portfolio-warning", "일부 항목의 근거가 부족하거나 사용자 수정본이 있어 검토가 필요합니다."));
+  for (const section of document.sections) {
+    const card = element("article", "portfolio-section");
+    const head = element("div", "portfolio-section-head");
+    const label = element("label", "portfolio-include");
+    const checkbox = element("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = section.included;
+    checkbox.dataset.sectionId = section.id;
+    label.append(checkbox, element("strong", "", section.title));
+    head.append(label);
+    card.append(head);
+    const editor = element("textarea", "portfolio-editor", section.content);
+    editor.dataset.sectionId = section.id;
+    editor.rows = 4;
+    card.append(editor);
+    if (section.evidenceIds.length) {
+      const details = element("details", "portfolio-evidence");
+      details.append(element("summary", "", `근거 ${section.evidenceIds.length}개 보기`));
+      details.append(element("p", "mono muted", section.evidenceIds.join(" · ")));
+      card.append(details);
+    } else card.append(element("p", "muted", "연결된 evidence가 없습니다."));
+    root.append(card);
+  }
+  const readmeLabel = element("label", "portfolio-readme-label", "README 초안");
+  const readme = element("textarea", "portfolio-readme", document.readme);
+  readme.id = "portfolio-readme-editor";
+  readme.rows = 8;
+  readmeLabel.append(readme);
+  root.append(readmeLabel);
+  const save = element("button", "secondary-button", "포트폴리오 수정 저장");
+  save.type = "button";
+  save.addEventListener("click", savePortfolioEdits);
+  root.append(save);
+}
+
+async function loadPortfolio() {
+  if (!state.selectedProjectId) return;
+  setLoading(true, "포트폴리오 evidence를 모으는 중입니다.");
+  try {
+    const result = await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}/portfolio`);
+    renderPortfolio(result);
+    setStatus("success", "검증된 개발 기록으로 포트폴리오 초안을 불러왔습니다.");
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+  finally { setLoading(false); }
+}
+
+async function savePortfolioEdits() {
+  if (!state.selectedProjectId) return;
+  const sections = [...document.querySelectorAll(".portfolio-section")].map((card) => ({
+    id: card.querySelector(".portfolio-editor")?.dataset.sectionId,
+    content: card.querySelector(".portfolio-editor")?.value ?? "",
+    included: card.querySelector("input[type=checkbox]")?.checked ?? false,
+  }));
+  const readme = $("#portfolio-readme-editor")?.value ?? "";
+  setLoading(true, "포트폴리오 수정사항을 저장하는 중입니다.");
+  try {
+    const result = await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}/portfolio`, {
+      method: "PUT", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ sections, readme }),
+    });
+    state.portfolio = { ...(state.portfolio ?? {}), document: result.document };
+    setStatus("success", "사용자 수정본을 저장했습니다. 원본 evidence는 유지됩니다.");
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+  finally { setLoading(false); }
+}
+
+async function copyReadme() {
+  const text = $("#portfolio-readme-editor")?.value;
+  if (!text) { setStatus("error", "먼저 README 초안을 불러오세요."); return; }
+  try { await navigator.clipboard.writeText(text); setStatus("success", "README를 클립보드에 복사했습니다."); }
+  catch { setStatus("error", "브라우저에서 클립보드 접근을 허용하지 않았습니다."); }
 }
 
 async function selectProject(projectId) {
@@ -423,6 +546,7 @@ async function selectProject(projectId) {
   try {
     const view = await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}`);
     renderProject(view);
+    await loadPortfolio();
     setStatus("success", `Project Workspace loaded: ${view.project.name}`);
   } catch (error) {
     clearProjectView();
@@ -450,6 +574,9 @@ function bindEvents() {
   $("#refresh-project").addEventListener("click", () => selectProject(state.selectedProjectId));
   $("#refresh-evaluation").addEventListener("click", () => loadEvaluation());
   $("#project-select").addEventListener("change", (event) => selectProject(event.target.value));
+  $("#preview-execution-profile").addEventListener("click", () => previewExecutionProfile());
+  $("#load-portfolio").addEventListener("click", () => loadPortfolio());
+  $("#copy-readme").addEventListener("click", () => copyReadme());
 }
 
 async function init() {

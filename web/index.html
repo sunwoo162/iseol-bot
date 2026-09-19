@@ -102,6 +102,23 @@
             <a id="project-deployment" class="primary-link" href="#" target="_blank" rel="noopener noreferrer">Open production ↗</a>
           </section>
 
+          <section class="panel purpose-panel" aria-labelledby="purpose-title">
+            <div class="panel-title"><span id="purpose-title">개발 목적과 실행 프로필</span><small>역할과 검증 범위 미리보기</small></div>
+            <div class="purpose-controls">
+              <label for="project-purpose">프로젝트 목적</label>
+              <select id="project-purpose">
+                <option value="rapid-prototype">빠른 프로토타입 체험</option>
+                <option value="operational-service">실제 운영 서비스</option>
+                <option value="portfolio">포트폴리오 프로젝트</option>
+                <option value="existing-project-improvement">기존 프로젝트 개선</option>
+              </select>
+              <label for="project-objective">개발 목표</label>
+              <textarea id="project-objective" maxlength="4000" rows="3" placeholder="이 프로젝트에서 만들고 싶은 것을 적어 주세요."></textarea>
+              <button id="preview-execution-profile" class="secondary-button" type="button">실행 프로필 확인</button>
+            </div>
+            <div id="execution-profile-content" class="profile-result" aria-live="polite"></div>
+          </section>
+
           <div class="workspace-grid">
             <section id="genesis-panel" class="panel panel-wide">
               <div class="panel-title"><span>Genesis</span><small>Origin snapshot</small></div>
@@ -118,6 +135,14 @@
             <section id="project-history" class="panel panel-wide">
               <div class="panel-title"><span>History</span><small>Durable timeline</small></div>
               <div id="history-content"></div>
+            </section>
+            <section id="portfolio-panel" class="panel panel-wide">
+              <div class="panel-title"><span>포트폴리오 초안</span><small>실제 개발 evidence 기반</small></div>
+              <div class="portfolio-actions">
+                <button id="load-portfolio" class="secondary-button" type="button">초안 불러오기</button>
+                <button id="copy-readme" class="ghost-button" type="button">README 복사</button>
+              </div>
+              <div id="portfolio-content" class="portfolio-content" aria-live="polite"></div>
             </section>
           </div>
         </div>

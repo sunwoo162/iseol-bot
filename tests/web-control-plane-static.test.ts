@@ -27,6 +27,9 @@ test("dashboard declares prototype and Project Workspace rendering targets", asy
   assert.match(html, /id="project-tree"/);
   assert.match(html, /id="project-runs"/);
   assert.match(html, /id="project-history"/);
+  assert.match(html, /id="project-purpose"/);
+  assert.match(html, /id="preview-execution-profile"/);
+  assert.match(html, /id="portfolio-content"/);
 });
 
 test("browser script supports deployment opening promotion and workspace rendering", async () => {
@@ -41,6 +44,9 @@ test("browser script supports deployment opening promotion and workspace renderi
   assert.match(script, /genesis/);
   assert.match(script, /history/);
   assert.match(script, /runs/);
+  assert.match(script, /api\/execution-profile/);
+  assert.match(script, /portfolio/);
+  assert.match(script, /savePortfolioEdits/);
 });
 
 test("static assets include responsive loading empty unauthorized and error states", async () => {
