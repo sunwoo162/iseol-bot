@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createWebWorkerSession,
   getActiveWebWorkerSession,
   loadWebWorkerSession,
+  repairActiveWebWorkerSession,
   replaceLostWebWorkerSession,
 } from "../src/chatgpt-web/session-store.js";
 import { appendReasoningTurn, listReasoningTurns } from "../src/chatgpt-web/turn-store.js";
@@ -33,6 +34,60 @@ test("session store keeps one active generation and replaces lost sessions", asy
   assert.equal((await loadWebWorkerSession(store, "session-1"))?.status, "lost");
   assert.equal((await getActiveWebWorkerSession(store, "run-1", "IMPLEMENT"))?.sessionId, "session-2");
   assert.equal((await getActiveWebWorkerSession(store, "run-1", "IMPLEMENT"))?.generation, 2);
+});
+
+test("session replacement repair converges after crash before pointer update", async () => {
+  const store = await root();
+  await createWebWorkerSession(store, session1);
+  const replacement = { ...session1, sessionId: "session-2", generation: 2, createdAt: "2026-09-08T01:02:00.000Z" };
+  await assert.rejects(
+    replaceLostWebWorkerSession(store, "session-1", replacement, "2026-09-08T01:02:00.000Z", {
+      beforePointerUpdate: async () => { throw new Error("simulated crash"); },
+    }),
+    /simulated crash/,
+  );
+  assert.equal((await getActiveWebWorkerSession(store, "run-1", "IMPLEMENT")), null);
+  const repaired = await repairActiveWebWorkerSession(store, "run-1", "IMPLEMENT");
+  assert.equal(repaired?.sessionId, "session-2");
+  assert.equal((await getActiveWebWorkerSession(store, "run-1", "IMPLEMENT"))?.generation, 2);
+  const repeated = await repairActiveWebWorkerSession(store, "run-1", "IMPLEMENT");
+  assert.equal(repeated?.sessionId, "session-2");
+});
+
+test("replacement crash before session write can be retried safely", async () => {
+  const store = await root();
+  await createWebWorkerSession(store, session1);
+  const replacement = { ...session1, sessionId: "session-2", generation: 2, createdAt: "2026-09-08T01:02:00.000Z" };
+  await assert.rejects(replaceLostWebWorkerSession(store, "session-1", replacement, "2026-09-08T01:02:00.000Z", {
+    beforeReplacementWrite: async () => { throw new Error("simulated crash"); },
+  }), /simulated crash/);
+  assert.equal(await loadWebWorkerSession(store, "session-2"), null);
+  await replaceLostWebWorkerSession(store, "session-1", replacement, "2026-09-08T01:02:01.000Z");
+  assert.equal((await getActiveWebWorkerSession(store, "run-1", "IMPLEMENT"))?.sessionId, "session-2");
+});
+
+test("repair is idempotent after pointer update and rejects conflicting ready generations", async () => {
+  const store = await root();
+  await createWebWorkerSession(store, session1);
+  const replacement = { ...session1, sessionId: "session-2", generation: 2, createdAt: "2026-09-08T01:02:00.000Z" };
+  await replaceLostWebWorkerSession(store, "session-1", replacement, "2026-09-08T01:02:00.000Z");
+  assert.equal((await repairActiveWebWorkerSession(store, "run-1", "IMPLEMENT"))?.sessionId, "session-2");
+
+  const conflictRoot = await root();
+  await mkdir(`${conflictRoot}/web-workers/sessions`, { recursive: true });
+  await writeFile(`${conflictRoot}/web-workers/sessions/session-2.json`, JSON.stringify(replacement));
+  await writeFile(`${conflictRoot}/web-workers/sessions/session-3.json`, JSON.stringify({ ...replacement, sessionId: "session-3", generation: 3 }));
+  await assert.rejects(repairActiveWebWorkerSession(conflictRoot, "run-1", "IMPLEMENT"), /conflicting.*generation/i);
+});
+
+test("repair accepts a legacy persisted session without result-contract metadata", async () => {
+  const store = await root();
+  const legacy = { ...session1, resultContract: undefined };
+  await mkdir(`${store}/web-workers/sessions`, { recursive: true });
+  await writeFile(`${store}/web-workers/sessions/session-1.json`, JSON.stringify(legacy));
+  const repaired = await repairActiveWebWorkerSession(store, "run-1", "IMPLEMENT");
+  assert.equal(repaired?.sessionId, "session-1");
+  assert.equal(repaired?.resultContract, undefined);
 });
 
 test("session store rejects unsafe ids and invalid replacement generation", async () => {

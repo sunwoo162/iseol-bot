@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { HarnessRunStage } from "../harness/contracts.js";
 import type { WebWorkerSession } from "./contracts.js";
@@ -80,6 +80,7 @@ export async function replaceLostWebWorkerSession(
   currentSessionId: string,
   replacement: WebWorkerSession,
   at: string,
+  deps: { beforeReplacementWrite?: () => Promise<void>; beforePointerUpdate?: () => Promise<void> } = {},
 ): Promise<WebWorkerSession> {
   assertWebWorkerSession(replacement);
   if (!replacement.resultContract) throw new Error("Replacement session result contract is required");
@@ -95,9 +96,54 @@ export async function replaceLostWebWorkerSession(
     if (replacement.resultContract !== persistedWebWorkerResultContract(latest)) throw new Error("Replacement session result contract mismatch");
     const lost: WebWorkerSession = { ...latest, status: "lost", closedAt: at };
     await atomicJson(sessionFile(root, latest.sessionId), lost);
+    await deps.beforeReplacementWrite?.();
     await atomicJson(sessionFile(root, replacement.sessionId), replacement);
+    await deps.beforePointerUpdate?.();
     await atomicJson(key, { version: 1, sessionId: replacement.sessionId, generation: replacement.generation });
     return structuredClone(replacement);
+  });
+}
+
+export async function repairActiveWebWorkerSession(
+  root: string,
+  runId: string,
+  stage: HarnessRunStage,
+): Promise<WebWorkerSession | null> {
+  const key = activeFile(root, runId, stage);
+  return serialized(key, async () => {
+    const directory = resolve(root, "web-workers", "sessions");
+    let names: string[];
+    try { names = await readdir(directory); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+    const ready: WebWorkerSession[] = [];
+    for (const name of names.filter((item) => item.endsWith(".json"))) {
+      const id = name.slice(0, -5);
+      try {
+        const session = await loadWebWorkerSession(root, id);
+        if (session && session.runId === runId && session.stage === stage && session.status === "ready") ready.push(session);
+      } catch {
+        // Invalid historical records are not candidates for activation.
+      }
+    }
+    if (ready.length > 1) throw new Error(`Conflicting active Web worker replacement generations for ${runId}/${stage}`);
+    const candidate = ready[0];
+    if (!candidate) return null;
+    const pointed = await getPointedWebWorkerSession(root, runId, stage);
+    if (pointed?.status === "lost") {
+      if (candidate.generation !== pointed.generation + 1) {
+        throw new Error(`Web worker replacement generation does not follow lost session: ${candidate.sessionId}`);
+      }
+      if (candidate.resultContract !== persistedWebWorkerResultContract(pointed)) {
+        throw new Error(`Web worker replacement result contract mismatch: ${candidate.sessionId}`);
+      }
+    }
+    if (!pointed || pointed.sessionId !== candidate.sessionId || pointed.generation !== candidate.generation) {
+      await atomicJson(key, { version: 1, sessionId: candidate.sessionId, generation: candidate.generation });
+    }
+    return structuredClone(candidate);
   });
 }
 

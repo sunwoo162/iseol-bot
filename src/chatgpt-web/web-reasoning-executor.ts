@@ -7,7 +7,7 @@ import { assertReasoningTurnResult, persistedWebWorkerResultContract } from "./c
 import type { ChatGptWebBrowserAdapter, ChatGptWebResultContract } from "./browser-adapter.js";
 import { ChatGptWebConversationLimitError, ChatGptWebSessionLostError, ChatGptWebStructuredResultError, ChatGptWebTemporarilyLimitedError, ChatGptWebUsageLimitError } from "./browser-adapter.js";
 import { compileWebPrompt, type CompiledWebPrompt, type WebPromptEvidence } from "./prompt-compiler.js";
-import { createWebWorkerSession, getActiveWebWorkerSession, getPointedWebWorkerSession, replaceLostWebWorkerSession, updateWebWorkerSession } from "./session-store.js";
+import { createWebWorkerSession, getActiveWebWorkerSession, getPointedWebWorkerSession, repairActiveWebWorkerSession, replaceLostWebWorkerSession, updateWebWorkerSession } from "./session-store.js";
 import { appendReasoningTurn, listReasoningTurns } from "./turn-store.js";
 import { recordDesktopIntent } from "./intent-store.js";
 import { validateDesktopIntent } from "./intent-compiler.js";
@@ -148,6 +148,7 @@ function browserFailureClass(error: unknown): string {
   return "browser failure";
 }
 async function ensureSession(input: CreateWebReasoningExecutorInput, run: HarnessRuntimeRunEnvelope, at: string): Promise<WebWorkerSession> {
+  await repairActiveWebWorkerSession(input.workerRoot, run.request.runId, run.state.stage);
   const existing = await getActiveWebWorkerSession(input.workerRoot, run.request.runId, run.state.stage);
   if (existing) {
     if (existing.resultContract) return existing;
