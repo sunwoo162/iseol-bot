@@ -5,6 +5,7 @@ import {
   assertDesktopIntent,
   assertReasoningTurn,
   assertReasoningTurnResult,
+  reasoningResultRejectionDiagnostic,
   assertWebWorkerSession,
 } from "../src/chatgpt-web/contracts.js";
 
@@ -101,5 +102,24 @@ test("reasoning results reject credential-shaped durable data", () => {
       () => assertReasoningTurnResult({ ...base, summary }),
       /credential-shaped/i,
     );
+  }
+});
+
+test("reasoning result schema failures expose bounded rejection classes", () => {
+  const valid = {
+    version: 1, runId: "run-1", stage: "ANALYZE", generation: 1,
+    summary: "ok", decisions: [], intents: [], outcome: "stage-complete",
+  };
+  for (const [value, expected] of [
+    [[], "top-level-not-object"],
+    [{ ...valid, outcome: "unknown" }, "outcome-invalid"],
+    [{ ...valid, decisions: "nope" }, "decisions-invalid"],
+  ] as const) {
+    let error: unknown;
+    try { assertReasoningTurnResult(value); } catch (candidate) { error = candidate; }
+    const diagnostic = reasoningResultRejectionDiagnostic(value, error);
+    assert.equal(diagnostic.rejectionClass, expected);
+    assert.equal(diagnostic.parserInputReceived, true);
+    assert.equal(JSON.stringify(diagnostic).includes("nope"), false);
   }
 });

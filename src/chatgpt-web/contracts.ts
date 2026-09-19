@@ -201,3 +201,35 @@ export function assertReasoningTurnResult(value: unknown): asserts value is Reas
   if (item.outcome === "blocked-user") text(item.blockerReason, "blockerReason");
   else if (item.blockerReason !== undefined) throw new Error("blockerReason is only allowed for blocked-user");
 }
+
+/**
+ * Classify schema failures without retaining the model response.  This is
+ * deliberately separate from the strict validator so diagnostics cannot make
+ * an otherwise invalid result executable.
+ */
+export function reasoningResultRejectionDiagnostic(value: unknown, error: unknown): Record<string, string | boolean> {
+  const message = error instanceof Error ? error.message : "";
+  const topLevelType = value === null ? "null" : Array.isArray(value) ? "array" : typeof value === "object" ? "object" : typeof value;
+  let rejectionClass = "schema-invalid";
+  if (topLevelType !== "object") rejectionClass = "top-level-not-object";
+  else if (/unexpected field/i.test(message)) rejectionClass = "unexpected-field";
+  else if (/runId mismatch/i.test(message)) rejectionClass = "intent-run-id-mismatch";
+  else if (/stage mismatch/i.test(message)) rejectionClass = "intent-stage-mismatch";
+  else if (/duplicate intent/i.test(message)) rejectionClass = "duplicate-intent-id";
+  else if (/Unsupported Desktop intent kind/i.test(message)) rejectionClass = "unsupported-intent-kind";
+  else if (/intent kind|Desktop intent|intents must be an array/i.test(message)) rejectionClass = "intent-shape-invalid";
+  else if (/outcome/i.test(message)) rejectionClass = "outcome-invalid";
+  else if (/blockerReason/i.test(message)) rejectionClass = "blocker-reason-invalid";
+  else if (/stage/i.test(message)) rejectionClass = "stage-invalid";
+  else if (/generation/i.test(message)) rejectionClass = "generation-invalid";
+  else if (/summary/i.test(message)) rejectionClass = "summary-invalid";
+  else if (/decisions/i.test(message)) rejectionClass = "decisions-invalid";
+  else if (/version/i.test(message)) rejectionClass = "protocol-version-invalid";
+  else if (/runId/i.test(message)) rejectionClass = "run-id-invalid";
+  return {
+    diagnosticCategory: "reasoning-result-schema-failure",
+    rejectionClass,
+    parserInputReceived: true,
+    topLevelType,
+  };
+}

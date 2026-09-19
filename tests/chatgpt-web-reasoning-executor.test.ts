@@ -147,7 +147,7 @@ test("malformed structured results use the same bounded rejection budget", async
   });
   const result = await executor.execute(run);
   assert.equal(result.type, "retryable-failure");
-  assert.equal(result.reason, "ChatGPT Web failure: rejected structured-result budget exhausted; structured result invalid");
+  assert.equal(result.reason, "ChatGPT Web failure: rejected structured-result budget exhausted; outcome-invalid");
   assert.equal(fake.submittedPrompts.length, 2);
 });
 test("structured-json PROPOSE_PATCH rejection stays a generic structured-result failure", async () => {

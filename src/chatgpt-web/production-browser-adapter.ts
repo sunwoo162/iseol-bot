@@ -106,5 +106,18 @@ export function createProductionChatGptWebAdapter(driver: ChatGptBrowserDriver):
       try { await driver.closeConversation(safeRef(session.conversationRef)); }
       catch (error) { classify(error); }
     },
+    async recordResultDiagnostic(input) {
+      await driver.recordParserDiagnostic?.({
+        runId: input.session.runId,
+        ...(input.session.projectId ? { projectId: input.session.projectId } : {}),
+        stage: input.session.stage,
+        sessionId: input.session.sessionId,
+        generation: input.session.generation,
+        resultContract: input.contract,
+        ...(input.session.conversationRef ? { conversationRef: input.session.conversationRef } : {}),
+        message: input.message,
+        diagnostic: input.diagnostic,
+      });
+    },
   };
 }

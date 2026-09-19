@@ -44,6 +44,7 @@ export interface ChatGptWebBrowserAdapter {
   awaitStructuredResult(session: WebWorkerSession, timeoutMs: number, contract: ChatGptWebResultContract): Promise<unknown>;
   probeSession(session: WebWorkerSession): Promise<ChatGptWebSessionProbe>;
   closeSession(session: WebWorkerSession): Promise<void>;
+  recordResultDiagnostic?(input: { session: WebWorkerSession; contract: ChatGptWebResultContract; message: string; diagnostic: Record<string, string | boolean> }): Promise<void>;
 }
 
 export function asReasoningTurnResult(value: unknown): ReasoningTurnResult {

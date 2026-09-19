@@ -108,7 +108,7 @@ function jsonShape(text: string, error: unknown, extraction: Record<string, stri
   const t = text.trim(); const opens = (t.match(/\{/g) ?? []).length; const closes = (t.match(/\}/g) ?? []).length;
   const brackets = (t.match(/\[/g) ?? []).length; const closeBrackets = (t.match(/\]/g) ?? []).length;
   const msg = error instanceof Error ? error.message : "";
-  return { responsePresent: true, responseSha256: responseSha256(t), responseLengthBucket: t.length < 256 ? "short" : t.length < 4096 ? "medium" : "large", startsWithObjectToken: t.startsWith("{"), endsWithObjectToken: t.endsWith("}"), startsWithArrayToken: t.startsWith("["), endsWithArrayToken: t.endsWith("]"), markdownFencePresent: /^```/.test(t), leadingWrapperPresent: !/^[\[{]/.test(t), trailingWrapperPresent: !/[\]}]$/.test(t), topLevelBraceBalance: opens === closes ? "balanced" : opens > closes ? "more-open" : "more-close", topLevelBracketBalance: brackets === closeBrackets ? "balanced" : brackets > closeBrackets ? "more-open" : "more-close", likelyTruncated: /end of json|unexpected end|unterminated/i.test(msg) ? "yes" : "unknown", ...jsonSyntaxShape(t, error), ...extraction };
+  return { diagnosticCategory: "response-envelope-malformed", rejectionClass: "json-syntax-error", parserInputReceived: true, responsePresent: true, responseSha256: responseSha256(t), responseLengthBucket: t.length < 256 ? "short" : t.length < 4096 ? "medium" : "large", startsWithObjectToken: t.startsWith("{"), endsWithObjectToken: t.endsWith("}"), startsWithArrayToken: t.startsWith("["), endsWithArrayToken: t.endsWith("]"), markdownFencePresent: /^```/.test(t), leadingWrapperPresent: !/^[\[{]/.test(t), trailingWrapperPresent: !/[\]}]$/.test(t), topLevelBraceBalance: opens === closes ? "balanced" : opens > closes ? "more-open" : "more-close", topLevelBracketBalance: brackets === closeBrackets ? "balanced" : brackets > closeBrackets ? "more-open" : "more-close", likelyTruncated: /end of json|unexpected end|unterminated/i.test(msg) ? "yes" : "unknown", ...jsonSyntaxShape(t, error), ...extraction };
 }
 
 function classifyBrowserFailure(error: unknown): never {
@@ -242,13 +242,13 @@ function parsePatchMultipart(candidate: string): unknown | null {
   return header;
 }
 function parseStructuredResult(text: string, legacyCompatibility = false, extraction: Record<string, string | boolean> = {}): unknown {
-  if (Buffer.byteLength(text, "utf8") > MAX_STRUCTURED_RESULT_BYTES) structured("ChatGPT structured result exceeds the allowed size");
+  if (Buffer.byteLength(text, "utf8") > MAX_STRUCTURED_RESULT_BYTES) structured("ChatGPT structured result exceeds the allowed size", { diagnosticCategory: "response-envelope-malformed", rejectionClass: "response-too-large", parserInputReceived: true });
   const trimmed = text.trim();
-  if (!trimmed) structured("ChatGPT structured result is empty");
+  if (!trimmed) structured("ChatGPT structured result is empty", { diagnosticCategory: "response-envelope-missing", rejectionClass: "response-empty", parserInputReceived: true, responsePresent: false });
   let candidate = trimmed;
   const fenced = trimmed.match(/^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i);
   if (fenced) candidate = fenced[1]?.trim() ?? "";
-  else if (trimmed.startsWith("```") || trimmed.endsWith("```")) structured("ChatGPT structured result fence is malformed");
+  else if (trimmed.startsWith("```") || trimmed.endsWith("```")) structured("ChatGPT structured result fence is malformed", { diagnosticCategory: "response-envelope-malformed", rejectionClass: "markdown-fence-malformed", parserInputReceived: true, responsePresent: true });
   if (legacyCompatibility) {
     const multipart = parsePatchMultipart(candidate);
     if (multipart !== null) return multipart;

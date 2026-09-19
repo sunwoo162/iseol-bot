@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { HarnessEvidenceRecord, HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import type { HarnessStageExecutor, HarnessStageExecutionResult } from "../harness/run-supervisor.js";
 import type { DesktopIntent, ReasoningTurn, WebWorkerSession } from "./contracts.js";
-import { assertReasoningTurnResult, persistedWebWorkerResultContract } from "./contracts.js";
+import { assertReasoningTurnResult, persistedWebWorkerResultContract, reasoningResultRejectionDiagnostic } from "./contracts.js";
 import type { ChatGptWebBrowserAdapter, ChatGptWebResultContract } from "./browser-adapter.js";
 import { ChatGptWebConversationLimitError, ChatGptWebSessionLostError, ChatGptWebStructuredResultError, ChatGptWebTemporarilyLimitedError, ChatGptWebUsageLimitError } from "./browser-adapter.js";
 import { compileWebPrompt, type CompiledWebPrompt, type WebPromptEvidence } from "./prompt-compiler.js";
@@ -95,6 +95,13 @@ function structuredResultFailureClass(
   contract?: ChatGptWebResultContract,
 ): string {
   const category = error.diagnostic?.diagnosticCategory;
+
+  if (category === "reasoning-result-schema-failure" && error.diagnostic?.rejectionClass) {
+    return String(error.diagnostic.rejectionClass);
+  }
+  if (error.diagnostic?.rejectionClass && category === "response-envelope-malformed") {
+    return String(error.diagnostic.rejectionClass);
+  }
 
   if (category === "patch-frame-format-failure") {
     if (error.diagnostic?.payloadEmpty === true) {
@@ -333,9 +340,12 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
             continue;
           }
           if (/policy|stale|generation|active session/i.test(reason)) return { type: "retryable-failure", reason };
+          const diagnostic = reasoningResultRejectionDiagnostic(rawResult, error);
+          await input.adapter.recordResultDiagnostic?.({ session, contract: resultContract, message: "Reasoning result schema validation failed", diagnostic });
+          const boundedReason = String(diagnostic.rejectionClass);
           rejectedCount += 1;
-          if (rejectedCount >= maxRejected) return { type: "retryable-failure", reason: "ChatGPT Web failure: rejected structured-result budget exhausted; structured result invalid" };
-          desktopEvidence = [...desktopEvidence, { kind: "reasoning-rejection", summary: reason }];
+          if (rejectedCount >= maxRejected) return { type: "retryable-failure", reason: `ChatGPT Web failure: rejected structured-result budget exhausted; ${boundedReason}` };
+          desktopEvidence = [...desktopEvidence, { kind: "reasoning-rejection", summary: `Structured result rejected: ${boundedReason}` }];
           prompt = compileWebPrompt({ kind: "feedback", run, session, priorTurns, desktopEvidence });
           continue;
         }

@@ -180,7 +180,7 @@ const malformedOutputBudget = webScenario({
     });
     const result = await executor.execute(f.run);
     requireScenario(result.type === "retryable-failure", `malformed output returned ${result.type}`);
-    requireScenario(result.type === "retryable-failure" && /rejected structured-result budget exhausted; structured result invalid/i.test(result.reason), "malformed output did not exhaust bounded rejection budget with a safe diagnostic");
+    requireScenario(result.type === "retryable-failure" && /rejected structured-result budget exhausted; outcome-invalid/i.test(result.reason), "malformed output did not exhaust bounded rejection budget with a safe diagnostic");
     requireScenario(fake.submittedPrompts.length === 2, `malformed output attempts were not bounded: ${fake.submittedPrompts.length}`);
     return passingExecution("Malformed structured output exhausted the bounded retry budget without mutation", {
       targetRunId: "run-web-eval",

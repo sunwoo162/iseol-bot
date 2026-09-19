@@ -134,6 +134,9 @@ test("structured JSON rejection records bounded extraction and parser evidence",
       assert.equal(diagnostic.assistantSelection, "latest-after-baseline");
       assert.equal(diagnostic.responseSource, "assistant-copy");
       assert.equal(diagnostic.renderedRawMatch, "yes");
+      assert.equal(diagnostic.diagnosticCategory, "response-envelope-malformed");
+      assert.equal(diagnostic.rejectionClass, "json-syntax-error");
+      assert.equal(diagnostic.parserInputReceived, true);
       assert.match(String(diagnostic.responseSha256), /^[a-f0-9]{64}$/);
       assert.equal(diagnostic.responseSha256, expectedHash);
       assert.equal(JSON.stringify(diagnostic).includes(malformed), false);
