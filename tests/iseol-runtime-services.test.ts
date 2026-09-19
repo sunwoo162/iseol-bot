@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { resolve } from "node:path";
 import type { ChatGptBrowserDriver } from "../src/chatgpt-web/production-browser-adapter.js";
-import { startIseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
+import { shouldAutoRecoverProjectRun, startIseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 
 function browserDriver(onDispose: () => void = () => undefined): ChatGptBrowserDriver {
@@ -69,6 +69,13 @@ function liveConfig() {
     testTimeoutMs: 30_000,
   };
 }
+
+test("Project Workspace recovery does not auto-retry FAILED_RETRYABLE runs", () => {
+  assert.equal(shouldAutoRecoverProjectRun("READY"), true);
+  assert.equal(shouldAutoRecoverProjectRun("RUNNING"), true);
+  assert.equal(shouldAutoRecoverProjectRun("FAILED_RETRYABLE"), false);
+  assert.equal(shouldAutoRecoverProjectRun("FAILED_FINAL"), false);
+});
 
 test("shares one browser across bridge and Idea Lab and disposes it exactly once", async () => {
   let browserCreates = 0;

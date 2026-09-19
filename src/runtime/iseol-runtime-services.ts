@@ -100,6 +100,10 @@ function projectAgentId(env: Record<string, string | undefined>, ideaLabConfig: 
   return ideaLabConfig.enabled ? ideaLabConfig.agentId : null;
 }
 
+export function shouldAutoRecoverProjectRun(status: string): boolean {
+  return status === "READY" || status === "RUNNING";
+}
+
 function projectTestConfig(env: Record<string, string | undefined>) {
   const executable = env.ISEOL_PROJECT_TEST_EXECUTABLE?.trim() || (process.platform === "win32" ? "npm.cmd" : "npm");
   let args = ["test"];
@@ -420,7 +424,7 @@ export async function startIseolRuntimeServices(
           return "accepted";
         };
         for (const run of await listHarnessRuns(roots.projectRunRoot!)) {
-          if (run.request.mode === "project-workspace" && ["READY", "RUNNING", "FAILED_RETRYABLE"].includes(run.state.status)) {
+          if (run.request.mode === "project-workspace" && shouldAutoRecoverProjectRun(run.state.status)) {
             void enqueueProjectRun(run.request.runId);
           }
         }
