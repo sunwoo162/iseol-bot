@@ -11,6 +11,7 @@ export type WebWorkerSession = {
   version: 1;
   sessionId: string;
   runId: string;
+  projectId?: string;
   stage: HarnessRunStage;
   generation: number;
   conversationRef?: string;
@@ -121,7 +122,7 @@ function exactKeys(value: Record<string, unknown>, allowed: readonly string[], l
 
 export function assertWebWorkerSession(value: unknown): asserts value is WebWorkerSession {
   const item = record(value, "Web worker session");
-  version(item.version); id(item.sessionId, "sessionId"); id(item.runId, "runId"); stage(item.stage); generation(item.generation);
+  version(item.version); id(item.sessionId, "sessionId"); id(item.runId, "runId"); if (item.projectId !== undefined) id(item.projectId, "projectId"); stage(item.stage); generation(item.generation);
   text(item.policySha256, "policySha256"); iso(item.createdAt, "createdAt");
   if (!SESSION_STATUSES.has(item.status as WebWorkerSessionStatus)) throw new Error(`Unsupported session status: ${String(item.status)}`);
   if (item.resultContract !== undefined) {

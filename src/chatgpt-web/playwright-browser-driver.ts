@@ -6,6 +6,7 @@ import {
   ChatGptWebUsageLimitError,
   ChatGptWebStructuredResultError,
 } from "./browser-adapter.js";
+import { createHash } from "node:crypto";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ChatGptWebResultContract, ChatGptWebSessionProbe } from "./browser-adapter.js";
@@ -50,6 +51,9 @@ function authUrl(url: string): boolean {
 }
 function lost(message: string): never { throw new ChatGptWebSessionLostError(message); }
 function structured(message: string, diagnostic?: Record<string, string | boolean>): never { throw new ChatGptWebStructuredResultError(message, diagnostic); }
+function responseSha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
 function jsonSyntaxShape(text: string, error: unknown): Record<string, string | boolean> {
   const message = error instanceof Error ? error.message : "";
   const position = Number(message.match(/position\s+(\d+)/i)?.[1] ?? NaN);
@@ -99,11 +103,11 @@ function jsonSyntaxShape(text: string, error: unknown): Record<string, string | 
     bareAlphaRunDetected: bareAlphaRunDetected ? "yes" : "no",
   };
 }
-function jsonShape(text: string, error: unknown): Record<string, string | boolean> {
+function jsonShape(text: string, error: unknown, extraction: Record<string, string | boolean> = {}): Record<string, string | boolean> {
   const t = text.trim(); const opens = (t.match(/\{/g) ?? []).length; const closes = (t.match(/\}/g) ?? []).length;
   const brackets = (t.match(/\[/g) ?? []).length; const closeBrackets = (t.match(/\]/g) ?? []).length;
   const msg = error instanceof Error ? error.message : "";
-  return { responseLengthBucket: t.length < 256 ? "short" : t.length < 4096 ? "medium" : "large", startsWithObjectToken: t.startsWith("{"), endsWithObjectToken: t.endsWith("}"), startsWithArrayToken: t.startsWith("["), endsWithArrayToken: t.endsWith("]"), markdownFencePresent: /^```/.test(t), leadingWrapperPresent: !/^[\[{]/.test(t), trailingWrapperPresent: !/[\]}]$/.test(t), topLevelBraceBalance: opens === closes ? "balanced" : opens > closes ? "more-open" : "more-close", topLevelBracketBalance: brackets === closeBrackets ? "balanced" : brackets > closeBrackets ? "more-open" : "more-close", likelyTruncated: /end of json|unexpected end|unterminated/i.test(msg) ? "yes" : "unknown", ...jsonSyntaxShape(t, error) };
+  return { responsePresent: true, responseSha256: responseSha256(t), responseLengthBucket: t.length < 256 ? "short" : t.length < 4096 ? "medium" : "large", startsWithObjectToken: t.startsWith("{"), endsWithObjectToken: t.endsWith("}"), startsWithArrayToken: t.startsWith("["), endsWithArrayToken: t.endsWith("]"), markdownFencePresent: /^```/.test(t), leadingWrapperPresent: !/^[\[{]/.test(t), trailingWrapperPresent: !/[\]}]$/.test(t), topLevelBraceBalance: opens === closes ? "balanced" : opens > closes ? "more-open" : "more-close", topLevelBracketBalance: brackets === closeBrackets ? "balanced" : brackets > closeBrackets ? "more-open" : "more-close", likelyTruncated: /end of json|unexpected end|unterminated/i.test(msg) ? "yes" : "unknown", ...jsonSyntaxShape(t, error), ...extraction };
 }
 
 function classifyBrowserFailure(error: unknown): never {
@@ -236,7 +240,7 @@ function parsePatchMultipart(candidate: string): unknown | null {
   if (blocks.size !== used.size) structured("ChatGPT patch appendix is not referenced by a PROPOSE_PATCH intent");
   return header;
 }
-function parseStructuredResult(text: string, legacyCompatibility = false): unknown {
+function parseStructuredResult(text: string, legacyCompatibility = false, extraction: Record<string, string | boolean> = {}): unknown {
   if (Buffer.byteLength(text, "utf8") > MAX_STRUCTURED_RESULT_BYTES) structured("ChatGPT structured result exceeds the allowed size");
   const trimmed = text.trim();
   if (!trimmed) structured("ChatGPT structured result is empty");
@@ -268,7 +272,7 @@ function parseStructuredResult(text: string, legacyCompatibility = false): unkno
     return parsed;
   } catch (error) {
     if (error instanceof ChatGptWebStructuredResultError) throw error;
-    return structured("ChatGPT structured result is not exactly one JSON value", jsonShape(candidate, error));
+    return structured("ChatGPT structured result is not exactly one JSON value", jsonShape(candidate, error, extraction));
   }
 }
 
@@ -483,9 +487,16 @@ export async function createPlaywrightChatGptBrowserDriver(
               const rawText = await backend.latestAssistantRawText();
               if (!rawText?.trim()) lost("ChatGPT assistant source is unavailable");
               pendingByConversation.delete(input.conversationRef);
-              if (input.contract === "structured-json") return parseStructuredResult(rawText);
+              const extraction = {
+                completionDetected: true,
+                assistantSelection: "latest-after-baseline",
+                responseSource: "assistant-copy",
+                renderedRawMatch: responseSha256(latestText) === responseSha256(rawText) ? "yes" : "no",
+                renderedResponseSha256: responseSha256(latestText),
+              } as const;
+              if (input.contract === "structured-json") return parseStructuredResult(rawText, false, extraction);
               if (input.contract === "patch-frame-v1") return parsePatchFrameV1(rawText);
-              if (input.contract === "legacy-structured-json") return parseStructuredResult(rawText, true);
+              if (input.contract === "legacy-structured-json") return parseStructuredResult(rawText, true, extraction);
               structured("ChatGPT result contract is unsupported");
             }
           } else {
@@ -552,7 +563,7 @@ export async function createPlaywrightChatGptBrowserDriver(
           : /PROPOSE_PATCH requires/i.test(input.message) ? "intent-specific-shape"
             : /patch appendix|patch hunk|unified-diff/i.test(input.message) ? "structured-patch-validation" : "contract-validation";
       const file = resolve(config.lifecycleRoot, "web-workers", "parser-diagnostics.jsonl");
-      try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "parser-rejection", stage: input.stage, sessionId: input.sessionId, generation: input.generation, ...(input.resultContract ? { resultContract: input.resultContract } : {}), conversationRefPresent: Boolean(input.conversationRef), category, phase, ...(input.diagnostic ?? {}) })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
+      try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "parser-rejection", ...(input.runId ? { runId: input.runId } : {}), ...(input.projectId ? { projectId: input.projectId } : {}), stage: input.stage, sessionId: input.sessionId, generation: input.generation, ...(input.resultContract ? { resultContract: input.resultContract } : {}), conversationRefPresent: Boolean(input.conversationRef), category, phase, ...(input.diagnostic ?? {}) })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
     },
     async recordOperationDiagnostic(input) {
       if (!config.lifecycleRoot) return;

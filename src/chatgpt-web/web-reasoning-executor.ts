@@ -175,6 +175,7 @@ async function ensureSession(input: CreateWebReasoningExecutorInput, run: Harnes
     version: 1,
     sessionId: sessionId(run.request.runId, run.state.stage, 1),
     runId: run.request.runId,
+    ...(run.request.projectId ? { projectId: run.request.projectId } : {}),
     stage: run.state.stage,
     generation: 1,
     policySha256: policy.effectiveSha256,
