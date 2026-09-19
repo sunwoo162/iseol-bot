@@ -17,6 +17,8 @@ export type WebControlPlaneConfig = {
   modelRoot: string;
   harnessRoot: string;
   webRoot: string;
+  iseolRoot?: string;
+  policyRoot?: string;
 };
 
 export type StartWebControlPlaneOptions = WebControlPlaneConfig & {

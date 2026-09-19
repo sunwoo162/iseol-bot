@@ -10,6 +10,7 @@ export type DevelopmentRunRequest = {
   mode: DevelopmentRunMode;
   objective: string;
   targetRoot: string;
+  projectId?: string;
   purposeProfile?: {
     version: 1;
     purpose: ProjectPurpose;

@@ -417,6 +417,7 @@ function renderProject(view) {
   renderRuns(view.runs);
   renderHistory(view.history);
   $("#project-objective").value = view.project.name;
+  $("#project-target-root").value = "";
   $("#project-purpose").value = "";
   $("#execution-profile-content").replaceChildren(element("p", "muted", "목적을 선택하고 실행 프로필을 확인하세요."));
   $("#portfolio-content").replaceChildren(element("p", "muted", "실제 개발 기록으로 생성한 초안을 불러오세요."));
@@ -474,6 +475,27 @@ async function saveExecutionProfile() {
     });
     renderProject(view);
     setStatus("success", "프로젝트 목적과 실행 계획을 저장했습니다.");
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+  finally { setLoading(false); }
+}
+
+async function startProjectRun() {
+  const objective = $("#project-objective").value.trim();
+  const targetRoot = $("#project-target-root").value.trim();
+  if (!state.selectedProjectId || !objective || !targetRoot) {
+    setStatus("error", "프로젝트 목적, 개발 목표와 작업 폴더를 확인해 주세요.");
+    return;
+  }
+  setLoading(true, "기존 Harness로 개발 Run을 시작하는 중입니다.");
+  try {
+    const runId = `project-${state.selectedProjectId}-run-1`;
+    const result = await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}/execution-start`, {
+      method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ runId, objective, targetRoot }),
+    });
+    const view = await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}`);
+    renderProject(view);
+    setStatus("success", result.status === "already-active" ? "기존 개발 Run을 계속 사용합니다." : "개발 Run이 시작되었습니다.");
   } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
   finally { setLoading(false); }
 }
@@ -604,6 +626,7 @@ function bindEvents() {
   $("#project-select").addEventListener("change", (event) => selectProject(event.target.value));
   $("#preview-execution-profile").addEventListener("click", () => previewExecutionProfile());
   $("#save-execution-profile").addEventListener("click", () => saveExecutionProfile());
+  $("#start-project-run").addEventListener("click", () => startProjectRun());
   $("#load-portfolio").addEventListener("click", () => loadPortfolio());
   $("#copy-readme").addEventListener("click", () => copyReadme());
 }

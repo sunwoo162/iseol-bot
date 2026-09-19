@@ -164,3 +164,44 @@ test("run preparation refuses legacy workspaces without an explicit purpose", as
   }, { modelRoot: root, harnessRoot: join(root, "runs"), now: () => at });
   assert.equal(prepared.status, 409);
 });
+
+test("project start creates one purpose-bound Harness Run and reuses it on duplicate requests", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-start-"));
+  const at = "2026-09-19T00:00:00.000Z";
+  const targetRoot = await mkdtemp(join(tmpdir(), "iseol-project-target-"));
+  await saveProjectWorkspace(root, {
+    version: 1, id: "project-start", name: "Start project", status: "active",
+    genesis: { prototypeId: "prototype-start", repository: { url: "https://example.test/repo", branch: "main" }, deployment: { url: "https://example.test" }, runs: [], promotedAt: at },
+    tree: [{ id: "root", kind: "root", title: "Start", status: "in-progress", runIds: [], createdAt: at, updatedAt: at }],
+    purposeSelection: {
+      version: 1, purpose: "rapid-prototype", selectedAt: at, source: "user",
+      profile: resolveExecutionProfile({ purpose: "rapid-prototype", objective: "Build a study timer", roles: [
+        { id: "orchestrator", kind: "stage-adapter", status: "registered" },
+        { id: "planning", kind: "stage-adapter", status: "registered" },
+        { id: "frontend", kind: "stage-adapter", status: "registered" },
+        { id: "qa", kind: "stage-adapter", status: "registered" },
+      ] }),
+    },
+    createdAt: at, updatedAt: at,
+  });
+  const deps = { modelRoot: root, harnessRoot: join(root, "runs"), iseolRoot: root, policyRoot: root, now: () => at };
+  const first = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-start/execution-start", headers: {},
+    body: { runId: "run-start", objective: "Build a study timer", targetRoot },
+  }, deps);
+  assert.equal(first.status, 201);
+  const firstBody = first.body as { status: string; run: { request: { projectId?: string; purposeProfile?: { purpose: string } } } };
+  assert.equal(firstBody.status, "created");
+  assert.equal(firstBody.run.request.projectId, "project-start");
+  assert.equal(firstBody.run.request.purposeProfile?.purpose, "rapid-prototype");
+  const second = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-start/execution-start", headers: {},
+    body: { runId: "run-start", objective: "Build a study timer", targetRoot },
+  }, deps);
+  assert.equal(second.status, 200);
+  assert.equal((second.body as { status: string }).status, "already-active");
+  const workspace = (await routeWebControlPlaneRequest({ method: "GET", path: "/api/projects/project-start", headers: {} }, deps)).body as { tree: Array<{ runIds: string[] }>; history: Array<{ type: string; runId?: string }> };
+  assert.deepEqual(workspace.tree[0]?.runIds, ["run-start"]);
+  assert.equal(workspace.history.filter((event) => event.type === "run-attached" && event.runId === "run-start").length, 1);
+  assert.equal(((await loadHarnessRun(join(root, "runs"), "run-start"))?.request as { projectId?: string }).projectId, "project-start");
+});

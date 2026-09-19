@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { assertProjectModelId } from "../project-model/contracts.js";
 import { defaultAgentRoleRegistrations, resolveExecutionProfile } from "../project-model/execution-profile.js";
 import { setProjectPurpose } from "../project-model/workspace-store.js";
-import { prepareProjectWorkspaceRun } from "../project-model/workspace-run-preparation.js";
+import { prepareProjectWorkspaceRun, startProjectWorkspaceRun } from "../project-model/workspace-run-preparation.js";
 import { buildPortfolioDraft, collectProjectEvidence, verifyPortfolioGrounding } from "../project-model/portfolio.js";
 import { ensurePortfolioDocument, updatePortfolioDocument, verifyStoredPortfolioGrounding } from "../project-model/portfolio-store.js";
 import { archivePrototypeCandidate } from "../idea-lab/prototype-actions.js";
@@ -40,6 +40,8 @@ export type IdeaLabRuntimeCapability = {
 export type WebControlPlaneRouterDependencies = {
   modelRoot: string;
   harnessRoot: string;
+  iseolRoot?: string;
+  policyRoot?: string;
   evaluationRoot?: string;
   token?: string;
   now?: () => string;
@@ -211,6 +213,35 @@ export async function routeWebControlPlaneRequest(
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Project workspace not found:")) return response(404, { error: "not found" });
       if (error instanceof Error && error.message.includes("purpose must be selected")) return response(409, { error: "project purpose must be selected" });
+      throw error;
+    }
+  }
+
+  const startMatch = /^\/api\/projects\/([^/]+)\/execution-start$/.exec(path);
+  if (startMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    const projectId = decodeId(startMatch[1] ?? "");
+    if (!projectId || !request.body || typeof request.body !== "object") return response(400, { error: "invalid execution start" });
+    const body = request.body as Record<string, unknown>;
+    if (typeof body.runId !== "string" || typeof body.objective !== "string" || typeof body.targetRoot !== "string") {
+      return response(400, { error: "runId, objective and targetRoot are required" });
+    }
+    try {
+      const started = await startProjectWorkspaceRun(deps.modelRoot, projectId, {
+        runId: body.runId,
+        objective: body.objective,
+        targetRoot: body.targetRoot,
+      }, {
+        iseolRoot: deps.iseolRoot ?? deps.modelRoot,
+        storeRoot: deps.harnessRoot,
+        ...(deps.policyRoot ? { policyRoot: deps.policyRoot } : {}),
+        loadedAt: (deps.now ?? (() => new Date().toISOString()))(),
+      });
+      return response(started.status === "created" ? 201 : 200, started);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Project workspace not found:")) return response(404, { error: "not found" });
+      if (error instanceof Error && /purpose|root node|terminal|identity|request does not match/.test(error.message)) return response(409, { error: error.message });
       throw error;
     }
   }

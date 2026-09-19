@@ -329,7 +329,12 @@ export async function startIseolRuntimeServices(
       }
     }
 
-    webServer = await startWeb({ ...webConfig, ideaLabRuntime: capability });
+    webServer = await startWeb({
+      ...webConfig,
+      iseolRoot: roots.iseolRoot,
+      policyRoot: ideaLabConfig.enabled ? ideaLabConfig.repositoryRoot : roots.iseolRoot,
+      ideaLabRuntime: capability,
+    });
   } catch (error) {
     unsubscribeAgentConnected?.();
     unsubscribeAgentConnected = undefined;
