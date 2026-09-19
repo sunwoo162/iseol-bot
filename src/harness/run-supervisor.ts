@@ -98,7 +98,15 @@ function updateRun(
   at: string,
   evidence = run.evidence,
 ): HarnessRuntimeRunEnvelope {
-  return { ...run, state, evidence, updatedAt: at };
+  return {
+    ...run,
+    state,
+    evidence,
+    updatedAt: at,
+    ...(state.status === "FAILED_FINAL" && run.retry?.status === "active"
+      ? { retry: { ...run.retry, status: "completed" as const } }
+      : {}),
+  };
 }
 function transitionForResult(
   run: HarnessRuntimeRunEnvelope,

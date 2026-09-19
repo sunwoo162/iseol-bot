@@ -4,8 +4,10 @@ import { resolve } from "node:path";
 import type {
   HarnessRunEnvelope,
   HarnessRuntimeRunEnvelope,
+  HarnessRetryReason,
 } from "./contracts.js";
 import { createInitialRunState } from "./state-machine.js";
+import { appendHarnessRunEvent } from "./event-store.js";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
@@ -67,6 +69,52 @@ export async function loadHarnessRun(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+export type HarnessRunRetryResult =
+  | { status: "accepted"; run: HarnessRuntimeRunEnvelope }
+  | { status: "already-active"; run: HarnessRuntimeRunEnvelope }
+  | { status: "not-allowed"; reason: string };
+
+export async function requestHarnessRunRetry(
+  root: string,
+  runId: string,
+  input: { retryReason: HarnessRetryReason; actor: "operator" | "user"; requestedAt: string },
+): Promise<HarnessRunRetryResult> {
+  return serializeRunWrite(root, runId, async () => {
+    const current = await loadHarnessRun(root, runId);
+    if (!current) return { status: "not-allowed", reason: "Run not found" };
+    if (current.retry?.status === "active") return { status: "already-active", run: current };
+    if (current.state.status !== "FAILED_FINAL") return { status: "not-allowed", reason: "Run is not terminal FAILED_FINAL" };
+    const cycle = (current.retry?.cycle ?? 0) + 1;
+    const next: HarnessRuntimeRunEnvelope = {
+      ...current,
+      retry: {
+        version: 1,
+        cycle,
+        requestedFromState: "FAILED_FINAL",
+        requestedStage: current.state.stage,
+        retryReason: input.retryReason,
+        requestedAt: input.requestedAt,
+        actor: input.actor,
+        status: "active",
+      },
+      state: { ...current.state, status: "READY", updatedAt: input.requestedAt },
+      updatedAt: input.requestedAt,
+    };
+    await writeNormalizedRun(root, next);
+    await appendHarnessRunEvent(root, {
+      version: 1,
+      id: `retry-requested-${runId}-${cycle}`,
+      runId,
+      type: "retry-requested",
+      at: input.requestedAt,
+      stage: current.state.stage,
+      status: "READY",
+      summary: `Retry cycle ${cycle} requested for ${current.state.stage}`,
+    });
+    return { status: "accepted", run: next };
+  });
 }
 
 export async function saveHarnessRunIfUnchanged(

@@ -2,6 +2,7 @@ import { listIdeaLabCampaigns } from "./campaign-store.js";
 
 export type IdeaLabRuntimeService = {
   enqueue(campaignId: string): void;
+  retryRun(runId: string): Promise<"accepted" | "already-active" | "not-allowed">;
   recover(): Promise<void>;
   idle(): Promise<void>;
   dispose(): Promise<void>;
@@ -11,6 +12,7 @@ export type IdeaLabRuntimeOptions = {
   modelRoot: string;
   superviseCampaign: (campaignId: string) => Promise<void>;
   onError?: (campaignId: string, safeSummary: string) => void;
+  requestRetry?: (runId: string) => Promise<"accepted" | "already-active" | "not-allowed">;
   concurrency?: 1;
 };
 
@@ -105,6 +107,10 @@ export function createIdeaLabRuntimeService(options: IdeaLabRuntimeOptions): Ide
 
   return {
     enqueue,
+    async retryRun(runId) {
+      if (!options.requestRetry) return "not-allowed";
+      return options.requestRetry(runId);
+    },
     async recover() {
       for (const campaign of await listIdeaLabCampaigns(options.modelRoot)) {
         if (campaign.status === "generating" || campaign.status === "producing") schedule(campaign.id, "recovery");

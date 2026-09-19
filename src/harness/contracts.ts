@@ -74,7 +74,19 @@ export type HarnessEvidenceRecord = {
 
 export type HarnessRunEventType =
   | "run-created" | "stage-started" | "stage-completed" | "stage-skipped"
-  | "status-changed" | "evidence-recorded" | "side-effect" | "recovered";
+  | "status-changed" | "evidence-recorded" | "side-effect" | "recovered" | "retry-requested";
+
+export type HarnessRetryReason = "operator-request" | "user-request";
+export type HarnessRetryRecord = {
+  version: 1;
+  cycle: number;
+  requestedFromState: "FAILED_FINAL";
+  requestedStage: HarnessRunStage;
+  retryReason: HarnessRetryReason;
+  requestedAt: string;
+  actor: "operator" | "user";
+  status: "active" | "completed";
+};
 
 export type HarnessRunEvent = {
   version: 1;
@@ -104,6 +116,7 @@ export type HarnessRunEnvelope = {
   preflight: HarnessPreflightRecord;
   state?: HarnessRunState;
   evidence?: HarnessEvidenceRecord[];
+  retry?: HarnessRetryRecord;
   updatedAt: string;
 };
 

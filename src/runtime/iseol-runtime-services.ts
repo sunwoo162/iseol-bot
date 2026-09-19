@@ -11,6 +11,7 @@ import {
   type DesktopAgentCoreConfig,
 } from "../desktop-agent/core-service.js";
 import { refreshDevelopmentRunPreflight } from "../harness/run-service.js";
+import { requestHarnessRunRetry } from "../harness/run-store.js";
 import {
   resolveProductionChatGptBrowserDriver,
   resolveChatGptWebBridgeConfig,
@@ -29,6 +30,7 @@ import {
 } from "../idea-lab/runtime-config.js";
 import { createIdeaLabProductionDesktopTaskCompiler } from "../idea-lab/production-desktop-compiler.js";
 import { createIdeaLabProductionRuntimeDriver } from "../idea-lab/production-runtime-driver.js";
+import { listPrototypeProductions } from "../idea-lab/production-store.js";
 import {
   createIdeaLabRuntimeService,
   type IdeaLabRuntimeService,
@@ -46,6 +48,7 @@ import type { PrototypeDeployAdapter } from "../idea-lab/deploy-adapter.js";
 export type IseolRuntimeCapability = {
   state: "disabled" | "ready" | "blocked";
   enqueue?: (campaignId: string) => void;
+  retryRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-allowed">;
 };
 type DesktopCoreService = Awaited<ReturnType<typeof startDesktopAgentCoreService>>;
 type ProductionDriver = ReturnType<typeof createIdeaLabProductionRuntimeDriver>;
@@ -286,6 +289,17 @@ export async function startIseolRuntimeServices(
         });
         runtime = createRuntime({
           modelRoot: roots.modelRoot,
+          requestRetry: async (runId) => {
+            const production = (await listPrototypeProductions(roots.modelRoot)).find((item) => item.runId === runId);
+            if (!production) return "not-allowed";
+            const result = await requestHarnessRunRetry(roots.runRoot, runId, {
+              retryReason: "operator-request",
+              actor: "operator",
+              requestedAt: new Date().toISOString(),
+            });
+            if (result.status === "accepted") runtime?.enqueue(production.campaignId);
+            return result.status;
+          },
           superviseCampaign: async (campaignId) => {
             await superviseIdeaLabCampaign({
               root: roots.modelRoot,
@@ -306,7 +320,11 @@ export async function startIseolRuntimeServices(
         );
 
         await runtime.recover();
-        capability = { state: "ready", enqueue: (campaignId) => runtime!.enqueue(campaignId) };
+        capability = {
+          state: "ready",
+          enqueue: (campaignId) => runtime!.enqueue(campaignId),
+          retryRun: (runId) => runtime!.retryRun(runId),
+        };
       }
     }
 

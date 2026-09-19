@@ -29,6 +29,7 @@ export type WebControlPlaneResponse = {
 export type IdeaLabRuntimeCapability = {
   state: "disabled" | "ready" | "blocked";
   enqueue?: (campaignId: string) => void;
+  retryRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-allowed">;
 };
 
 export type WebControlPlaneRouterDependencies = {
@@ -138,6 +139,18 @@ export async function routeWebControlPlaneRequest(
       if (error instanceof WebIdeaLabActionError) return response(error.status, { error: error.message });
       throw error;
     }
+  }
+
+  const retryRunMatch = /^\/api\/idea-lab\/runs\/([^/]+)\/retry$/.exec(path);
+  if (retryRunMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    const runId = decodeId(retryRunMatch[1] ?? "");
+    if (!runId) return response(404, { error: "not found" });
+    if (deps.ideaLabRuntime?.state !== "ready" || !deps.ideaLabRuntime.retryRun) return response(503, { error: "idea lab runtime unavailable" });
+    const result = await deps.ideaLabRuntime.retryRun(runId);
+    if (result === "not-allowed") return response(409, { status: result, error: "Run is not terminal FAILED_FINAL or cannot be retried" });
+    return response(202, { status: result, runId });
   }
 
   const archiveMatch = /^\/api\/prototypes\/([^/]+)\/archive$/.exec(path);
