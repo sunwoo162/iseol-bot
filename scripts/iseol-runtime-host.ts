@@ -1,16 +1,21 @@
-import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
+import "dotenv/config";
+import { mkdir, open, readFile, rm, rename, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { startIseolRuntimeServices, type IseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
 
 export type IseolRuntimeHostConfig = {
+  version: 1;
   dataRoot: string;
   modelRoot: string;
   runRoot: string;
   webWorkerRoot: string;
   browserProfileRoot: string;
   lockPath: string;
+  codeVersion?: string;
+  projectRuntimeEnabled?: boolean;
+  desktopAgentId?: string;
 };
 
 export function loadRuntimeHostConfig(path = process.env.ISEOL_RUNTIME_CONFIG ?? "iseol-runtime.json"): IseolRuntimeHostConfig {
@@ -21,35 +26,103 @@ export function loadRuntimeHostConfig(path = process.env.ISEOL_RUNTIME_CONFIG ??
     if (typeof raw[key] !== "string" || !raw[key].trim()) throw new Error(`runtime configuration field is missing: ${key}`);
   }
   const dataRoot = resolve(raw.dataRoot!);
+  const projectRuntimeEnabled = raw.projectRuntimeEnabled;
+  if (projectRuntimeEnabled !== undefined && typeof projectRuntimeEnabled !== "boolean") {
+    throw new Error("runtime configuration field must be boolean: projectRuntimeEnabled");
+  }
+  if (raw.desktopAgentId !== undefined && (typeof raw.desktopAgentId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(raw.desktopAgentId))) {
+    throw new Error("runtime configuration field is invalid: desktopAgentId");
+  }
   return {
+    version: 1,
     dataRoot,
     modelRoot: resolve(raw.modelRoot!),
     runRoot: resolve(raw.runRoot!),
     webWorkerRoot: resolve(raw.webWorkerRoot!),
     browserProfileRoot: resolve(raw.browserProfileRoot!),
     lockPath: resolve(raw.lockPath ?? `${dataRoot}/runtime/iseol-runtime.lock`),
+    ...(typeof raw.codeVersion === "string" && raw.codeVersion.trim() ? { codeVersion: raw.codeVersion.trim().slice(0, 80) } : {}),
+    ...(projectRuntimeEnabled === undefined ? {} : { projectRuntimeEnabled }),
+    ...(typeof raw.desktopAgentId === "string" ? { desktopAgentId: raw.desktopAgentId } : {}),
   };
 }
 
-export async function acquireRuntimeLock(path: string): Promise<() => Promise<void>> {
+export async function saveRuntimeHostConfig(path: string, config: Omit<IseolRuntimeHostConfig, "version"> & { version?: 1 }): Promise<void> {
+  const normalized = {
+    version: 1 as const,
+    dataRoot: resolve(config.dataRoot),
+    modelRoot: resolve(config.modelRoot),
+    runRoot: resolve(config.runRoot),
+    webWorkerRoot: resolve(config.webWorkerRoot),
+    browserProfileRoot: resolve(config.browserProfileRoot),
+    lockPath: resolve(config.lockPath),
+    ...(config.codeVersion ? { codeVersion: config.codeVersion.slice(0, 80) } : {}),
+    ...(config.projectRuntimeEnabled === undefined ? {} : { projectRuntimeEnabled: config.projectRuntimeEnabled }),
+    ...(config.desktopAgentId ? { desktopAgentId: config.desktopAgentId } : {}),
+  };
+  const temporary = `${path}.${process.pid}.tmp`;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(temporary, JSON.stringify(normalized, null, 2), "utf8");
+  await rename(temporary, path);
+}
+
+export async function acquireRuntimeLock(path: string, metadata: { dataRoot?: string; codeVersion?: string } = {}): Promise<() => Promise<void>> {
   await mkdir(dirname(path), { recursive: true });
   let handle: FileHandle;
   try { handle = await open(path, "wx"); }
-  catch { throw new Error("another Iseol runtime already owns this configuration"); }
-  await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    let ownerPid: number | null = null;
+    try {
+      const lock = JSON.parse(await readFile(path, "utf8")) as { pid?: unknown };
+      ownerPid = Number.isInteger(lock.pid) && (lock.pid as number) > 0 ? lock.pid as number : null;
+    } catch {
+      throw new Error("runtime lock is unreadable; refusing to remove it");
+    }
+    if (ownerPid !== null) {
+      try { process.kill(ownerPid, 0); } catch (probeError) {
+        if ((probeError as NodeJS.ErrnoException).code !== "ESRCH") {
+          throw new Error("another Iseol runtime already owns this configuration");
+        }
+        await rm(path, { force: true });
+        try { handle = await open(path, "wx"); }
+        catch { throw new Error("runtime lock changed while reclaiming stale ownership"); }
+      }
+    }
+    if (!handle!) throw new Error("another Iseol runtime already owns this configuration");
+  }
+  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, startedAt: new Date().toISOString(), ...metadata }));
   return async () => { await handle.close(); await rm(path, { force: true }); };
+}
+
+export async function readRuntimeHostStatus(config: IseolRuntimeHostConfig): Promise<Record<string, unknown>> {
+  try {
+    const lock = JSON.parse(await readFile(config.lockPath, "utf8")) as Record<string, unknown>;
+    return { state: "running", configVersion: config.version, dataRoot: config.dataRoot, codeVersion: config.codeVersion ?? "unknown", ...lock };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { state: "stopped", configVersion: config.version, dataRoot: config.dataRoot, codeVersion: config.codeVersion ?? "unknown" };
+    throw error;
+  }
 }
 
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   const config = loadRuntimeHostConfig();
   if (command === "status") {
-    try { process.stdout.write(await readFile(config.lockPath, "utf8")); }
-    catch { process.stdout.write(JSON.stringify({ state: "stopped" })); }
+    process.stdout.write(JSON.stringify(await readRuntimeHostStatus(config)));
+    return;
+  }
+  if (command === "stop") {
+    const raw = await readFile(config.lockPath, "utf8").catch(() => "");
+    if (!raw) { process.stdout.write(JSON.stringify({ state: "stopped" })); return; }
+    const lock = JSON.parse(raw) as { pid?: unknown };
+    if (!Number.isInteger(lock.pid) || (lock.pid as number) <= 0) throw new Error("runtime lock has invalid owner");
+    process.kill(lock.pid as number, "SIGTERM");
+    process.stdout.write(JSON.stringify({ state: "stop-requested", pid: lock.pid }));
     return;
   }
   if (command !== "start") throw new Error(`unsupported runtime host command: ${command}`);
-  const release = await acquireRuntimeLock(config.lockPath);
+  const release = await acquireRuntimeLock(config.lockPath, { dataRoot: config.dataRoot, ...(config.codeVersion ? { codeVersion: config.codeVersion } : {}) });
   let services: IseolRuntimeServices | undefined;
   let stopping = false;
   const stop = async () => {
@@ -67,6 +140,8 @@ async function main(): Promise<void> {
       ISEOL_RUN_ROOT: config.runRoot,
       ISEOL_CHATGPT_WEB_ROOT: config.webWorkerRoot,
       ISEOL_CHATGPT_BROWSER_PROFILE_ROOT: config.browserProfileRoot,
+      ...(config.projectRuntimeEnabled === undefined ? {} : { ISEOL_PROJECT_RUNTIME_ENABLED: String(config.projectRuntimeEnabled) }),
+      ...(config.desktopAgentId ? { ISEOL_PROJECT_AGENT_ID: config.desktopAgentId } : {}),
     };
     services = await startIseolRuntimeServices({ env, roots: {
       iseolRoot: config.dataRoot,

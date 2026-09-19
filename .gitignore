@@ -19,3 +19,4 @@ data/
 web/web-workers/
 .superpowers/
 %SystemDrive%/
+iseol-runtime.json
