@@ -142,6 +142,21 @@ export async function buildProjectWorkspaceView(
     tree: workspace.tree.map((node) => ({ ...node, runIds: [...node.runIds] })),
     history: history.map((event) => ({ ...event })),
     runs,
+    ...(workspace.purposeSelection ? {
+      purposeSelection: {
+        purpose: workspace.purposeSelection.purpose,
+        selectedAt: workspace.purposeSelection.selectedAt,
+        source: workspace.purposeSelection.source,
+        profile: structuredClone(workspace.purposeSelection.profile),
+      },
+      executionPlan: {
+        purpose: workspace.purposeSelection.profile.purpose,
+        executableRoles: [...workspace.purposeSelection.profile.executableRoles],
+        plannedRoles: [...workspace.purposeSelection.profile.plannedRoles],
+        verificationStages: [...workspace.purposeSelection.profile.verificationStages],
+        documentationRequired: workspace.purposeSelection.profile.documentationRequired,
+      },
+    } : {}),
   };
 }
 const EVALUATION_SECRET_ASSIGNMENT = /\b(token|cookie|secret|password)\s*[:=]\s*[^\s,;]+/gi;

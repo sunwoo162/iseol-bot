@@ -137,6 +137,7 @@ button:hover, .primary-link:hover, .text-link:hover { filter: brightness(1.13); 
 .purpose-controls { display: grid; grid-template-columns: 180px minmax(220px, 1fr) auto; gap: 9px; align-items: center; }
 .purpose-controls label { color: var(--muted); font-size: 12px; font-weight: 700; }
 .purpose-controls textarea { grid-column: 2 / 4; resize: vertical; }
+.purpose-buttons { display: flex; gap: 8px; grid-column: 2 / 4; }
 .profile-result { margin-top: 14px; }
 .profile-summary { color: var(--text); line-height: 1.55; }
 .profile-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
@@ -217,6 +218,7 @@ button:hover, .primary-link:hover, .text-link:hover { filter: brightness(1.13); 
   .project-hero .primary-link { width: 100%; }
   .purpose-controls, .profile-grid { grid-template-columns: 1fr; }
   .purpose-controls textarea { grid-column: auto; }
+  .purpose-buttons { grid-column: auto; flex-direction: column; }
   .history-top { flex-direction: column; gap: 4px; }
   .prototype-actions > * { flex: 1 1 100%; }
 }

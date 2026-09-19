@@ -14,8 +14,10 @@ import {
 } from "../src/project-model/portfolio.js";
 import type { ProjectWorkspace } from "../src/project-model/contracts.js";
 import { saveProjectWorkspace } from "../src/project-model/workspace-store.js";
+import { loadProjectHistory } from "../src/project-model/history-store.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
+import { loadHarnessRun } from "../src/harness/run-store.js";
 import { routeWebControlPlaneRequest } from "../src/web-control-plane/router.js";
 
 test("purpose profile selects executable stage adapters and labels unsupported specialists as planned", () => {
@@ -72,6 +74,21 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
     ], createdAt: at, updatedAt: at,
   };
   await saveProjectWorkspace(root, workspace);
+  const purposeSaved = await routeWebControlPlaneRequest({
+    method: "PUT", path: "/api/projects/project-study/purpose", headers: {},
+    body: { purpose: "portfolio", objective: "학생용 공부 기록 웹 서비스" },
+  }, { modelRoot: root, harnessRoot: join(root, "runs"), now: () => at });
+  assert.equal(purposeSaved.status, 200);
+  const savedView = purposeSaved.body as { purposeSelection?: { purpose: string; profile: { executableRoles: string[] } }; executionPlan?: { documentationRequired: boolean } };
+  assert.equal(savedView.purposeSelection?.purpose, "portfolio");
+  assert.equal(savedView.executionPlan?.documentationRequired, true);
+  assert.deepEqual(savedView.purposeSelection?.profile.executableRoles, ["orchestrator", "planning", "frontend", "qa"]);
+  const history = await loadProjectHistory(root, "project-study");
+  assert.equal(history.at(-1)?.type, "purpose-selected");
+  const reloadedView = await routeWebControlPlaneRequest({
+    method: "GET", path: "/api/projects/project-study", headers: {},
+  }, { modelRoot: root, harnessRoot: join(root, "runs") });
+  assert.equal((reloadedView.body as typeof savedView).purposeSelection?.purpose, "portfolio");
   const evidence = await collectProjectEvidence(root, join(root, "runs"), "project-study");
   const draft = buildPortfolioDraft(evidence);
   assert.match(draft.overview, /Study Log/);
@@ -105,4 +122,45 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
   assert.equal((reloaded.body as { document: typeof document }).document.readme, "# Study Log\n\n사용자 편집 README");
   assert.equal((reloaded.body as { grounding: { documentGrounded: boolean; needsReview: string[] } }).grounding.documentGrounded, false);
   assert.equal((reloaded.body as { grounding: { needsReview: string[] } }).grounding.needsReview.includes("features"), true);
+});
+
+test("purpose selection is included in a new project run preparation without creating a run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-purpose-preparation-"));
+  const at = "2026-09-19T00:00:00.000Z";
+  await saveProjectWorkspace(root, {
+    version: 1, id: "project-prep", name: "Prepared project", status: "active",
+    genesis: { prototypeId: "prototype-prep", repository: { url: "https://example.test/repo", branch: "main" }, deployment: { url: "https://example.test" }, runs: [], promotedAt: at },
+    tree: [], createdAt: at, updatedAt: at,
+  });
+  const saved = await routeWebControlPlaneRequest({
+    method: "PUT", path: "/api/projects/project-prep/purpose", headers: {},
+    body: { purpose: "portfolio", objective: "실제 프로젝트를 포트폴리오로 정리" },
+  }, { modelRoot: root, harnessRoot: join(root, "runs"), now: () => at });
+  assert.equal(saved.status, 200);
+  const prepared = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-prep/execution-preparation", headers: {},
+    body: { runId: "run-prep", objective: "실제 프로젝트를 포트폴리오로 정리", targetRoot: root },
+  }, { modelRoot: root, harnessRoot: join(root, "runs"), now: () => at });
+  assert.equal(prepared.status, 200);
+  const body = prepared.body as { request: { runId: string; purposeProfile: { purpose: string; executableRoles: string[] } }; plan: { plannedRoles: string[] } };
+  assert.equal(body.request.runId, "run-prep");
+  assert.equal(body.request.purposeProfile.purpose, "portfolio");
+  assert.deepEqual(body.request.purposeProfile.executableRoles, ["orchestrator", "planning", "frontend", "qa"]);
+  assert.ok(body.plan.plannedRoles.includes("documentation"));
+  assert.equal(await loadHarnessRun(join(root, "runs"), "run-prep"), null);
+});
+
+test("run preparation refuses legacy workspaces without an explicit purpose", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-purpose-legacy-"));
+  const at = "2026-09-19T00:00:00.000Z";
+  await saveProjectWorkspace(root, {
+    version: 1, id: "legacy-project", name: "Legacy", status: "active",
+    genesis: { prototypeId: "prototype-legacy", repository: { url: "https://example.test/repo", branch: "main" }, deployment: { url: "https://example.test" }, runs: [], promotedAt: at },
+    tree: [], createdAt: at, updatedAt: at,
+  });
+  const prepared = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/legacy-project/execution-preparation", headers: {},
+    body: { runId: "run-legacy", objective: "legacy", targetRoot: root },
+  }, { modelRoot: root, harnessRoot: join(root, "runs"), now: () => at });
+  assert.equal(prepared.status, 409);
 });

@@ -1,3 +1,5 @@
+import type { ExecutionProfile, ProjectPurpose } from "./execution-profile.js";
+
 export const ISEOL_PROJECT_MODEL_VERSION = 1 as const;
 
 export type PrototypeRepositorySnapshot = {
@@ -75,6 +77,13 @@ export type ProjectWorkspace = {
   status: "active" | "archived";
   genesis: ProjectGenesis;
   tree: ProjectTreeNode[];
+  purposeSelection?: {
+    version: 1;
+    purpose: ProjectPurpose;
+    selectedAt: string;
+    source: "user" | "default";
+    profile: ExecutionProfile;
+  };
   createdAt: string;
   updatedAt: string;
 };
@@ -88,7 +97,8 @@ export type ProjectHistoryEventType =
   | "discord-project-bound"
   | "discord-action-recorded"
   | "integration-action-recorded"
-  | "review-recorded";
+  | "review-recorded"
+  | "purpose-selected";
 
 export type ProjectHistorySource = "discord" | "github" | "figma" | "notion" | "calendar";
 

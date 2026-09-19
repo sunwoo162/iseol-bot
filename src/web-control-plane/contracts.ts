@@ -5,6 +5,7 @@ import type {
   ProjectTreeNode,
   PrototypeCandidateStatus,
 } from "../project-model/contracts.js";
+import type { ExecutionProfile, ProjectPurpose } from "../project-model/execution-profile.js";
 
 export type WebPrototypeCard = {
   id: string;
@@ -80,6 +81,19 @@ export type ProjectWorkspaceView = {
   tree: ProjectTreeNode[];
   history: ProjectHistoryEvent[];
   runs: WebRunSummary[];
+  purposeSelection?: {
+    purpose: ProjectPurpose;
+    selectedAt: string;
+    source: "user" | "default";
+    profile: ExecutionProfile;
+  };
+  executionPlan?: {
+    purpose: ProjectPurpose;
+    executableRoles: string[];
+    plannedRoles: string[];
+    verificationStages: string[];
+    documentationRequired: boolean;
+  };
 };
 export type WebEvaluationFailedScenario = {
   scenarioId: string;

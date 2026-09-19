@@ -1,5 +1,7 @@
 export const ISEOL_HARNESS_CONTRACT_VERSION = 1 as const;
 
+import type { AgentRoleId, ProjectPurpose } from "../project-model/execution-profile.js";
+
 export type DevelopmentRunMode = "idea-lab" | "project-workspace";
 
 export type DevelopmentRunRequest = {
@@ -8,6 +10,14 @@ export type DevelopmentRunRequest = {
   mode: DevelopmentRunMode;
   objective: string;
   targetRoot: string;
+  purposeProfile?: {
+    version: 1;
+    purpose: ProjectPurpose;
+    executableRoles: AgentRoleId[];
+    plannedRoles: AgentRoleId[];
+    verificationStages: string[];
+    documentationRequired: boolean;
+  };
 };
 
 export type HarnessPolicySource = {

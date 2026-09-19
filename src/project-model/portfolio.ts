@@ -3,6 +3,7 @@ import type { HarnessEvidenceRecord, HarnessRuntimeRunEnvelope } from "../harnes
 import { loadProjectHistory } from "./history-store.js";
 import { loadProjectWorkspace } from "./workspace-store.js";
 import type { ProjectWorkspace } from "./contracts.js";
+import type { ProjectPurpose } from "./execution-profile.js";
 
 export type ProjectEvidence = {
   id: string;
@@ -22,6 +23,7 @@ export type ProjectEvidenceBundle = {
   features: Array<{ id: string; title: string; status: string; runIds: string[] }>;
   runs: Array<{ runId: string; stage: string; status: string; objective: string }>;
   evidence: ProjectEvidence[];
+  purpose?: { id: ProjectPurpose; summary: string; source: "user" | "default" };
 };
 
 export type PortfolioClaim = {
@@ -40,6 +42,7 @@ export type PortfolioDraft = {
   troubleshooting: string[];
   claims: PortfolioClaim[];
   readme: string;
+  purpose?: { id: ProjectPurpose; summary: string; source: "user" | "default" };
 };
 
 function safeText(value: string, max = 500): string {
@@ -93,6 +96,13 @@ export async function collectProjectEvidence(
     features: workspace.tree.filter((node) => node.kind === "feature" || node.kind === "task").map((node) => ({ id: node.id, title: safeText(node.title, 160), status: node.status, runIds: [...node.runIds] })),
     runs: runs.map((run) => ({ runId: run.request.runId, stage: run.state.stage, status: run.state.status, objective: safeText(run.request.objective) })),
     evidence,
+    ...(workspace.purposeSelection ? {
+      purpose: {
+        id: workspace.purposeSelection.purpose,
+        summary: safeText(workspace.purposeSelection.profile.koreanSummary, 500),
+        source: workspace.purposeSelection.source,
+      },
+    } : {}),
   };
 }
 
@@ -116,7 +126,9 @@ export function buildPortfolioDraft(bundle: ProjectEvidenceBundle, generatedAt =
   const technology = [`저장소: ${bundle.repository.url}`, `브랜치: ${bundle.repository.branch}`, `기준 커밋: ${bundle.repository.commitSha}`];
   const troubleshooting = bundle.evidence.filter((item) => /fail|error|recover|reject|실패|복구/i.test(item.summary)).map((item) => `${item.summary} [근거: ${item.id}]`);
   const readme = [`# ${bundle.projectName}`, "", bundle.objective, "", "## 주요 기능", ...(features.length ? features.map((item) => `- ${item}`) : ["- 기록된 기능이 없습니다."]), "", "## 검증", ...(testEvidence.length ? testEvidence.map((item) => `- ${item.summary}`) : ["- 기록된 테스트 또는 빌드 근거가 없습니다."])].join("\n");
-  return { version: 1, projectId: bundle.projectId, generatedAt, overview: humanize(`${bundle.projectName}: ${bundle.objective}`), features, technology, troubleshooting, claims, readme };
+  const purpose = bundle.purpose;
+  const overview = humanize(`${bundle.projectName}: ${bundle.objective}${purpose ? ` (${purpose.id})` : ""}`);
+  return { version: 1, projectId: bundle.projectId, generatedAt, overview, features, technology, troubleshooting, claims, readme, ...(purpose ? { purpose } : {}) };
 }
 
 export function verifyPortfolioGrounding(draft: PortfolioDraft, bundle: ProjectEvidenceBundle): { grounded: boolean; ungroundedClaimIds: string[] } {

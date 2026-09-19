@@ -1,6 +1,8 @@
 import { resolve } from "node:path";
 import { assertProjectModelId } from "../project-model/contracts.js";
 import { defaultAgentRoleRegistrations, resolveExecutionProfile } from "../project-model/execution-profile.js";
+import { setProjectPurpose } from "../project-model/workspace-store.js";
+import { prepareProjectWorkspaceRun } from "../project-model/workspace-run-preparation.js";
 import { buildPortfolioDraft, collectProjectEvidence, verifyPortfolioGrounding } from "../project-model/portfolio.js";
 import { ensurePortfolioDocument, updatePortfolioDocument, verifyStoredPortfolioGrounding } from "../project-model/portfolio-store.js";
 import { archivePrototypeCandidate } from "../idea-lab/prototype-actions.js";
@@ -161,6 +163,54 @@ export async function routeWebControlPlaneRequest(
       return response(200, { draft, document, evidence: evidence.evidence, grounding: { ...generatedGrounding, documentGrounded: documentGrounding.grounded, needsReview: documentGrounding.needsReview } });
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Project workspace not found:")) return response(404, { error: "not found" });
+      throw error;
+    }
+  }
+
+  const purposeMatch = /^\/api\/projects\/([^/]+)\/purpose$/.exec(path);
+  if (purposeMatch) {
+    if (request.method !== "PUT") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    const projectId = decodeId(purposeMatch[1] ?? "");
+    if (!projectId || !request.body || typeof request.body !== "object") return response(400, { error: "invalid project purpose" });
+    const body = request.body as Record<string, unknown>;
+    if (typeof body.purpose !== "string" || typeof body.objective !== "string") return response(400, { error: "purpose and objective are required" });
+    try {
+      const profile = resolveExecutionProfile({
+        purpose: body.purpose as Parameters<typeof resolveExecutionProfile>[0]["purpose"],
+        objective: body.objective,
+        roles: defaultAgentRoleRegistrations(),
+      });
+      const selectedAt = (deps.now ?? (() => new Date().toISOString()))();
+      await setProjectPurpose(deps.modelRoot, projectId, profile, selectedAt, "user");
+      const view = await buildProjectWorkspaceView(deps.modelRoot, deps.harnessRoot, projectId);
+      return view ? response(200, view) : response(404, { error: "not found" });
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Project workspace not found:")) return response(404, { error: "not found" });
+      if (error instanceof Error && /purpose|objective|Unsupported/.test(error.message)) return response(400, { error: "invalid project purpose" });
+      throw error;
+    }
+  }
+
+  const preparationMatch = /^\/api\/projects\/([^/]+)\/execution-preparation$/.exec(path);
+  if (preparationMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    const projectId = decodeId(preparationMatch[1] ?? "");
+    if (!projectId || !request.body || typeof request.body !== "object") return response(400, { error: "invalid execution preparation" });
+    const body = request.body as Record<string, unknown>;
+    if (typeof body.runId !== "string" || typeof body.objective !== "string" || typeof body.targetRoot !== "string") {
+      return response(400, { error: "runId, objective and targetRoot are required" });
+    }
+    try {
+      return response(200, await prepareProjectWorkspaceRun(deps.modelRoot, projectId, {
+        runId: body.runId,
+        objective: body.objective,
+        targetRoot: body.targetRoot,
+      }));
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Project workspace not found:")) return response(404, { error: "not found" });
+      if (error instanceof Error && error.message.includes("purpose must be selected")) return response(409, { error: "project purpose must be selected" });
       throw error;
     }
   }

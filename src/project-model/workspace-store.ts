@@ -4,6 +4,8 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ProjectWorkspace } from "./contracts.js";
 import { assertProjectModelId } from "./contracts.js";
+import type { ExecutionProfile } from "./execution-profile.js";
+import { appendProjectHistoryEventOnce } from "./history-store.js";
 
 function workspaceFile(root: string, id: string): string {
   assertProjectModelId(id);
@@ -58,4 +60,31 @@ export async function listProjectWorkspaces(
   return workspaces.sort((a, b) =>
     a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
   );
+}
+
+export async function setProjectPurpose(
+  root: string,
+  projectId: string,
+  profile: ExecutionProfile,
+  selectedAt: string,
+  source: "user" | "default" = "user",
+): Promise<ProjectWorkspace> {
+  const workspace = await loadProjectWorkspace(root, projectId);
+  if (!workspace) throw new Error(`Project workspace not found: ${projectId}`);
+  const next: ProjectWorkspace = {
+    ...workspace,
+    purposeSelection: { version: 1, purpose: profile.purpose, selectedAt, source, profile },
+    updatedAt: selectedAt,
+  };
+  await saveProjectWorkspace(root, next);
+  await appendProjectHistoryEventOnce(root, {
+    version: 1,
+    id: `purpose-${projectId}-${profile.purpose}-${selectedAt}`,
+    projectId,
+    type: "purpose-selected",
+    at: selectedAt,
+    summary: `Project purpose selected: ${profile.purpose}`,
+    action: "purpose-selection",
+  });
+  return next;
 }

@@ -417,8 +417,14 @@ function renderProject(view) {
   renderRuns(view.runs);
   renderHistory(view.history);
   $("#project-objective").value = view.project.name;
+  $("#project-purpose").value = "";
   $("#execution-profile-content").replaceChildren(element("p", "muted", "목적을 선택하고 실행 프로필을 확인하세요."));
   $("#portfolio-content").replaceChildren(element("p", "muted", "실제 개발 기록으로 생성한 초안을 불러오세요."));
+  if (view.purposeSelection) {
+    $("#project-purpose").value = view.purposeSelection.purpose;
+    $("#project-objective").value = view.purposeSelection.profile.objective;
+    renderExecutionProfile(view.purposeSelection.profile);
+  }
 }
 
 function renderExecutionProfile(profile) {
@@ -443,7 +449,7 @@ function renderExecutionProfile(profile) {
 async function previewExecutionProfile() {
   const objective = $("#project-objective").value.trim();
   const purpose = $("#project-purpose").value;
-  if (!objective) { setStatus("error", "개발 목표를 입력해 주세요."); return; }
+  if (!purpose || !objective) { setStatus("error", "프로젝트 목적과 개발 목표를 입력해 주세요."); return; }
   setLoading(true, "실행 프로필을 계산하는 중입니다.");
   try {
     const profile = await fetchJson("/api/execution-profile", {
@@ -452,6 +458,22 @@ async function previewExecutionProfile() {
     });
     renderExecutionProfile(profile);
     setStatus("success", "실행 가능한 역할과 계획 역할을 구분했습니다.");
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+  finally { setLoading(false); }
+}
+
+async function saveExecutionProfile() {
+  const objective = $("#project-objective").value.trim();
+  const purpose = $("#project-purpose").value;
+  if (!state.selectedProjectId || !objective) { setStatus("error", "프로젝트와 개발 목표를 확인해 주세요."); return; }
+  setLoading(true, "프로젝트 목적과 실행 계획을 저장하는 중입니다.");
+  try {
+    const view = await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}/purpose`, {
+      method: "PUT", headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ purpose, objective }),
+    });
+    renderProject(view);
+    setStatus("success", "프로젝트 목적과 실행 계획을 저장했습니다.");
   } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
   finally { setLoading(false); }
 }
@@ -581,6 +603,7 @@ function bindEvents() {
   $("#refresh-evaluation").addEventListener("click", () => loadEvaluation());
   $("#project-select").addEventListener("change", (event) => selectProject(event.target.value));
   $("#preview-execution-profile").addEventListener("click", () => previewExecutionProfile());
+  $("#save-execution-profile").addEventListener("click", () => saveExecutionProfile());
   $("#load-portfolio").addEventListener("click", () => loadPortfolio());
   $("#copy-readme").addEventListener("click", () => copyReadme());
 }
