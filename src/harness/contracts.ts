@@ -90,7 +90,7 @@ export type HarnessEvidenceRecord = {
 
 export type HarnessRunEventType =
   | "run-created" | "stage-started" | "stage-completed" | "stage-skipped"
-  | "status-changed" | "evidence-recorded" | "side-effect" | "recovered" | "retry-requested";
+  | "status-changed" | "evidence-recorded" | "side-effect" | "recovered" | "retry-requested" | "operator-reconciled";
 
 export type HarnessRetryReason = "operator-request" | "user-request";
 export type HarnessRetryRecord = {
@@ -114,6 +114,8 @@ export type HarnessRunEvent = {
   status: HarnessRunStatus;
   summary: string;
   evidenceIds?: string[];
+  operationId?: string;
+  metadata?: Record<string, string | number | boolean>;
 };
 
 export type HarnessCheckpoint = {

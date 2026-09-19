@@ -96,3 +96,29 @@ test("promotion returns canonical Project Workspace and persists it", async () =
   assert.equal((response.body as any).id, "project-prototype-001");
   assert.ok(await loadProjectWorkspace(deps.modelRoot, "project-prototype-001"));
 });
+
+test("operator reconciliation separates inspection from approved mutation", async () => {
+  const deps = await fixture("secret-token");
+  const inspection = { projectId: "project-a", runId: "run-3", canReconcile: true, blockers: [] };
+  const runtime = {
+    state: "ready" as const,
+    inspectProjectRunReconciliation: async () => inspection,
+    reconcileProjectRun: async () => ({ status: "reconciled", operationId: "op-1" }),
+  };
+  const denied = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-a/runs/run-3/operator-reconciliation", headers: { authorization: "Bearer secret-token" },
+    body: { action: "apply", expectedRevision: "r", operationId: "op-1", reason: "stale-runtime-after-shutdown" },
+  }, { ...deps, ideaLabRuntime: runtime });
+  assert.equal(denied.status, 403);
+  const checked = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-a/runs/run-3/operator-reconciliation", headers: { authorization: "Bearer secret-token" },
+    body: { action: "inspect", expectedRevision: "r" },
+  }, { ...deps, ideaLabRuntime: runtime });
+  assert.equal(checked.status, 200);
+  assert.deepEqual(checked.body, inspection);
+  const applied = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-a/runs/run-3/operator-reconciliation", headers: { authorization: "Bearer secret-token" },
+    body: { action: "apply", expectedRevision: "r", operationId: "op-1", reason: "stale-runtime-after-shutdown", approval: { actor: "operator", approvalId: "approval-1" } },
+  }, { ...deps, ideaLabRuntime: runtime });
+  assert.equal(applied.status, 200);
+});

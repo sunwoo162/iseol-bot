@@ -17,6 +17,7 @@ import {
   buildIdeaLabView,
   buildProjectWorkspaceView,
 } from "./view-model.js";
+import type { OperatorReconciliationReason } from "../harness/operator-reconciliation.js";
 
 export type WebControlPlaneRequest = {
   method: string;
@@ -36,6 +37,11 @@ export type IdeaLabRuntimeCapability = {
   enqueue?: (campaignId: string) => void;
   retryRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-allowed">;
   enqueueProjectRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-configured">;
+  inspectProjectRunReconciliation?: (input: { projectId: string; runId: string; expectedRevision: string }) => Promise<unknown>;
+  reconcileProjectRun?: (input: {
+    projectId: string; runId: string; expectedRevision: string; operationId: string;
+    reason: OperatorReconciliationReason; actor: "operator"; approvalId: string; at: string;
+  }) => Promise<unknown>;
 };
 
 export type WebControlPlaneRouterDependencies = {
@@ -253,6 +259,41 @@ export async function routeWebControlPlaneRequest(
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Project workspace not found:")) return response(404, { error: "not found" });
       if (error instanceof Error && /purpose|root node|terminal|identity|request does not match/.test(error.message)) return response(409, { error: error.message });
+      throw error;
+    }
+  }
+
+  const reconcileMatch = /^\/api\/projects\/([^/]+)\/runs\/([^/]+)\/operator-reconciliation$/.exec(path);
+  if (reconcileMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    const projectId = decodeId(reconcileMatch[1] ?? "");
+    const runId = decodeId(reconcileMatch[2] ?? "");
+    if (!projectId || !runId || !request.body || typeof request.body !== "object") return response(400, { error: "invalid reconciliation request" });
+    const body = request.body as Record<string, unknown>;
+    if (typeof body.expectedRevision !== "string") return response(400, { error: "expectedRevision is required" });
+    const action = body.action === "inspect" ? "inspect" : body.action === "apply" ? "apply" : null;
+    if (!action) return response(400, { error: "action must be inspect or apply" });
+    try {
+      if (action === "inspect") {
+        if (!deps.ideaLabRuntime?.inspectProjectRunReconciliation) return response(503, { error: "project runtime unavailable" });
+        return response(200, await deps.ideaLabRuntime.inspectProjectRunReconciliation({ projectId, runId, expectedRevision: body.expectedRevision }));
+      }
+      if (!deps.ideaLabRuntime?.reconcileProjectRun) return response(503, { error: "project runtime unavailable" });
+      const approval = body.approval;
+      if (!approval || typeof approval !== "object") return response(403, { error: "operator approval is required" });
+      const approvalRecord = approval as Record<string, unknown>;
+      if (approvalRecord.actor !== "operator" || typeof approvalRecord.approvalId !== "string") return response(403, { error: "operator approval is required" });
+      if (typeof body.operationId !== "string" || !["stale-runtime-after-shutdown", "operator-confirmed-no-active-work"].includes(String(body.reason))) {
+        return response(400, { error: "operationId and bounded reason are required" });
+      }
+      return response(200, await deps.ideaLabRuntime.reconcileProjectRun({
+        projectId, runId, expectedRevision: body.expectedRevision, operationId: body.operationId,
+        reason: body.reason as OperatorReconciliationReason, actor: "operator", approvalId: approvalRecord.approvalId,
+        at: (deps.now ?? (() => new Date().toISOString()))(),
+      }));
+    } catch (error) {
+      if (error instanceof Error && /not found|project mismatch/.test(error.message)) return response(404, { error: "not found" });
       throw error;
     }
   }

@@ -12,6 +12,9 @@ import {
 } from "../desktop-agent/core-service.js";
 import { refreshDevelopmentRunPreflight } from "../harness/run-service.js";
 import { listHarnessRuns, loadHarnessRun, requestHarnessRunRetry } from "../harness/run-store.js";
+import { listDesktopJobs } from "../desktop-agent/job-store.js";
+import { inspectProjectRunReconciliation, reconcileProjectRunAsOperator, type ProjectRunReconciliationInput, type ProjectRunReconciliationResult } from "../harness/operator-reconciliation.js";
+import { getActiveWebWorkerSession } from "../chatgpt-web/session-store.js";
 import { superviseHarnessRun } from "../harness/run-supervisor.js";
 import {
   resolveProductionChatGptBrowserDriver,
@@ -53,6 +56,8 @@ export type IseolRuntimeCapability = {
   enqueue?: (campaignId: string) => void;
   retryRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-allowed">;
   enqueueProjectRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-configured">;
+  inspectProjectRunReconciliation?: (input: { projectId: string; runId: string; expectedRevision: string }) => Promise<Awaited<ReturnType<typeof inspectProjectRunReconciliation>>>;
+  reconcileProjectRun?: (input: Omit<ProjectRunReconciliationInput, "storeRoot" | "observe">) => Promise<ProjectRunReconciliationResult>;
 };
 type DesktopCoreService = Awaited<ReturnType<typeof startDesktopAgentCoreService>>;
 type ProductionDriver = ReturnType<typeof createIdeaLabProductionRuntimeDriver>;
@@ -286,6 +291,8 @@ export async function startIseolRuntimeServices(
   let unsubscribeAgentConnected: (() => void) | undefined;
   const projectActiveRuns = new Map<string, Promise<void>>();
   let enqueueProjectRun: IseolRuntimeCapability["enqueueProjectRun"];
+  let inspectProjectRun: IseolRuntimeCapability["inspectProjectRunReconciliation"];
+  let reconcileProjectRun: IseolRuntimeCapability["reconcileProjectRun"];
   let capability: IseolRuntimeCapability = ideaLabRequested
     ? { state: "blocked" }
     : { state: "disabled" };
@@ -436,6 +443,31 @@ export async function startIseolRuntimeServices(
           void tracked.catch(() => undefined);
           return "accepted";
         };
+        const observeProjectRun = async (runId: string) => {
+          const jobs = (await listDesktopJobs(roots.projectDesktopStateRoot!)).filter((job) => job.runId === runId);
+          const persistedRun = await loadHarnessRun(roots.projectRunRoot!, runId);
+          const session = persistedRun
+            ? await getActiveWebWorkerSession(roots.projectWebWorkerRoot!, runId, persistedRun.state.stage).catch(() => null)
+            : null;
+          const active = projectActiveRuns.has(runId);
+          const workerOwned = active || session?.status === "starting" || session?.status === "busy";
+          return {
+            activeRuntimeOwner: active,
+            activeWorker: workerOwned,
+            ...(workerOwned ? { browserSessionOwner: runId } : {}),
+            desktopJobs: jobs,
+            completedResultsReconciled: true,
+          };
+        };
+        inspectProjectRun = async ({ projectId, runId, expectedRevision }) => inspectProjectRunReconciliation({
+          storeRoot: roots.projectRunRoot!, projectId, runId, expectedRevision,
+          observe: () => observeProjectRun(runId),
+        });
+        reconcileProjectRun = async (input) => reconcileProjectRunAsOperator({
+          ...input,
+          storeRoot: roots.projectRunRoot!,
+          observe: () => observeProjectRun(input.runId),
+        });
         for (const run of await listHarnessRuns(roots.projectRunRoot!)) {
           if (run.request.mode === "project-workspace" && shouldAutoRecoverProjectRun(run.state.status)) {
             void enqueueProjectRun(run.request.runId);
@@ -454,7 +486,12 @@ export async function startIseolRuntimeServices(
       policyRoot: ideaLabConfig.enabled ? ideaLabConfig.repositoryRoot : roots.iseolRoot,
       ...(roots.projectModelRoot ? { projectModelRoot: roots.projectModelRoot } : {}),
       ...(roots.projectRunRoot ? { projectHarnessRoot: roots.projectRunRoot } : {}),
-      ideaLabRuntime: { ...capability, ...(enqueueProjectRun ? { enqueueProjectRun } : {}) },
+      ideaLabRuntime: {
+        ...capability,
+        ...(enqueueProjectRun ? { enqueueProjectRun } : {}),
+        ...(inspectProjectRun ? { inspectProjectRunReconciliation: inspectProjectRun } : {}),
+        ...(reconcileProjectRun ? { reconcileProjectRun } : {}),
+      },
     });
   } catch (error) {
     unsubscribeAgentConnected?.();
@@ -469,7 +506,12 @@ export async function startIseolRuntimeServices(
     desktopCore,
     ...(bridge ? { chatGptBridge: bridge } : {}),
     ...(runtime ? { ideaLabRuntime: runtime } : {}),
-    ideaLabCapability: { ...capability, ...(enqueueProjectRun ? { enqueueProjectRun } : {}) },
+    ideaLabCapability: {
+      ...capability,
+      ...(enqueueProjectRun ? { enqueueProjectRun } : {}),
+      ...(inspectProjectRun ? { inspectProjectRunReconciliation: inspectProjectRun } : {}),
+      ...(reconcileProjectRun ? { reconcileProjectRun } : {}),
+    },
     async dispose() {
       if (disposed) return;
 
