@@ -6,6 +6,7 @@ export type ConnectDesktopAgentWebSocketClientOptions = {
   hello: DesktopAgentHello;
   heartbeatIntervalMs: number;
   onTask(pack: DesktopTaskPack): Promise<DesktopJobResult>;
+  completedResults?: Map<string, DesktopJobResult>;
   now?: () => string;
 };
 
@@ -13,6 +14,7 @@ export async function connectDesktopAgentWebSocketClient(
   options: ConnectDesktopAgentWebSocketClientOptions,
 ) {
   const now = options.now ?? (() => new Date().toISOString());
+  const completedResults = options.completedResults ?? new Map<string, DesktopJobResult>();
   const socket = new WebSocket(options.url);
   let heartbeat: NodeJS.Timeout | undefined;
   let accepted = false;
@@ -40,6 +42,11 @@ export async function connectDesktopAgentWebSocketClient(
             socket.send(JSON.stringify({ version: 1, type: "heartbeat", at: now() }));
           }
         }, options.heartbeatIntervalMs);
+        for (const result of completedResults.values()) {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ version: 1, type: "result", result, replay: true }));
+          }
+        }
         resolveReady();
         return;
       }
@@ -47,6 +54,7 @@ export async function connectDesktopAgentWebSocketClient(
       const pack = frame.pack as DesktopTaskPack;
       try {
         const result = await options.onTask(pack);
+        completedResults.set(result.jobId, result);
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({ version: 1, type: "result", result }));
         }
@@ -64,6 +72,7 @@ export async function connectDesktopAgentWebSocketClient(
             summary: error instanceof Error ? error.message : String(error),
           }],
         };
+        completedResults.set(result.jobId, result);
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({ version: 1, type: "result", result }));
         }

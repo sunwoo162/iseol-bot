@@ -2,6 +2,7 @@ import { userInfo } from "node:os";
 import { resolve } from "node:path";
 import { assertDesktopAgentId } from "./agent-registry.js";
 import { executeDesktopTaskPack } from "./runtime.js";
+import type { DesktopJobResult } from "./contracts.js";
 import { connectDesktopAgentWebSocketClient } from "./ws-client.js";
 
 export type DesktopAgentClientConfig = {
@@ -113,6 +114,7 @@ export async function runPersistentDesktopAgent(
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolveDelay) => setTimeout(resolveDelay, ms)));
   const random = deps.random ?? Math.random;
   let failures = 0;
+  const completedResults = new Map<string, DesktopJobResult>();
 
   while (!aborted(deps.signal)) {
     let connection: DesktopAgentConnection | null = null;
@@ -129,6 +131,7 @@ export async function runPersistentDesktopAgent(
           token: config.token,
         },
         heartbeatIntervalMs: config.heartbeatIntervalMs,
+        completedResults,
         onTask: (pack) => executeDesktopTaskPack(pack, {
           allowedRoots: config.workspaceRoots,
           policyRoots: config.policyRoots ?? [],

@@ -13,7 +13,7 @@ export type DesktopServerMessage =
 
 export type DesktopClientMessage =
   | { version: 1; type: "heartbeat"; at: string }
-  | { version: 1; type: "result"; result: DesktopJobResult };
+  | { version: 1; type: "result"; result: DesktopJobResult; replay?: boolean };
 
 export interface DesktopAgentWire {
   send(message: DesktopServerMessage): void;
@@ -94,12 +94,23 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
       await heartbeatDesktopAgent(options.registryRoot, session.agentId, message.at);
       return;
     }
-    const waiting = pending.get(message.result.jobId);
-    if (!waiting) throw new Error(`Unknown Desktop Job result: ${message.result.jobId}`);
     if (message.result.agentId !== session.agentId) {
       throw new Error(`Desktop Job result agent mismatch: ${message.result.jobId}`);
     }
+    const existing = completed.get(message.result.jobId);
+    if (existing) {
+      if (JSON.stringify(existing) !== JSON.stringify(message.result)) {
+        throw new Error(`Conflicting Desktop Job result: ${message.result.jobId}`);
+      }
+      return;
+    }
+    const waiting = pending.get(message.result.jobId);
+    if (!waiting) {
+      if (message.replay) return;
+      throw new Error(`Unknown Desktop Job result: ${message.result.jobId}`);
+    }
     pending.delete(message.result.jobId);
+    completed.set(message.result.jobId, structuredClone(message.result));
     waiting.resolve(message.result);
   }
 

@@ -185,6 +185,69 @@ test("loopback WebSocket supports outbound connect task result disconnect and re
   }
 });
 
+test("late result after await timeout remains recoverable", async () => {
+  const registryRoot = await root();
+  const transport = createDesktopAgentTransport({ registryRoot, expectedToken: "secret-token" });
+  const wire = new FakeWire();
+  await transport.acceptHello("session-late", hello, wire);
+  transport.sendTask("agent-001", task("job-late"));
+
+  await assert.rejects(transport.awaitResult("job-late", 1), /result timeout/i);
+  await transport.handleMessage("session-late", { version: 1, type: "result", result: result("job-late") });
+  assert.equal((await transport.awaitResult("job-late", 1_000)).jobId, "job-late");
+  await transport.handleMessage("session-late", { version: 1, type: "result", result: result("job-late") });
+  await assert.rejects(
+    transport.handleMessage("session-late", { version: 1, type: "result", result: { ...result("job-late"), completedAt: "different" } }),
+    /immutable|conflict/i,
+  );
+});
+
+test("completed result is replayed after disconnect before delivery", async () => {
+  const registryRoot = await root();
+  const transport = createDesktopAgentTransport({ registryRoot, expectedToken: "secret-token" });
+  const server = await startDesktopAgentWebSocketServer({ host: "127.0.0.1", port: 0, transport });
+  const completedResults = new Map<string, DesktopJobResult>();
+  let first!: Awaited<ReturnType<typeof connectDesktopAgentWebSocketClient>>;
+  let taskSeen!: () => void;
+  const seen = new Promise<void>((resolve) => { taskSeen = resolve; });
+  let release!: () => void;
+  const releaseTask = new Promise<void>((resolve) => { release = resolve; });
+  try {
+    first = await connectDesktopAgentWebSocketClient({
+      url: server.url,
+      hello,
+      heartbeatIntervalMs: 25,
+      completedResults,
+      onTask: async (pack) => {
+        taskSeen();
+        await releaseTask;
+        return result(pack.jobId);
+      },
+    } as any);
+    transport.sendTask("agent-001", task("job-replay"));
+    await seen;
+    await first.close();
+    release();
+
+    const second = await connectDesktopAgentWebSocketClient({
+      url: server.url,
+      hello,
+      heartbeatIntervalMs: 25,
+      completedResults,
+      onTask: async (pack) => result(pack.jobId),
+    } as any);
+    try {
+      assert.equal((await transport.awaitResult("job-replay", 1_000)).jobId, "job-replay");
+      assert.equal(completedResults.size, 1);
+    } finally {
+      await second.close();
+    }
+  } finally {
+    if (first) await first.close();
+    await server.close();
+  }
+});
+
 test("transport frames require the supported protocol version", async () => {
   const registryRoot = await root();
   const transport = createDesktopAgentTransport({ registryRoot, expectedToken: "secret-token" });
