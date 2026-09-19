@@ -492,6 +492,24 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
 
     if (run.state.status === "FAILED_FINAL") return persistFailure(canonical);
     if (run.state.status === "DONE") return finalizeReady(canonical, proposal, run);
+    if (run.retry?.status === "active" && run.state.status === "RUNNING") {
+      run = await recoverHarnessRun({
+        storeRoot: input.roots.runRoot,
+        runId: production.runId,
+        inspector: createDesktopRealityInspector({
+          registryRoot: input.desktopStateRoot,
+          jobRoot: input.desktopStateRoot,
+          transport: input.desktopTransport,
+          now,
+        }),
+        at: now(),
+      });
+      if (run.state.status === "WAITING_AGENT") {
+        const latest = await loadPrototypeProduction(input.roots.modelRoot, production.id) ?? canonical;
+        await savePrototypeProduction(input.roots.modelRoot, { ...latest, status: "running", updatedAt: now() });
+        return { production: { ...latest, status: "running", updatedAt: now() }, directive: "yield" };
+      }
+    }
     if (run.state.status === "WAITING_AGENT") {
       run = await recoverHarnessRun({
         storeRoot: input.roots.runRoot,

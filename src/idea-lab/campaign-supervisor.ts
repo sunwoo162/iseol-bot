@@ -302,7 +302,7 @@ export async function superviseIdeaLabCampaign(
     const retryableFailed = new Set(
       (await Promise.all(productions.filter((item) => item.status === "failed").map(async (item) => {
         const run = await loadHarnessRun(input.harnessRoot ?? input.root, item.runId);
-        return run?.state.status === "READY" && run.retry?.status === "active" ? item.id : null;
+        return (run?.state.status === "READY" || run?.state.status === "RUNNING") && run.retry?.status === "active" ? item.id : null;
       }))).filter((id): id is string => Boolean(id)),
     );
     const active = productions.filter((item) => ACTIVE_PRODUCTION_STATUSES.has(item.status) || retryableFailed.has(item.id));
