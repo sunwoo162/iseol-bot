@@ -148,8 +148,8 @@ test("IMPLEMENT prompt requests the exact PATCH_FRAME_V1 EOF transport", () => {
   assert.match(payload.outputContract.payloadRule, /next single-file patch/i);
   assert.match(payload.outputContract.payloadRule, /ISEOL_IMPLEMENT_DONE/i);
   assert.match(payload.outputContract.payloadRule, /git-apply-compatible/i);
-  assert.match(payload.outputContract.payloadRule, /code fence/i);
-  assert.match(payload.outputContract.payloadRule, /preserves every leading/i);
+  assert.match(payload.outputContract.payloadRule, /do not include markdown fences/i);
+  assert.doesNotMatch(payload.outputContract.payloadRule, /closing three backticks must be the final line/i);
   assert.doesNotMatch(JSON.stringify(payload.outputContract), /patchText|JSON string|appendix|ISEOL_PATCH_BEGIN|ISEOL_PATCH_END/i);
   assert.equal(payload.outputContract.reasoningTurnResult, undefined);
   assert.equal(payload.outputContract.desktopIntentCommonRequired, undefined);
