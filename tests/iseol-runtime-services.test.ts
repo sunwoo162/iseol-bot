@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { resolve } from "node:path";
 import type { ChatGptBrowserDriver } from "../src/chatgpt-web/production-browser-adapter.js";
-import { shouldAutoRecoverProjectRun, startIseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
+import { hasProjectRuntimeOwner, shouldAutoRecoverProjectRun, startIseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 
 function browserDriver(onDispose: () => void = () => undefined): ChatGptBrowserDriver {
@@ -71,10 +71,16 @@ function liveConfig() {
 }
 
 test("Project Workspace recovery does not auto-retry FAILED_RETRYABLE runs", () => {
-  assert.equal(shouldAutoRecoverProjectRun("READY"), true);
-  assert.equal(shouldAutoRecoverProjectRun("RUNNING"), true);
+  assert.equal(shouldAutoRecoverProjectRun("READY"), false);
+  assert.equal(shouldAutoRecoverProjectRun("RUNNING"), false);
   assert.equal(shouldAutoRecoverProjectRun("FAILED_RETRYABLE"), false);
   assert.equal(shouldAutoRecoverProjectRun("FAILED_FINAL"), false);
+  assert.equal(hasProjectRuntimeOwner([
+    { request: { mode: "project-workspace", runId: "run-3" }, state: { status: "RUNNING" } },
+  ], "run-4"), true);
+  assert.equal(hasProjectRuntimeOwner([
+    { request: { mode: "project-workspace", runId: "run-4" }, state: { status: "RUNNING" } },
+  ], "run-4"), false);
 });
 
 test("shares one browser across bridge and Idea Lab and disposes it exactly once", async () => {

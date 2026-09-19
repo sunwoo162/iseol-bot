@@ -101,7 +101,19 @@ function projectAgentId(env: Record<string, string | undefined>, ideaLabConfig: 
 }
 
 export function shouldAutoRecoverProjectRun(status: string): boolean {
-  return status === "READY" || status === "RUNNING";
+  void status;
+  return false;
+}
+
+export function hasProjectRuntimeOwner(
+  runs: ReadonlyArray<{ request: { mode: string; runId: string }; state: { status: string } }>,
+  runId: string,
+): boolean {
+  return runs.some((candidate) =>
+    candidate.request.mode === "project-workspace"
+    && candidate.request.runId !== runId
+    && candidate.state.status === "RUNNING",
+  );
 }
 
 function projectTestConfig(env: Record<string, string | undefined>) {
@@ -415,6 +427,7 @@ export async function startIseolRuntimeServices(
           const run = await loadHarnessRun(roots.projectRunRoot!, runId);
           if (!run || run.request.mode !== "project-workspace") return "not-configured";
           if (!["READY", "RUNNING", "FAILED_RETRYABLE"].includes(run.state.status)) return "not-configured";
+          if (hasProjectRuntimeOwner(await listHarnessRuns(roots.projectRunRoot!), runId)) return "already-active";
           const operation = superviseHarnessRun({ storeRoot: roots.projectRunRoot!, runId, executor: projectExecutor, maxSteps: 16 });
           const tracked = operation.then(() => undefined).finally(() => {
             if (projectActiveRuns.get(runId) === tracked) projectActiveRuns.delete(runId);
