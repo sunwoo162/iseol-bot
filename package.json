@@ -16,6 +16,7 @@
                     "review:install-workflows":  "tsx scripts/install-review-workflows.ts",
                     "chatgpt:web:smoke":  "tsx scripts/chatgpt-web-browser-smoke.ts",
                     "idea-lab:live:smoke":  "tsx scripts/idea-lab-live-smoke.ts",
+                    "iseol:runtime":  "tsx scripts/iseol-runtime-host.ts",
                     "desktop:agent":  "tsx src/desktop-agent/main.ts",
                     "desktop:agent:start":  "node dist/desktop-agent/main.js",
                     "eval:quick":  "tsx src/evaluation/quick-runner.ts",
