@@ -110,6 +110,24 @@ test("Idea-Lab-only runtime resolves the browser once even when standalone bridg
   await services.dispose();
 });
 
+test("Project Workspace runs use the configured repository policy root for global Harness policy", async () => {
+  let webOptions: any;
+  const value = fixture({
+    env: { ISEOL_PROJECT_RUNTIME_ENABLED: "true", ISEOL_PROJECT_AGENT_ID: "agent-project" },
+    ideaLabConfig: liveConfig(),
+  });
+  value.deps.resolveBrowser = async () => browserDriver();
+  value.deps.startWeb = async (options: any) => {
+    webOptions = options;
+    return { close: (done?: (error?: Error) => void) => done?.() };
+  };
+
+  const services = await startIseolRuntimeServices(value);
+  assert.equal(webOptions.iseolRoot, "C:/sandbox/source");
+  assert.equal(webOptions.policyRoot, "C:/sandbox/source");
+  await services.dispose();
+});
+
 test("Project Workspace runtime registers the shared AI/Desktop executor when explicitly enabled", async () => {
   let capability: any;
   const value = fixture({ env: {
