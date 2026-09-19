@@ -7,6 +7,7 @@ export type ConnectDesktopAgentWebSocketClientOptions = {
   heartbeatIntervalMs: number;
   onTask(pack: DesktopTaskPack): Promise<DesktopJobResult>;
   completedResults?: Map<string, DesktopJobResult>;
+  persistResult?: (result: DesktopJobResult) => Promise<void>;
   now?: () => string;
 };
 
@@ -53,8 +54,12 @@ export async function connectDesktopAgentWebSocketClient(
       if (frame?.type !== "task") return;
       const pack = frame.pack as DesktopTaskPack;
       try {
-        const result = await options.onTask(pack);
-        completedResults.set(result.jobId, result);
+        const cached = completedResults.get(pack.jobId);
+        const result = cached ?? await options.onTask(pack);
+        if (!cached) {
+          await options.persistResult?.(result);
+          completedResults.set(result.jobId, result);
+        }
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({ version: 1, type: "result", result }));
         }

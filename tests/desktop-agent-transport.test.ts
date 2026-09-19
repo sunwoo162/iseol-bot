@@ -10,6 +10,7 @@ import {
 } from "../src/desktop-agent/transport.js";
 import { startDesktopAgentWebSocketServer } from "../src/desktop-agent/ws-server.js";
 import { connectDesktopAgentWebSocketClient } from "../src/desktop-agent/ws-client.js";
+import { loadCompletedDesktopResults, persistCompletedDesktopResult } from "../src/desktop-agent/result-store.js";
 
 const hello: DesktopAgentHello = {
   version: 1,
@@ -204,6 +205,7 @@ test("late result after await timeout remains recoverable", async () => {
 
 test("completed result is replayed after disconnect before delivery", async () => {
   const registryRoot = await root();
+  const resultRoot = await root();
   const transport = createDesktopAgentTransport({ registryRoot, expectedToken: "secret-token" });
   const server = await startDesktopAgentWebSocketServer({ host: "127.0.0.1", port: 0, transport });
   const completedResults = new Map<string, DesktopJobResult>();
@@ -212,6 +214,9 @@ test("completed result is replayed after disconnect before delivery", async () =
   const seen = new Promise<void>((resolve) => { taskSeen = resolve; });
   let release!: () => void;
   const releaseTask = new Promise<void>((resolve) => { release = resolve; });
+  let persisted!: () => void;
+  const persistedResult = new Promise<void>((resolve) => { persisted = resolve; });
+  let executions = 0;
   try {
     first = await connectDesktopAgentWebSocketClient({
       url: server.url,
@@ -219,26 +224,34 @@ test("completed result is replayed after disconnect before delivery", async () =
       heartbeatIntervalMs: 25,
       completedResults,
       onTask: async (pack) => {
+        executions += 1;
         taskSeen();
         await releaseTask;
         return result(pack.jobId);
+      },
+      persistResult: async (value) => {
+        await persistCompletedDesktopResult(resultRoot, value);
+        persisted();
       },
     } as any);
     transport.sendTask("agent-001", task("job-replay"));
     await seen;
     await first.close();
     release();
+    await persistedResult;
 
+    const restartedResults = await loadCompletedDesktopResults(resultRoot);
     const second = await connectDesktopAgentWebSocketClient({
       url: server.url,
       hello,
       heartbeatIntervalMs: 25,
-      completedResults,
+      completedResults: restartedResults,
       onTask: async (pack) => result(pack.jobId),
     } as any);
     try {
       assert.equal((await transport.awaitResult("job-replay", 1_000)).jobId, "job-replay");
-      assert.equal(completedResults.size, 1);
+      assert.equal(executions, 1);
+      assert.equal(restartedResults.size, 1);
     } finally {
       await second.close();
     }
@@ -246,6 +259,20 @@ test("completed result is replayed after disconnect before delivery", async () =
     if (first) await first.close();
     await server.close();
   }
+});
+
+test("durable Agent results are bounded and omit command output", async () => {
+  const resultRoot = await root();
+  for (const jobId of ["job-a", "job-b", "job-c"]) {
+    await persistCompletedDesktopResult(resultRoot, {
+      ...result(jobId),
+      completedAt: `2026-09-08T02:00:0${jobId === "job-a" ? "1" : jobId === "job-b" ? "2" : "3"}.000Z`,
+      operations: [{ operationId: "op-1", ok: true, summary: "done", stdout: "ISEOL_SECRET_SENTINEL" }],
+    }, 2);
+  }
+  const loaded = await loadCompletedDesktopResults(resultRoot);
+  assert.deepEqual([...loaded.keys()], ["job-b", "job-c"]);
+  assert.doesNotMatch(JSON.stringify([...loaded.values()]), /ISEOL_SECRET_SENTINEL/);
 });
 
 test("transport frames require the supported protocol version", async () => {

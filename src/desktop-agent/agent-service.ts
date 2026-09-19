@@ -1,8 +1,9 @@
-import { userInfo } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { resolve } from "node:path";
 import { assertDesktopAgentId } from "./agent-registry.js";
 import { executeDesktopTaskPack } from "./runtime.js";
 import type { DesktopJobResult } from "./contracts.js";
+import { loadCompletedDesktopResults, persistCompletedDesktopResult } from "./result-store.js";
 import { connectDesktopAgentWebSocketClient } from "./ws-client.js";
 
 export type DesktopAgentClientConfig = {
@@ -15,6 +16,7 @@ export type DesktopAgentClientConfig = {
   heartbeatIntervalMs: number;
   reconnectBaseMs: number;
   reconnectMaxMs: number;
+  resultRoot?: string;
 };
 
 type AgentEnv = Record<string, string | undefined>;
@@ -85,6 +87,7 @@ export function resolveDesktopAgentClientConfig(env: AgentEnv): DesktopAgentClie
     heartbeatIntervalMs,
     reconnectBaseMs,
     reconnectMaxMs,
+    resultRoot: resolve(env.ISEOL_DESKTOP_AGENT_RESULT_ROOT?.trim() || resolve(homedir(), ".iseol", "desktop-agent", agentId, "completed-results")),
   };
 }
 
@@ -114,7 +117,8 @@ export async function runPersistentDesktopAgent(
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolveDelay) => setTimeout(resolveDelay, ms)));
   const random = deps.random ?? Math.random;
   let failures = 0;
-  const completedResults = new Map<string, DesktopJobResult>();
+  const resultRoot = config.resultRoot ?? resolve(homedir(), ".iseol", "desktop-agent", config.agentId, "completed-results");
+  const completedResults = await loadCompletedDesktopResults(resultRoot);
 
   while (!aborted(deps.signal)) {
     let connection: DesktopAgentConnection | null = null;
@@ -132,6 +136,7 @@ export async function runPersistentDesktopAgent(
         },
         heartbeatIntervalMs: config.heartbeatIntervalMs,
         completedResults,
+        persistResult: (result) => persistCompletedDesktopResult(resultRoot, result),
         onTask: (pack) => executeDesktopTaskPack(pack, {
           allowedRoots: config.workspaceRoots,
           policyRoots: config.policyRoots ?? [],
