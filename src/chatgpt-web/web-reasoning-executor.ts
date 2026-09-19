@@ -37,6 +37,7 @@ export type CreateWebReasoningExecutorInput = {
   now?: () => string;
   resultTimeoutMs?: number;
   maxTurnsPerStage?: number;
+  maxRecoveryAttempts?: number;
   maxRejectedIntents?: number;
   sleep?: (ms: number) => Promise<void>;
   rateLimitBackoffMs?: readonly number[];
@@ -195,12 +196,14 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
   const now = input.now ?? (() => new Date().toISOString());
   const resultTimeoutMs = input.resultTimeoutMs ?? 240_000;
   const maxTurns = input.maxTurnsPerStage ?? 8;
+  const maxRecoveryAttempts = input.maxRecoveryAttempts ?? maxTurns;
   const maxRejected = input.maxRejectedIntents ?? 3;
   const sleep = input.sleep
     ?? ((ms: number) => new Promise<void>((resolveDelay) => setTimeout(resolveDelay, ms)));
   const rateLimitBackoffMs = [...(input.rateLimitBackoffMs ?? [])];
 
   if (!Number.isInteger(maxTurns) || maxTurns <= 0) throw new Error("maxTurnsPerStage must be a positive integer");
+  if (!Number.isInteger(maxRecoveryAttempts) || maxRecoveryAttempts <= 0) throw new Error("maxRecoveryAttempts must be a positive integer");
   if (!Number.isInteger(maxRejected) || maxRejected <= 0) throw new Error("maxRejectedIntents must be a positive integer");
   if (rateLimitBackoffMs.some((ms) => !Number.isInteger(ms) || ms < 0)) {
     throw new Error("rateLimitBackoffMs must contain non-negative integers");
@@ -229,7 +232,9 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
       let openedSessionId: string | null = null;
       let acceptedTurns = 0;
       let rejectedCount = 0;
-      let recoveries = 0;
+      // Persisted generations bound recovery across Runtime restarts. Older
+      // sessions lacked recoveryCount, so generation remains the fallback.
+      let recoveries = Math.max(session.recoveryCount ?? 0, session.generation - 1);
       let identitylessRecoveries = 0;
       let rateLimitRetries = 0;
       let finalRecoveryClass = "session lost";
@@ -294,10 +299,10 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
               return { type: "retryable-failure", reason: `ChatGPT Web recovery budget exhausted: ${finalRecoveryClass}` };
             }
           }
-          recoveries += 1;
-          if (recoveries > maxTurns) {
+          if (recoveries >= maxRecoveryAttempts) {
             return { type: "retryable-failure", reason: `ChatGPT Web recovery budget exhausted: ${finalRecoveryClass}` };
           }
+          recoveries += 1;
           const recovered = await recoverWebWorkerSession({
             workerRoot: input.workerRoot, run, session, priorTurns, desktopEvidence, at: now(),
           });

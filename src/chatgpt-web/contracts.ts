@@ -14,6 +14,8 @@ export type WebWorkerSession = {
   projectId?: string;
   stage: HarnessRunStage;
   generation: number;
+  /** Number of lost-session replacements already consumed for this Run/stage. */
+  recoveryCount?: number;
   conversationRef?: string;
   policySha256: string;
   status: WebWorkerSessionStatus;
@@ -98,6 +100,10 @@ function generation(value: unknown): number {
   if (!Number.isInteger(value) || Number(value) < 1) throw new Error("generation must be a positive integer");
   return Number(value);
 }
+function recoveryCount(value: unknown): number {
+  if (!Number.isInteger(value) || Number(value) < 0 || Number(value) > 64) throw new Error("recoveryCount must be a bounded non-negative integer");
+  return Number(value);
+}
 function stage(value: unknown): HarnessRunStage {
   const result = text(value, "stage") as HarnessRunStage;
   if (!STAGES.has(result)) throw new Error(`Unsupported Harness stage: ${result}`);
@@ -122,7 +128,7 @@ function exactKeys(value: Record<string, unknown>, allowed: readonly string[], l
 
 export function assertWebWorkerSession(value: unknown): asserts value is WebWorkerSession {
   const item = record(value, "Web worker session");
-  version(item.version); id(item.sessionId, "sessionId"); id(item.runId, "runId"); if (item.projectId !== undefined) id(item.projectId, "projectId"); stage(item.stage); generation(item.generation);
+  version(item.version); id(item.sessionId, "sessionId"); id(item.runId, "runId"); if (item.projectId !== undefined) id(item.projectId, "projectId"); stage(item.stage); generation(item.generation); if (item.recoveryCount !== undefined) recoveryCount(item.recoveryCount);
   text(item.policySha256, "policySha256"); iso(item.createdAt, "createdAt");
   if (!SESSION_STATUSES.has(item.status as WebWorkerSessionStatus)) throw new Error(`Unsupported session status: ${String(item.status)}`);
   if (item.resultContract !== undefined) {

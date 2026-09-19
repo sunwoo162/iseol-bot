@@ -68,6 +68,7 @@ export async function recoverWebWorkerSession(input: {
     runId: input.run.request.runId,
     stage: input.run.state.stage,
     generation,
+    recoveryCount: (input.session.recoveryCount ?? Math.max(0, input.session.generation - 1)) + 1,
     policySha256: policy.effectiveSha256,
     status: "ready",
     resultContract: persistedWebWorkerResultContract(input.session),

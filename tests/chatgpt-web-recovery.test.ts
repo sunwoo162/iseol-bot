@@ -37,6 +37,7 @@ test("lost session is replaced by the next generation with a recovery prompt", a
   assert.match(recovered.prompt.body, /do not repeat verified side effects/i);
   assert.equal((await loadWebWorkerSession(root, "session-old"))?.status, "lost");
   assert.equal((await getActiveWebWorkerSession(root, "run-recovery", "IMPLEMENT"))?.generation, 2);
+  assert.equal((await getActiveWebWorkerSession(root, "run-recovery", "IMPLEMENT"))?.recoveryCount, 1);
 });
 
 test("late old-generation result is rejected after replacement", async () => {
@@ -71,6 +72,38 @@ test("executor recovers a lost browser session and continues the same Run", asyn
   assert.equal((await getActiveWebWorkerSession(root, "run-recovery", "IMPLEMENT"))?.generation, 2);
   assert.equal(fake.submittedPrompts.length, 2);
   assert.equal(fake.submittedPrompts[1]?.kind, "recovery");
+});
+
+test("session-loss recovery budget survives a new executor invocation", async () => {
+  const { root, run } = await fixture();
+  const first = createFakeChatGptWebBrowserAdapter([
+    new ChatGptWebSessionLostError("first session disappeared"),
+    new ChatGptWebSessionLostError("replacement session disappeared"),
+  ]);
+  const firstExecutor = createWebReasoningExecutor({
+    workerRoot: root, adapter: first.adapter, maxRecoveryAttempts: 1,
+    runDesktopIntent: async () => { throw new Error("unused"); },
+  });
+  assert.deepEqual(await firstExecutor.execute(run), {
+    type: "retryable-failure",
+    reason: "ChatGPT Web recovery budget exhausted: unknown-session-loss",
+  });
+  const persisted = await getActiveWebWorkerSession(root, "run-recovery", "IMPLEMENT");
+  assert.equal(persisted?.generation, 2);
+  assert.equal(persisted?.recoveryCount, 1);
+
+  const second = createFakeChatGptWebBrowserAdapter([
+    new ChatGptWebSessionLostError("restart session disappeared"),
+  ]);
+  const secondExecutor = createWebReasoningExecutor({
+    workerRoot: root, adapter: second.adapter, maxRecoveryAttempts: 1,
+    runDesktopIntent: async () => { throw new Error("unused"); },
+  });
+  assert.deepEqual(await secondExecutor.execute(run), {
+    type: "retryable-failure",
+    reason: "ChatGPT Web recovery budget exhausted: unknown-session-loss",
+  });
+  assert.equal((await getActiveWebWorkerSession(root, "run-recovery", "IMPLEMENT"))?.generation, 2);
 });
 
 test("recovery preserves an explicitly persisted legacy result contract", async () => {
