@@ -6,6 +6,9 @@ import { join } from "node:path";
 import type { IdeaProposal, PrototypeProduction } from "../src/idea-lab/contracts.js";
 import { saveIdeaLabCampaign, loadIdeaLabCampaign } from "../src/idea-lab/campaign-store.js";
 import { listPrototypeProductions } from "../src/idea-lab/production-store.js";
+import { savePrototypeProduction } from "../src/idea-lab/production-store.js";
+import { saveIdeaProposal } from "../src/idea-lab/proposal-store.js";
+import { saveHarnessRun } from "../src/harness/run-store.js";
 import { FakeIdeaProposalProvider } from "../src/idea-lab/test-support/fake-proposal-provider.js";
 import {
   IdeaLabCampaignBlockedError,
@@ -117,6 +120,34 @@ test("missing provider or protected production blocker moves Campaign to blocked
   assert.equal(blocked.status, "blocked");
   assert.match(blocked.blockerSummary ?? "", /Desktop Agent unavailable/);
   assert.doesNotMatch(blocked.blockerSummary ?? "", /token|cookie|secret=/i);
+});
+
+test("explicit retry makes a failed production with an active READY Run discoverable", async () => {
+  const root = await fixture(1);
+  const runRoot = join(root, "runs");
+  const proposal = { version: 1, id: "camp-1-proposal-1", campaignId: "camp-1", ...draft("A", 1), status: "accepted" as const, createdAt: NOW };
+  const production = { ...productionFor(proposal, 1), status: "failed" as const, failureSummary: "patch validation invalid" };
+  await saveIdeaProposal(root, proposal);
+  await savePrototypeProduction(root, production);
+  await saveIdeaLabCampaign(root, { ...(await loadIdeaLabCampaign(root, "camp-1"))!, proposalIds: [proposal.id], productionIds: [production.id], status: "producing" });
+  await saveHarnessRun(runRoot, {
+    version: 1,
+    request: { version: 1, runId: production.runId, mode: "idea-lab", objective: "x", targetRoot: production.worktreeRoot },
+    preflight: { version: 1, runId: production.runId, status: "ready" },
+    state: { version: 1, stage: "IMPLEMENT", status: "READY", completedStages: ["PREFLIGHT", "CONTEXT", "ANALYZE", "PLAN"], skippedStages: [], updatedAt: NOW },
+    evidence: [],
+    retry: { version: 1, cycle: 1, requestedFromState: "FAILED_FINAL", requestedStage: "IMPLEMENT", retryReason: "operator-request", requestedAt: NOW, actor: "operator", status: "active" },
+    updatedAt: NOW,
+  });
+  let advanced = 0;
+  const result = await superviseIdeaLabCampaign({
+    root, harnessRoot: runRoot, campaignId: "camp-1",
+    createProduction: async () => { throw new Error("must not create a replacement production"); },
+    advanceProduction: async (current) => { advanced += 1; return { ...current, status: "ready" as const, commitSha: "a".repeat(40), updatedAt: NOW }; },
+    now: () => NOW, maxSteps: 2,
+  });
+  assert.equal(advanced, 1);
+  assert.equal(result.status, "complete");
 });
 
 

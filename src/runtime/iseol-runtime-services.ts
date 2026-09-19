@@ -303,6 +303,7 @@ export async function startIseolRuntimeServices(
           superviseCampaign: async (campaignId) => {
             await superviseIdeaLabCampaign({
               root: roots.modelRoot,
+              harnessRoot: roots.runRoot,
               campaignId,
               proposalProvider,
               ...productionDriver,

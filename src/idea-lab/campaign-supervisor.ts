@@ -6,6 +6,7 @@ import { appendIdeaLabCampaignEventOnce } from "./event-store.js";
 import type { IdeaProposalDraft, IdeaProposalProvider } from "./proposal-provider.js";
 import { assertIdeaProposalProviderResult } from "./proposal-provider.js";
 import { evaluateProposalDistinctness } from "./distinctness.js";
+import { loadHarnessRun } from "../harness/run-store.js";
 
 export class IdeaLabCampaignBlockedError extends Error {
   constructor(message: string) {
@@ -25,6 +26,7 @@ export type ProductionAdvanceResult =
 
 export type SuperviseIdeaLabCampaignInput = {
   root: string;
+  harnessRoot?: string;
   campaignId: string;
   proposalProvider?: IdeaProposalProvider;
   createProduction(proposal: IdeaProposal, ordinal: number): Promise<PrototypeProduction>;
@@ -297,7 +299,13 @@ export async function superviseIdeaLabCampaign(
     const blocked = productions.find((item) => item.status === "blocked");
     if (blocked) return blockCampaign(input, campaign, blocked.blockerSummary ?? `Production ${blocked.id} is blocked`);
 
-    const active = productions.filter((item) => ACTIVE_PRODUCTION_STATUSES.has(item.status));
+    const retryableFailed = new Set(
+      (await Promise.all(productions.filter((item) => item.status === "failed").map(async (item) => {
+        const run = await loadHarnessRun(input.harnessRoot ?? input.root, item.runId);
+        return run?.state.status === "READY" && run.retry?.status === "active" ? item.id : null;
+      }))).filter((id): id is string => Boolean(id)),
+    );
+    const active = productions.filter((item) => ACTIVE_PRODUCTION_STATUSES.has(item.status) || retryableFailed.has(item.id));
     if (active.length > 0) {
       const advanced = await advanceOneProduction(input, campaign, active[0]!);
       steps += 1;
