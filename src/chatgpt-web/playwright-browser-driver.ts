@@ -11,6 +11,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ChatGptWebResultContract, ChatGptWebSessionProbe } from "./browser-adapter.js";
 import type { ChatGptBrowserDriver } from "./production-browser-adapter.js";
+import { classifyChatGptBrowserOperationFailure } from "./production-browser-adapter.js";
 import type { PlaywrightBrowserDriverConfig } from "./playwright-browser-config.js";
 import { createPlaywrightBrowserBackend, type PlaywrightBrowserBackend } from "./playwright-browser-backend.js";
 import { patchRejectionDiagnostic } from "./patch-diagnostics.js";
@@ -119,7 +120,7 @@ function classifyBrowserFailure(error: unknown): never {
     || error instanceof ChatGptWebUsageLimitError
     || error instanceof ChatGptWebStructuredResultError
   ) throw error;
-  throw new ChatGptWebSessionLostError("ChatGPT browser operation failed");
+  throw new ChatGptWebSessionLostError("ChatGPT browser operation failed", classifyChatGptBrowserOperationFailure(error));
 }
 
 function canonicalizeNewFilePatch(patch: string): string {

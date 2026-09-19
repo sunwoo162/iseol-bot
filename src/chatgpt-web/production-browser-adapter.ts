@@ -1,4 +1,4 @@
-import type { ChatGptWebBrowserAdapter, ChatGptWebResultContract, ChatGptWebSessionProbe } from "./browser-adapter.js";
+import type { ChatGptWebBrowserAdapter, ChatGptWebResultContract, ChatGptWebSessionProbe, ChatGptBrowserOperationFailureClass } from "./browser-adapter.js";
 import {
   ChatGptWebAuthenticationRequiredError,
   ChatGptWebSessionLostError,
@@ -20,12 +20,7 @@ export interface ChatGptBrowserDriver {
   dispose?(): Promise<void>;
 }
 
-export type ChatGptBrowserOperationFailureClass =
-  | "page-closed" | "context-closed" | "browser-disconnected" | "target-closed"
-  | "page-missing" | "owned-page-missing" | "navigation-failed" | "locator-missing"
-  | "execution-context-destroyed" | "timeout" | "session-not-found"
-  | "conversation-not-found" | "auth-or-login-page" | "operation-aborted"
-  | "driver-error" | "unknown";
+export type { ChatGptBrowserOperationFailureClass } from "./browser-adapter.js";
 
 export function classifyChatGptBrowserOperationFailure(error: unknown): ChatGptBrowserOperationFailureClass {
   const message = error instanceof Error ? error.message : "";
@@ -69,7 +64,7 @@ function classify(error: unknown): never {
   ) throw error;
   const message = error instanceof Error ? error.message : "ChatGPT browser operation failed";
   if (/auth|login|sign.?in/i.test(message)) throw new ChatGptWebAuthenticationRequiredError(message);
-  throw new ChatGptWebSessionLostError("ChatGPT browser operation failed");
+  throw new ChatGptWebSessionLostError("ChatGPT browser operation failed", classifyChatGptBrowserOperationFailure(error));
 }
 
 export function createProductionChatGptWebAdapter(driver: ChatGptBrowserDriver): ChatGptWebBrowserAdapter {

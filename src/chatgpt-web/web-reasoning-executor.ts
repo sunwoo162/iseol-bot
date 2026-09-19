@@ -144,6 +144,7 @@ function browserFailureClass(error: unknown): string {
     if (/conversation (?:reference|identity).*(?:unavailable|missing|not assign)|canonical conversation identity.*(?:unavailable|not assign)/i.test(error.message)) {
       return "conversation identity unavailable";
     }
+    if (error.failureClass && error.failureClass !== "unknown") return `browser-${error.failureClass}`;
     return "unknown-session-loss";
   }
   return "browser failure";

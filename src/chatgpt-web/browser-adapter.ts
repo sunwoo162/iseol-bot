@@ -6,9 +6,20 @@ export type ChatGptWebSessionProbe =
   | "conversation-exhausted" | "usage-limited";
 export type ChatGptWebOpenResult = { conversationRef?: string };
 export type ChatGptWebResultContract = WebWorkerResultContract;
+export type ChatGptBrowserOperationFailureClass =
+  | "page-closed" | "context-closed" | "browser-disconnected" | "target-closed"
+  | "page-missing" | "owned-page-missing" | "navigation-failed" | "locator-missing"
+  | "execution-context-destroyed" | "timeout" | "session-not-found"
+  | "conversation-not-found" | "auth-or-login-page" | "operation-aborted"
+  | "driver-error" | "unknown";
 
 export class ChatGptWebSessionLostError extends Error {
-  constructor(message: string) { super(message); this.name = "ChatGptWebSessionLostError"; }
+  readonly failureClass?: ChatGptBrowserOperationFailureClass;
+  constructor(message: string, failureClass?: ChatGptBrowserOperationFailureClass) {
+    super(message);
+    this.name = "ChatGptWebSessionLostError";
+    this.failureClass = failureClass;
+  }
 }
 export class ChatGptWebAuthenticationRequiredError extends Error {
   constructor(message: string) { super(message); this.name = "ChatGptWebAuthenticationRequiredError"; }

@@ -850,3 +850,23 @@ test("bounded browser failures persist safe semantic classifications", async () 
     assert.doesNotMatch(JSON.stringify(result), /browser session disappeared|reference is unavailable|limit reached|exactly one JSON/);
   }
 });
+
+test("bounded browser failure metadata reaches the recovery reason", async () => {
+  const { root, run } = await fixture();
+  const browser = await import("../src/chatgpt-web/browser-adapter.js");
+  const adapter = {
+    openOrResumeSession: async () => ({ conversationRef: "conv-bounded" }),
+    submitTurn: async () => ({ conversationRef: "conv-bounded" }),
+    awaitStructuredResult: async () => { throw new browser.ChatGptWebSessionLostError("ChatGPT browser operation failed", "page-closed"); },
+    probeSession: async () => "lost",
+    closeSession: async () => undefined,
+  } as any;
+  const executor = createWebReasoningExecutor({
+    workerRoot: root, adapter, maxTurnsPerStage: 1,
+    runDesktopIntent: async () => { throw new Error("unused"); },
+  });
+  assert.deepEqual(await executor.execute(run), {
+    type: "retryable-failure",
+    reason: "ChatGPT Web recovery budget exhausted: browser-page-closed",
+  });
+});

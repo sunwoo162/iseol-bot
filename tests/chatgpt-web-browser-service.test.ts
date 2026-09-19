@@ -103,6 +103,18 @@ test("browser operation failures map to bounded classes without exposing excepti
   assert.equal((diagnostic as { failureClass: string }).failureClass, "unknown");
   assert.doesNotMatch(JSON.stringify(diagnostic), new RegExp(sentinel));
 });
+test("adapter preserves a bounded browser failure class on session-loss errors", async () => {
+  const driver: ChatGptBrowserDriver = {
+    openOrResumeConversation: async () => { throw new Error("Page has been closed"); },
+    submitPrompt: async () => undefined,
+    readStructuredResult: async () => ({}),
+    probeConversation: async () => "lost",
+    closeConversation: async () => undefined,
+  };
+  const error = await createProductionChatGptWebAdapter(driver).openOrResumeSession(session, prompt).catch((value: unknown) => value);
+  assert.ok(error instanceof ChatGptWebSessionLostError);
+  assert.equal(error.failureClass, "page-closed");
+});
 test("controlled smoke rejects mutation intents unless an explicit workspace is allowed", async () => {
   const smokeDriver: ChatGptBrowserDriver = {
     openOrResumeConversation: async () => ({ conversationRef: "smoke-conv" }),
