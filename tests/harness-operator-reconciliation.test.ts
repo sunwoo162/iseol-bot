@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { inspectProjectRunReconciliation, reconcileProjectRunAsOperator } from "../src/harness/operator-reconciliation.js";
 import { loadHarnessRun, saveHarnessRun } from "../src/harness/run-store.js";
 import { loadHarnessRunEvents } from "../src/harness/event-store.js";
+import { consumeOperatorApproval, issueOperatorApproval } from "../src/harness/operator-approval-store.js";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 
 async function fixture() {
@@ -54,6 +55,7 @@ test("reconciliation requires approval, pauses stale Run, records operation, and
   const f = await fixture();
   const expectedRevision = "2026-09-19T00:00:00.000Z:2026-09-19T00:00:00.000Z:ANALYZE:RUNNING";
   const base = { storeRoot: f.root, projectId: "project-a", runId: "run-3", expectedRevision, operationId: "op-1", reason: "operator-confirmed-no-active-work" as const, actor: "operator" as const, approvalId: "approval-1", at: "2026-09-19T00:01:00.000Z", observe: quietObservation };
+  await issueOperatorApproval({ root: f.root, requestId: "request-1", projectId: "project-a", runId: "run-3", stage: "ANALYZE", status: "RUNNING", revision: expectedRevision, reason: base.reason, issuedAt: "2026-09-19T00:00:30.000Z", expiresAt: "2026-09-19T01:00:00.000Z", issuedBy: "test-operator" }).then(async (approval) => { base.approvalId = approval.approvalId; });
   const first = await reconcileProjectRunAsOperator(base);
   assert.equal(first.status, "reconciled");
   assert.equal((await loadHarnessRun(f.root, "run-3"))?.state.status, "PAUSED");
@@ -80,4 +82,18 @@ test("mismatched project identity is rejected", async () => {
   const result = await inspectProjectRunReconciliation({ storeRoot: f.root, projectId: "project-b", runId: "run-3", expectedRevision: "x", observe: quietObservation });
   assert.equal(result.canReconcile, false);
   assert.deepEqual(result.blockers, ["run-not-found-or-project-mismatch"]);
+});
+
+test("operator approvals are target-bound, expiring, and single-use", async () => {
+  const f = await fixture();
+  const revision = "2026-09-19T00:00:00.000Z:2026-09-19T00:00:00.000Z:ANALYZE:RUNNING";
+  const approval = await issueOperatorApproval({ root: f.root, requestId: "request-bound", projectId: "project-a", runId: "run-3", stage: "ANALYZE", status: "RUNNING", revision, reason: "stale-runtime-after-shutdown", issuedAt: "2026-09-19T00:00:00.000Z", expiresAt: "2026-09-19T00:10:00.000Z", issuedBy: "operator" });
+  const wrongRun = await consumeOperatorApproval({ root: f.root, approvalId: approval.approvalId, projectId: "project-a", runId: "run-4", stage: "ANALYZE", status: "RUNNING", revision, at: "2026-09-19T00:01:00.000Z" });
+  assert.equal(wrongRun.ok, false);
+  const consumed = await consumeOperatorApproval({ root: f.root, approvalId: approval.approvalId, projectId: "project-a", runId: "run-3", stage: "ANALYZE", status: "RUNNING", revision, at: "2026-09-19T00:01:00.000Z" });
+  assert.equal(consumed.ok, true);
+  const duplicate = await consumeOperatorApproval({ root: f.root, approvalId: approval.approvalId, projectId: "project-a", runId: "run-3", stage: "ANALYZE", status: "RUNNING", revision, at: "2026-09-19T00:02:00.000Z" });
+  assert.deepEqual(duplicate, { ok: false, reason: "approval-already-consumed" });
+  const expired = await issueOperatorApproval({ root: f.root, requestId: "request-expired", projectId: "project-a", runId: "run-3", stage: "ANALYZE", status: "RUNNING", revision, reason: "stale-runtime-after-shutdown", issuedAt: "2026-09-19T00:00:00.000Z", expiresAt: "2026-09-19T00:01:00.000Z", issuedBy: "operator" });
+  assert.deepEqual(await consumeOperatorApproval({ root: f.root, approvalId: expired.approvalId, projectId: "project-a", runId: "run-3", stage: "ANALYZE", status: "RUNNING", revision, at: "2026-09-19T00:02:00.000Z" }), { ok: false, reason: "approval-expired" });
 });

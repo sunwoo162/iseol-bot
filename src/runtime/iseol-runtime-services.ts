@@ -15,6 +15,8 @@ import { listHarnessRuns, loadHarnessRun, requestHarnessRunRetry } from "../harn
 import { listDesktopJobs } from "../desktop-agent/job-store.js";
 import { inspectProjectRunReconciliation, reconcileProjectRunAsOperator, type ProjectRunReconciliationInput, type ProjectRunReconciliationResult } from "../harness/operator-reconciliation.js";
 import { getActiveWebWorkerSession } from "../chatgpt-web/session-store.js";
+import { issueOperatorApproval, type OperatorApproval } from "../harness/operator-approval-store.js";
+import { appendHarnessRunEvent, loadHarnessRunEvents } from "../harness/event-store.js";
 import { superviseHarnessRun } from "../harness/run-supervisor.js";
 import {
   resolveProductionChatGptBrowserDriver,
@@ -58,6 +60,10 @@ export type IseolRuntimeCapability = {
   enqueueProjectRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-configured">;
   inspectProjectRunReconciliation?: (input: { projectId: string; runId: string; expectedRevision: string }) => Promise<Awaited<ReturnType<typeof inspectProjectRunReconciliation>>>;
   reconcileProjectRun?: (input: Omit<ProjectRunReconciliationInput, "storeRoot" | "observe">) => Promise<ProjectRunReconciliationResult>;
+  issueProjectRunOperatorApproval?: (input: {
+    projectId: string; runId: string; requestId: string; expectedRevision: string;
+    reason: ProjectRunReconciliationInput["reason"]; at: string; expiresAt: string; issuedBy: string;
+  }) => Promise<OperatorApproval | { status: "rejected"; reason: string }>;
 };
 type DesktopCoreService = Awaited<ReturnType<typeof startDesktopAgentCoreService>>;
 type ProductionDriver = ReturnType<typeof createIdeaLabProductionRuntimeDriver>;
@@ -293,6 +299,7 @@ export async function startIseolRuntimeServices(
   let enqueueProjectRun: IseolRuntimeCapability["enqueueProjectRun"];
   let inspectProjectRun: IseolRuntimeCapability["inspectProjectRunReconciliation"];
   let reconcileProjectRun: IseolRuntimeCapability["reconcileProjectRun"];
+  let issueProjectRunOperatorApproval: IseolRuntimeCapability["issueProjectRunOperatorApproval"];
   let capability: IseolRuntimeCapability = ideaLabRequested
     ? { state: "blocked" }
     : { state: "disabled" };
@@ -468,6 +475,30 @@ export async function startIseolRuntimeServices(
           storeRoot: roots.projectRunRoot!,
           observe: () => observeProjectRun(input.runId),
         });
+        issueProjectRunOperatorApproval = async (input) => {
+          const inspection = await inspectProjectRunReconciliation({
+            storeRoot: roots.projectRunRoot!, projectId: input.projectId, runId: input.runId,
+            expectedRevision: input.expectedRevision, observe: () => observeProjectRun(input.runId),
+          });
+          if (!inspection.canReconcile) return { status: "rejected", reason: inspection.blockers.join(",") };
+          const approval = await issueOperatorApproval({
+            root: roots.projectRunRoot!, requestId: input.requestId, projectId: input.projectId, runId: input.runId,
+            stage: inspection.stage, status: inspection.status, revision: inspection.revision,
+            reason: input.reason, issuedAt: input.at, expiresAt: input.expiresAt, issuedBy: input.issuedBy,
+          });
+          const approvalEventId = `operator-approval-issued-${approval.approvalId}`;
+          const priorEvents = await loadHarnessRunEvents(roots.projectRunRoot!, input.runId);
+          if (!priorEvents.some((event) => event.id === approvalEventId)) {
+            await appendHarnessRunEvent(roots.projectRunRoot!, {
+              version: 1, id: approvalEventId, runId: input.runId,
+              type: "operator-approval-issued", at: input.at, stage: inspection.stage, status: inspection.status,
+              summary: "Operator approval issued for bounded Project Workspace reconciliation",
+              operationId: approval.approvalId,
+              metadata: { projectId: input.projectId, requestId: input.requestId, approvalId: approval.approvalId, issuedBy: approval.issuedBy, expiresAt: approval.expiresAt },
+            });
+          }
+          return approval;
+        };
         for (const run of await listHarnessRuns(roots.projectRunRoot!)) {
           if (run.request.mode === "project-workspace" && shouldAutoRecoverProjectRun(run.state.status)) {
             void enqueueProjectRun(run.request.runId);
@@ -491,6 +522,7 @@ export async function startIseolRuntimeServices(
         ...(enqueueProjectRun ? { enqueueProjectRun } : {}),
         ...(inspectProjectRun ? { inspectProjectRunReconciliation: inspectProjectRun } : {}),
         ...(reconcileProjectRun ? { reconcileProjectRun } : {}),
+        ...(issueProjectRunOperatorApproval ? { issueProjectRunOperatorApproval } : {}),
       },
     });
   } catch (error) {
@@ -511,6 +543,7 @@ export async function startIseolRuntimeServices(
       ...(enqueueProjectRun ? { enqueueProjectRun } : {}),
       ...(inspectProjectRun ? { inspectProjectRunReconciliation: inspectProjectRun } : {}),
       ...(reconcileProjectRun ? { reconcileProjectRun } : {}),
+      ...(issueProjectRunOperatorApproval ? { issueProjectRunOperatorApproval } : {}),
     },
     async dispose() {
       if (disposed) return;

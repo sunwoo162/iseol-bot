@@ -90,7 +90,7 @@ export type HarnessEvidenceRecord = {
 
 export type HarnessRunEventType =
   | "run-created" | "stage-started" | "stage-completed" | "stage-skipped"
-  | "status-changed" | "evidence-recorded" | "side-effect" | "recovered" | "retry-requested" | "operator-reconciled";
+  | "status-changed" | "evidence-recorded" | "side-effect" | "recovered" | "retry-requested" | "operator-approval-issued" | "operator-reconciled";
 
 export type HarnessRetryReason = "operator-request" | "user-request";
 export type HarnessRetryRecord = {

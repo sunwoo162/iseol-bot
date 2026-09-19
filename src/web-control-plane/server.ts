@@ -14,6 +14,8 @@ export type WebControlPlaneConfig = {
   host: string;
   port: number;
   token: string;
+  operatorToken?: string;
+  operatorId?: string;
   modelRoot: string;
   harnessRoot: string;
   webRoot: string;
@@ -43,6 +45,8 @@ export function resolveWebControlPlaneConfig(
   const portText = envValue(env, "ISEOL_WEB_PORT");
   const port = portText ? Number(portText) : DEFAULT_PORT;
   const token = envValue(env, "ISEOL_WEB_TOKEN");
+  const operatorToken = envValue(env, "ISEOL_OPERATOR_TOKEN");
+  const operatorId = envValue(env, "ISEOL_OPERATOR_ID");
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`Invalid ISEOL_WEB_PORT: ${portText}`);
   }
@@ -53,6 +57,8 @@ export function resolveWebControlPlaneConfig(
     host,
     port,
     token,
+    ...(operatorToken ? { operatorToken } : {}),
+    ...(operatorId ? { operatorId } : {}),
     modelRoot: envValue(env, "ISEOL_MODEL_ROOT") || resolve(process.cwd(), "data", "iseol"),
     harnessRoot: envValue(env, "ISEOL_RUN_ROOT") || resolve(process.cwd(), "data", "runs"),
     webRoot: resolve(process.cwd(), "web"),

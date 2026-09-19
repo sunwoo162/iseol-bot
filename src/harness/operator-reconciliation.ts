@@ -4,6 +4,7 @@ import type { HarnessRuntimeRunEnvelope } from "./contracts.js";
 import { appendHarnessRunEvent, loadHarnessRunEvents, saveHarnessCheckpoint } from "./event-store.js";
 import { loadHarnessRun, saveHarnessRunIfUnchanged } from "./run-store.js";
 import { transitionRunState } from "./state-machine.js";
+import { consumeOperatorApproval } from "./operator-approval-store.js";
 
 export type OperatorReconciliationReason = "stale-runtime-after-shutdown" | "operator-confirmed-no-active-work";
 
@@ -120,6 +121,11 @@ export async function reconcileProjectRunAsOperator(input: ProjectRunReconciliat
   const previous = priorEvents.find((event) => event.operationId === input.operationId && event.type === "operator-reconciled");
   if (previous) return { status: "already-reconciled", run: initial.run, inspection: initial.inspection, operationId: input.operationId };
   if (!initial.inspection.canReconcile) return { status: "rejected", inspection: initial.inspection, reason: initial.inspection.blockers.join(",") };
+  const approval = await consumeOperatorApproval({
+    root: input.storeRoot, approvalId: input.approvalId, projectId: input.projectId, runId: input.runId,
+    stage: initial.run.state.stage, status: initial.run.state.status, revision: initial.inspection.revision, at: input.at,
+  });
+  if (!approval.ok) return { status: "rejected", inspection: initial.inspection, reason: approval.reason };
 
   const paused = {
     ...initial.run,

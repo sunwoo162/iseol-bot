@@ -18,6 +18,7 @@ import {
   buildProjectWorkspaceView,
 } from "./view-model.js";
 import type { OperatorReconciliationReason } from "../harness/operator-reconciliation.js";
+import type { OperatorApproval } from "../harness/operator-approval-store.js";
 
 export type WebControlPlaneRequest = {
   method: string;
@@ -42,6 +43,10 @@ export type IdeaLabRuntimeCapability = {
     projectId: string; runId: string; expectedRevision: string; operationId: string;
     reason: OperatorReconciliationReason; actor: "operator"; approvalId: string; at: string;
   }) => Promise<unknown>;
+  issueProjectRunOperatorApproval?: (input: {
+    projectId: string; runId: string; requestId: string; expectedRevision: string;
+    reason: OperatorReconciliationReason; at: string; expiresAt: string; issuedBy: string;
+  }) => Promise<OperatorApproval | { status: "rejected"; reason: string }>;
 };
 
 export type WebControlPlaneRouterDependencies = {
@@ -53,6 +58,8 @@ export type WebControlPlaneRouterDependencies = {
   policyRoot?: string;
   evaluationRoot?: string;
   token?: string;
+  operatorToken?: string;
+  operatorId?: string;
   now?: () => string;
   campaignIdFactory?: () => string;
   ideaLabRuntime?: IdeaLabRuntimeCapability;
@@ -87,6 +94,10 @@ function mutationAuthorized(
 ): boolean {
   if (!configuredToken) return true;
   return bearerToken(request.headers) === configuredToken;
+}
+
+function operatorAuthorized(request: WebControlPlaneRequest, configuredToken: string | undefined): boolean {
+  return Boolean(configuredToken) && bearerToken(request.headers) === configuredToken;
 }
 
 function methodNotAllowed(): WebControlPlaneResponse {
@@ -266,7 +277,7 @@ export async function routeWebControlPlaneRequest(
   const reconcileMatch = /^\/api\/projects\/([^/]+)\/runs\/([^/]+)\/operator-reconciliation$/.exec(path);
   if (reconcileMatch) {
     if (request.method !== "POST") return methodNotAllowed();
-    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    if (!mutationAuthorized(request, deps.token) && !operatorAuthorized(request, deps.operatorToken)) return response(401, { error: "unauthorized" });
     const projectId = decodeId(reconcileMatch[1] ?? "");
     const runId = decodeId(reconcileMatch[2] ?? "");
     if (!projectId || !runId || !request.body || typeof request.body !== "object") return response(400, { error: "invalid reconciliation request" });
@@ -279,6 +290,7 @@ export async function routeWebControlPlaneRequest(
         if (!deps.ideaLabRuntime?.inspectProjectRunReconciliation) return response(503, { error: "project runtime unavailable" });
         return response(200, await deps.ideaLabRuntime.inspectProjectRunReconciliation({ projectId, runId, expectedRevision: body.expectedRevision }));
       }
+      if (!operatorAuthorized(request, deps.operatorToken)) return response(403, { error: "operator approval is unavailable" });
       if (!deps.ideaLabRuntime?.reconcileProjectRun) return response(503, { error: "project runtime unavailable" });
       const approval = body.approval;
       if (!approval || typeof approval !== "object") return response(403, { error: "operator approval is required" });
@@ -296,6 +308,31 @@ export async function routeWebControlPlaneRequest(
       if (error instanceof Error && /not found|project mismatch/.test(error.message)) return response(404, { error: "not found" });
       throw error;
     }
+  }
+
+  const approvalMatch = /^\/api\/projects\/([^/]+)\/runs\/([^/]+)\/operator-approvals$/.exec(path);
+  if (approvalMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!deps.operatorId) return response(401, { error: "operator identity is unavailable" });
+    if (!operatorAuthorized(request, deps.operatorToken)) return response(403, { error: "operator approval is unavailable" });
+    const projectId = decodeId(approvalMatch[1] ?? "");
+    const runId = decodeId(approvalMatch[2] ?? "");
+    if (!projectId || !runId || !request.body || typeof request.body !== "object") return response(400, { error: "invalid approval request" });
+    const body = request.body as Record<string, unknown>;
+    if (typeof body.requestId !== "string" || typeof body.expectedRevision !== "string" || !["stale-runtime-after-shutdown", "operator-confirmed-no-active-work"].includes(String(body.reason))) {
+      return response(400, { error: "requestId, expectedRevision and bounded reason are required" });
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(body.requestId)) return response(400, { error: "requestId is invalid" });
+    if (!deps.ideaLabRuntime?.issueProjectRunOperatorApproval) return response(503, { error: "project runtime unavailable" });
+    const now = (deps.now ?? (() => new Date().toISOString()))();
+    const ttlMs = typeof body.ttlMs === "number" && Number.isInteger(body.ttlMs) ? body.ttlMs : 300_000;
+    if (ttlMs <= 0 || ttlMs > 900_000) return response(400, { error: "ttlMs must be between 1 and 900000" });
+    const issued = await deps.ideaLabRuntime.issueProjectRunOperatorApproval({
+      projectId, runId, requestId: body.requestId, expectedRevision: body.expectedRevision,
+      reason: body.reason as OperatorReconciliationReason, at: now,
+      expiresAt: new Date(Date.parse(now) + ttlMs).toISOString(), issuedBy: deps.operatorId,
+    });
+    return response("status" in issued && issued.status === "rejected" ? 409 : 201, issued);
   }
 
   const projectMatch = /^\/api\/projects\/([^/]+)$/.exec(path);

@@ -104,21 +104,32 @@ test("operator reconciliation separates inspection from approved mutation", asyn
     state: "ready" as const,
     inspectProjectRunReconciliation: async () => inspection,
     reconcileProjectRun: async () => ({ status: "reconciled", operationId: "op-1" }),
+    issueProjectRunOperatorApproval: async () => ({ approvalId: "approval-1", status: "issued" }),
   };
   const denied = await routeWebControlPlaneRequest({
     method: "POST", path: "/api/projects/project-a/runs/run-3/operator-reconciliation", headers: { authorization: "Bearer secret-token" },
     body: { action: "apply", expectedRevision: "r", operationId: "op-1", reason: "stale-runtime-after-shutdown" },
-  }, { ...deps, ideaLabRuntime: runtime });
+  }, { ...deps, operatorToken: "operator-token", operatorId: "test-operator", ideaLabRuntime: runtime });
   assert.equal(denied.status, 403);
   const checked = await routeWebControlPlaneRequest({
     method: "POST", path: "/api/projects/project-a/runs/run-3/operator-reconciliation", headers: { authorization: "Bearer secret-token" },
     body: { action: "inspect", expectedRevision: "r" },
-  }, { ...deps, ideaLabRuntime: runtime });
+  }, { ...deps, operatorToken: "operator-token", operatorId: "test-operator", ideaLabRuntime: runtime });
   assert.equal(checked.status, 200);
   assert.deepEqual(checked.body, inspection);
   const applied = await routeWebControlPlaneRequest({
-    method: "POST", path: "/api/projects/project-a/runs/run-3/operator-reconciliation", headers: { authorization: "Bearer secret-token" },
+    method: "POST", path: "/api/projects/project-a/runs/run-3/operator-reconciliation", headers: { authorization: "Bearer operator-token" },
     body: { action: "apply", expectedRevision: "r", operationId: "op-1", reason: "stale-runtime-after-shutdown", approval: { actor: "operator", approvalId: "approval-1" } },
-  }, { ...deps, ideaLabRuntime: runtime });
+  }, { ...deps, operatorToken: "operator-token", operatorId: "test-operator", ideaLabRuntime: runtime });
   assert.equal(applied.status, 200);
+  const missingIdentity = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-a/runs/run-3/operator-approvals", headers: { authorization: "Bearer operator-token" },
+    body: { requestId: "request-missing-identity", expectedRevision: "r", reason: "stale-runtime-after-shutdown" },
+  }, { ...deps, operatorToken: "operator-token", ideaLabRuntime: runtime });
+  assert.equal(missingIdentity.status, 401);
+  const issued = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-a/runs/run-3/operator-approvals", headers: { authorization: "Bearer operator-token" },
+    body: { requestId: "request-1", expectedRevision: "r", reason: "stale-runtime-after-shutdown" },
+  }, { ...deps, operatorToken: "operator-token", operatorId: "test-operator", ideaLabRuntime: runtime });
+  assert.equal(issued.status, 201);
 });
