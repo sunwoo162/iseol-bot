@@ -63,7 +63,7 @@ export function desktopPack(input: {
 }): DesktopTaskPack {
   const stage = input.stage ?? "TEST";
   const operations = input.operations ?? [{ id: "read", type: "READ_FILE", path: "base.txt" }];
-  const mutates = operations.some((item) => ["APPLY_PATCH", "RUN_PROCESS", "GIT_WORKTREE_CREATE", "GIT_COMMIT"].includes(item.type));
+  const mutates = operations.some((item) => ["APPLY_PATCH", "RUN_PROCESS", "GIT_INIT", "GIT_WORKTREE_CREATE", "GIT_COMMIT"].includes(item.type));
   return {
     version: 1,
     jobId: input.jobId ?? `job-${stage.toLowerCase()}`,

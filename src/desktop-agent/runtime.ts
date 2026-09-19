@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import type {
   DesktopJobResult,
   DesktopOperation,
@@ -317,10 +317,44 @@ async function executeOperation(
     return commandOperationResult(operation.id, command, "Read Git branch");
   }
 
+  if (operation.type === "GIT_INIT") {
+    const cwd = await assertWorkspaceAccess(deps.allowedRoots, workspace, operation.cwd);
+    const existingRoot = await gitCommand(workspace, cwd, ["rev-parse", "--show-toplevel"], maxOutputBytes);
+    if (existingRoot.code === 0) {
+      const root = existingRoot.stdout.trim();
+      if (!sameFilesystemPath(root, workspace)) {
+        return { operationId: operation.id, ok: false, summary: "Git repository root does not match the project workspace" };
+      }
+      return { operationId: operation.id, ok: true, summary: "Git repository already initialized", reference: root };
+    }
+    try {
+      await stat(join(cwd, ".git"));
+      return { operationId: operation.id, ok: false, summary: "Git repository metadata is invalid or unreadable" };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const initialized = await gitCommand(
+      workspace,
+      cwd,
+      ["init", ...(operation.initialBranch ? ["--initial-branch", operation.initialBranch] : [])],
+      maxOutputBytes,
+    );
+    return commandOperationResult(operation.id, initialized, "Initialized Git repository");
+  }
+
   if (operation.type === "GIT_INSPECT") {
     const cwd = await assertWorkspaceAccess(deps.allowedRoots, workspace, operation.cwd);
     const head = await gitCommand(workspace, cwd, ["rev-parse", "HEAD"], maxOutputBytes);
-    if (head.code !== 0) return commandOperationResult(operation.id, head, "Inspect Git HEAD");
+    if (head.code !== 0) {
+      const inside = await gitCommand(workspace, cwd, ["rev-parse", "--is-inside-work-tree"], maxOutputBytes);
+      const branch = await gitCommand(workspace, cwd, ["branch", "--show-current"], maxOutputBytes);
+      const status = await gitCommand(workspace, cwd, ["status", "--short"], maxOutputBytes);
+      if (inside.code !== 0 || inside.stdout.trim() !== "true" || branch.code !== 0 || !branch.stdout.trim() || status.code !== 0) {
+        return commandOperationResult(operation.id, head, "Inspect Git HEAD");
+      }
+      const identity = { head: "", parent: "", subject: "", branch: branch.stdout.trim(), status: status.stdout, initial: true };
+      return { operationId: operation.id, ok: true, summary: "Inspected Git identity (unborn HEAD)", stdout: JSON.stringify(identity), reference: branch.stdout.trim() };
+    }
     const parent = await gitCommand(workspace, cwd, ["rev-parse", "HEAD^"], maxOutputBytes);
     const subject = await gitCommand(workspace, cwd, ["show", "-s", "--format=%s", "HEAD"], maxOutputBytes);
     const branch = await gitCommand(workspace, cwd, ["branch", "--show-current"], maxOutputBytes);

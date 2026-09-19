@@ -43,6 +43,8 @@ export type HarnessPreflightRecord = {
   version: 1;
   runId: string;
   status: "ready" | "blocked";
+  /** Project Workspace CONTEXT performs the bounded Git bootstrap before inspection. */
+  gitPreparation?: "bootstrap-if-empty";
   policy?: HarnessPolicySnapshot;
   reason?: string;
 };

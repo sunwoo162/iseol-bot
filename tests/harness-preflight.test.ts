@@ -40,6 +40,7 @@ test("development run becomes ready only after policy resolution", async () => {
 
   assert.equal(preflight.status, "ready");
   assert.equal(preflight.runId, "run-001");
+  assert.equal(preflight.gitPreparation, "bootstrap-if-empty");
   assert.ok(preflight.policy?.sources.some((source) => source.kind === "iseol-global"));
   assert.doesNotThrow(() => assertPreflightReady(preflight));
 });

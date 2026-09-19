@@ -33,7 +33,13 @@ export async function prepareDevelopmentRun(
       targetRoot: options.policyRoot ?? request.targetRoot,
       loadedAt: options.loadedAt,
     });
-    return { version: 1, runId: request.runId, status: "ready", policy };
+    return {
+      version: 1,
+      runId: request.runId,
+      status: "ready",
+      ...(request.mode === "project-workspace" ? { gitPreparation: "bootstrap-if-empty" as const } : {}),
+      policy,
+    };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return { version: 1, runId: request.runId, status: "blocked", reason };

@@ -42,6 +42,8 @@ export type GitStatusOperation = { id: string; type: "GIT_STATUS"; cwd: string }
 export type GitDiffOperation = { id: string; type: "GIT_DIFF"; cwd: string };
 export type GitBranchOperation = { id: string; type: "GIT_BRANCH"; cwd: string };
 export type GitInspectOperation = { id: string; type: "GIT_INSPECT"; cwd: string; includeRemote?: boolean };
+/** Initializes an empty project workspace without reinitializing an existing repository. */
+export type GitInitOperation = { id: string; type: "GIT_INIT"; cwd: string; initialBranch?: string };
 export type GitWorktreeCreateOperation = { id: string; type: "GIT_WORKTREE_CREATE"; cwd: string; branch: string; worktreePath: string; baseRef: string };
 export type GitCommitOperation = { id: string; type: "GIT_COMMIT"; cwd: string; message: string; expectedHead?: string; publish?: boolean };
 export type CheckHttpOperation = { id: string; type: "CHECK_HTTP"; url: string; timeoutMs: number };
@@ -54,6 +56,7 @@ export type DesktopOperation =
   | GitStatusOperation
   | GitDiffOperation
   | GitBranchOperation
+  | GitInitOperation
   | GitInspectOperation
   | GitWorktreeCreateOperation
   | GitCommitOperation
@@ -109,6 +112,7 @@ const OPERATION_TYPES = new Set<DesktopOperation["type"]>([
   "GIT_STATUS",
   "GIT_DIFF",
   "GIT_BRANCH",
+  "GIT_INIT",
   "GIT_INSPECT",
   "GIT_WORKTREE_CREATE",
   "GIT_COMMIT",
@@ -118,6 +122,7 @@ const OPERATION_TYPES = new Set<DesktopOperation["type"]>([
 const MUTATION_TYPES = new Set<DesktopOperation["type"]>([
   "APPLY_PATCH",
   "RUN_PROCESS",
+  "GIT_INIT",
   "GIT_WORKTREE_CREATE",
   "GIT_COMMIT",
 ]);
@@ -173,6 +178,13 @@ function assertOperation(value: unknown): asserts value is DesktopOperation {
     assertRelativeWorktreePath(operation.worktreePath, "worktreePath");
     assertGitRef(operation.branch, "branch");
     assertGitRef(operation.baseRef, "baseRef");
+  }
+  if (operation.type === "GIT_INIT") {
+    const allowed = new Set(["id", "type", "cwd", "initialBranch"]);
+    const unknown = Object.keys(operation).filter((key) => !allowed.has(key));
+    if (unknown.length) throw new Error(`Desktop Git init operation has unknown field: ${unknown[0]}`);
+    assertRelativeWorktreePath(operation.cwd, "cwd");
+    if (operation.initialBranch !== undefined) assertGitRef(operation.initialBranch, "initialBranch");
   }
 }
 

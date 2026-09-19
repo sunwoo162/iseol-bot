@@ -121,6 +121,48 @@ test("structured runtime executes file, process, and bounded output operations i
   assert.ok((result.operations[2]?.stdout?.length ?? 0) <= 20);
 });
 
+test("GIT_INIT prepares an empty workspace and GIT_INSPECT accepts an unborn HEAD", async () => {
+  const { allowed, workspace, harnessPath } = await fixture();
+  const pack = policyPack(workspace, harnessPath, [
+    { id: "init", type: "GIT_INIT", cwd: ".", initialBranch: "main" },
+    { id: "inspect", type: "GIT_INSPECT", cwd: "." },
+  ]);
+  const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed], now: () => "2026-09-19T00:00:00.000Z" });
+  assert.equal(result.status, "completed");
+  assert.equal(result.operations[0]?.ok, true);
+  assert.equal(result.operations[1]?.ok, true);
+  assert.match(result.operations[1]?.summary ?? "", /unborn HEAD/i);
+  const identity = JSON.parse(result.operations[1]?.stdout ?? "{}");
+  assert.equal(identity.head, "");
+  assert.equal(identity.parent, "");
+  assert.equal(identity.subject, "");
+  assert.equal(identity.branch, "main");
+  assert.equal(identity.initial, true);
+  assert.match(identity.status, /docs\//);
+});
+
+test("GIT_INIT rejects a workspace nested in another repository", async () => {
+  const { allowed, workspace, harnessPath } = await fixture();
+  initGit(allowed);
+  const pack = policyPack(workspace, harnessPath, [
+    { id: "init", type: "GIT_INIT", cwd: ".", initialBranch: "main" },
+  ]);
+  const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed], now: () => "2026-09-19T00:00:00.000Z" });
+  assert.equal(result.status, "retryable-failure");
+  assert.match(result.operations[0]?.summary ?? "", /root does not match/i);
+});
+
+test("GIT_INIT fails closed when local Git metadata is corrupt", async () => {
+  const { allowed, workspace, harnessPath } = await fixture();
+  await mkdir(join(workspace, ".git"), { recursive: true });
+  const pack = policyPack(workspace, harnessPath, [
+    { id: "init", type: "GIT_INIT", cwd: ".", initialBranch: "main" },
+  ]);
+  const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed], now: () => "2026-09-19T00:00:00.000Z" });
+  assert.equal(result.status, "retryable-failure");
+  assert.match(result.operations[0]?.summary ?? "", /metadata is invalid/i);
+});
+
 test("runtime classifies process timeout as retryable failure", async () => {
   const { allowed, workspace, harnessPath } = await fixture();
   await writeFile(join(workspace, "slow.test.js"), "import test from 'node:test';\ntest('slow', async () => { await new Promise((resolve) => setTimeout(resolve, 10000)); });\n", "utf8");

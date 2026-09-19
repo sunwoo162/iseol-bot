@@ -8,6 +8,7 @@ const OPERATION_KEYS: Record<string, readonly string[]> = {
   GIT_STATUS: ["id", "type", "cwd"],
   GIT_DIFF: ["id", "type", "cwd"],
   GIT_BRANCH: ["id", "type", "cwd"],
+  GIT_INIT: ["id", "type", "cwd", "initialBranch"],
   GIT_INSPECT: ["id", "type", "cwd", "includeRemote"],
   GIT_WORKTREE_CREATE: ["id", "type", "cwd", "branch", "worktreePath", "baseRef"],
   GIT_COMMIT: ["id", "type", "cwd", "message", "expectedHead", "publish"],

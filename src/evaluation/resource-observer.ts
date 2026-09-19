@@ -29,7 +29,7 @@ export type ObserveEvaluationResourcesInput = {
   webSessionStaleAfterMs?: number;
 };
 
-const MUTATING_OPERATIONS = new Set(["APPLY_PATCH", "RUN_PROCESS", "GIT_WORKTREE_CREATE", "GIT_COMMIT"]);
+const MUTATING_OPERATIONS = new Set(["APPLY_PATCH", "RUN_PROCESS", "GIT_INIT", "GIT_WORKTREE_CREATE", "GIT_COMMIT"]);
 const HEALTHY_WEB_STATUSES = new Set(["starting", "ready", "busy"]);
 
 async function listWebSessions(root: string) {

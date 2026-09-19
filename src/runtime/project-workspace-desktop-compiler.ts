@@ -21,7 +21,9 @@ function pack(run: HarnessRuntimeRunEnvelope, agentId: string, config: ProjectWo
   if (Number.isNaN(nowMs)) throw new Error("Desktop Task Pack compile time must be an ISO timestamp");
   const stage = run.state.stage;
   const operation = stage === "CONTEXT"
-    ? { id: "context", type: "GIT_INSPECT" as const, cwd: "." }
+    ? (run.preflight.gitPreparation === "bootstrap-if-empty"
+      ? [{ id: "git-init", type: "GIT_INIT" as const, cwd: ".", initialBranch: "main" }, { id: "context", type: "GIT_INSPECT" as const, cwd: "." }]
+      : [{ id: "context", type: "GIT_INSPECT" as const, cwd: "." }])
     : stage === "TEST"
       ? { id: "test", type: "RUN_PROCESS" as const, purpose: "test" as const, cwd: ".", executable: config.testExecutable, args: [...config.testArgs], timeoutMs: config.testTimeoutMs }
       : stage === "COMMIT"
@@ -40,7 +42,7 @@ function pack(run: HarnessRuntimeRunEnvelope, agentId: string, config: ProjectWo
     policySources: run.preflight.policy.sources.map((source) => ({ kind: source.kind, path: source.path, sha256: source.sha256, required: true })),
     idempotencyKey: `${run.request.runId}:${stage.toLowerCase()}`,
     leaseUntil: new Date(nowMs + (config.leaseDurationMs ?? 60_000)).toISOString(),
-    operations: [operation],
+    operations: Array.isArray(operation) ? operation : [operation],
   };
   assertDesktopTaskPack(result);
   return result;
