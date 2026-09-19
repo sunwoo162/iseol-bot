@@ -12,6 +12,7 @@ import type { ChatGptWebResultContract, ChatGptWebSessionProbe } from "./browser
 import type { ChatGptBrowserDriver } from "./production-browser-adapter.js";
 import type { PlaywrightBrowserDriverConfig } from "./playwright-browser-config.js";
 import { createPlaywrightBrowserBackend, type PlaywrightBrowserBackend } from "./playwright-browser-backend.js";
+import { patchRejectionDiagnostic } from "./patch-diagnostics.js";
 
 export type { PlaywrightBrowserBackend } from "./playwright-browser-backend.js";
 
@@ -285,6 +286,7 @@ export function parsePatchFrameV1(text: string): string {
 
   if (headerEnd < 0 || normalized.slice(0, headerEnd) !== "ISEOL_PATCH_V1") {
     structured("ChatGPT PATCH_FRAME_V1 header is missing or invalid", {
+      ...patchRejectionDiagnostic(text, "frame-missing"),
       diagnosticCategory: "patch-frame-format-failure",
       frameHeaderPresent: normalized.startsWith("ISEOL_PATCH_V1"),
       payloadEmpty: false,
@@ -295,6 +297,7 @@ export function parsePatchFrameV1(text: string): string {
 
   if (!payload.trim()) {
     structured("ChatGPT PATCH_FRAME_V1 payload is empty", {
+      ...patchRejectionDiagnostic(text, "empty-patch"),
       diagnosticCategory: "patch-frame-format-failure",
       frameHeaderPresent: true,
       payloadEmpty: true,
@@ -311,6 +314,7 @@ export function parsePatchFrameV1(text: string): string {
 
     if (!inner.trim()) {
       structured("ChatGPT PATCH_FRAME_V1 fenced payload is empty", {
+        ...patchRejectionDiagnostic(text, "empty-patch"),
         diagnosticCategory: "patch-frame-format-failure",
         frameHeaderPresent: true,
         payloadEmpty: true,
@@ -322,6 +326,7 @@ export function parsePatchFrameV1(text: string): string {
 
   if (trimmed.startsWith("```") || trimmed.endsWith("```")) {
     structured("ChatGPT PATCH_FRAME_V1 diff fence is malformed", {
+      ...patchRejectionDiagnostic(text, "malformed-frame"),
       diagnosticCategory: "patch-frame-format-failure",
       frameHeaderPresent: true,
       payloadEmpty: false,

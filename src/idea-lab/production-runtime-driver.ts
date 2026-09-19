@@ -1,6 +1,7 @@
 import { IMPLEMENT_DONE_PAYLOAD } from "../chatgpt-web/patch-frame-contract.js";
 import { resolve } from "node:path";
 import { ChatGptWebStructuredResultError, type ChatGptWebBrowserAdapter } from "../chatgpt-web/browser-adapter.js";
+import { patchRejectionDiagnostic } from "../chatgpt-web/patch-diagnostics.js";
 import { createHybridStageExecutor } from "../chatgpt-web/hybrid-executor.js";
 import { buildValidatedPatchIntent, compileDesktopIntentToTaskPack } from "../chatgpt-web/intent-compiler.js";
 import { loadDesktopIntent } from "../chatgpt-web/intent-store.js";
@@ -324,7 +325,13 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
           };
         } catch (error) {
           const reason = error instanceof Error ? error.message : "Patch validation failed";
-          throw new ChatGptWebStructuredResultError(`ChatGPT patch validation failed: ${reason}`, { diagnosticCategory: "patch-validation-failure", validationResult: "rejected" });
+          const rejectionClass = /path|workspace/i.test(reason) ? "invalid-path" : /hunk.*line counts/i.test(reason) ? "malformed-hunk" : /hunk|diff/i.test(reason) ? "malformed-unified-diff" : "unknown-safe-class";
+          const safeReason = rejectionClass === "malformed-hunk" ? "hunk line counts do not match" : rejectionClass === "invalid-path" ? "workspace path rejected" : rejectionClass === "malformed-unified-diff" ? "unified diff rejected" : "patch validation rejected";
+          throw new ChatGptWebStructuredResultError(`ChatGPT patch validation failed: ${safeReason}`, {
+            ...patchRejectionDiagnostic(raw, rejectionClass),
+            diagnosticCategory: "patch-validation-failure",
+            validationResult: "rejected",
+          });
         }
       },
     };

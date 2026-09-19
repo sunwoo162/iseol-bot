@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ChatGptWebAuthenticationRequiredError, ChatGptWebSessionLostError, ChatGptWebStructuredResultError } from "../src/chatgpt-web/browser-adapter.js";
 import { createPlaywrightChatGptBrowserDriver, parsePatchFrameV1, type PlaywrightBrowserBackend } from "../src/chatgpt-web/playwright-browser-driver.js";
 
@@ -70,14 +73,54 @@ test("PATCH_FRAME_V1 rejects missing leading and empty framing", () => {
 test("PATCH_FRAME_V1 failures carry a bounded format diagnostic", () => {
   assert.throws(() => parsePatchFrameV1("prose\nISEOL_PATCH_V1\ndiff"), (error: unknown) => {
     assert.ok(error instanceof ChatGptWebStructuredResultError);
-    assert.deepEqual(error.diagnostic, { diagnosticCategory: "patch-frame-format-failure", frameHeaderPresent: false, payloadEmpty: false });
+    assert.equal(error.diagnostic?.diagnosticCategory, "patch-frame-format-failure");
+    assert.equal(error.diagnostic?.rejectionClass, "frame-missing");
+    assert.equal(error.diagnostic?.frameHeaderPresent, false);
+    assert.equal(error.diagnostic?.payloadEmpty, false);
     return true;
   });
   assert.throws(() => parsePatchFrameV1("ISEOL_PATCH_V1\n"), (error: unknown) => {
     assert.ok(error instanceof ChatGptWebStructuredResultError);
-    assert.deepEqual(error.diagnostic, { diagnosticCategory: "patch-frame-format-failure", frameHeaderPresent: true, payloadEmpty: true });
+    assert.equal(error.diagnostic?.diagnosticCategory, "patch-frame-format-failure");
+    assert.equal(error.diagnostic?.rejectionClass, "empty-patch");
+    assert.equal(error.diagnostic?.frameHeaderPresent, true);
+    assert.equal(error.diagnostic?.payloadEmpty, true);
     return true;
   });
+});
+
+test("PATCH_FRAME_V1 rejection diagnostics retain only bounded response evidence", () => {
+  const sentinel = "ISEOL_BROWSER_SECRET_SENTINEL";
+  assert.throws(() => parsePatchFrameV1(`${sentinel}\nISEOL_PATCH_V1`), (error: unknown) => {
+    assert.ok(error instanceof ChatGptWebStructuredResultError);
+    const diagnostic = error.diagnostic ?? {};
+    assert.equal(diagnostic.rejectionClass, "frame-missing");
+    assert.equal(diagnostic.responseLengthBucket, "short");
+    assert.equal(diagnostic.frameDetected, false);
+    assert.equal(diagnostic.diffFenceDetected, false);
+    assert.match(String(diagnostic.responseSha256), /^[a-f0-9]{64}$/);
+    assert.equal(JSON.stringify(diagnostic).includes(sentinel), false);
+    return true;
+  });
+});
+
+test("PATCH_FRAME_V1 rejection diagnostics persist safely and reload as bounded records", async () => {
+  const lifecycleRoot = await mkdtemp(join(tmpdir(), "iseol-patch-diagnostics-"));
+  const driver = await createPlaywrightChatGptBrowserDriver({ ...config, lifecycleRoot } as any, { backend: fakeBackend().backend });
+  const sentinel = "ISEOL_BROWSER_SECRET_SENTINEL";
+  await (driver as any).recordParserDiagnostic({
+    stage: "IMPLEMENT", sessionId: "session-1", generation: 2, resultContract: "patch-frame-v1",
+    message: "ChatGPT PATCH_FRAME_V1 header is missing or invalid", diagnostic: {
+      ...((await import("../src/chatgpt-web/patch-diagnostics.js")).patchRejectionDiagnostic(sentinel, "frame-missing")),
+    },
+  });
+  const file = join(lifecycleRoot, "web-workers", "parser-diagnostics.jsonl");
+  const record = JSON.parse((await readFile(file, "utf8")).trim());
+  assert.equal(record.resultContract, "patch-frame-v1");
+  assert.equal(record.generation, 2);
+  assert.equal(record.rejectionClass, "frame-missing");
+  assert.equal(record.responseSha256, (await import("node:crypto")).createHash("sha256").update(sentinel).digest("hex"));
+  assert.equal(JSON.stringify(record).includes(sentinel), false);
 });
 
 test("result reading routes only the explicitly selected stage contract", async () => {
