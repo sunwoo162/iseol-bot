@@ -67,6 +67,7 @@ type RuntimeDependencies = {
   createProductionDriver?: typeof createIdeaLabProductionRuntimeDriver;
   createRuntime?: typeof createIdeaLabRuntimeService;
   createSandboxAdapter?: typeof createDesktopPrototypeSandboxAdapter;
+  createProjectExecutor?: typeof createProjectWorkspaceExecutor;
   sleep?: (ms: number) => Promise<void>;
 };
 
@@ -254,6 +255,7 @@ export async function startIseolRuntimeServices(
   const createProductionDriver = deps.createProductionDriver ?? createIdeaLabProductionRuntimeDriver;
   const createRuntime = deps.createRuntime ?? createIdeaLabRuntimeService;
   const createSandboxAdapter = deps.createSandboxAdapter ?? createDesktopPrototypeSandboxAdapter;
+  const createProjectExecutor = deps.createProjectExecutor ?? createProjectWorkspaceExecutor;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolveDelay) => setTimeout(resolveDelay, ms)));
   const agentReadyTimeoutMs = input.agentReadyTimeoutMs ?? 31_000;
   if (!Number.isInteger(agentReadyTimeoutMs) || agentReadyTimeoutMs < 0) {
@@ -389,9 +391,10 @@ export async function startIseolRuntimeServices(
           ? bridge.adapter
           : createProductionChatGptWebAdapter(browser);
         const compilerConfig = projectTestConfig(env);
-        const projectExecutor = createProjectWorkspaceExecutor({
+        const projectExecutor = createProjectExecutor({
           runRoot: roots.projectRunRoot!,
           workerRoot: roots.projectWebWorkerRoot!,
+          registryRoot: desktopConfig.stateRoot,
           desktopStateRoot: roots.projectDesktopStateRoot!,
           desktopTransport: desktopCore.transport,
           browserAdapter,

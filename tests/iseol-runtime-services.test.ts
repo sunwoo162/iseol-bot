@@ -128,6 +128,26 @@ test("Project Workspace runs use the configured repository policy root for globa
   await services.dispose();
 });
 
+test("Project Workspace executor uses the shared Desktop registry and isolated job state", async () => {
+  let executorInput: any;
+  const value = fixture({
+    env: { ISEOL_PROJECT_RUNTIME_ENABLED: "true", ISEOL_PROJECT_AGENT_ID: "agent-project" },
+  });
+  value.deps.createProjectExecutor = (input: any) => {
+    executorInput = input;
+    return {};
+  };
+  value.deps.startWeb = async (options: any) => ({
+    close: (done?: (error?: Error) => void) => done?.(),
+    options,
+  });
+
+  const services = await startIseolRuntimeServices(value);
+  assert.equal(executorInput.registryRoot, "C:/desktop-state");
+  assert.equal(executorInput.desktopStateRoot, resolve("C:/project-desktop-state"));
+  await services.dispose();
+});
+
 test("Project Workspace runtime registers the shared AI/Desktop executor when explicitly enabled", async () => {
   let capability: any;
   const value = fixture({ env: {
