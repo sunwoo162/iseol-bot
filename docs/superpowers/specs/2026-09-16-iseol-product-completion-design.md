@@ -11,6 +11,16 @@ The product has two user modes:
 
 The product boundary is intentionally narrow: Iseol is a development automation system, not a generic shell, not a general-purpose remote desktop, and not a harness product exposed directly to users.
 
+## Purpose-driven execution and portfolio evidence
+
+Users choose a project purpose in product language—such as rapid prototype, operational service, portfolio project, or existing-project improvement. They do not select Harness, Agent Pack, Skill, or reasoning-loop internals. Iseol maps the selected purpose, project scale, and request to a bounded execution profile containing the required plan scope, policy, specialist roles, verification gates, documentation requirements, and approval boundaries.
+
+The execution profile is explicit durable metadata on the project or work request. It is resolved by the Orchestrator and recorded with the Run; it never grants an agent capabilities beyond the existing policy and Desktop intent validators. Specialist roles are selected by dependency and evidence needs rather than started indiscriminately. Current role adapters remain authoritative, and unsupported roles are represented as planned capability rather than implied execution.
+
+For portfolio-purpose work, the same durable evidence used to operate the project is organized into a portfolio document: project context, stack decisions, feature implementation, verified technical decisions, troubleshooting sequence, tests/builds/commits/deployments, and limitations. Documentation, Portfolio Structure, Humanizer, and Evidence Grounding are bounded transformations over Project/Run/Evidence records. They must cite durable evidence, distinguish facts from interpretation, avoid invented metrics, and allow the user to edit or exclude sections. No artificial defect or unnecessary complexity may be introduced to manufacture a portfolio story.
+
+The user-facing Web flow presents purpose selection and a plain-language progress tree. Harness and agent configuration remains an internal projection. The durable tree is `Project -> Area -> Feature -> Task -> Run -> Stage/Attempt -> Commit/Test/Build/Diff/Evidence`, with Korean summaries generated from bounded records and detailed artifacts available on demand.
+
 ## Current architecture and decision
 
 The repository already has the correct domain boundaries:

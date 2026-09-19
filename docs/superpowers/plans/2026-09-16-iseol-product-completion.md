@@ -24,6 +24,9 @@
 - Frontend completion scope uses native `fetch` + `EventSource`; do not add Redux, Zustand, or React Query.
 - Non-loopback Web Control Plane still requires `ISEOL_WEB_TOKEN`; every mutation remains bearer-token protected.
 - After Phase 0 live smoke passes with `restart=verified` and `EXIT_CODE=0`, do not refactor engine/runtime code unless a reproduced acceptance blocker has a failing regression test.
+- Purpose selection is a user-facing product choice; Harness, Agent, and Skill composition is resolved internally from explicit purpose/profile metadata.
+- Portfolio output must be grounded in durable Project/Run/Evidence records, must not invent work or metrics, and must support user edits/exclusions.
+- Specialist agents are selected by dependency and evidence needs; role names alone do not imply an implemented or independently verified agent.
 
 ---
 
@@ -81,6 +84,33 @@
 - `apps/iseol-web/src/styles/tokens.css`
 - `apps/iseol-web/src/styles/global.css`
 - `apps/iseol-web/src/styles/components.css`
+
+## Follow-on product work: purpose, agents, and portfolio
+
+These follow-on tasks are product scope after the engine gate; they do not change the current DOGFOOD-01 identity or its durable state.
+
+### Purpose profiles
+
+- Add a validated closed purpose enum and profile contract for prototype, operational service, portfolio, and existing-project improvement.
+- Add bounded profile resolution from the user request, project scale, and explicit approvals. Persist the selected profile with the Project Workspace/work request and record the resolved policy, roles, gates, and artifact requirements in the Run evidence.
+- Expose purpose selection and plain-language consequences through Web and preserve the existing API token and mutation guards.
+
+### Dependency-aware specialist roles
+
+- Inventory the actually registered role/skill adapters before adding contracts. Represent unavailable roles as planned or blocked capability rather than silently executing a substitute.
+- Add an Orchestrator profile planner that selects only roles required by the dependency graph: planning, implementation, design, review, QA, documentation, user validation, and governance where evidence requires them.
+- Preserve worktree/branch isolation, concurrency limits, bounded retry budgets, independent review evidence, and existing Desktop policy validation.
+
+### Evidence tree and summaries
+
+- Extend Project Workspace read models to expose `Project -> Area -> Feature -> Task -> Run -> Stage/Attempt -> Commit/Test/Build/Diff/Evidence` without duplicating durable records.
+- Add bounded Korean summaries derived from stage/status/evidence records, with drill-down links to safe diffs and verification artifacts. Never expose raw model output or chain-of-thought.
+
+### Portfolio documents
+
+- Add a durable portfolio request and generated-document record linked to Project Workspace evidence.
+- Implement evidence collection, portfolio structure selection, humanized drafting, and evidence-grounding checks as bounded stages. Claims without supporting records must be omitted or marked unresolved; metrics must come only from recorded measurements.
+- Support user edits, section exclusion, regeneration, and provenance links without mutating historical Run evidence.
 
 ---
 
