@@ -80,6 +80,14 @@ function activeRun(): HarnessRuntimeRunEnvelope {
       version: 1,
       runId: "run-active",
       mode: "project-workspace",
+      purposeProfile: {
+        version: 1,
+        purpose: "portfolio",
+        executableRoles: ["orchestrator", "frontend"],
+        plannedRoles: ["documentation"],
+        verificationStages: ["TEST", "BUILD"],
+        documentationRequired: true,
+      },
       objective: "Implement profile editing",
       targetRoot: "C:/repo",
     },
@@ -107,7 +115,14 @@ function activeRun(): HarnessRuntimeRunEnvelope {
       skippedStages: [],
       updatedAt: "2026-09-07T01:20:00.000Z",
     },
-    evidence: [],
+    evidence: [{
+      version: 1,
+      id: "evidence-1",
+      kind: "file-change",
+      stage: "IMPLEMENT",
+      recordedAt: "2026-09-07T01:20:00.000Z",
+      summary: "Applied profile update",
+    }],
     updatedAt: "2026-09-07T01:20:00.000Z",
   };
 }
@@ -152,6 +167,18 @@ test("Project Workspace view exposes Genesis tree history and active Run summary
   assert.equal(view.runs[0]?.runId, "run-active");
   assert.equal(view.runs[0]?.stage, "IMPLEMENT");
   assert.equal(view.runs[0]?.policySha256, "c".repeat(64));
+  assert.deepEqual(view.runs[0]?.agentPlan, [
+    { role: "orchestrator", status: "executable" },
+    { role: "frontend", status: "executable" },
+    { role: "documentation", status: "planned" },
+  ]);
+  assert.deepEqual(view.runs[0]?.evidence, [{
+    id: "evidence-1",
+    kind: "file-change",
+    stage: "IMPLEMENT",
+    recordedAt: "2026-09-07T01:20:00.000Z",
+    summary: "Applied profile update",
+  }]);
 });
 
 test("Web view model does not expose policy source contents or environment values", async () => {

@@ -67,6 +67,18 @@ export type WebRunSummary = {
   updatedAt: string;
   policySha256?: string;
   evidenceCount: number;
+  reason?: string;
+  evidence: Array<{
+    id: string;
+    kind: string;
+    stage: string;
+    recordedAt: string;
+    summary: string;
+  }>;
+  agentPlan: Array<{
+    role: string;
+    status: "executable" | "planned";
+  }>;
 };
 
 export type ProjectWorkspaceView = {

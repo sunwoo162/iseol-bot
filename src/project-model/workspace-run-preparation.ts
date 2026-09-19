@@ -31,6 +31,47 @@ export type StartProjectWorkspaceRunResult = {
 
 const activeStarts = new Map<string, Promise<StartProjectWorkspaceRunResult>>();
 
+/**
+ * Repairs the durable boundary between Harness Run creation and Workspace
+ * attachment. This is safe to call after a process restart: the Run is
+ * validated against the project identity, the tree attachment is idempotent,
+ * and the history event has a stable identity.
+ */
+export async function reconcileProjectWorkspaceRun(
+  root: string,
+  harnessRoot: string,
+  projectId: string,
+  runId: string,
+  at = new Date().toISOString(),
+): Promise<{ run: HarnessRuntimeRunEnvelope; attached: boolean }> {
+  const run = await loadHarnessRun(harnessRoot, runId);
+  if (!run) throw new Error(`Harness Run not found: ${runId}`);
+  if (run.request.projectId !== projectId) {
+    throw new Error(`Harness Run project identity does not match: ${runId}`);
+  }
+  const workspace = await loadProjectWorkspace(root, projectId);
+  if (!workspace) throw new Error(`Project workspace not found: ${projectId}`);
+  const rootNode = workspace.tree.find((node) => node.kind === "root");
+  if (!rootNode) throw new Error("Project workspace root node is required before attaching a Run");
+
+  const attached = rootNode.runIds.includes(runId);
+  if (!attached) {
+    await saveProjectWorkspace(root, attachRunToProjectTreeNode(workspace, rootNode.id, runId, at));
+  }
+  await appendProjectHistoryEventOnce(root, {
+    version: 1,
+    id: `run-attached-${projectId}-${runId}`,
+    projectId,
+    type: "run-attached",
+    at,
+    summary: `Harness Run attached: ${runId}`,
+    runId,
+    nodeId: rootNode.id,
+    action: "run-start",
+  });
+  return { run, attached };
+}
+
 export async function prepareProjectWorkspaceRun(
   root: string,
   projectId: string,
@@ -82,8 +123,9 @@ export async function startProjectWorkspaceRun(
   const operation = (async () => {
     const workspace = await loadProjectWorkspace(root, projectId);
     if (!workspace) throw new Error(`Project workspace not found: ${projectId}`);
-    const rootNode = workspace.tree.find((node) => node.kind === "root");
-    if (!rootNode) throw new Error("Project workspace root node is required before starting a Run");
+    if (!workspace.tree.some((node) => node.kind === "root")) {
+      throw new Error("Project workspace root node is required before starting a Run");
+    }
     const prepared = await prepareProjectWorkspaceRun(root, projectId, input);
     const current = await loadHarnessRun(options.storeRoot, input.runId);
     let run: HarnessRuntimeRunEnvelope;
@@ -105,22 +147,13 @@ export async function startProjectWorkspaceRun(
         loadedAt: options.loadedAt,
       });
     }
-    const at = options.loadedAt ?? new Date().toISOString();
-    const latestWorkspace = await loadProjectWorkspace(root, projectId);
-    if (!latestWorkspace) throw new Error(`Project workspace not found: ${projectId}`);
-    const attached = attachRunToProjectTreeNode(latestWorkspace, rootNode.id, input.runId, at);
-    await saveProjectWorkspace(root, attached);
-    await appendProjectHistoryEventOnce(root, {
-      version: 1,
-      id: `run-attached-${projectId}-${input.runId}`,
+    await reconcileProjectWorkspaceRun(
+      root,
+      options.storeRoot,
       projectId,
-      type: "run-attached",
-      at,
-      summary: `Harness Run attached: ${input.runId}`,
-      runId: input.runId,
-      nodeId: rootNode.id,
-      action: "run-start",
-    });
+      input.runId,
+      options.loadedAt ?? new Date().toISOString(),
+    );
     return { status, run };
   })();
   activeStarts.set(key, operation);

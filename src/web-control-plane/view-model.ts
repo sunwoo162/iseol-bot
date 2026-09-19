@@ -47,6 +47,22 @@ function safeIdeaLabSummary(value: string | undefined): string | undefined {
     .slice(0, 240);
 }
 
+function safeRunSummary(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value
+    .replace(/\b(token|cookie|secret|password)\s*[:=]\s*\S+/gi, "$1=[redacted]")
+    .slice(0, 240);
+}
+
+function safeRunReason(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (/waiting.*agent/i.test(value)) return "Run is waiting for the configured agent.";
+  if (/waiting.*external/i.test(value)) return "Run is waiting for an external dependency.";
+  if (/blocked/i.test(value)) return "Run is blocked pending user or policy action.";
+  if (/failed|error|invalid|rejected/i.test(value)) return "A bounded Run failure was recorded; inspect its evidence.";
+  return "A bounded Run status reason was recorded.";
+}
+
 export async function buildIdeaLabView(
   modelRoot: string,
   harnessRoot = modelRoot,
@@ -112,6 +128,18 @@ async function buildRunSummary(
       ? {}
       : { policySha256: run.preflight.policy.effectiveSha256 }),
     evidenceCount: run.evidence.length,
+    ...(safeRunReason(run.state.reason) ? { reason: safeRunReason(run.state.reason) } : {}),
+    evidence: run.evidence.slice(-20).map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      stage: item.stage,
+      recordedAt: item.recordedAt,
+      summary: safeRunSummary(item.summary) ?? "",
+    })),
+    agentPlan: [
+      ...(run.request.purposeProfile?.executableRoles ?? []).map((role) => ({ role, status: "executable" as const })),
+      ...(run.request.purposeProfile?.plannedRoles ?? []).map((role) => ({ role, status: "planned" as const })),
+    ],
   };
 }
 

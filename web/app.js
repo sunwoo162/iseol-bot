@@ -374,6 +374,19 @@ function renderRuns(runs) {
     meta.append(element("span", "", `${run.evidenceCount} evidence`));
     if (run.policySha256) meta.append(element("span", "mono", `policy ${shortSha(run.policySha256)}`));
     card.append(meta);
+    if (run.reason) card.append(element("p", "run-reason muted", run.reason));
+    if (run.agentPlan?.length) {
+      const roles = element("p", "run-roles muted");
+      roles.textContent = `Roles: ${run.agentPlan.map((item) => `${item.role} (${item.status})`).join(", ")}`;
+      card.append(roles);
+    }
+    if (run.evidence?.length) {
+      const evidence = element("ul", "run-evidence");
+      for (const item of run.evidence) {
+        evidence.append(element("li", "muted", `${item.kind} · ${item.stage} · ${item.summary}`));
+      }
+      card.append(evidence);
+    }
     list.append(card);
   }
   root.append(list);
