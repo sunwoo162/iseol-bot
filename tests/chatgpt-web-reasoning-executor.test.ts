@@ -487,6 +487,37 @@ test("restart advances past a lost session still referenced by the active pointe
   assert.equal((await loadWebWorkerSession(root, staleId))?.status, "lost");
 });
 
+test("recovered sessions inherit the project identity for bounded diagnostics", async () => {
+  const { root, run } = await fixture();
+  const projectRun = { ...run, request: { ...run.request, projectId: "project-web" } };
+  const { createWebWorkerSession } = await import("../src/chatgpt-web/session-store.js");
+  await createWebWorkerSession(root, {
+    version: 1,
+    sessionId: "web-existing-project",
+    runId: projectRun.request.runId,
+    stage: projectRun.state.stage,
+    generation: 1,
+    policySha256: projectRun.preflight.policy!.effectiveSha256,
+    status: "ready",
+    resultContract: "patch-frame-v1",
+    createdAt: "2026-09-08T01:00:00.000Z",
+  });
+  let observedProjectId: string | undefined;
+  const fake = createFakeChatGptWebBrowserAdapter([
+    { version: 1, runId: projectRun.request.runId, stage: "IMPLEMENT", generation: 1, summary: "Complete", decisions: [], intents: [], outcome: "stage-complete" },
+  ]);
+  const adapter = {
+    ...fake.adapter,
+    async openOrResumeSession(session: any, prompt: any) {
+      observedProjectId = session.projectId;
+      return fake.adapter.openOrResumeSession(session, prompt);
+    },
+  };
+  const executor = createWebReasoningExecutor({ workerRoot: root, adapter, now: () => "2026-09-08T01:01:00.000Z", runDesktopIntent: async () => { throw new Error("unused"); } });
+  assert.equal((await executor.execute(projectRun)).type, "completed");
+  assert.equal(observedProjectId, "project-web");
+});
+
 
 test("IMPLEMENT correction repeats the exact PATCH_FRAME_V1 contract", async () => {
   const { root, run } = await fixture();

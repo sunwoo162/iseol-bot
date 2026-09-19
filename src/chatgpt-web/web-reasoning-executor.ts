@@ -151,8 +151,15 @@ async function ensureSession(input: CreateWebReasoningExecutorInput, run: Harnes
   await repairActiveWebWorkerSession(input.workerRoot, run.request.runId, run.state.stage);
   const existing = await getActiveWebWorkerSession(input.workerRoot, run.request.runId, run.state.stage);
   if (existing) {
-    if (existing.resultContract) return existing;
-    return updateWebWorkerSession(input.workerRoot, { ...existing, resultContract: persistedWebWorkerResultContract(existing) });
+    const projectIdentity = run.request.projectId && !existing.projectId
+      ? { projectId: run.request.projectId }
+      : {};
+    if (existing.resultContract && Object.keys(projectIdentity).length === 0) return existing;
+    return updateWebWorkerSession(input.workerRoot, {
+      ...existing,
+      ...projectIdentity,
+      resultContract: existing.resultContract ?? persistedWebWorkerResultContract(existing),
+    });
   }
   const policy = run.preflight.policy;
   if (run.preflight.status !== "ready" || !policy) throw new Error("Web reasoning requires ready Harness policy");
