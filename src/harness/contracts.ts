@@ -19,6 +19,11 @@ export type DevelopmentRunRequest = {
     verificationStages: string[];
     documentationRequired: boolean;
   };
+  projectContext?: {
+    name: string;
+    purposeSummary: string;
+    requirements: string;
+  };
 };
 
 export type HarnessPolicySource = {

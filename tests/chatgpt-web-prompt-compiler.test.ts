@@ -64,6 +64,28 @@ test("prompt contains bounded durable context and allowed intent vocabulary", ()
   assert.match(compiled.body, /completion/i);
   assert.doesNotMatch(compiled.body, /SUPER_SECRET_POLICY_BODY|PROJECT_SECRET_BODY/);
 });
+test("project workspace prompts carry purpose and bounded project context", () => {
+  const input = baseInput();
+  input.run.request.projectId = "project-study-log";
+  input.run.request.purposeProfile = {
+    version: 1,
+    purpose: "portfolio",
+    executableRoles: ["orchestrator", "planning", "frontend", "qa"],
+    plannedRoles: ["review", "documentation"],
+    verificationStages: ["TEST", "BUILD"],
+    documentationRequired: true,
+  };
+  input.run.request.projectContext = {
+    name: "Study Log",
+    purposeSummary: "Portfolio project",
+    requirements: "Track study sessions locally and show seven-day totals.",
+  };
+  const payload = JSON.parse(compileWebPrompt(input).body) as any;
+  assert.equal(payload.run.projectId, "project-study-log");
+  assert.equal(payload.run.purposeProfile.purpose, "portfolio");
+  assert.equal(payload.run.projectContext.name, "Study Log");
+  assert.match(payload.run.projectContext.requirements, /seven-day/);
+});
 test("recovery prompts are marked and credential-like evidence is redacted", () => {
   const input = baseInput();
   input.desktopEvidence = [{

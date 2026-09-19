@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import type {
   HarnessRunEnvelope,
@@ -69,6 +69,20 @@ export async function loadHarnessRun(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function listHarnessRuns(root: string): Promise<HarnessRuntimeRunEnvelope[]> {
+  let entries: string[];
+  try { entries = await readdir(root); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const runs: HarnessRuntimeRunEnvelope[] = [];
+  for (const entry of entries) {
+    const run = await loadHarnessRun(root, entry).catch(() => null);
+    if (run) runs.push(run);
+  }
+  return runs;
 }
 
 export type HarnessRunRetryResult =

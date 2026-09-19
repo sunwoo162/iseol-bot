@@ -184,7 +184,9 @@ test("project start creates one purpose-bound Harness Run and reuses it on dupli
     },
     createdAt: at, updatedAt: at,
   });
-  const deps = { modelRoot: root, harnessRoot: join(root, "runs"), iseolRoot: root, policyRoot: root, now: () => at };
+  const executions: string[] = [];
+  const deps = { modelRoot: root, harnessRoot: join(root, "runs"), iseolRoot: root, policyRoot: root, now: () => at,
+    ideaLabRuntime: { state: "ready" as const, enqueueProjectRun: async (runId: string) => { executions.push(runId); return "accepted" as const; } } };
   const first = await routeWebControlPlaneRequest({
     method: "POST", path: "/api/projects/project-start/execution-start", headers: {},
     body: { runId: "run-start", objective: "Build a study timer", targetRoot },
@@ -194,6 +196,7 @@ test("project start creates one purpose-bound Harness Run and reuses it on dupli
   assert.equal(firstBody.status, "created");
   assert.equal(firstBody.run.request.projectId, "project-start");
   assert.equal(firstBody.run.request.purposeProfile?.purpose, "rapid-prototype");
+  assert.deepEqual(executions, ["run-start"]);
   const second = await routeWebControlPlaneRequest({
     method: "POST", path: "/api/projects/project-start/execution-start", headers: {},
     body: { runId: "run-start", objective: "Build a study timer", targetRoot },

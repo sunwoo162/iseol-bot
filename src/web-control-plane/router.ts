@@ -35,6 +35,7 @@ export type IdeaLabRuntimeCapability = {
   state: "disabled" | "ready" | "blocked";
   enqueue?: (campaignId: string) => void;
   retryRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-allowed">;
+  enqueueProjectRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-configured">;
 };
 
 export type WebControlPlaneRouterDependencies = {
@@ -238,7 +239,13 @@ export async function routeWebControlPlaneRequest(
         ...(deps.policyRoot ? { policyRoot: deps.policyRoot } : {}),
         loadedAt: (deps.now ?? (() => new Date().toISOString()))(),
       });
-      return response(started.status === "created" ? 201 : 200, started);
+      const execution = deps.ideaLabRuntime?.enqueueProjectRun
+        ? await deps.ideaLabRuntime.enqueueProjectRun(started.run.request.runId)
+        : undefined;
+      return response(started.status === "created" ? 201 : 200, {
+        ...started,
+        ...(execution ? { execution } : {}),
+      });
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Project workspace not found:")) return response(404, { error: "not found" });
       if (error instanceof Error && /purpose|root node|terminal|identity|request does not match/.test(error.message)) return response(409, { error: error.message });

@@ -11,7 +11,8 @@ import {
   type DesktopAgentCoreConfig,
 } from "../desktop-agent/core-service.js";
 import { refreshDevelopmentRunPreflight } from "../harness/run-service.js";
-import { requestHarnessRunRetry } from "../harness/run-store.js";
+import { listHarnessRuns, loadHarnessRun, requestHarnessRunRetry } from "../harness/run-store.js";
+import { superviseHarnessRun } from "../harness/run-supervisor.js";
 import {
   resolveProductionChatGptBrowserDriver,
   resolveChatGptWebBridgeConfig,
@@ -44,11 +45,14 @@ import {
   resolveVercelPrototypeDeployAdapter,
 } from "../idea-lab/vercel-deploy-adapter.js";
 import type { PrototypeDeployAdapter } from "../idea-lab/deploy-adapter.js";
+import { createProjectWorkspaceExecutor } from "./project-workspace-executor.js";
+import { createProjectWorkspaceDesktopTaskCompiler } from "./project-workspace-desktop-compiler.js";
 
 export type IseolRuntimeCapability = {
   state: "disabled" | "ready" | "blocked";
   enqueue?: (campaignId: string) => void;
   retryRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-allowed">;
+  enqueueProjectRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-configured">;
 };
 type DesktopCoreService = Awaited<ReturnType<typeof startDesktopAgentCoreService>>;
 type ProductionDriver = ReturnType<typeof createIdeaLabProductionRuntimeDriver>;
@@ -84,6 +88,32 @@ export type IseolRuntimeServices = {
   ideaLabCapability: IseolRuntimeCapability;
   dispose(): Promise<void>;
 };
+
+function projectRuntimeRequested(env: Record<string, string | undefined>): boolean {
+  return env.ISEOL_PROJECT_RUNTIME_ENABLED?.trim().toLowerCase() === "true";
+}
+
+function projectAgentId(env: Record<string, string | undefined>, ideaLabConfig: IdeaLabRuntimeConfig): string | null {
+  const explicit = env.ISEOL_PROJECT_AGENT_ID?.trim();
+  if (explicit) return explicit;
+  return ideaLabConfig.enabled ? ideaLabConfig.agentId : null;
+}
+
+function projectTestConfig(env: Record<string, string | undefined>) {
+  const executable = env.ISEOL_PROJECT_TEST_EXECUTABLE?.trim() || (process.platform === "win32" ? "npm.cmd" : "npm");
+  let args = ["test"];
+  const encoded = env.ISEOL_PROJECT_TEST_ARGS_JSON?.trim();
+  if (encoded) {
+    try {
+      const parsed = JSON.parse(encoded);
+      if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string")) throw new Error("invalid");
+      args = parsed;
+    } catch { throw new Error("ISEOL_PROJECT_TEST_ARGS_JSON must be a string array"); }
+  }
+  const timeoutMs = Number(env.ISEOL_PROJECT_TEST_TIMEOUT_MS?.trim() || "120000");
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) throw new Error("ISEOL_PROJECT_TEST_TIMEOUT_MS must be positive");
+  return { executable, args, timeoutMs };
+}
 function defaultRoots(
   env: Record<string, string | undefined>,
   webConfig: WebControlPlaneConfig,
@@ -228,6 +258,8 @@ export async function startIseolRuntimeServices(
   let runtime: IdeaLabRuntimeService | undefined;
   let webServer: Server | undefined;
   let unsubscribeAgentConnected: (() => void) | undefined;
+  const projectActiveRuns = new Map<string, Promise<void>>();
+  let enqueueProjectRun: IseolRuntimeCapability["enqueueProjectRun"];
   let capability: IseolRuntimeCapability = ideaLabRequested
     ? { state: "blocked" }
     : { state: "disabled" };
@@ -241,7 +273,8 @@ export async function startIseolRuntimeServices(
         desktopCore = null;
       }
     }
-    const needsBrowser = bridgeConfig.enabled || ideaLabConfig.enabled;
+    const projectRequested = projectRuntimeRequested(env) || ideaLabConfig.enabled;
+    const needsBrowser = bridgeConfig.enabled || ideaLabConfig.enabled || projectRequested;
     const browserRepositoryRoot = ideaLabConfig.enabled
       ? ideaLabConfig.repositoryRoot
       : roots.iseolRoot;
@@ -258,10 +291,13 @@ export async function startIseolRuntimeServices(
       ? await createBridge(bridgeConfig, browser, { ownsDriver: false })
       : undefined;
 
-    const desktopAgentReady = ideaLabConfig.enabled && desktopCore?.transport && browser
-      ? await waitForDesktopAgentConnection(desktopCore.transport, ideaLabConfig.agentId, agentReadyTimeoutMs, sleep)
+    const configuredProjectAgentId = projectAgentId(env, ideaLabConfig);
+    const runtimeAgentId = ideaLabConfig.enabled ? ideaLabConfig.agentId : configuredProjectAgentId;
+    const desktopAgentReady = runtimeAgentId && desktopCore?.transport && browser
+      ? await waitForDesktopAgentConnection(desktopCore.transport, runtimeAgentId, agentReadyTimeoutMs, sleep)
       : false;
-    if (ideaLabConfig.enabled && desktopCore?.transport && browser && desktopAgentReady) {
+    if ((ideaLabConfig.enabled || projectRequested) && desktopCore?.transport && browser && desktopAgentReady) {
+      if (ideaLabConfig.enabled) {
       let deployAdapter: PrototypeDeployAdapter | null = null;
       try {
         deployAdapter = await resolveDeploy(env);
@@ -327,13 +363,61 @@ export async function startIseolRuntimeServices(
           retryRun: (runId) => runtime!.retryRun(runId),
         };
       }
+
+      }
+      if (projectRequested && desktopCore?.transport && browser && configuredProjectAgentId && desktopAgentReady) {
+        const projectAgentReady = configuredProjectAgentId === runtimeAgentId
+          ? true
+          : await waitForDesktopAgentConnection(desktopCore.transport, configuredProjectAgentId, agentReadyTimeoutMs, sleep);
+        if (!projectAgentReady) {
+          // Keep the Web control plane available; the Project Run will be reported as not configured
+          // until the explicitly configured Agent is connected.
+        } else {
+        const browserAdapter = bridge?.enabled
+          ? bridge.adapter
+          : createProductionChatGptWebAdapter(browser);
+        const compilerConfig = projectTestConfig(env);
+        const projectExecutor = createProjectWorkspaceExecutor({
+          runRoot: roots.runRoot,
+          workerRoot: roots.webWorkerRoot ?? roots.webRoot,
+          desktopStateRoot: desktopConfig.stateRoot,
+          desktopTransport: desktopCore.transport,
+          browserAdapter,
+          agentId: configuredProjectAgentId,
+          desktopTaskCompiler: createProjectWorkspaceDesktopTaskCompiler({
+            testExecutable: compilerConfig.executable,
+            testArgs: compilerConfig.args,
+            testTimeoutMs: compilerConfig.timeoutMs,
+          }),
+        });
+        enqueueProjectRun = async (runId: string) => {
+          const existing = projectActiveRuns.get(runId);
+          if (existing) return "already-active";
+          const run = await loadHarnessRun(roots.runRoot, runId);
+          if (!run || run.request.mode !== "project-workspace") return "not-configured";
+          if (!["READY", "RUNNING", "FAILED_RETRYABLE"].includes(run.state.status)) return "not-configured";
+          const operation = superviseHarnessRun({ storeRoot: roots.runRoot, runId, executor: projectExecutor, maxSteps: 16 });
+          const tracked = operation.then(() => undefined).finally(() => {
+            if (projectActiveRuns.get(runId) === tracked) projectActiveRuns.delete(runId);
+          });
+          projectActiveRuns.set(runId, tracked);
+          void tracked.catch(() => undefined);
+          return "accepted";
+        };
+        for (const run of await listHarnessRuns(roots.runRoot)) {
+          if (run.request.mode === "project-workspace" && ["READY", "RUNNING", "FAILED_RETRYABLE"].includes(run.state.status)) {
+            void enqueueProjectRun(run.request.runId);
+          }
+        }
+        }
+      }
     }
 
     webServer = await startWeb({
       ...webConfig,
       iseolRoot: roots.iseolRoot,
       policyRoot: ideaLabConfig.enabled ? ideaLabConfig.repositoryRoot : roots.iseolRoot,
-      ideaLabRuntime: capability,
+      ideaLabRuntime: { ...capability, ...(enqueueProjectRun ? { enqueueProjectRun } : {}) },
     });
   } catch (error) {
     unsubscribeAgentConnected?.();
@@ -348,7 +432,7 @@ export async function startIseolRuntimeServices(
     desktopCore,
     ...(bridge ? { chatGptBridge: bridge } : {}),
     ...(runtime ? { ideaLabRuntime: runtime } : {}),
-    ideaLabCapability: capability,
+    ideaLabCapability: { ...capability, ...(enqueueProjectRun ? { enqueueProjectRun } : {}) },
     async dispose() {
       if (disposed) return;
 

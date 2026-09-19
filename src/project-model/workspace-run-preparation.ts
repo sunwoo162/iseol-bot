@@ -100,6 +100,11 @@ export async function prepareProjectWorkspaceRun(
       targetRoot: input.targetRoot,
       projectId,
       purposeProfile,
+      projectContext: {
+        name: workspace.name.slice(0, 160),
+        purposeSummary: profile.koreanSummary.slice(0, 400),
+        requirements: input.objective.slice(0, 4_000),
+      },
     },
     plan: {
       purpose: purposeProfile.purpose,

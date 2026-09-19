@@ -105,6 +105,27 @@ test("Idea-Lab-only runtime resolves the browser once even when standalone bridg
   await services.dispose();
 });
 
+test("Project Workspace runtime registers the shared AI/Desktop executor when explicitly enabled", async () => {
+  let capability: any;
+  const value = fixture({ env: {
+    ISEOL_PROJECT_RUNTIME_ENABLED: "true",
+    ISEOL_PROJECT_AGENT_ID: "agent-project",
+  } });
+  value.deps.resolveBrowser = async () => browserDriver();
+  value.deps.startDesktop = async () => ({
+    transport: { isAgentConnected: (agentId: string) => agentId === "agent-project", sendTask() {}, awaitResult: async () => { throw new Error("unused"); } },
+    close: async () => undefined,
+  });
+  value.deps.startWeb = async (options: any) => {
+    capability = options.ideaLabRuntime;
+    return { close: (done?: (error?: Error) => void) => done?.() };
+  };
+  const services = await startIseolRuntimeServices(value);
+  assert.equal(typeof capability.enqueueProjectRun, "function");
+  assert.equal(await capability.enqueueProjectRun("missing-project-run"), "not-configured");
+  await services.dispose();
+});
+
 test("Idea Lab worker sessions use the configured ChatGPT Web root, separate from static web content", async () => {
   const value = fixture({
     env: { ISEOL_CHATGPT_WEB_ENABLED: "false", ISEOL_CHATGPT_WEB_ROOT: "C:/fresh-chatgpt-workers" },

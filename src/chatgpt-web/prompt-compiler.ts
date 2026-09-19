@@ -114,7 +114,22 @@ export function compileWebPrompt(input: CompileWebPromptInput): CompiledWebPromp
   const payload = {
     protocolVersion: 1,
     promptKind: input.kind,
-    run: { id: input.run.request.runId, objective: redact(input.run.request.objective), stage: input.run.state.stage },
+    run: {
+      id: input.run.request.runId,
+      objective: redact(input.run.request.objective),
+      stage: input.run.state.stage,
+      ...(input.run.request.projectId ? { projectId: input.run.request.projectId } : {}),
+      ...(input.run.request.purposeProfile ? {
+        purposeProfile: stable(input.run.request.purposeProfile),
+      } : {}),
+      ...(input.run.request.projectContext ? {
+        projectContext: {
+          name: redact(input.run.request.projectContext.name),
+          purposeSummary: redact(input.run.request.projectContext.purposeSummary),
+          requirements: redact(input.run.request.projectContext.requirements),
+        },
+      } : {}),
+    },
     worker: { generation: input.session.generation },
     policy: {
       effectiveSha256: policy.effectiveSha256,

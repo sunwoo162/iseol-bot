@@ -18,6 +18,7 @@ import { createFakeChatGptWebBrowserAdapter, ChatGptWebSessionLostError } from "
 import { createWebReasoningExecutor } from "../src/chatgpt-web/web-reasoning-executor.js";
 import { compileDesktopIntentToTaskPack } from "../src/chatgpt-web/intent-compiler.js";
 import { createHybridStageExecutor } from "../src/chatgpt-web/hybrid-executor.js";
+import { createProjectWorkspaceExecutor } from "../src/runtime/project-workspace-executor.js";
 
 function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -139,6 +140,36 @@ test("Supervisor runs Web reasoning through the real Desktop bridge before deter
   assert.equal(final.evidence.some((item) => item.stage === "COMMIT" && item.kind === "commit"), true);
   assert.equal(fake.submittedPrompts.some((prompt) => prompt.stage === "IMPLEMENT" && /Desktop Job/.test(prompt.body)), false);
   assert.match(fake.submittedPrompts[1]!.body, /old/);
+});
+
+test("Project Workspace executor composes Web reasoning, Desktop feedback, and recovery using the shared path", async (t) => {
+  const f = await fixture();
+  const resources = await coreAndAgent(f);
+  t.after(() => closeAll(resources));
+  const policySha256 = f.preflight.policy!.effectiveSha256;
+  const patch = ["--- a/feature.txt", "+++ b/feature.txt", "@@ -1 +1 @@", "-old", "+new", ""].join("\n");
+  const fake = createFakeChatGptWebBrowserAdapter([
+    { version: 1, runId: f.request.runId, stage: "IMPLEMENT", generation: 1, summary: "Apply patch", decisions: [], intents: [{ version: 1, intentId: "workspace-patch", runId: f.request.runId, stage: "IMPLEMENT", workspaceRoot: f.repo, policySha256, kind: "PROPOSE_PATCH", path: "feature.txt", patch }, { version: 1, intentId: "workspace-verify", runId: f.request.runId, stage: "IMPLEMENT", workspaceRoot: f.repo, policySha256, kind: "RUN_TEST", cwd: ".", executable: "node", args: ["--test", "verify.test.cjs"], timeoutMs: 5_000 }], outcome: "continue" },
+    { version: 1, runId: f.request.runId, stage: "IMPLEMENT", generation: 1, summary: "Done", decisions: [], intents: [], outcome: "stage-complete" },
+    { version: 1, runId: f.request.runId, stage: "SELF_REVIEW", generation: 1, summary: "Reviewed", decisions: [], intents: [], outcome: "stage-complete" },
+  ]);
+  const executor = createProjectWorkspaceExecutor({
+    runRoot: f.runRoot,
+    workerRoot: f.workerRoot,
+    registryRoot: f.registryRoot,
+    desktopStateRoot: f.jobRoot,
+    desktopTransport: resources.transport,
+    browserAdapter: fake.adapter,
+    agentId: "agent-web-e2e",
+    now: () => "2026-09-08T05:00:00.000Z",
+    desktopTaskCompiler: async (run, agentId) => deterministicPack(f, run, agentId),
+  });
+  const final = await superviseHarnessRun({ storeRoot: f.runRoot, runId: f.request.runId, executor, maxSteps: 12, now: () => "2026-09-08T05:00:00.000Z" });
+  assert.equal(final.state.status, "WAITING_EXTERNAL", final.state.reason ?? "");
+  assert.equal(final.state.stage, "PR");
+  assert.equal((await readFile(join(f.repo, "feature.txt"), "utf8")).trim(), "new");
+  assert.equal(final.evidence.some((item) => item.stage === "IMPLEMENT"), true);
+  assert.equal(fake.submittedPrompts.filter((prompt) => prompt.stage === "IMPLEMENT").length, 2);
 });
 test("browser recovery reuses the same Desktop intent job without applying a mutation twice", async (t) => {
   const f = await fixture();
