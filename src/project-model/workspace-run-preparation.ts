@@ -1,4 +1,5 @@
 import type { DevelopmentRunRequest, HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { createDevelopmentRun } from "../harness/run-service.js";
 import { loadHarnessRun } from "../harness/run-store.js";
 import { appendProjectHistoryEventOnce } from "./history-store.js";
@@ -28,6 +29,11 @@ export type StartProjectWorkspaceRunResult = {
   status: "created" | "already-active";
   run: HarnessRuntimeRunEnvelope;
 };
+
+function isInsideOrEqual(root: string, target: string): boolean {
+  const relation = relative(resolve(root), resolve(target));
+  return relation === "" || (relation !== ".." && !relation.startsWith(`..${sep}`) && !isAbsolute(relation));
+}
 
 const activeStarts = new Map<string, Promise<StartProjectWorkspaceRunResult>>();
 
@@ -81,6 +87,9 @@ export async function prepareProjectWorkspaceRun(
   if (!workspace) throw new Error(`Project workspace not found: ${projectId}`);
   const selection = workspace.purposeSelection;
   if (!selection) throw new Error("Project purpose must be selected before run preparation");
+  if (workspace.workspaceRoot && !isInsideOrEqual(workspace.workspaceRoot, input.targetRoot)) {
+    throw new Error("Run targetRoot must remain inside the workspace-owned project folder");
+  }
   const profile = selection.profile;
   const purposeProfile = {
     version: 1 as const,

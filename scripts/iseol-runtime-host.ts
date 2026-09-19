@@ -2,7 +2,7 @@ import "dotenv/config";
 import { mkdir, open, readFile, rm, rename, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { startIseolRuntimeServices, type IseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
 
 export type IseolRuntimeHostConfig = {
@@ -16,7 +16,48 @@ export type IseolRuntimeHostConfig = {
   codeVersion?: string;
   projectRuntimeEnabled?: boolean;
   desktopAgentId?: string;
+  projectModelRoot?: string;
+  projectRunRoot?: string;
+  projectWebWorkerRoot?: string;
+  projectDesktopStateRoot?: string;
 };
+
+function overlaps(left: string, right: string): boolean {
+  const inside = (root: string, target: string) => {
+    const relation = relative(resolve(root), resolve(target));
+    return relation === "" || (!isAbsolute(relation) && relation !== ".." && !relation.startsWith(`..${sep}`));
+  };
+  return inside(left, right) || inside(right, left);
+}
+
+function validateProjectRoots(config: Pick<IseolRuntimeHostConfig, "modelRoot" | "runRoot" | "webWorkerRoot" | "browserProfileRoot" | "projectModelRoot" | "projectRunRoot" | "projectWebWorkerRoot" | "projectDesktopStateRoot">): void {
+  const projectEntries = [
+    ["projectModelRoot", config.projectModelRoot],
+    ["projectRunRoot", config.projectRunRoot],
+    ["projectWebWorkerRoot", config.projectWebWorkerRoot],
+    ["projectDesktopStateRoot", config.projectDesktopStateRoot],
+  ] as const;
+  const existingEntries = [
+    ["modelRoot", config.modelRoot],
+    ["runRoot", config.runRoot],
+    ["webWorkerRoot", config.webWorkerRoot],
+    ["browserProfileRoot", config.browserProfileRoot],
+  ] as const;
+  for (const [projectName, projectRoot] of projectEntries) {
+    if (!projectRoot) continue;
+    for (const [existingName, existingRoot] of existingEntries) {
+      if (overlaps(projectRoot, existingRoot)) throw new Error(`project root overlap: ${projectName} and ${existingName}`);
+    }
+  }
+  for (let index = 0; index < projectEntries.length; index += 1) {
+    const [leftName, leftRoot] = projectEntries[index]!;
+    if (!leftRoot) continue;
+    for (let next = index + 1; next < projectEntries.length; next += 1) {
+      const [rightName, rightRoot] = projectEntries[next]!;
+      if (rightRoot && overlaps(leftRoot, rightRoot)) throw new Error(`project root overlap: ${leftName} and ${rightName}`);
+    }
+  }
+}
 
 export function loadRuntimeHostConfig(path = process.env.ISEOL_RUNTIME_CONFIG ?? "iseol-runtime.json"): IseolRuntimeHostConfig {
   if (!existsSync(path)) throw new Error(`runtime configuration is missing: ${path}`);
@@ -33,7 +74,7 @@ export function loadRuntimeHostConfig(path = process.env.ISEOL_RUNTIME_CONFIG ??
   if (raw.desktopAgentId !== undefined && (typeof raw.desktopAgentId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(raw.desktopAgentId))) {
     throw new Error("runtime configuration field is invalid: desktopAgentId");
   }
-  return {
+  const config = {
     version: 1,
     dataRoot,
     modelRoot: resolve(raw.modelRoot!),
@@ -44,7 +85,13 @@ export function loadRuntimeHostConfig(path = process.env.ISEOL_RUNTIME_CONFIG ??
     ...(typeof raw.codeVersion === "string" && raw.codeVersion.trim() ? { codeVersion: raw.codeVersion.trim().slice(0, 80) } : {}),
     ...(projectRuntimeEnabled === undefined ? {} : { projectRuntimeEnabled }),
     ...(typeof raw.desktopAgentId === "string" ? { desktopAgentId: raw.desktopAgentId } : {}),
+    ...(typeof raw.projectModelRoot === "string" && raw.projectModelRoot.trim() ? { projectModelRoot: resolve(raw.projectModelRoot) } : {}),
+    ...(typeof raw.projectRunRoot === "string" && raw.projectRunRoot.trim() ? { projectRunRoot: resolve(raw.projectRunRoot) } : {}),
+    ...(typeof raw.projectWebWorkerRoot === "string" && raw.projectWebWorkerRoot.trim() ? { projectWebWorkerRoot: resolve(raw.projectWebWorkerRoot) } : {}),
+    ...(typeof raw.projectDesktopStateRoot === "string" && raw.projectDesktopStateRoot.trim() ? { projectDesktopStateRoot: resolve(raw.projectDesktopStateRoot) } : {}),
   };
+  validateProjectRoots(config);
+  return config;
 }
 
 export async function saveRuntimeHostConfig(path: string, config: Omit<IseolRuntimeHostConfig, "version"> & { version?: 1 }): Promise<void> {
@@ -59,7 +106,12 @@ export async function saveRuntimeHostConfig(path: string, config: Omit<IseolRunt
     ...(config.codeVersion ? { codeVersion: config.codeVersion.slice(0, 80) } : {}),
     ...(config.projectRuntimeEnabled === undefined ? {} : { projectRuntimeEnabled: config.projectRuntimeEnabled }),
     ...(config.desktopAgentId ? { desktopAgentId: config.desktopAgentId } : {}),
+    ...(config.projectModelRoot ? { projectModelRoot: resolve(config.projectModelRoot) } : {}),
+    ...(config.projectRunRoot ? { projectRunRoot: resolve(config.projectRunRoot) } : {}),
+    ...(config.projectWebWorkerRoot ? { projectWebWorkerRoot: resolve(config.projectWebWorkerRoot) } : {}),
+    ...(config.projectDesktopStateRoot ? { projectDesktopStateRoot: resolve(config.projectDesktopStateRoot) } : {}),
   };
+  validateProjectRoots(normalized);
   const temporary = `${path}.${process.pid}.tmp`;
   await mkdir(dirname(path), { recursive: true });
   await writeFile(temporary, JSON.stringify(normalized, null, 2), "utf8");
@@ -142,6 +194,10 @@ async function main(): Promise<void> {
       ISEOL_CHATGPT_BROWSER_PROFILE_ROOT: config.browserProfileRoot,
       ...(config.projectRuntimeEnabled === undefined ? {} : { ISEOL_PROJECT_RUNTIME_ENABLED: String(config.projectRuntimeEnabled) }),
       ...(config.desktopAgentId ? { ISEOL_PROJECT_AGENT_ID: config.desktopAgentId } : {}),
+      ...(config.projectModelRoot ? { ISEOL_PROJECT_MODEL_ROOT: config.projectModelRoot } : {}),
+      ...(config.projectRunRoot ? { ISEOL_PROJECT_RUN_ROOT: config.projectRunRoot } : {}),
+      ...(config.projectWebWorkerRoot ? { ISEOL_PROJECT_WEB_WORKER_ROOT: config.projectWebWorkerRoot } : {}),
+      ...(config.projectDesktopStateRoot ? { ISEOL_PROJECT_DESKTOP_STATE_ROOT: config.projectDesktopStateRoot } : {}),
     };
     services = await startIseolRuntimeServices({ env, roots: {
       iseolRoot: config.dataRoot,
@@ -150,6 +206,10 @@ async function main(): Promise<void> {
       webRoot: config.dataRoot,
       webWorkerRoot: config.webWorkerRoot,
       browserProfileRoot: config.browserProfileRoot,
+      ...(config.projectModelRoot ? { projectModelRoot: config.projectModelRoot } : {}),
+      ...(config.projectRunRoot ? { projectRunRoot: config.projectRunRoot } : {}),
+      ...(config.projectWebWorkerRoot ? { projectWebWorkerRoot: config.projectWebWorkerRoot } : {}),
+      ...(config.projectDesktopStateRoot ? { projectDesktopStateRoot: config.projectDesktopStateRoot } : {}),
     } });
     process.stdout.write(JSON.stringify({ state: "running", pid: process.pid, dataRoot: config.dataRoot }) + "\n");
     await new Promise<void>(() => undefined);

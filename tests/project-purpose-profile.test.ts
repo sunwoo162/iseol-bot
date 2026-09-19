@@ -13,7 +13,7 @@ import {
   verifyPortfolioGrounding,
 } from "../src/project-model/portfolio.js";
 import type { ProjectWorkspace } from "../src/project-model/contracts.js";
-import { saveProjectWorkspace } from "../src/project-model/workspace-store.js";
+import { loadProjectWorkspace, saveProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { loadProjectHistory } from "../src/project-model/history-store.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
@@ -163,6 +163,36 @@ test("run preparation refuses legacy workspaces without an explicit purpose", as
     body: { runId: "run-legacy", objective: "legacy", targetRoot: root },
   }, { modelRoot: root, harnessRoot: join(root, "runs"), now: () => at });
   assert.equal(prepared.status, 409);
+});
+
+test("Project Workspace routes use isolated model and Run roots instead of Idea Lab roots", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-isolation-"));
+  const projectModelRoot = join(root, "project-model");
+  const projectHarnessRoot = join(root, "project-runs");
+  const ideaLabModelRoot = join(root, "idea-lab-model");
+  const ideaLabHarnessRoot = join(root, "idea-lab-runs");
+  const at = "2026-09-19T00:00:00.000Z";
+  await saveProjectWorkspace(projectModelRoot, {
+    version: 1, id: "isolated-project", name: "Isolated", status: "active",
+    genesis: { prototypeId: "prototype-isolated", repository: { url: "https://example.test/repo", branch: "main" }, deployment: { url: "https://example.test" }, runs: [], promotedAt: at },
+    tree: [{ id: "root", kind: "root", title: "Isolated", status: "in-progress", runIds: [], createdAt: at, updatedAt: at }],
+    createdAt: at, updatedAt: at,
+  });
+  const deps = { modelRoot: ideaLabModelRoot, harnessRoot: ideaLabHarnessRoot, projectModelRoot, projectHarnessRoot, now: () => at };
+  const saved = await routeWebControlPlaneRequest({
+    method: "PUT", path: "/api/projects/isolated-project/purpose", headers: {},
+    body: { purpose: "rapid-prototype", objective: "Build an isolated prototype" },
+  }, deps);
+  assert.equal(saved.status, 200);
+  assert.equal((await loadProjectWorkspace(projectModelRoot, "isolated-project"))?.purposeSelection?.purpose, "rapid-prototype");
+  assert.equal(await loadProjectWorkspace(ideaLabModelRoot, "isolated-project"), null);
+  const prepared = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/isolated-project/execution-preparation", headers: {},
+    body: { runId: "run-isolated", objective: "Build an isolated prototype", targetRoot: root },
+  }, deps);
+  assert.equal(prepared.status, 200);
+  assert.equal(await loadHarnessRun(projectHarnessRoot, "run-isolated"), null);
+  assert.equal(await loadHarnessRun(ideaLabHarnessRoot, "run-isolated"), null);
 });
 
 test("project start creates one purpose-bound Harness Run and reuses it on duplicate requests", async () => {

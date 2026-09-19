@@ -134,3 +134,24 @@ test("concurrent start requests share one durable purpose-bound Run", async () =
   assert.deepEqual(workspace?.tree[0]?.runIds, ["run-concurrent"]);
   assert.equal((await loadProjectHistory(modelRoot, "project-recovery")).filter((event) => event.type === "run-attached").length, 1);
 });
+
+test("project Run target must stay inside the workspace-owned project folder", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-owned-root-"));
+  const projectRoot = join(root, "project");
+  const outsideRoot = join(root, "outside");
+  const at = "2026-09-19T00:06:00.000Z";
+  const profile = resolveExecutionProfile({ purpose: "rapid-prototype", objective: "work", roles: defaultAgentRoleRegistrations() });
+  const workspace = {
+    version: 1 as const, id: "project-owned", name: "Owned", status: "active" as const,
+    workspaceRoot: projectRoot,
+    genesis: { prototypeId: "prototype-owned", repository: { url: "https://example.test/repo", branch: "main" }, deployment: { url: "https://example.test" }, runs: [], promotedAt: at },
+    tree: [{ id: "root", kind: "root" as const, title: "Owned", status: "in-progress" as const, runIds: [], createdAt: at, updatedAt: at }],
+    purposeSelection: { version: 1 as const, purpose: profile.purpose, selectedAt: at, source: "user" as const, profile },
+    createdAt: at, updatedAt: at,
+  } as ProjectWorkspace & { workspaceRoot: string };
+  await saveProjectWorkspace(root, workspace);
+  await assert.rejects(
+    startProjectWorkspaceRun(root, "project-owned", { runId: "run-owned", objective: "work", targetRoot: outsideRoot }, { iseolRoot: root, storeRoot: join(root, "runs"), loadedAt: at }),
+    /workspace-owned project folder/,
+  );
+});

@@ -127,6 +127,10 @@ function defaultRoots(
     webRoot: resolve(webConfig.webRoot),
     webWorkerRoot: resolve(resolveChatGptWebBridgeConfig(env).workerRoot),
     browserProfileRoot: resolve(configuredProfile || resolve(cwd, "data", "chatgpt-profile")),
+    ...(env.ISEOL_PROJECT_MODEL_ROOT?.trim() ? { projectModelRoot: resolve(env.ISEOL_PROJECT_MODEL_ROOT) } : {}),
+    ...(env.ISEOL_PROJECT_RUN_ROOT?.trim() ? { projectRunRoot: resolve(env.ISEOL_PROJECT_RUN_ROOT) } : {}),
+    ...(env.ISEOL_PROJECT_WEB_WORKER_ROOT?.trim() ? { projectWebWorkerRoot: resolve(env.ISEOL_PROJECT_WEB_WORKER_ROOT) } : {}),
+    ...(env.ISEOL_PROJECT_DESKTOP_STATE_ROOT?.trim() ? { projectDesktopStateRoot: resolve(env.ISEOL_PROJECT_DESKTOP_STATE_ROOT) } : {}),
   };
 }
 
@@ -210,6 +214,10 @@ export async function startIseolRuntimeServices(
   const roots = input.roots
     ? {
         ...input.roots,
+        ...(input.roots.projectModelRoot ? { projectModelRoot: resolve(input.roots.projectModelRoot) } : {}),
+        ...(input.roots.projectRunRoot ? { projectRunRoot: resolve(input.roots.projectRunRoot) } : {}),
+        ...(input.roots.projectWebWorkerRoot ? { projectWebWorkerRoot: resolve(input.roots.projectWebWorkerRoot) } : {}),
+        ...(input.roots.projectDesktopStateRoot ? { projectDesktopStateRoot: resolve(input.roots.projectDesktopStateRoot) } : {}),
         webWorkerRoot: input.roots.webWorkerRoot ?? resolve(resolveChatGptWebBridgeConfig(env).workerRoot),
       }
     : defaultRoots(env, webConfig);
@@ -273,7 +281,11 @@ export async function startIseolRuntimeServices(
         desktopCore = null;
       }
     }
-    const projectRequested = projectRuntimeRequested(env) || ideaLabConfig.enabled;
+    const projectFlag = projectRuntimeRequested(env);
+    const projectRootsConfigured = Boolean(roots.projectModelRoot && roots.projectRunRoot && roots.projectWebWorkerRoot && roots.projectDesktopStateRoot);
+    const projectRequested = projectFlag && projectRootsConfigured;
+    const projectConfigBlocked = projectFlag && !projectRootsConfigured;
+    if (projectConfigBlocked && !ideaLabRequested) capability = { state: "blocked" };
     const needsBrowser = bridgeConfig.enabled || ideaLabConfig.enabled || projectRequested;
     const browserRepositoryRoot = ideaLabConfig.enabled
       ? ideaLabConfig.repositoryRoot
@@ -378,9 +390,9 @@ export async function startIseolRuntimeServices(
           : createProductionChatGptWebAdapter(browser);
         const compilerConfig = projectTestConfig(env);
         const projectExecutor = createProjectWorkspaceExecutor({
-          runRoot: roots.runRoot,
-          workerRoot: roots.webWorkerRoot ?? roots.webRoot,
-          desktopStateRoot: desktopConfig.stateRoot,
+          runRoot: roots.projectRunRoot!,
+          workerRoot: roots.projectWebWorkerRoot!,
+          desktopStateRoot: roots.projectDesktopStateRoot!,
           desktopTransport: desktopCore.transport,
           browserAdapter,
           agentId: configuredProjectAgentId,
@@ -393,10 +405,10 @@ export async function startIseolRuntimeServices(
         enqueueProjectRun = async (runId: string) => {
           const existing = projectActiveRuns.get(runId);
           if (existing) return "already-active";
-          const run = await loadHarnessRun(roots.runRoot, runId);
+          const run = await loadHarnessRun(roots.projectRunRoot!, runId);
           if (!run || run.request.mode !== "project-workspace") return "not-configured";
           if (!["READY", "RUNNING", "FAILED_RETRYABLE"].includes(run.state.status)) return "not-configured";
-          const operation = superviseHarnessRun({ storeRoot: roots.runRoot, runId, executor: projectExecutor, maxSteps: 16 });
+          const operation = superviseHarnessRun({ storeRoot: roots.projectRunRoot!, runId, executor: projectExecutor, maxSteps: 16 });
           const tracked = operation.then(() => undefined).finally(() => {
             if (projectActiveRuns.get(runId) === tracked) projectActiveRuns.delete(runId);
           });
@@ -404,7 +416,7 @@ export async function startIseolRuntimeServices(
           void tracked.catch(() => undefined);
           return "accepted";
         };
-        for (const run of await listHarnessRuns(roots.runRoot)) {
+        for (const run of await listHarnessRuns(roots.projectRunRoot!)) {
           if (run.request.mode === "project-workspace" && ["READY", "RUNNING", "FAILED_RETRYABLE"].includes(run.state.status)) {
             void enqueueProjectRun(run.request.runId);
           }
@@ -417,6 +429,8 @@ export async function startIseolRuntimeServices(
       ...webConfig,
       iseolRoot: roots.iseolRoot,
       policyRoot: ideaLabConfig.enabled ? ideaLabConfig.repositoryRoot : roots.iseolRoot,
+      ...(roots.projectModelRoot ? { projectModelRoot: roots.projectModelRoot } : {}),
+      ...(roots.projectRunRoot ? { projectHarnessRoot: roots.projectRunRoot } : {}),
       ideaLabRuntime: { ...capability, ...(enqueueProjectRun ? { enqueueProjectRun } : {}) },
     });
   } catch (error) {

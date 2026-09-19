@@ -41,6 +41,8 @@ export type IdeaLabRuntimeCapability = {
 export type WebControlPlaneRouterDependencies = {
   modelRoot: string;
   harnessRoot: string;
+  projectModelRoot?: string;
+  projectHarnessRoot?: string;
   iseolRoot?: string;
   policyRoot?: string;
   evaluationRoot?: string;
@@ -89,6 +91,8 @@ export async function routeWebControlPlaneRequest(
   deps: WebControlPlaneRouterDependencies,
 ): Promise<WebControlPlaneResponse> {
   const path = request.path.split("?", 1)[0] ?? request.path;
+  const projectModelRoot = deps.projectModelRoot ?? deps.modelRoot;
+  const projectHarnessRoot = deps.projectHarnessRoot ?? deps.harnessRoot;
 
   if (path === "/api/evaluation") {
     if (request.method !== "GET") return methodNotAllowed();
@@ -149,7 +153,7 @@ export async function routeWebControlPlaneRequest(
       if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
       if (!request.body || typeof request.body !== "object") return response(400, { error: "invalid portfolio update" });
       try {
-        return response(200, { document: await updatePortfolioDocument(deps.modelRoot, projectId, request.body as { sections?: Array<{ id: string; content: string; included: boolean }>; readme?: string }, (deps.now ?? (() => new Date().toISOString()))()) });
+        return response(200, { document: await updatePortfolioDocument(projectModelRoot, projectId, request.body as { sections?: Array<{ id: string; content: string; included: boolean }>; readme?: string }, (deps.now ?? (() => new Date().toISOString()))()) });
       } catch (error) {
         if (error instanceof Error && error.message.startsWith("Portfolio document not found:")) return response(404, { error: "not found" });
         if (error instanceof Error && /Invalid portfolio/.test(error.message)) return response(400, { error: "invalid portfolio update" });
@@ -158,9 +162,9 @@ export async function routeWebControlPlaneRequest(
     }
     if (request.method !== "GET") return methodNotAllowed();
     try {
-      const evidence = await collectProjectEvidence(deps.modelRoot, deps.harnessRoot, projectId);
+      const evidence = await collectProjectEvidence(projectModelRoot, projectHarnessRoot, projectId);
       const draft = buildPortfolioDraft(evidence, (deps.now ?? (() => new Date().toISOString()))());
-      const document = await ensurePortfolioDocument(deps.modelRoot, draft, (deps.now ?? (() => new Date().toISOString()))());
+      const document = await ensurePortfolioDocument(projectModelRoot, draft, (deps.now ?? (() => new Date().toISOString()))());
       const generatedGrounding = verifyPortfolioGrounding(draft, evidence);
       const documentGrounding = verifyStoredPortfolioGrounding(document, new Set(evidence.evidence.map((item) => item.id)));
       return response(200, { draft, document, evidence: evidence.evidence, grounding: { ...generatedGrounding, documentGrounded: documentGrounding.grounded, needsReview: documentGrounding.needsReview } });
@@ -185,8 +189,8 @@ export async function routeWebControlPlaneRequest(
         roles: defaultAgentRoleRegistrations(),
       });
       const selectedAt = (deps.now ?? (() => new Date().toISOString()))();
-      await setProjectPurpose(deps.modelRoot, projectId, profile, selectedAt, "user");
-      const view = await buildProjectWorkspaceView(deps.modelRoot, deps.harnessRoot, projectId);
+      await setProjectPurpose(projectModelRoot, projectId, profile, selectedAt, "user");
+      const view = await buildProjectWorkspaceView(projectModelRoot, projectHarnessRoot, projectId);
       return view ? response(200, view) : response(404, { error: "not found" });
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Project workspace not found:")) return response(404, { error: "not found" });
@@ -206,7 +210,7 @@ export async function routeWebControlPlaneRequest(
       return response(400, { error: "runId, objective and targetRoot are required" });
     }
     try {
-      return response(200, await prepareProjectWorkspaceRun(deps.modelRoot, projectId, {
+      return response(200, await prepareProjectWorkspaceRun(projectModelRoot, projectId, {
         runId: body.runId,
         objective: body.objective,
         targetRoot: body.targetRoot,
@@ -229,13 +233,13 @@ export async function routeWebControlPlaneRequest(
       return response(400, { error: "runId, objective and targetRoot are required" });
     }
     try {
-      const started = await startProjectWorkspaceRun(deps.modelRoot, projectId, {
+      const started = await startProjectWorkspaceRun(projectModelRoot, projectId, {
         runId: body.runId,
         objective: body.objective,
         targetRoot: body.targetRoot,
       }, {
         iseolRoot: deps.iseolRoot ?? deps.modelRoot,
-        storeRoot: deps.harnessRoot,
+        storeRoot: projectHarnessRoot,
         ...(deps.policyRoot ? { policyRoot: deps.policyRoot } : {}),
         loadedAt: (deps.now ?? (() => new Date().toISOString()))(),
       });
@@ -259,8 +263,8 @@ export async function routeWebControlPlaneRequest(
     const projectId = decodeId(projectMatch[1] ?? "");
     if (!projectId) return response(404, { error: "not found" });
     const view = await buildProjectWorkspaceView(
-      deps.modelRoot,
-      deps.harnessRoot,
+      projectModelRoot,
+      projectHarnessRoot,
       projectId,
     );
     return view ? response(200, view) : response(404, { error: "not found" });

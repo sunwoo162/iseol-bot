@@ -9,6 +9,10 @@ export type IdeaLabRuntimeRoots = {
   webRoot: string;
   webWorkerRoot?: string;
   browserProfileRoot: string;
+  projectModelRoot?: string;
+  projectRunRoot?: string;
+  projectWebWorkerRoot?: string;
+  projectDesktopStateRoot?: string;
 };
 
 export type IdeaLabRuntimeConfig =

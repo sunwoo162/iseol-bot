@@ -28,14 +28,20 @@ test("runtime host persists bounded lifecycle metadata atomically", async () => 
     codeVersion: "abc123",
     projectRuntimeEnabled: true,
     desktopAgentId: "agent-project",
+    projectModelRoot: join(root, "project-model"),
+    projectRunRoot: join(root, "project-runs"),
+    projectWebWorkerRoot: join(root, "project-workers"),
+    projectDesktopStateRoot: join(root, "project-desktop"),
   });
   const saved = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   assert.equal(saved.version, 1);
   assert.equal(saved.codeVersion, "abc123");
   assert.equal(saved.projectRuntimeEnabled, true);
   assert.equal(saved.desktopAgentId, "agent-project");
+  assert.equal(saved.projectRunRoot, join(root, "project-runs"));
   assert.equal("token" in saved, false);
   assert.equal(loadRuntimeHostConfig(file).projectRuntimeEnabled, true);
+  assert.equal(loadRuntimeHostConfig(file).projectDesktopStateRoot, join(root, "project-desktop"));
 });
 
 test("runtime host rejects invalid project lifecycle metadata before startup", async () => {
@@ -43,6 +49,23 @@ test("runtime host rejects invalid project lifecycle metadata before startup", a
   const file = join(root, "runtime.json");
   await writeFile(file, JSON.stringify({ dataRoot: root, modelRoot: join(root, "model"), runRoot: join(root, "runs"), webWorkerRoot: join(root, "workers"), browserProfileRoot: join(root, "profile"), projectRuntimeEnabled: "yes" }));
   assert.throws(() => loadRuntimeHostConfig(file), /projectRuntimeEnabled/);
+});
+
+test("runtime host rejects project roots that overlap Idea Lab roots", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-overlap-"));
+  const file = join(root, "runtime.json");
+  await writeFile(file, JSON.stringify({
+    dataRoot: root,
+    modelRoot: join(root, "model"),
+    runRoot: join(root, "runs"),
+    webWorkerRoot: join(root, "workers"),
+    browserProfileRoot: join(root, "profile"),
+    projectModelRoot: join(root, "model"),
+    projectRunRoot: join(root, "project-runs"),
+    projectWebWorkerRoot: join(root, "project-workers"),
+    projectDesktopStateRoot: join(root, "project-desktop"),
+  }));
+  assert.throws(() => loadRuntimeHostConfig(file), /project.*overlap/i);
 });
 
 test("runtime host lock prevents concurrent ownership and releases cleanly", async () => {

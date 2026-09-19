@@ -77,6 +77,8 @@ export type ProjectWorkspace = {
   status: "active" | "archived";
   genesis: ProjectGenesis;
   tree: ProjectTreeNode[];
+  /** Optional least-privilege filesystem root owned by this Project Workspace. */
+  workspaceRoot?: string;
   purposeSelection?: {
     version: 1;
     purpose: ProjectPurpose;

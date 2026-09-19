@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { resolve } from "node:path";
 import type { ChatGptBrowserDriver } from "../src/chatgpt-web/production-browser-adapter.js";
 import { startIseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
+import { saveHarnessRun } from "../src/harness/run-store.js";
 
 function browserDriver(onDispose: () => void = () => undefined): ChatGptBrowserDriver {
   return {
@@ -22,6 +23,10 @@ function fixture(overrides: Record<string, unknown> = {}) {
     runRoot: "C:/iseol-runs",
     webRoot: "C:/iseol-web",
     browserProfileRoot: "C:/chatgpt-profile",
+    projectModelRoot: "C:/project-model",
+    projectRunRoot: "C:/project-runs",
+    projectWebWorkerRoot: "C:/project-workers",
+    projectDesktopStateRoot: "C:/project-desktop-state",
   };
   return {
     env: {},
@@ -123,6 +128,67 @@ test("Project Workspace runtime registers the shared AI/Desktop executor when ex
   const services = await startIseolRuntimeServices(value);
   assert.equal(typeof capability.enqueueProjectRun, "function");
   assert.equal(await capability.enqueueProjectRun("missing-project-run"), "not-configured");
+  await services.dispose();
+});
+
+test("Project Workspace runtime exposes isolated roots to the web control plane", async () => {
+  let webOptions: any;
+  const value = fixture({
+    env: { ISEOL_PROJECT_RUNTIME_ENABLED: "true", ISEOL_PROJECT_AGENT_ID: "agent-project" },
+    roots: {
+      iseolRoot: "C:/iseol",
+      modelRoot: "C:/iseol-model",
+      runRoot: "C:/iseol-runs",
+      webRoot: "C:/iseol-web",
+      webWorkerRoot: "C:/idea-lab-workers",
+      browserProfileRoot: "C:/chatgpt-profile",
+      projectModelRoot: "C:/project-model",
+      projectRunRoot: "C:/project-runs",
+      projectWebWorkerRoot: "C:/project-workers",
+      projectDesktopStateRoot: "C:/project-desktop-state",
+    },
+  });
+  value.deps.startWeb = async (options: any) => {
+    webOptions = options;
+    return { close: (done?: (error?: Error) => void) => done?.() };
+  };
+  const services = await startIseolRuntimeServices(value);
+  assert.equal(webOptions.projectModelRoot, resolve("C:/project-model"));
+  assert.equal(webOptions.projectHarnessRoot, resolve("C:/project-runs"));
+  await services.dispose();
+});
+
+test("Project Workspace runtime stays unavailable when isolated roots are incomplete", async () => {
+  let capability: any;
+  const value = fixture({ env: { ISEOL_PROJECT_RUNTIME_ENABLED: "true", ISEOL_PROJECT_AGENT_ID: "agent-project" } });
+  delete value.roots.projectModelRoot;
+  value.deps.startWeb = async (options: any) => {
+    capability = options.ideaLabRuntime;
+    return { close: (done?: (error?: Error) => void) => done?.() };
+  };
+  const services = await startIseolRuntimeServices(value);
+  assert.equal(capability.state, "blocked");
+  assert.equal(capability.enqueueProjectRun, undefined);
+  await services.dispose();
+});
+
+test("Project Workspace recovery never consumes a Run from the Idea Lab root", async () => {
+  const value = fixture({ env: { ISEOL_PROJECT_RUNTIME_ENABLED: "true", ISEOL_PROJECT_AGENT_ID: "agent-project" } });
+  await saveHarnessRun(value.roots.runRoot, {
+    version: 1,
+    request: { version: 1, mode: "project-workspace", runId: "idea-lab-root-run", objective: "old", targetRoot: "C:/other" },
+    preflight: { version: 1, runId: "idea-lab-root-run", status: "blocked", policy: { version: 1, loadedAt: "2026-09-19T00:00:00.000Z", sources: [], effectiveSha256: "a".repeat(64) }, blockers: ["fixture"] },
+    state: { version: 1, stage: "PREFLIGHT", status: "READY", completedStages: [], skippedStages: [], updatedAt: "2026-09-19T00:00:00.000Z" },
+    evidence: [],
+    updatedAt: "2026-09-19T00:00:00.000Z",
+  });
+  let capability: any;
+  value.deps.startWeb = async (options: any) => {
+    capability = options.ideaLabRuntime;
+    return { close: (done?: (error?: Error) => void) => done?.() };
+  };
+  const services = await startIseolRuntimeServices(value);
+  assert.equal(await capability.enqueueProjectRun("idea-lab-root-run"), "not-configured");
   await services.dispose();
 });
 
