@@ -98,6 +98,11 @@ test("PATCH_FRAME_V1 rejection diagnostics retain only bounded response evidence
     assert.equal(diagnostic.responseLengthBucket, "short");
     assert.equal(diagnostic.frameDetected, false);
     assert.equal(diagnostic.diffFenceDetected, false);
+    assert.equal(diagnostic.firstLineClass, "secret-or-prose");
+    assert.equal(diagnostic.jsonEnvelopeDetected, false);
+    assert.equal(diagnostic.unifiedDiffMarkerDetected, false);
+    assert.equal(diagnostic.completionSignalPresent, false);
+    assert.equal(diagnostic.responsePresent, true);
     assert.match(String(diagnostic.responseSha256), /^[a-f0-9]{64}$/);
     assert.equal(JSON.stringify(diagnostic).includes(sentinel), false);
     return true;
