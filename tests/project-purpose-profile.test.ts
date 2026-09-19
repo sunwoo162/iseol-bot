@@ -88,6 +88,7 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
   assert.equal(portfolio.status, 200);
   assert.equal((portfolio.body as { grounding: { grounded: boolean; documentGrounded: boolean } }).grounding.grounded, true);
   assert.equal((portfolio.body as { grounding: { documentGrounded: boolean } }).grounding.documentGrounded, true);
+  assert.equal((portfolio.body as { evidence: Array<{ id: string }> }).evidence.some((item) => item.id === "ev-test"), true);
   const document = (portfolio.body as { document: { sections: Array<{ id: string; content: string; generatedContent: string; included: boolean }>; readme: string } }).document;
   const edited = await routeWebControlPlaneRequest({
     method: "PUT", path: "/api/projects/project-study/portfolio", headers: {},

@@ -481,7 +481,13 @@ function renderPortfolio(result) {
     if (section.evidenceIds.length) {
       const details = element("details", "portfolio-evidence");
       details.append(element("summary", "", `근거 ${section.evidenceIds.length}개 보기`));
-      details.append(element("p", "mono muted", section.evidenceIds.join(" · ")));
+      const evidenceList = element("ul", "portfolio-evidence-list");
+      for (const evidenceId of section.evidenceIds) {
+        const evidence = (result.evidence ?? []).find((item) => item.id === evidenceId);
+        const item = element("li", "mono muted", evidence ? `${evidenceId}: ${evidence.summary}` : `${evidenceId}: evidence를 찾을 수 없습니다.`);
+        evidenceList.append(item);
+      }
+      details.append(evidenceList);
       card.append(details);
     } else card.append(element("p", "muted", "연결된 evidence가 없습니다."));
     root.append(card);

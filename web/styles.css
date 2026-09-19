@@ -150,6 +150,8 @@ button:hover, .primary-link:hover, .text-link:hover { filter: brightness(1.13); 
 .portfolio-editor, .portfolio-readme { width: 100%; resize: vertical; line-height: 1.5; }
 .portfolio-evidence { margin-top: 9px; color: var(--muted); font-size: 11px; }
 .portfolio-evidence p { margin: 7px 0 0; word-break: break-word; }
+.portfolio-evidence-list { margin: 7px 0 0; padding-left: 18px; }
+.portfolio-evidence-list li { margin-top: 5px; word-break: break-word; }
 .portfolio-readme-label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .portfolio-warning { color: var(--warn); }
 

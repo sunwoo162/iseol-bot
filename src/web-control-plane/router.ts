@@ -158,7 +158,7 @@ export async function routeWebControlPlaneRequest(
       const document = await ensurePortfolioDocument(deps.modelRoot, draft, (deps.now ?? (() => new Date().toISOString()))());
       const generatedGrounding = verifyPortfolioGrounding(draft, evidence);
       const documentGrounding = verifyStoredPortfolioGrounding(document, new Set(evidence.evidence.map((item) => item.id)));
-      return response(200, { draft, document, grounding: { ...generatedGrounding, documentGrounded: documentGrounding.grounded, needsReview: documentGrounding.needsReview } });
+      return response(200, { draft, document, evidence: evidence.evidence, grounding: { ...generatedGrounding, documentGrounded: documentGrounding.grounded, needsReview: documentGrounding.needsReview } });
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Project workspace not found:")) return response(404, { error: "not found" });
       throw error;
