@@ -8,7 +8,7 @@ import { join } from "node:path";
 import type { DesktopJobResult, DesktopTaskPack } from "../src/desktop-agent/contracts.js";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 import { registerDesktopAgent } from "../src/desktop-agent/agent-registry.js";
-import { acquireDesktopJobLease, createDesktopJob, loadDesktopJob } from "../src/desktop-agent/job-store.js";
+import { acquireDesktopJobLease, createDesktopJob, loadDesktopJob, markDesktopJobIndeterminate } from "../src/desktop-agent/job-store.js";
 import { executeDesktopTaskPack } from "../src/desktop-agent/runtime.js";
 import { createDesktopRealityInspector } from "../src/desktop-agent/reality-inspector.js";
 import { recoverHarnessRun } from "../src/harness/recovery.js";
@@ -209,4 +209,32 @@ test("published commit recovery waits until origin contains the exact committed 
   const afterPush = await inspector.inspect(recoveryRun(f));
   assert.equal(afterPush.desktopCommit?.reference, committedHead);
   assert.equal((await loadDesktopJob(f.jobRoot, pack.jobId))?.status, "completed");
+});
+
+test("reconciles an indeterminate APPLY_PATCH only when the exact creation postcondition is present", async () => {
+  const f = await fixture();
+  await registerDesktopAgent(f.registryRoot, { version: 1, agentId: "agent-001", agentVersion: "0.1.0", os: "win32", capabilities: ["git", "process"], workspaceRoots: [f.targetRoot], token: "not-persisted" }, "2026-09-08T03:00:25.000Z");
+  const patch = "diff --git a/recovered.txt b/recovered.txt\nnew file mode 100644\n--- /dev/null\n+++ b/recovered.txt\n@@ -0,0 +1 @@\n+recovered\n";
+  const run: HarnessRuntimeRunEnvelope = {
+    ...recoveryRun(f),
+    request: { ...recoveryRun(f).request, runId: "run-implement" },
+    state: { ...recoveryRun(f).state, stage: "IMPLEMENT", status: "RUNNING", completedStages: ["PREFLIGHT", "CONTEXT", "ANALYZE", "PLAN"] },
+  };
+  await saveHarnessRun(f.runRoot, run);
+  const pack = {
+    version: 1 as const, jobId: "job-apply", runId: run.request.runId, stage: "IMPLEMENT" as const,
+    attempt: 1, agentId: "agent-001", workspaceRoot: f.targetRoot, policyDigest: f.policyDigest,
+    policySources: [{ kind: "project-harness", path: f.harnessPath, sha256: f.sourceSha, required: true }],
+    idempotencyKey: "web-intent:run-implement:patch", leaseUntil: "2026-09-08T02:59:00.000Z",
+    operations: [{ id: "patch", type: "APPLY_PATCH" as const, path: "recovered.txt", patch }],
+  } as DesktopTaskPack;
+  await createDesktopJob(f.jobRoot, pack, "2026-09-08T03:00:00.000Z");
+  await acquireDesktopJobLease(f.jobRoot, pack.jobId, "session-old", "2026-09-08T03:00:00.000Z", 10_000);
+  await markDesktopJobIndeterminate(f.jobRoot, pack.jobId, "session-old", "2026-09-08T03:00:20.000Z");
+  await writeFile(join(f.targetRoot, "recovered.txt"), "recovered\n", "utf8");
+  const inspector = createDesktopRealityInspector({ registryRoot: f.registryRoot, jobRoot: f.jobRoot, transport: new RuntimeTransport(f.base), now: () => "2026-09-08T03:00:40.000Z" });
+  const reality = await inspector.inspect(run);
+  assert.equal(reality.desktopPatch?.jobId, pack.jobId);
+  assert.equal((await loadDesktopJob(f.jobRoot, pack.jobId))?.status, "completed");
+  assert.equal((await loadDesktopJob(f.jobRoot, pack.jobId))?.result?.operations[0]?.summary, "Reconciled existing APPLY_PATCH effect");
 });

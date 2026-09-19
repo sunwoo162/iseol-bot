@@ -1,6 +1,10 @@
 import type { HarnessRealityInspector, HarnessRealitySnapshot } from "../harness/recovery.js";
 import type { HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import type { DesktopJobResult, DesktopTaskPack, GitCommitOperation } from "./contracts.js";
+import { readFile } from "node:fs/promises";
+import { isAbsolute, relative, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import { validatePatchTarget } from "../chatgpt-web/intent-compiler.js";
 import { listOnlineDesktopAgents } from "./agent-registry.js";
 import {
   acquireDesktopJobLease,
@@ -54,6 +58,50 @@ function matchingRecoveredCommit(operation: GitCommitOperation, identity: GitIde
     && identity.status.trim() === ""
     && (!operation.publish || identity.remoteHead === identity.head);
 }
+
+async function reconcileApplyPatchJob(
+  input: CreateDesktopRealityInspectorInput,
+  run: HarnessRuntimeRunEnvelope,
+  at: string,
+  connectedAgentIds: Set<string>,
+): Promise<{ key: string; jobId: string; path: string } | null> {
+  if (run.state.stage !== "IMPLEMENT" || run.preflight.status !== "ready" || !run.preflight.policy) return null;
+  for (const job of await listDesktopJobs(input.jobRoot)) {
+    if (job.status !== "indeterminate" || job.runId !== run.request.runId || job.stage !== "IMPLEMENT") continue;
+    if (job.lease && Date.parse(job.lease.expiresAt) > Date.parse(at)) continue;
+    if (!connectedAgentIds.has(job.pack.agentId) || job.pack.workspaceRoot !== run.request.targetRoot) continue;
+    if (job.pack.policyDigest !== run.preflight.policy.effectiveSha256 || job.pack.operations.length !== 1) continue;
+    const operation = job.pack.operations[0];
+    if (operation?.type !== "APPLY_PATCH") continue;
+    let validated: { path: string; patch: string };
+    try { validated = validatePatchTarget(run.request.targetRoot, operation.patch); } catch { continue; }
+    if (validated.path !== operation.path || !validated.patch.includes("--- /dev/null")) continue;
+    const target = resolve(run.request.targetRoot, validated.path);
+    const rel = relative(resolve(run.request.targetRoot), target);
+    if (rel === ".." || rel.startsWith("..\\") || rel.startsWith("../") || isAbsolute(rel)) continue;
+    let actual: string;
+    try { actual = await readFile(target, "utf8"); } catch { continue; }
+    const expected = validated.patch.split("\n")
+      .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
+      .map((line) => line.slice(1))
+      .join("\n") + "\n";
+    if (actual.replaceAll("\r\n", "\n") !== expected) continue;
+    const owner = `reconcile-${randomUUID()}`;
+    const leased = await acquireDesktopJobLease(input.jobRoot, job.jobId, owner, at, input.leaseDurationMs ?? 60_000);
+    const result: DesktopJobResult = {
+      version: 1,
+      jobId: leased.jobId,
+      runId: leased.runId,
+      agentId: leased.pack.agentId,
+      status: "completed",
+      completedAt: at,
+      operations: [{ operationId: operation.id, ok: true, summary: "Reconciled existing APPLY_PATCH effect" }],
+    };
+    await completeDesktopJob(input.jobRoot, leased.jobId, owner, result);
+    return { key: job.idempotencyKey, jobId: job.jobId, path: validated.path };
+  }
+  return null;
+}
 export function createDesktopRealityInspector(
   input: CreateDesktopRealityInspectorInput,
 ): HarnessRealityInspector {
@@ -70,6 +118,8 @@ export function createDesktopRealityInspector(
       if (connected.length === 0) return { agentAvailable: false };
 
       const reality: HarnessRealitySnapshot = { agentAvailable: true };
+      const reconciledPatch = await reconcileApplyPatchJob(input, run, at, new Set(connected.map((agent) => agent.agentId)));
+      if (reconciledPatch) reality.desktopPatch = reconciledPatch;
       if (run.state.stage !== "COMMIT") return reality;
 
       const completed = (await listDesktopJobs(input.jobRoot)).find((job) =>

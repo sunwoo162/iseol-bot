@@ -36,7 +36,7 @@ function assertProcessIntent(intent: Extract<DesktopIntent, { kind: "RUN_TEST" |
   assertBoundedProcessRequest(intent.kind === "RUN_TEST" ? "test" : "build", intent.executable, intent.args);
 }
 
-function validatedPatchTarget(root: string, input: string): { path: string; patch: string } {
+export function validatePatchTarget(root: string, input: string): { path: string; patch: string } {
   const patch = input.replaceAll("\r\n", "\n");
   const lines = patch.split("\n");
   if (lines.at(-1) === "") lines.pop();
@@ -94,7 +94,7 @@ export function buildValidatedPatchIntent(
   context: DesktopIntentCompilerContext,
   payload: string,
 ): Extract<DesktopIntent, { kind: "PROPOSE_PATCH" }> {
-  const validated = validatedPatchTarget(context.run.request.targetRoot, payload);
+  const validated = validatePatchTarget(context.run.request.targetRoot, payload);
   const digest = createHash("sha256").update(`${context.run.request.runId}\n${context.run.state.stage}\n${context.resultGeneration}\n${validated.patch}`, "utf8").digest("hex").slice(0, 24);
   const intent: Extract<DesktopIntent, { kind: "PROPOSE_PATCH" }> = {
     version: 1,

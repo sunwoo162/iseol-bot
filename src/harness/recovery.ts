@@ -21,6 +21,7 @@ export type HarnessRealitySnapshot = {
   desktopCommit?: { key: string; reference: string; jobId: string };
   pullRequest?: { key: string; reference: string };
   deployment?: { key: string; reference: string; commit: string };
+  desktopPatch?: { key: string; jobId: string; path: string };
 };
 
 export interface HarnessRealityInspector {
