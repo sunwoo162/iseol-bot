@@ -13,3 +13,9 @@ node_modules/
 dist/
 *.log
 .worktrees/
+# Local Iseol runtime and investigation artifacts
+.tmp-*
+data/
+web/web-workers/
+.superpowers/
+%SystemDrive%/
