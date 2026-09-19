@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
 import { assertProjectModelId } from "../project-model/contracts.js";
+import { defaultAgentRoleRegistrations, resolveExecutionProfile } from "../project-model/execution-profile.js";
+import { buildPortfolioDraft, collectProjectEvidence, verifyPortfolioGrounding } from "../project-model/portfolio.js";
 import { archivePrototypeCandidate } from "../idea-lab/prototype-actions.js";
 import { promotePrototype } from "../project-model/promotion.js";
 import {
@@ -108,6 +110,42 @@ export async function routeWebControlPlaneRequest(
       return response(201, campaign);
     } catch (error) {
       if (error instanceof WebIdeaLabActionError) return response(error.status, { error: error.message });
+      throw error;
+    }
+  }
+
+  if (path === "/api/execution-profile") {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    const body = request.body;
+    if (!body || typeof body !== "object") return response(400, { error: "purpose and objective are required" });
+    const purpose = (body as Record<string, unknown>).purpose;
+    const objective = (body as Record<string, unknown>).objective;
+    if (typeof purpose !== "string" || typeof objective !== "string") {
+      return response(400, { error: "purpose and objective are required" });
+    }
+    try {
+      return response(200, resolveExecutionProfile({
+        purpose: purpose as Parameters<typeof resolveExecutionProfile>[0]["purpose"],
+        objective,
+        roles: defaultAgentRoleRegistrations(),
+      }));
+    } catch {
+      return response(400, { error: "invalid execution profile" });
+    }
+  }
+
+  const portfolioMatch = /^\/api\/projects\/([^/]+)\/portfolio$/.exec(path);
+  if (portfolioMatch) {
+    if (request.method !== "GET") return methodNotAllowed();
+    const projectId = decodeId(portfolioMatch[1] ?? "");
+    if (!projectId) return response(404, { error: "not found" });
+    try {
+      const evidence = await collectProjectEvidence(deps.modelRoot, deps.harnessRoot, projectId);
+      const draft = buildPortfolioDraft(evidence, (deps.now ?? (() => new Date().toISOString()))());
+      return response(200, { draft, grounding: verifyPortfolioGrounding(draft, evidence) });
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Project workspace not found:")) return response(404, { error: "not found" });
       throw error;
     }
   }
