@@ -19,6 +19,7 @@ import { saveHarnessRun } from "../src/harness/run-store.js";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 import { loadHarnessRun } from "../src/harness/run-store.js";
 import { routeWebControlPlaneRequest } from "../src/web-control-plane/router.js";
+import { createProjectWorkRequest, loadProjectWorkRequest } from "../src/project-model/work-request.js";
 
 test("purpose profile selects executable stage adapters and labels unsupported specialists as planned", () => {
   const roles: AgentRoleRegistration[] = [
@@ -237,4 +238,35 @@ test("project start creates one purpose-bound Harness Run and reuses it on dupli
   assert.deepEqual(workspace.tree[0]?.runIds, ["run-start"]);
   assert.equal(workspace.history.filter((event) => event.type === "run-attached" && event.runId === "run-start").length, 1);
   assert.equal(((await loadHarnessRun(join(root, "runs"), "run-start"))?.request as { projectId?: string }).projectId, "project-start");
+});
+
+test("linked work request remains waiting when Project Runtime enqueue is unavailable", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-start-waiting-"));
+  const at = "2026-09-19T00:00:00.000Z";
+  const targetRoot = await mkdtemp(join(tmpdir(), "iseol-project-waiting-target-"));
+  await saveProjectWorkspace(root, {
+    version: 1, id: "project-waiting", name: "Waiting project", status: "active",
+    genesis: { prototypeId: "prototype-waiting", repository: { url: "https://example.test/repo", branch: "main" }, deployment: { url: "https://example.test" }, runs: [], promotedAt: at },
+    tree: [{ id: "root", kind: "root", title: "Waiting", status: "in-progress", runIds: [], createdAt: at, updatedAt: at }],
+    purposeSelection: {
+      version: 1, purpose: "rapid-prototype", selectedAt: at, source: "user",
+      profile: resolveExecutionProfile({ purpose: "rapid-prototype", objective: "Build a waiting project", roles: [
+        { id: "orchestrator", kind: "stage-adapter", status: "registered" },
+        { id: "planning", kind: "stage-adapter", status: "registered" },
+        { id: "frontend", kind: "stage-adapter", status: "registered" },
+        { id: "qa", kind: "stage-adapter", status: "registered" },
+      ] }),
+    },
+    createdAt: at, updatedAt: at,
+  });
+  await createProjectWorkRequest({ root, projectId: "project-waiting", title: "Waiting task", objective: "Build a waiting project", idempotencyKey: "waiting-task", at, id: "work-waiting" });
+  const result = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-waiting/execution-start", headers: {},
+    body: { runId: "run-waiting", objective: "Build a waiting project", targetRoot, workRequestId: "work-waiting" },
+  }, { modelRoot: root, harnessRoot: join(root, "runs"), iseolRoot: root, policyRoot: root, now: () => at });
+  assert.equal(result.status, 201);
+  const request = await loadProjectWorkRequest(root, "project-waiting", "work-waiting");
+  assert.equal(request?.status, "waiting");
+  assert.equal(request?.runId, "run-waiting");
+  assert.equal(request?.blocker, "Project Runtime is not configured");
 });

@@ -372,9 +372,12 @@ export async function routeWebControlPlaneRequest(
         ? await deps.ideaLabRuntime.enqueueProjectRun(started.run.request.runId)
         : undefined;
       if (typeof body.workRequestId === "string") {
-        const linked = await updateProjectWorkRequest(projectModelRoot, projectId, body.workRequestId, { status: "running", runId: started.run.request.runId }, (deps.now ?? (() => new Date().toISOString()))());
+        const workRequestPatch = execution === "accepted" || execution === "already-active"
+          ? { status: "running" as const, runId: started.run.request.runId, blocker: undefined }
+          : { status: "waiting" as const, runId: started.run.request.runId, blocker: "Project Runtime is not configured" };
+        const linked = await updateProjectWorkRequest(projectModelRoot, projectId, body.workRequestId, workRequestPatch, (deps.now ?? (() => new Date().toISOString()))());
         if (!linked) return response(404, { error: "work request not found" });
-        deps.eventBus?.publish({ type: "work-request.updated", scope: { projectId, runId: started.run.request.runId }, payload: { projectId, workRequestId: linked.id, runId: linked.runId, status: linked.status } });
+        deps.eventBus?.publish({ type: "work-request.updated", scope: { projectId, runId: started.run.request.runId }, payload: { projectId, workRequestId: linked.id, runId: linked.runId, status: linked.status, blocker: linked.blocker } });
       }
       deps.eventBus?.publish({ type: "run.updated", scope: { projectId, runId: started.run.request.runId }, payload: { projectId, runId: started.run.request.runId, status: started.status } });
       return response(started.status === "created" ? 201 : 200, {
