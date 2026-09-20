@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { assertProjectModelId } from "../project-model/contracts.js";
 
@@ -89,6 +89,13 @@ export async function dispatchProgressNotification(
   if (!notification.projectId) return { status: "failed", notification };
   const path = notificationFile(root, notification.projectId);
   await mkdir(dirname(path), { recursive: true });
+  const lockPath = `${path}.${notification.eventId}.dispatch-lock`;
+  let lock;
+  try { lock = await open(lockPath, "wx"); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return { status: "unknown", notification };
+    throw error;
+  }
+  try {
   let records: Array<{ eventId?: string; status?: string; messageId?: string }> = [];
   try {
     records = (await readFile(path, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { eventId?: string; status?: string; messageId?: string });
@@ -109,5 +116,9 @@ export async function dispatchProgressNotification(
   } catch {
     await appendFile(path, `${JSON.stringify({ ...notification, status: "unknown" })}\n`, "utf8");
     return { status: "unknown", notification };
+  }
+  } finally {
+    await lock.close();
+    await unlink(lockPath).catch(() => undefined);
   }
 }

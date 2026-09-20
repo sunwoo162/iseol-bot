@@ -40,3 +40,14 @@ test("Discord adapter acceptance is distinct from failed and unknown delivery", 
   const preservedUnknown = await dispatchProgressNotification(root, unknownNotification, { send: async () => ({ accepted: true }) });
   assert.equal(preservedUnknown.status, "unknown");
 });
+
+test("concurrent dispatches serialize on the durable event lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-discord-concurrent-"));
+  const notification = formatProgressNotification({ id: "evt-concurrent", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "done" })!;
+  let sends = 0;
+  const adapter = { send: async () => { sends += 1; await new Promise((resolve) => setTimeout(resolve, 20)); return { accepted: true }; } };
+  const results = await Promise.all([dispatchProgressNotification(root, notification, adapter), dispatchProgressNotification(root, notification, adapter)]);
+  assert.equal(sends, 1);
+  assert.equal(results.filter((result) => result.status === "accepted").length, 1);
+  assert.equal(results.filter((result) => result.status === "unknown").length, 1);
+});
