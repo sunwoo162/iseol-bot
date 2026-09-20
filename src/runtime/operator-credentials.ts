@@ -25,9 +25,14 @@ export function operatorCredentialPath(dataRoot: string): string {
   return resolve(dataRoot, "runtime", "operator-credential.json");
 }
 
+export function encodePowerShellCommand(script: string): string {
+  return Buffer.from(script, "utf16le").toString("base64");
+}
+
 async function powershell(script: string, input: string): Promise<string> {
   return new Promise((resolveOutput, reject) => {
-    const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true });
+    const encodedCommand = encodePowerShellCommand(script);
+    const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodedCommand], { windowsHide: true });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bootstrapOperatorCredential, operatorCredentialPath, readOperatorCredential, rotateOperatorCredential, verifyOperatorCredential, type CredentialCrypto } from "../src/runtime/operator-credentials.js";
+import { bootstrapOperatorCredential, encodePowerShellCommand, operatorCredentialPath, readOperatorCredential, rotateOperatorCredential, verifyOperatorCredential, type CredentialCrypto } from "../src/runtime/operator-credentials.js";
 
 function cryptoFixture(): CredentialCrypto {
   return {
@@ -12,6 +12,11 @@ function cryptoFixture(): CredentialCrypto {
     userSid: async () => "S-1-5-21-test",
   };
 }
+
+test("PowerShell DPAPI scripts are passed through encoded command input", () => {
+  const script = "$s = ConvertTo-SecureString ([Console]::In.ReadToEnd()) -AsPlainText -Force";
+  assert.equal(Buffer.from(encodePowerShellCommand(script), "base64").toString("utf16le"), script);
+});
 
 test("operator bootstrap stores only protected credential material and verifies the Windows identity", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-operator-"));
