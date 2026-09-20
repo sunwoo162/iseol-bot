@@ -21,6 +21,21 @@ export type DiscordProgressNotification = {
   occurredAt: string;
 };
 
+export type ProgressNotificationDelivery = {
+  accepted: boolean;
+  messageId?: string;
+};
+
+export type ProgressNotificationAdapter = {
+  send: (notification: DiscordProgressNotification) => Promise<ProgressNotificationDelivery>;
+};
+
+export type ProgressNotificationDispatchResult = {
+  status: "accepted" | "failed" | "unknown" | "duplicate";
+  notification: DiscordProgressNotification;
+  messageId?: string;
+};
+
 function notificationFile(root: string, projectId: string): string {
   assertProjectModelId(projectId);
   return resolve(root, "discord-notifications", projectId, "delivered.jsonl");
@@ -59,4 +74,40 @@ export async function deliverProgressNotification(root: string, notification: Di
   if (existing.some((item) => item.eventId === notification.eventId)) return false;
   await appendFile(path, `${JSON.stringify(notification)}\n`, "utf8");
   return true;
+}
+
+/**
+ * Sends a bounded fact through an injected Discord adapter. The durable log is
+ * written only after the adapter accepts the message; adapter exceptions are
+ * recorded as unknown so a restart cannot blindly duplicate an uncertain send.
+ */
+export async function dispatchProgressNotification(
+  root: string,
+  notification: DiscordProgressNotification,
+  adapter: ProgressNotificationAdapter,
+): Promise<ProgressNotificationDispatchResult> {
+  if (!notification.projectId) return { status: "failed", notification };
+  const path = notificationFile(root, notification.projectId);
+  await mkdir(dirname(path), { recursive: true });
+  let records: Array<{ eventId?: string; status?: string; messageId?: string }> = [];
+  try {
+    records = (await readFile(path, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { eventId?: string; status?: string; messageId?: string });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const prior = records.find((record) => record.eventId === notification.eventId);
+  if (prior?.status === "accepted" || (!prior?.status && prior)) return { status: "duplicate", notification, ...(prior.messageId ? { messageId: prior.messageId } : {}) };
+  if (prior?.status === "unknown") return { status: "unknown", notification };
+  try {
+    const result = await adapter.send(notification);
+    if (!result.accepted) {
+      await appendFile(path, `${JSON.stringify({ ...notification, status: "failed" })}\n`, "utf8");
+      return { status: "failed", notification };
+    }
+    await appendFile(path, `${JSON.stringify({ ...notification, status: "accepted", ...(result.messageId ? { messageId: result.messageId } : {}) })}\n`, "utf8");
+    return { status: "accepted", notification, ...(result.messageId ? { messageId: result.messageId } : {}) };
+  } catch {
+    await appendFile(path, `${JSON.stringify({ ...notification, status: "unknown" })}\n`, "utf8");
+    return { status: "unknown", notification };
+  }
 }

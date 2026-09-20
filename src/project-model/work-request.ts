@@ -11,6 +11,7 @@ export type ProjectWorkRequest = {
   title: string;
   objective: string;
   nodeId?: string;
+  dependencies?: string[];
   status: ProjectWorkRequestStatus;
   idempotencyKey: string;
   runId?: string;
@@ -36,6 +37,11 @@ function validate(value: ProjectWorkRequest): void {
   if (!value.title.trim() || !value.objective.trim() || !value.idempotencyKey.trim()) throw new Error("Work request title, objective and idempotencyKey are required");
   if (!statuses.has(value.status)) throw new Error(`Invalid work request status: ${value.status}`);
   if (!Number.isInteger(value.attempts) || value.attempts < 0) throw new Error("Invalid work request attempts");
+  if (value.dependencies) {
+    if (new Set(value.dependencies).size !== value.dependencies.length || value.dependencies.some((id) => !idPattern.test(id) || id === value.id)) {
+      throw new Error("Invalid work request dependencies");
+    }
+  }
 }
 
 export async function saveProjectWorkRequest(root: string, request: ProjectWorkRequest): Promise<void> {
@@ -74,11 +80,18 @@ export async function listProjectWorkRequests(root: string, projectId: string): 
 }
 
 export async function createProjectWorkRequest(input: {
-  root: string; projectId: string; title: string; objective: string; idempotencyKey: string; nodeId?: string; at: string; id?: string;
+  root: string; projectId: string; title: string; objective: string; idempotencyKey: string; nodeId?: string; dependencies?: string[]; at: string; id?: string;
 }): Promise<{ request: ProjectWorkRequest; created: boolean }> {
+  const dependencies = input.dependencies ?? [];
+  if (new Set(dependencies).size !== dependencies.length || dependencies.includes(input.id ?? "")) throw new Error("invalid work request dependency graph");
+  if (dependencies.length) {
+    const knownIds = new Set((await listProjectWorkRequests(input.root, input.projectId)).map((item) => item.id));
+    const missing = dependencies.filter((dependency) => !knownIds.has(dependency));
+    if (missing.length) throw new Error(`unknown work request dependency: ${missing.join(", ")}`);
+  }
   const existing = (await listProjectWorkRequests(input.root, input.projectId)).find((item) => item.idempotencyKey === input.idempotencyKey);
   if (existing) {
-    if (existing.title !== input.title || existing.objective !== input.objective || existing.nodeId !== input.nodeId) throw new Error("work request idempotency conflict");
+    if (existing.title !== input.title || existing.objective !== input.objective || existing.nodeId !== input.nodeId || JSON.stringify(existing.dependencies ?? []) !== JSON.stringify(input.dependencies ?? [])) throw new Error("work request idempotency conflict");
     return { request: existing, created: false };
   }
   const request: ProjectWorkRequest = {
@@ -88,6 +101,7 @@ export async function createProjectWorkRequest(input: {
     title: input.title,
     objective: input.objective,
     ...(input.nodeId ? { nodeId: input.nodeId } : {}),
+    ...(dependencies.length ? { dependencies: [...dependencies] } : {}),
     status: "queued",
     idempotencyKey: input.idempotencyKey,
     attempts: 0,
@@ -96,6 +110,49 @@ export async function createProjectWorkRequest(input: {
   };
   await saveProjectWorkRequest(input.root, request);
   return { request, created: true };
+}
+
+export type ProjectWorkRequestExecutionResult = {
+  status: "started" | "already-active" | "waiting" | "failed" | "in-progress" | "not-claimable";
+  request: ProjectWorkRequest | null;
+  runId?: string;
+  blocker?: string;
+};
+
+export async function executeProjectWorkRequest(input: {
+  root: string;
+  projectId: string;
+  id: string;
+  at: string;
+  execute: (request: ProjectWorkRequest) => Promise<{ runId: string; status: "created" | "already-active" | "not-configured" }>;
+}): Promise<ProjectWorkRequestExecutionResult> {
+  const current = await loadProjectWorkRequest(input.root, input.projectId, input.id);
+  if (!current) return { status: "not-claimable", request: null, blocker: "work request not found" };
+  if (current.status === "running" && current.runId) return { status: "in-progress", request: current, runId: current.runId };
+  if (current.status !== "queued") return { status: "not-claimable", request: current, blocker: `request is ${current.status}` };
+  const dependencies = current.dependencies ?? [];
+  if (dependencies.length) {
+    const requests = await listProjectWorkRequests(input.root, input.projectId);
+    const byId = new Map(requests.map((item) => [item.id, item]));
+    const missing = dependencies.filter((dependency) => byId.get(dependency)?.status !== "completed");
+    if (missing.length) return { status: "waiting", request: current, blocker: `dependencies incomplete: ${missing.join(", ")}` };
+  }
+  const claimed = await claimProjectWorkRequest(input.root, input.projectId, input.id, input.at);
+  if (!claimed) return { status: "not-claimable", request: await loadProjectWorkRequest(input.root, input.projectId, input.id), blocker: "request was claimed by another worker or is no longer queued" };
+  try {
+    const execution = await input.execute(claimed);
+    const nextStatus = execution.status === "not-configured" ? "waiting" : "running";
+    const updated = await updateProjectWorkRequest(input.root, input.projectId, input.id, {
+      status: nextStatus,
+      runId: execution.runId,
+      ...(execution.status === "not-configured" ? { blocker: "Project Runtime is not configured" } : {}),
+    }, input.at);
+    return { status: execution.status === "not-configured" ? "waiting" : execution.status === "created" ? "started" : "already-active", request: updated ?? claimed, runId: execution.runId, ...(execution.status === "not-configured" ? { blocker: "Project Runtime is not configured" } : {}) };
+  } catch (error) {
+    const blocker = error instanceof Error ? error.message.slice(0, 240) : "work request execution failed";
+    const updated = await updateProjectWorkRequest(input.root, input.projectId, input.id, { status: "failed", blocker }, input.at);
+    return { status: "failed", request: updated ?? claimed, blocker };
+  }
 }
 
 export async function claimProjectWorkRequest(root: string, projectId: string, id: string, at: string): Promise<ProjectWorkRequest | null> {

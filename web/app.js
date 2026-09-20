@@ -582,8 +582,11 @@ async function startEventStream() {
         try {
           const event = JSON.parse(line.slice(6));
           if (event.type !== "connected") {
-            await loadIdeaLab({ quiet: true });
-            if (state.selectedProjectId) await selectProject(state.selectedProjectId);
+            const scope = event.scope ?? {};
+            const ideaLabEvent = Boolean(scope.campaignId || scope.prototypeId) || String(event.type).startsWith("campaign.") || String(event.type).startsWith("prototype.");
+            const projectEvent = Boolean(scope.projectId) || String(event.type).startsWith("project.") || String(event.type).startsWith("run.") || String(event.type).startsWith("work-request.");
+            if (ideaLabEvent || (!ideaLabEvent && !projectEvent)) await loadIdeaLab({ quiet: true });
+            if (state.selectedProjectId && (!scope.projectId || scope.projectId === state.selectedProjectId) && (projectEvent || (!ideaLabEvent && !projectEvent))) await selectProject(state.selectedProjectId);
           }
         } catch { /* next durable snapshot repairs stale state */ }
       }
@@ -729,10 +732,50 @@ async function loadWorkRequests() {
     list.replaceChildren();
     if (!result.requests.length) list.append(element("p", "muted", "No queued work requests."));
     for (const request of result.requests) {
-      const row = element("p", "mono muted", `${request.title} · ${request.status} · ${request.attempts} attempts`);
-      if (request.runId) row.append(element("span", "", ` · ${request.runId}`));
+      const row = element("div", "work-request-row");
+      row.append(element("span", "mono muted", `${request.title} · ${request.status} · ${request.attempts} attempts`));
+      if (request.runId) row.append(element("span", "mono muted", ` · ${request.runId}`));
+      if (request.dependencies?.length) row.append(element("span", "mono muted", ` · depends on ${request.dependencies.join(", ")}`));
+      if (request.status === "queued") {
+        const execute = element("button", "secondary-button", "Execute");
+        execute.type = "button";
+        execute.addEventListener("click", () => executeWorkRequest(request.id));
+        row.append(execute);
+        const cancel = element("button", "ghost-button", "Cancel");
+        cancel.type = "button";
+        cancel.addEventListener("click", () => cancelWorkRequest(request.id));
+        row.append(cancel);
+      }
       list.append(row);
     }
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+}
+
+async function executeWorkRequest(workRequestId) {
+  if (!state.selectedProjectId) return;
+  const targetRoot = $("#project-target-root").value.trim();
+  if (!targetRoot) { setStatus("error", "Enter a project workspace root before executing."); return; }
+  const runId = `project-${state.selectedProjectId}-${workRequestId}`;
+  setLoading(true, "Starting the queued Project Workspace request...");
+  try {
+    const result = await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}/work-requests/${encodeURIComponent(workRequestId)}/execute`, {
+      method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ runId, targetRoot }),
+    });
+    await selectProject(state.selectedProjectId);
+    setStatus(result.status === "waiting" ? "error" : "success", result.blocker ?? "Work request execution connected to the Project Workspace Run.");
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+  finally { setLoading(false); }
+}
+
+async function cancelWorkRequest(workRequestId) {
+  if (!state.selectedProjectId) return;
+  try {
+    await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}/work-requests/${encodeURIComponent(workRequestId)}/cancel`, {
+      method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: "{}",
+    });
+    await loadWorkRequests();
+    setStatus("success", "Work request cancelled; any existing Run remains durable.");
   } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
 }
 

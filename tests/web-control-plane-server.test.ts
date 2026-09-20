@@ -159,7 +159,7 @@ test("SSE event stream authenticates, emits a connection frame, and forwards bou
   await mkdir(webRoot, { recursive: true });
   const bus = new WebProductEventBus();
   const server = await startWebControlPlaneServer({
-    host: "127.0.0.1", port: 0, token: "secret-token", modelRoot, harnessRoot, webRoot, eventBus: bus,
+    host: "127.0.0.1", port: 0, token: "secret-token", modelRoot, harnessRoot, webRoot, eventBus: bus, sseConnectionLimit: 1,
   });
   const address = server.address() as AddressInfo;
   const controller = new AbortController();
@@ -179,6 +179,8 @@ test("SSE event stream authenticates, emits a connection frame, and forwards bou
     const text = new TextDecoder().decode(second.value);
     assert.match(text, /event: campaign\.updated/);
     assert.match(text, /campaign-1/);
+    const capacity = await fetch(`http://127.0.0.1:${address.port}/api/events`, { headers: { authorization: "Bearer secret-token" } });
+    assert.equal(capacity.status, 429);
     controller.abort();
   } finally {
     controller.abort();

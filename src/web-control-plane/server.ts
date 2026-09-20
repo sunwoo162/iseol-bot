@@ -10,6 +10,9 @@ import { WebProductEventBus } from "./event-bus.js";
 
 const DEFAULT_PORT = 8790;
 const MAX_BODY_BYTES = 64 * 1024;
+const DEFAULT_SSE_CONNECTION_LIMIT = 64;
+
+type SseState = { active: number; limit: number };
 
 export type WebControlPlaneConfig = {
   host: string;
@@ -30,6 +33,7 @@ export type StartWebControlPlaneOptions = WebControlPlaneConfig & {
   port: number;
   ideaLabRuntime?: IdeaLabRuntimeCapability;
   eventBus?: WebProductEventBus;
+  sseConnectionLimit?: number;
 };
 
 function isLoopbackHost(host: string): boolean {
@@ -156,6 +160,7 @@ async function handleRequest(
   options: StartWebControlPlaneOptions,
   req: import("node:http").IncomingMessage,
   res: import("node:http").ServerResponse,
+  sseState: SseState,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", `http://${options.host}`);
   if (url.pathname === "/api/events") {
@@ -167,6 +172,11 @@ async function handleRequest(
       sendJson(res, 401, { "content-type": "application/json; charset=utf-8" }, { error: "unauthorized" });
       return;
     }
+    if (sseState.active >= sseState.limit) {
+      sendJson(res, 429, { "content-type": "application/json; charset=utf-8", "retry-after": "5" }, { error: "event stream capacity reached" });
+      return;
+    }
+    sseState.active += 1;
     const bus = options.eventBus ?? new WebProductEventBus();
     res.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
@@ -179,7 +189,14 @@ async function handleRequest(
     write({ id: `connected-${Date.now().toString(36)}`, type: "connected", occurredAt: new Date().toISOString(), payload: { replay: false } });
     const unsubscribe = bus.subscribe(write);
     const heartbeat = setInterval(() => { if (!res.destroyed) res.write(": heartbeat\n\n"); }, 25_000);
-    const cleanup = () => { clearInterval(heartbeat); unsubscribe(); };
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      sseState.active = Math.max(0, sseState.active - 1);
+      clearInterval(heartbeat);
+      unsubscribe();
+    };
     req.on("close", cleanup);
     res.on("close", cleanup);
     return;
@@ -219,8 +236,9 @@ export async function startWebControlPlaneServer(
   }
 
   const eventBus = options.eventBus ?? new WebProductEventBus();
+  const sseState: SseState = { active: 0, limit: Math.max(1, Math.floor(options.sseConnectionLimit ?? DEFAULT_SSE_CONNECTION_LIMIT)) };
   const server = createServer((req, res) => {
-    void handleRequest({ ...options, eventBus }, req, res).catch((error) => {
+    void handleRequest({ ...options, eventBus }, req, res, sseState).catch((error) => {
       if (res.headersSent) {
         res.destroy(error instanceof Error ? error : undefined);
         return;

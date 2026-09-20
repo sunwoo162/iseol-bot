@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { assertProjectModelId } from "../project-model/contracts.js";
 import { defaultAgentRoleRegistrations, resolveExecutionProfile } from "../project-model/execution-profile.js";
 import { loadProjectWorkspace, setProjectPurpose } from "../project-model/workspace-store.js";
-import { createProjectWorkRequest, listProjectWorkRequests, claimProjectWorkRequest, updateProjectWorkRequest } from "../project-model/work-request.js";
+import { createProjectWorkRequest, listProjectWorkRequests, claimProjectWorkRequest, loadProjectWorkRequest, updateProjectWorkRequest, executeProjectWorkRequest } from "../project-model/work-request.js";
 import { prepareProjectWorkspaceRun, startProjectWorkspaceRun } from "../project-model/workspace-run-preparation.js";
 import { buildPortfolioDraft, collectProjectEvidence, verifyPortfolioGrounding } from "../project-model/portfolio.js";
 import { ensurePortfolioDocument, updatePortfolioDocument, verifyStoredPortfolioGrounding } from "../project-model/portfolio-store.js";
@@ -131,13 +131,45 @@ export async function routeWebControlPlaneRequest(
     const body = request.body as Record<string, unknown>;
     if (typeof body.title !== "string" || typeof body.objective !== "string" || typeof body.idempotencyKey !== "string") return response(400, { error: "title, objective and idempotencyKey are required" });
     try {
-      const result = await createProjectWorkRequest({ root: projectModelRoot, projectId, title: body.title, objective: body.objective, idempotencyKey: body.idempotencyKey, ...(typeof body.nodeId === "string" ? { nodeId: body.nodeId } : {}), at: (deps.now ?? (() => new Date().toISOString()))() });
+      if (body.dependencies !== undefined && (!Array.isArray(body.dependencies) || !body.dependencies.every((item): item is string => typeof item === "string"))) return response(400, { error: "dependencies must be an array of work request ids" });
+      const dependencies = Array.isArray(body.dependencies) ? body.dependencies : undefined;
+      const result = await createProjectWorkRequest({ root: projectModelRoot, projectId, title: body.title, objective: body.objective, idempotencyKey: body.idempotencyKey, ...(typeof body.nodeId === "string" ? { nodeId: body.nodeId } : {}), ...(dependencies ? { dependencies } : {}), at: (deps.now ?? (() => new Date().toISOString()))() });
       deps.eventBus?.publish({ type: "work-request.created", scope: { projectId }, payload: { projectId, workRequestId: result.request.id, status: result.request.status } });
       return response(result.created ? 201 : 200, result.request);
     } catch (error) {
       if (error instanceof Error && error.message.includes("idempotency conflict")) return response(409, { error: error.message });
+      if (error instanceof Error && /dependency/.test(error.message)) return response(409, { error: error.message });
       throw error;
     }
+  }
+
+  const workExecuteMatch = /^\/api\/projects\/([^/]+)\/work-requests\/([^/]+)\/execute$/.exec(path);
+  if (workExecuteMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    const projectId = decodeId(workExecuteMatch[1] ?? "");
+    const workId = decodeId(workExecuteMatch[2] ?? "");
+    if (!projectId || !workId || !await loadProjectWorkspace(projectModelRoot, projectId)) return response(404, { error: "not found" });
+    if (!request.body || typeof request.body !== "object") return response(400, { error: "runId, objective and targetRoot are required" });
+    const body = request.body as Record<string, unknown>;
+    if (typeof body.runId !== "string" || typeof body.targetRoot !== "string") return response(400, { error: "runId and targetRoot are required" });
+    const at = (deps.now ?? (() => new Date().toISOString()))();
+    const result = await executeProjectWorkRequest({
+      root: projectModelRoot, projectId, id: workId, at,
+      execute: async (workRequest) => {
+        const started = await startProjectWorkspaceRun(projectModelRoot, projectId, { runId: body.runId as string, objective: workRequest.objective, targetRoot: body.targetRoot as string }, {
+          iseolRoot: deps.iseolRoot ?? deps.modelRoot, storeRoot: projectHarnessRoot,
+          ...(deps.policyRoot ? { policyRoot: deps.policyRoot } : {}), loadedAt: at,
+        });
+        const execution = deps.ideaLabRuntime?.enqueueProjectRun
+          ? await deps.ideaLabRuntime.enqueueProjectRun(started.run.request.runId)
+          : "not-configured" as const;
+        return { runId: started.run.request.runId, status: execution === "accepted" ? "created" as const : execution === "already-active" ? "already-active" as const : "not-configured" as const };
+      },
+    });
+    if (result.request) deps.eventBus?.publish({ type: "work-request.updated", scope: { projectId, runId: result.runId }, payload: { projectId, workRequestId: result.request.id, status: result.request.status, runId: result.runId, blocker: result.blocker } });
+    const status = result.status === "started" ? 202 : result.status === "waiting" ? 409 : result.status === "failed" ? 502 : 200;
+    return response(status, result);
   }
 
   const workActionMatch = /^\/api\/projects\/([^/]+)\/work-requests\/([^/]+)\/(claim|cancel)$/.exec(path);
@@ -148,9 +180,15 @@ export async function routeWebControlPlaneRequest(
     const workId = decodeId(workActionMatch[2] ?? "");
     if (!projectId || !workId) return response(404, { error: "not found" });
     const at = (deps.now ?? (() => new Date().toISOString()))();
-    const result = workActionMatch[3] === "claim"
-      ? await claimProjectWorkRequest(projectModelRoot, projectId, workId, at)
-      : await updateProjectWorkRequest(projectModelRoot, projectId, workId, { status: "cancelled" }, at);
+    let result;
+    if (workActionMatch[3] === "claim") {
+      result = await claimProjectWorkRequest(projectModelRoot, projectId, workId, at);
+    } else {
+      const current = await loadProjectWorkRequest(projectModelRoot, projectId, workId);
+      if (!current) return response(404, { error: "not found" });
+      if (current.status !== "queued") return response(409, { error: "only queued work requests can be cancelled; inspect the linked Run" });
+      result = await updateProjectWorkRequest(projectModelRoot, projectId, workId, { status: "cancelled" }, at);
+    }
     if (!result) return response(404, { error: "not found or not claimable" });
     deps.eventBus?.publish({ type: "work-request.updated", scope: { projectId, runId: result.runId }, payload: { projectId, workRequestId: result.id, status: result.status, runId: result.runId } });
     return response(200, result);
