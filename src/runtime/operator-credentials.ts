@@ -45,7 +45,7 @@ async function powershell(script: string, input: string): Promise<string> {
     child.once("close", (code) => {
       const output = stdout.trim();
       const diagnostic = stderr.trim();
-      if (code !== 0 || /#< CLIXML|<S S="Error">|CommandNotFoundException|CouldNotAutoloadMatchingModule/i.test(output) || /#< CLIXML|<S S="Error">|CommandNotFoundException|CouldNotAutoloadMatchingModule/i.test(diagnostic)) {
+      if (code !== 0 || /#< CLIXML|<S S="Error">|CommandNotFoundException|CouldNotAutoloadMatchingModule/i.test(output) || /<S S="Error">|CommandNotFoundException|CouldNotAutoloadMatchingModule/i.test(diagnostic)) {
         reject(new Error(`PowerShell DPAPI command failed (exit ${code})`));
         return;
       }
