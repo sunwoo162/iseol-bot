@@ -199,7 +199,7 @@ function renderPrototypeDetail(detail) {
     link.rel = "noopener noreferrer";
     content.append(link);
   }
-  const promote = element("button", "secondary-button", "Promote to project");
+  const promote = element("button", "secondary-button", "Promote selected prototype");
   promote.type = "button";
   promote.disabled = detail.prototype.status !== "candidate";
   promote.addEventListener("click", () => promotePrototype(detail.prototype.id));
