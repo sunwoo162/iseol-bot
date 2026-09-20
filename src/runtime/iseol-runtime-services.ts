@@ -231,17 +231,12 @@ async function disposeOwnedResources(resources: OwnedResources, suppressErrors =
     async () => { await resources.desktopCore?.close(); },
     async () => { await resources.browser?.dispose?.(); },
   ];
-  const executions = actions.map(async (action) => {
+  for (const action of actions) {
     try {
       await action();
-      return { ok: true as const };
     } catch (error) {
-      return { ok: false as const, error };
+      if (firstError === undefined) firstError = error;
     }
-  });
-  for (const execution of executions) {
-    const result = await execution;
-    if (!result.ok && firstError === undefined) firstError = result.error;
   }
   if (!suppressErrors && firstError !== undefined) throw firstError;
 }
