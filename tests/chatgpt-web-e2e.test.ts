@@ -171,6 +171,33 @@ test("Project Workspace executor composes Web reasoning, Desktop feedback, and r
   assert.equal(final.evidence.some((item) => item.stage === "IMPLEMENT"), true);
   assert.equal(fake.submittedPrompts.filter((prompt) => prompt.stage === "IMPLEMENT").length, 2);
 });
+test("Project Workspace executor forwards bounded parser diagnostics from its adapter wrapper", async (t) => {
+  const f = await fixture();
+  const resources = await coreAndAgent(f);
+  t.after(() => closeAll(resources));
+  const fake = createFakeChatGptWebBrowserAdapter([
+    { invalid: true },
+    { version: 1, runId: f.request.runId, stage: "IMPLEMENT", generation: 1, summary: "Complete", decisions: [], intents: [], outcome: "stage-complete" },
+  ]);
+  const diagnostics: Array<{ correctionAttempt?: number; correctionBudgetUsed?: number; correctionBudgetLimit?: number }> = [];
+  fake.adapter.recordResultDiagnostic = async (input) => {
+    diagnostics.push({ correctionAttempt: input.correctionAttempt, correctionBudgetUsed: input.correctionBudgetUsed, correctionBudgetLimit: input.correctionBudgetLimit });
+  };
+  const executor = createProjectWorkspaceExecutor({
+    runRoot: f.runRoot,
+    workerRoot: f.workerRoot,
+    registryRoot: f.registryRoot,
+    desktopStateRoot: f.jobRoot,
+    desktopTransport: resources.transport,
+    browserAdapter: fake.adapter,
+    agentId: "agent-web-e2e",
+    now: () => "2026-09-08T05:00:00.000Z",
+    desktopTaskCompiler: async () => null,
+  });
+  const result = await executor.execute({ ...f.run, state: { ...f.run.state, status: "RUNNING" } });
+  assert.equal(result.type, "completed");
+  assert.deepEqual(diagnostics, [{ correctionAttempt: 1, correctionBudgetUsed: 1, correctionBudgetLimit: 3 }]);
+});
 test("browser recovery reuses the same Desktop intent job without applying a mutation twice", async (t) => {
   const f = await fixture();
   const resources = await coreAndAgent(f);

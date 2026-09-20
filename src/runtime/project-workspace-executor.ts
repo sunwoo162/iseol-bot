@@ -55,6 +55,9 @@ export function createProjectWorkspaceExecutor(input: ProjectWorkspaceExecutorIn
     submitTurn: (session, prompt) => input.browserAdapter.submitTurn(session, prompt),
     probeSession: (session) => input.browserAdapter.probeSession(session),
     closeSession: (session) => input.browserAdapter.closeSession(session),
+    recordResultDiagnostic: input.browserAdapter.recordResultDiagnostic
+      ? (diagnostic) => input.browserAdapter.recordResultDiagnostic!(diagnostic)
+      : undefined,
     async awaitStructuredResult(session, timeoutMs, contract) {
       const raw = await input.browserAdapter.awaitStructuredResult(session, timeoutMs, contract);
       if (contract !== "patch-frame-v1" || typeof raw !== "string") return raw;
