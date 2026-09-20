@@ -7,6 +7,8 @@ import {
   claimProjectWorkRequest,
   createProjectWorkRequest,
   executeProjectWorkRequest,
+  inspectProjectWorkRequest,
+  scheduleProjectWorkRequests,
   listProjectWorkRequests,
   updateProjectWorkRequest,
 } from "../src/project-model/work-request.js";
@@ -41,19 +43,19 @@ test("execution waits for dependencies and connects exactly one durable Run", as
   const root = await mkdtemp(join(tmpdir(), "iseol-work-execute-"));
   await createProjectWorkRequest({ root, projectId: "project-1", title: "Base", objective: "Base work", idempotencyKey: "base", at, id: "base" });
   await createProjectWorkRequest({ root, projectId: "project-1", title: "Follow up", objective: "Follow-up work", idempotencyKey: "follow", dependencies: ["base"], at, id: "follow" });
-  const waiting = await executeProjectWorkRequest({ root, projectId: "project-1", id: "follow", at, execute: async () => ({ runId: "run-never", status: "created" }) });
+  const waiting = await executeProjectWorkRequest({ root, projectId: "project-1", id: "follow", runId: "run-never", at, execute: async () => ({ runId: "run-never", status: "created" }) });
   assert.equal(waiting.status, "waiting");
   assert.match(waiting.blocker ?? "", /dependencies incomplete/);
   await updateProjectWorkRequest(root, "project-1", "base", { status: "completed" }, at);
   let executions = 0;
-  const started = await executeProjectWorkRequest({ root, projectId: "project-1", id: "follow", at, execute: async () => {
+  const started = await executeProjectWorkRequest({ root, projectId: "project-1", id: "follow", runId: "run-follow", at, execute: async () => {
     executions += 1;
     return { runId: "run-follow", status: "created" as const };
   } });
   assert.equal(started.status, "started");
   assert.equal(started.runId, "run-follow");
   assert.equal(executions, 1);
-  const duplicate = await executeProjectWorkRequest({ root, projectId: "project-1", id: "follow", at, execute: async () => {
+  const duplicate = await executeProjectWorkRequest({ root, projectId: "project-1", id: "follow", runId: "run-duplicate", at, execute: async () => {
     executions += 1;
     return { runId: "run-duplicate", status: "created" as const };
   } });
@@ -74,4 +76,26 @@ test("a claim without a Run remains non-retryable after a worker crash", async (
 test("dependency creation rejects unknown work requests", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-work-dependency-"));
   await assert.rejects(() => createProjectWorkRequest({ root, projectId: "project-1", title: "Follow up", objective: "Follow-up", idempotencyKey: "follow", dependencies: ["missing"], at, id: "follow" }), /unknown work request dependency/);
+});
+
+test("reconciliation reports unknown execution without inventing a Run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-reconcile-"));
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Inspect", objective: "Inspect", idempotencyKey: "inspect", at, id: "inspect" });
+  await claimProjectWorkRequest(root, "project-1", "inspect", at);
+  const inspection = await inspectProjectWorkRequest(root, "project-1", "inspect", async () => null);
+  assert.equal(inspection?.execution, "unknown");
+  assert.match(inspection?.blocker ?? "", /no durable Run identity/);
+});
+
+test("explicit scheduler selects only dependency-ready requests within its concurrency limit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-scheduler-"));
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "First", objective: "First", idempotencyKey: "first", at, id: "first" });
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Second", objective: "Second", idempotencyKey: "second", at, id: "second" });
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Blocked", objective: "Blocked", idempotencyKey: "blocked", dependencies: ["first"], at, id: "blocked" });
+  const executed: string[] = [];
+  const results = await scheduleProjectWorkRequests({ root, projectId: "project-1", at, maxConcurrent: 1, execute: async (request) => { executed.push(request.id); return { runId: `run-${request.id}`, status: "created" as const }; } });
+  assert.equal(results.length, 1);
+  assert.deepEqual(executed, ["first"]);
+  const blocked = await inspectProjectWorkRequest(root, "project-1", "blocked");
+  assert.equal(blocked?.execution, "not-started");
 });

@@ -2,7 +2,8 @@ import { resolve } from "node:path";
 import { assertProjectModelId } from "../project-model/contracts.js";
 import { defaultAgentRoleRegistrations, resolveExecutionProfile } from "../project-model/execution-profile.js";
 import { loadProjectWorkspace, setProjectPurpose } from "../project-model/workspace-store.js";
-import { createProjectWorkRequest, listProjectWorkRequests, claimProjectWorkRequest, loadProjectWorkRequest, updateProjectWorkRequest, executeProjectWorkRequest } from "../project-model/work-request.js";
+import { createProjectWorkRequest, listProjectWorkRequests, claimProjectWorkRequest, loadProjectWorkRequest, updateProjectWorkRequest, executeProjectWorkRequest, inspectProjectWorkRequest } from "../project-model/work-request.js";
+import { loadHarnessRun } from "../harness/run-store.js";
 import { prepareProjectWorkspaceRun, startProjectWorkspaceRun } from "../project-model/workspace-run-preparation.js";
 import { buildPortfolioDraft, collectProjectEvidence, verifyPortfolioGrounding } from "../project-model/portfolio.js";
 import { ensurePortfolioDocument, updatePortfolioDocument, verifyStoredPortfolioGrounding } from "../project-model/portfolio-store.js";
@@ -155,7 +156,7 @@ export async function routeWebControlPlaneRequest(
     if (typeof body.runId !== "string" || typeof body.targetRoot !== "string") return response(400, { error: "runId and targetRoot are required" });
     const at = (deps.now ?? (() => new Date().toISOString()))();
     const result = await executeProjectWorkRequest({
-      root: projectModelRoot, projectId, id: workId, at,
+      root: projectModelRoot, projectId, id: workId, runId: body.runId as string, at,
       execute: async (workRequest) => {
         const started = await startProjectWorkspaceRun(projectModelRoot, projectId, { runId: body.runId as string, objective: workRequest.objective, targetRoot: body.targetRoot as string }, {
           iseolRoot: deps.iseolRoot ?? deps.modelRoot, storeRoot: projectHarnessRoot,
@@ -170,6 +171,19 @@ export async function routeWebControlPlaneRequest(
     if (result.request) deps.eventBus?.publish({ type: "work-request.updated", scope: { projectId, runId: result.runId }, payload: { projectId, workRequestId: result.request.id, status: result.request.status, runId: result.runId, blocker: result.blocker } });
     const status = result.status === "started" ? 202 : result.status === "waiting" ? 409 : result.status === "failed" ? 502 : 200;
     return response(status, result);
+  }
+
+  const workReconcileMatch = /^\/api\/projects\/([^/]+)\/work-requests\/([^/]+)\/reconciliation$/.exec(path);
+  if (workReconcileMatch) {
+    if (request.method !== "GET") return methodNotAllowed();
+    const projectId = decodeId(workReconcileMatch[1] ?? "");
+    const workId = decodeId(workReconcileMatch[2] ?? "");
+    if (!projectId || !workId) return response(404, { error: "not found" });
+    const inspection = await inspectProjectWorkRequest(projectModelRoot, projectId, workId, async (runId) => {
+      const run = await loadHarnessRun(projectHarnessRoot, runId);
+      return run ? { runId, state: run.state, updatedAt: run.updatedAt } : null;
+    });
+    return inspection ? response(200, inspection) : response(404, { error: "not found" });
   }
 
   const workActionMatch = /^\/api\/projects\/([^/]+)\/work-requests\/([^/]+)\/(claim|cancel)$/.exec(path);

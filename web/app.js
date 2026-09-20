@@ -746,8 +746,25 @@ async function loadWorkRequests() {
         cancel.addEventListener("click", () => cancelWorkRequest(request.id));
         row.append(cancel);
       }
+      if (request.status === "running" || request.status === "failed" || request.status === "waiting") {
+        const inspect = element("button", "ghost-button", "Inspect");
+        inspect.type = "button";
+        inspect.addEventListener("click", () => inspectWorkRequest(request.id));
+        row.append(inspect);
+      }
       list.append(row);
     }
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+}
+
+async function inspectWorkRequest(workRequestId) {
+  if (!state.selectedProjectId) return;
+  try {
+    const result = await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}/work-requests/${encodeURIComponent(workRequestId)}/reconciliation`);
+    const detail = result.run
+      ? `Execution ${result.execution}: ${result.run.runId} ${result.run.stage}/${result.run.status}`
+      : `Execution ${result.execution}: ${result.blocker ?? "no authoritative Run result"}`;
+    setStatus(result.execution === "unknown" ? "error" : "success", `${workRequestId} @ ${result.revision} · ${detail}`);
   } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
 }
 

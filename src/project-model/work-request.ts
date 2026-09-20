@@ -12,6 +12,10 @@ export type ProjectWorkRequest = {
   objective: string;
   nodeId?: string;
   dependencies?: string[];
+  claimOwner?: string;
+  claimAt?: string;
+  requestedRunId?: string;
+  executionRequestId?: string;
   status: ProjectWorkRequestStatus;
   idempotencyKey: string;
   runId?: string;
@@ -123,6 +127,7 @@ export async function executeProjectWorkRequest(input: {
   root: string;
   projectId: string;
   id: string;
+  runId: string;
   at: string;
   execute: (request: ProjectWorkRequest) => Promise<{ runId: string; status: "created" | "already-active" | "not-configured" }>;
 }): Promise<ProjectWorkRequestExecutionResult> {
@@ -140,6 +145,11 @@ export async function executeProjectWorkRequest(input: {
   const claimed = await claimProjectWorkRequest(input.root, input.projectId, input.id, input.at);
   if (!claimed) return { status: "not-claimable", request: await loadProjectWorkRequest(input.root, input.projectId, input.id), blocker: "request was claimed by another worker or is no longer queued" };
   try {
+    const intent = await updateProjectWorkRequest(input.root, input.projectId, input.id, {
+      requestedRunId: input.runId,
+      executionRequestId: `${input.projectId}:${input.id}:${input.runId}`,
+    }, input.at);
+    if (!intent) return { status: "not-claimable", request: claimed, blocker: "work request intent could not be persisted" };
     const execution = await input.execute(claimed);
     const nextStatus = execution.status === "not-configured" ? "waiting" : "running";
     const updated = await updateProjectWorkRequest(input.root, input.projectId, input.id, {
@@ -166,7 +176,7 @@ export async function claimProjectWorkRequest(root: string, projectId: string, i
   try {
     const current = await loadProjectWorkRequest(root, projectId, id);
     if (!current || current.status !== "queued") return null;
-    const next = { ...current, status: "running" as const, attempts: current.attempts + 1, updatedAt: at };
+    const next = { ...current, status: "running" as const, attempts: current.attempts + 1, claimOwner: `pid:${process.pid}`, claimAt: at, updatedAt: at };
     await saveProjectWorkRequest(root, next);
     return next;
   } finally {
@@ -176,7 +186,64 @@ export async function claimProjectWorkRequest(root: string, projectId: string, i
   }
 }
 
-export async function updateProjectWorkRequest(root: string, projectId: string, id: string, patch: Partial<Pick<ProjectWorkRequest, "status" | "runId" | "blocker">>, at: string): Promise<ProjectWorkRequest | null> {
+export function projectWorkRequestRevision(request: ProjectWorkRequest): string {
+  return `${request.updatedAt}:${request.attempts}`;
+}
+
+export type ProjectWorkRequestReconciliation = {
+  request: ProjectWorkRequest;
+  revision: string;
+  execution: "not-started" | "run-found" | "unknown" | "terminal";
+  run?: { runId: string; stage: string; status: string; updatedAt: string };
+  blocker?: string;
+};
+
+export async function inspectProjectWorkRequest(
+  root: string,
+  projectId: string,
+  id: string,
+  findRun?: (runId: string) => Promise<{ runId: string; state: { stage: string; status: string }; updatedAt: string } | null>,
+): Promise<ProjectWorkRequestReconciliation | null> {
+  const request = await loadProjectWorkRequest(root, projectId, id);
+  if (!request) return null;
+  const revision = projectWorkRequestRevision(request);
+  if (!request.requestedRunId) {
+    return { request, revision, execution: request.status === "running" ? "unknown" : "not-started", ...(request.status === "running" ? { blocker: "claimed execution has no durable Run identity" } : {}) };
+  }
+  const run = findRun ? await findRun(request.requestedRunId) : null;
+  if (!run) return { request, revision, execution: "unknown", blocker: "requested Run identity has no durable Run record" };
+  const terminal = ["DONE", "FAILED_FINAL", "CANCELLED"].includes(run.state.status);
+  return { request, revision, execution: terminal ? "terminal" : "run-found", run: { runId: run.runId, stage: run.state.stage, status: run.state.status, updatedAt: run.updatedAt } };
+}
+
+/**
+ * Explicit scheduler for callers that already hold execution permission. It
+ * only selects queued requests whose dependencies are completed; it is never
+ * invoked implicitly during Runtime startup or recovery.
+ */
+export async function scheduleProjectWorkRequests(input: {
+  root: string;
+  projectId: string;
+  at: string;
+  maxConcurrent?: number;
+  execute: (request: ProjectWorkRequest) => Promise<{ runId: string; status: "created" | "already-active" | "not-configured" }>;
+}): Promise<ProjectWorkRequestExecutionResult[]> {
+  const limit = Math.max(1, Math.floor(input.maxConcurrent ?? 1));
+  const requests = await listProjectWorkRequests(input.root, input.projectId);
+  const byId = new Map(requests.map((item) => [item.id, item]));
+  const runnable = requests.filter((request) => request.status === "queued" && (request.dependencies ?? []).every((dependency) => byId.get(dependency)?.status === "completed"));
+  const selected = runnable.slice(0, limit);
+  return Promise.all(selected.map((request) => executeProjectWorkRequest({
+    root: input.root,
+    projectId: input.projectId,
+    id: request.id,
+    runId: `project-${input.projectId}-${request.id}`,
+    at: input.at,
+    execute: input.execute,
+  })));
+}
+
+export async function updateProjectWorkRequest(root: string, projectId: string, id: string, patch: Partial<Pick<ProjectWorkRequest, "status" | "runId" | "blocker" | "requestedRunId" | "executionRequestId">>, at: string): Promise<ProjectWorkRequest | null> {
   const current = await loadProjectWorkRequest(root, projectId, id);
   if (!current) return null;
   const next = { ...current, ...patch, updatedAt: at };
