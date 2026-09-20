@@ -29,6 +29,10 @@ export function encodePowerShellCommand(script: string): string {
   return Buffer.from(script, "utf16le").toString("base64");
 }
 
+export function isValidDpapiCiphertext(value: string): boolean {
+  return /^[0-9a-f]{100,}$/i.test(value.trim());
+}
+
 async function powershell(script: string, input: string): Promise<string> {
   return new Promise((resolveOutput, reject) => {
     const encodedCommand = encodePowerShellCommand(script);
@@ -38,7 +42,19 @@ async function powershell(script: string, input: string): Promise<string> {
     child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
     child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
     child.once("error", reject);
-    child.once("close", (code) => code === 0 ? resolveOutput(stdout.trim()) : reject(new Error(stderr.trim() || `PowerShell exited with ${code}`)));
+    child.once("close", (code) => {
+      const output = stdout.trim();
+      const diagnostic = stderr.trim();
+      if (code !== 0 || /#< CLIXML|<S S="Error">|CommandNotFoundException|CouldNotAutoloadMatchingModule/i.test(output) || /#< CLIXML|<S S="Error">|CommandNotFoundException|CouldNotAutoloadMatchingModule/i.test(diagnostic)) {
+        reject(new Error(`PowerShell DPAPI command failed (exit ${code})`));
+        return;
+      }
+      if (!output) {
+        reject(new Error("PowerShell DPAPI command returned no output"));
+        return;
+      }
+      resolveOutput(output);
+    });
     child.stdin.end(input, "utf8");
   });
 }
@@ -46,11 +62,15 @@ async function powershell(script: string, input: string): Promise<string> {
 const dpapiCrypto: CredentialCrypto = {
   async protect(value) {
     if (process.platform !== "win32") throw new Error("operator credential protection requires Windows DPAPI");
-    return powershell("$s = ConvertTo-SecureString ([Console]::In.ReadToEnd()) -AsPlainText -Force; $s | ConvertFrom-SecureString", value);
+    const encrypted = await powershell("$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; $s = ConvertTo-SecureString ([Console]::In.ReadToEnd()) -AsPlainText -Force; $s | ConvertFrom-SecureString", value);
+    if (!isValidDpapiCiphertext(encrypted)) throw new Error("PowerShell DPAPI command returned invalid ciphertext");
+    return encrypted;
   },
   async unprotect(value) {
     if (process.platform !== "win32") throw new Error("operator credential protection requires Windows DPAPI");
-    return powershell("$s = ConvertTo-SecureString ([Console]::In.ReadToEnd()); $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }", value);
+    const plaintext = await powershell("$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; $s = ConvertTo-SecureString ([Console]::In.ReadToEnd()); $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }", value);
+    if (!plaintext || plaintext.startsWith("#< CLIXML")) throw new Error("PowerShell DPAPI command returned invalid plaintext");
+    return plaintext;
   },
   async userSid() {
     if (process.platform !== "win32") throw new Error("operator credential identity requires Windows");

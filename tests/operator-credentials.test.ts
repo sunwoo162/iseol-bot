@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bootstrapOperatorCredential, encodePowerShellCommand, operatorCredentialPath, readOperatorCredential, rotateOperatorCredential, verifyOperatorCredential, type CredentialCrypto } from "../src/runtime/operator-credentials.js";
+import { bootstrapOperatorCredential, encodePowerShellCommand, isValidDpapiCiphertext, operatorCredentialPath, readOperatorCredential, rotateOperatorCredential, verifyOperatorCredential, type CredentialCrypto } from "../src/runtime/operator-credentials.js";
 
 function cryptoFixture(): CredentialCrypto {
   return {
@@ -16,6 +16,13 @@ function cryptoFixture(): CredentialCrypto {
 test("PowerShell DPAPI scripts are passed through encoded command input", () => {
   const script = "$s = ConvertTo-SecureString ([Console]::In.ReadToEnd()) -AsPlainText -Force";
   assert.equal(Buffer.from(encodePowerShellCommand(script), "base64").toString("utf16le"), script);
+});
+
+test("DPAPI output validation rejects CLIXML, errors, and empty ciphertext", () => {
+  assert.equal(isValidDpapiCiphertext("#< CLIXML"), false);
+  assert.equal(isValidDpapiCiphertext(""), false);
+  assert.equal(isValidDpapiCiphertext("not-a-ciphertext"), false);
+  assert.equal(isValidDpapiCiphertext("0".repeat(128)), true);
 });
 
 test("operator bootstrap stores only protected credential material and verifies the Windows identity", async () => {
