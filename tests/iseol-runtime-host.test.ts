@@ -151,6 +151,7 @@ test("controlled external stop verifies the exact PID identity and sends only th
     expectedFingerprint: inspection.fingerprint, operatorId: "sunwoo", operatorCredentialVerified: true,
     confirmation: `I approve controlled external termination of Runtime pid 4242 createdAt ${createdAt} fingerprint ${inspection.fingerprint}`,
     readProcess: async () => ({ executable: "C:\\Program Files\\nodejs\\node.exe", commandLine, createdAt }),
+    readPortOwner: async () => 4242,
     terminate: (pid) => signals.push({ pid, signal: "SIGTERM" }),
   });
   assert.deepEqual(result, { status: "stop-requested", pid: 4242, signal: "SIGTERM" });
@@ -169,10 +170,12 @@ test("controlled external stop fails closed on PID reuse, changed identity, acti
     expectedPid: 4242, expectedCreatedAt: createdAt, expectedExecutable: "node.exe", expectedCommandLine: commandLine,
     expectedFingerprint: inspection.fingerprint, operatorId: "sunwoo", operatorCredentialVerified: true,
     confirmation: `I approve controlled external termination of Runtime pid 4242 createdAt ${createdAt} fingerprint ${inspection.fingerprint}`,
+    readPortOwner: async () => 4242,
     terminate: () => { throw new Error("must not terminate"); },
   } as const;
   await assert.rejects(requestControlledRuntimeStop({ lockPath, dataRoot: root }, { ...base, readProcess: async () => ({ executable: "node.exe", commandLine, createdAt: "2026-01-01T00:00:01.000Z" }) }), /identity changed/i);
   await assert.rejects(requestControlledRuntimeStop({ lockPath, dataRoot: root }, { ...base, readProcess: async () => null }), /process identity unavailable/i);
+  await assert.rejects(requestControlledRuntimeStop({ lockPath, dataRoot: root }, { ...base, readPortOwner: async () => 9999, readProcess: async () => ({ executable: "node.exe", commandLine, createdAt }) }), /listener ownership mismatch/i);
   const desktopRoot = join(root, "desktop");
   await mkdir(join(desktopRoot, "jobs", "active"), { recursive: true });
   await writeFile(join(desktopRoot, "jobs", "active", "job.json"), JSON.stringify({ status: "leased", jobId: "active", lease: { expiresAt: "2099-01-01T00:00:00.000Z" } }));

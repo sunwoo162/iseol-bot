@@ -206,6 +206,17 @@ async function readProcessIdentity(pid: number): Promise<RuntimeProcessIdentity 
   } catch { return null; }
 }
 
+async function readRuntimePortOwner(port: number): Promise<number | null> {
+  if (process.platform !== "win32") return null;
+  try {
+    const result = await execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `(Get-NetTCPConnection -LocalPort ${Math.trunc(port)} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess)`], { timeout: 2000, maxBuffer: 4096, windowsHide: true });
+    const value = Number.parseInt(result.stdout.trim(), 10);
+    return Number.isInteger(value) && value > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 const defaultRuntimeOwnerProbe: RuntimeLockOwnerProbe = async (pid, lock) => {
   try {
     process.kill(pid, 0);
@@ -405,12 +416,14 @@ export async function requestControlledRuntimeStop(
     confirmation: string;
     at?: string;
     readProcess?: (pid: number) => Promise<RuntimeProcessIdentity | null>;
+    readPortOwner?: (port: number) => Promise<number | null>;
     terminate?: (pid: number) => void;
   },
 ): Promise<{ status: "stop-requested"; pid: number; signal: "SIGTERM" }> {
   if (!input.operatorId || !input.operatorCredentialVerified) throw new Error("operator-authentication-failed");
   if (!Number.isInteger(input.expectedPid) || input.expectedPid <= 0) throw new Error("expected PID is invalid");
   const readProcess = input.readProcess ?? readProcessIdentity;
+  const readPortOwner = input.readPortOwner ?? readRuntimePortOwner;
   const terminate = input.terminate ?? ((pid: number) => process.kill(pid, "SIGTERM"));
   let raw: string;
   try { raw = await readFile(config.lockPath, "utf8"); }
@@ -422,6 +435,8 @@ export async function requestControlledRuntimeStop(
   catch { throw new Error("runtime lock is unreadable"); }
   if (lock.pid !== input.expectedPid) throw new Error("runtime lock PID mismatch");
   if (typeof lock.dataRoot !== "string" || resolve(lock.dataRoot) !== resolve(config.dataRoot)) throw new Error("runtime dataRoot mismatch");
+  const listenerOwner = await readPortOwner(8791);
+  if (listenerOwner !== input.expectedPid) throw new Error("Runtime listener ownership mismatch");
   const first = await readProcess(input.expectedPid);
   if (!first) throw new Error("process identity unavailable");
   const matches = (observed: RuntimeProcessIdentity): boolean => Boolean(
