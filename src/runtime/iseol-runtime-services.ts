@@ -53,6 +53,7 @@ import {
 import type { PrototypeDeployAdapter } from "../idea-lab/deploy-adapter.js";
 import { createProjectWorkspaceExecutor } from "./project-workspace-executor.js";
 import { createProjectWorkspaceDesktopTaskCompiler } from "./project-workspace-desktop-compiler.js";
+import type { ProgressNotificationAdapter } from "../discord-project/progress-notifications.js";
 
 export type IseolRuntimeCapability = {
   state: "disabled" | "ready" | "blocked";
@@ -94,6 +95,8 @@ export type IseolRuntimeInput = {
   ideaLabConfig?: IdeaLabRuntimeConfig;
   agentReadyTimeoutMs?: number;
   deps?: RuntimeDependencies;
+  progressNotificationRoot?: string;
+  progressNotificationAdapter?: ProgressNotificationAdapter;
 };
 
 export type IseolRuntimeServices = {
@@ -549,6 +552,7 @@ export async function startIseolRuntimeServices(
       policyRoot: ideaLabConfig.enabled ? ideaLabConfig.repositoryRoot : roots.iseolRoot,
       ...(roots.projectModelRoot ? { projectModelRoot: roots.projectModelRoot } : {}),
       ...(roots.projectRunRoot ? { projectHarnessRoot: roots.projectRunRoot } : {}),
+      ...(input.progressNotificationRoot && input.progressNotificationAdapter ? { progressNotificationRoot: input.progressNotificationRoot, progressNotificationAdapter: input.progressNotificationAdapter } : {}),
       ideaLabRuntime: {
         ...capability,
         ...(enqueueProjectRun ? { enqueueProjectRun } : {}),

@@ -7,6 +7,8 @@ import {
   type WebControlPlaneRequest,
 } from "./router.js";
 import { WebProductEventBus } from "./event-bus.js";
+import { connectProgressEventBridge } from "../discord-project/progress-event-bridge.js";
+import type { ProgressNotificationAdapter } from "../discord-project/progress-notifications.js";
 
 const DEFAULT_PORT = 8790;
 const MAX_BODY_BYTES = 64 * 1024;
@@ -34,6 +36,8 @@ export type StartWebControlPlaneOptions = WebControlPlaneConfig & {
   ideaLabRuntime?: IdeaLabRuntimeCapability;
   eventBus?: WebProductEventBus;
   sseConnectionLimit?: number;
+  progressNotificationRoot?: string;
+  progressNotificationAdapter?: ProgressNotificationAdapter;
 };
 
 function isLoopbackHost(host: string): boolean {
@@ -237,6 +241,9 @@ export async function startWebControlPlaneServer(
 
   const eventBus = options.eventBus ?? new WebProductEventBus();
   const sseState: SseState = { active: 0, limit: Math.max(1, Math.floor(options.sseConnectionLimit ?? DEFAULT_SSE_CONNECTION_LIMIT)) };
+  const disconnectProgressBridge = options.progressNotificationRoot && options.progressNotificationAdapter
+    ? connectProgressEventBridge({ eventBus, durableRoot: options.progressNotificationRoot, adapter: options.progressNotificationAdapter })
+    : undefined;
   const server = createServer((req, res) => {
     void handleRequest({ ...options, eventBus }, req, res, sseState).catch((error) => {
       if (res.headersSent) {
@@ -249,6 +256,7 @@ export async function startWebControlPlaneServer(
       res.end(JSON.stringify({ error: message }));
     });
   });
+  server.once("close", () => disconnectProgressBridge?.());
 
   await new Promise<void>((resolvePromise, reject) => {
     const onError = (error: Error) => {
