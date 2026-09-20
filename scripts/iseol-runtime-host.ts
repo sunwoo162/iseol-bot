@@ -4,6 +4,9 @@ import { existsSync, readFileSync } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { startIseolRuntimeServices, type IseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
+import { loadHarnessRun } from "../src/harness/run-store.js";
+import { listDesktopJobs, loadDesktopJob } from "../src/desktop-agent/job-store.js";
+import { containDesktopJobAsOperator, inspectDesktopJobReconciliation } from "../src/desktop-agent/operator-reconciliation.js";
 
 export type IseolRuntimeHostConfig = {
   version: 1;
@@ -118,7 +121,44 @@ export async function saveRuntimeHostConfig(path: string, config: Omit<IseolRunt
   await rename(temporary, path);
 }
 
+export function runtimeMaintenanceLockPath(runtimeLockPath: string): string {
+  return resolve(dirname(runtimeLockPath), "iseol-maintenance.lock");
+}
+
+async function assertNoMaintenanceOwnership(runtimeLockPath: string): Promise<void> {
+  const maintenancePath = runtimeMaintenanceLockPath(runtimeLockPath);
+  try {
+    await readFile(maintenancePath, "utf8");
+    throw new Error("maintenance ownership is active; refusing Runtime startup");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+export async function acquireRuntimeMaintenanceLock(
+  runtimeLockPath: string,
+  maintenancePath = runtimeMaintenanceLockPath(runtimeLockPath),
+  metadata: { dataRoot?: string; codeVersion?: string } = {},
+): Promise<() => Promise<void>> {
+  try {
+    await readFile(runtimeLockPath, "utf8");
+    throw new Error("Runtime ownership is active; maintenance mode requires a stopped Runtime");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  await mkdir(dirname(maintenancePath), { recursive: true });
+  let handle: FileHandle;
+  try { handle = await open(maintenancePath, "wx"); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("maintenance ownership already exists; refusing takeover");
+    throw error;
+  }
+  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, startedAt: new Date().toISOString(), ...metadata }));
+  return async () => { await handle.close(); await rm(maintenancePath, { force: true }); };
+}
+
 export async function acquireRuntimeLock(path: string, metadata: { dataRoot?: string; codeVersion?: string } = {}): Promise<() => Promise<void>> {
+  await assertNoMaintenanceOwnership(path);
   await mkdir(dirname(path), { recursive: true });
   let handle: FileHandle;
   try { handle = await open(path, "wx"); }
@@ -157,6 +197,35 @@ export async function readRuntimeHostStatus(config: IseolRuntimeHostConfig): Pro
   }
 }
 
+export async function inspectRuntimeMaintenanceJob(config: IseolRuntimeHostConfig, input: { projectId: string; jobId: string; now: string }) {
+  if (!config.projectRunRoot || !config.projectDesktopStateRoot) throw new Error("Project Desktop maintenance roots are not configured");
+  const job = await loadDesktopJob(config.projectDesktopStateRoot, input.jobId);
+  if (!job) return null;
+  const run = await loadHarnessRun(config.projectRunRoot, job.runId);
+  if (!run || run.request.projectId !== input.projectId) throw new Error("Desktop job does not belong to the requested Project Workspace");
+  return inspectDesktopJobReconciliation({ root: config.projectDesktopStateRoot, jobId: input.jobId, now: input.now });
+}
+
+export async function containRuntimeMaintenanceJob(config: IseolRuntimeHostConfig, input: {
+  projectId: string; jobId: string; expectedRevision: string; operationId: string; approvalId: string; at: string;
+}): Promise<Awaited<ReturnType<typeof containDesktopJobAsOperator>>> {
+  if (!config.projectRunRoot || !config.projectDesktopStateRoot) throw new Error("Project Desktop maintenance roots are not configured");
+  const release = await acquireRuntimeMaintenanceLock(config.lockPath, runtimeMaintenanceLockPath(config.lockPath), { dataRoot: config.dataRoot, ...(config.codeVersion ? { codeVersion: config.codeVersion } : {}) });
+  try {
+    const activeLease = config.projectDesktopStateRoot
+      ? (await listDesktopJobs(config.projectDesktopStateRoot)).find((job) => job.lease && Date.parse(job.lease.expiresAt) > Date.parse(input.at))
+      : undefined;
+    if (activeLease) return { status: "rejected", reason: "active-desktop-lease" };
+    const job = await loadDesktopJob(config.projectDesktopStateRoot, input.jobId);
+    if (!job) return { status: "rejected", reason: "job-not-found" };
+    const run = await loadHarnessRun(config.projectRunRoot, job.runId);
+    if (!run || run.request.projectId !== input.projectId) return { status: "rejected", reason: "job-not-found-or-project-mismatch" };
+    return containDesktopJobAsOperator({ root: config.projectDesktopStateRoot, jobId: input.jobId, expectedRevision: input.expectedRevision, operationId: input.operationId, approvalId: input.approvalId, at: input.at, actor: "operator" });
+  } finally {
+    await release();
+  }
+}
+
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   const config = loadRuntimeHostConfig();
@@ -171,6 +240,26 @@ async function main(): Promise<void> {
     if (!Number.isInteger(lock.pid) || (lock.pid as number) <= 0) throw new Error("runtime lock has invalid owner");
     process.kill(lock.pid as number, "SIGTERM");
     process.stdout.write(JSON.stringify({ state: "stop-requested", pid: lock.pid }));
+    return;
+  }
+  if (command === "maintenance-status") {
+    const runtime = await readRuntimeHostStatus(config);
+    let maintenance: Record<string, unknown> = { state: "stopped" };
+    try { maintenance = JSON.parse(await readFile(runtimeMaintenanceLockPath(config.lockPath), "utf8")) as Record<string, unknown>; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    process.stdout.write(JSON.stringify({ runtime, maintenance }));
+    return;
+  }
+  if (command === "maintenance-inspect") {
+    const [projectId, jobId] = process.argv.slice(3);
+    if (!projectId || !jobId) throw new Error("maintenance-inspect requires projectId and jobId");
+    process.stdout.write(JSON.stringify(await inspectRuntimeMaintenanceJob(config, { projectId, jobId, now: new Date().toISOString() })));
+    return;
+  }
+  if (command === "maintenance-contain") {
+    const [projectId, jobId, expectedRevision, operationId, approvalId] = process.argv.slice(3);
+    if (!projectId || !jobId || !expectedRevision || !operationId || !approvalId) throw new Error("maintenance-contain requires projectId, jobId, expectedRevision, operationId and approvalId");
+    process.stdout.write(JSON.stringify(await containRuntimeMaintenanceJob(config, { projectId, jobId, expectedRevision, operationId, approvalId, at: new Date().toISOString() })));
     return;
   }
   if (command !== "start") throw new Error(`unsupported runtime host command: ${command}`);
