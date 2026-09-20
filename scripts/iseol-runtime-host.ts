@@ -440,6 +440,28 @@ export async function recoverStaleRuntimeLock(config: IseolRuntimeHostConfig, in
   }
 }
 
+/**
+ * Recover only the Runtime lock. This deliberately does not inspect or mutate
+ * Project Desktop jobs; callers must use the batch command separately only
+ * when containment is independently approved and required.
+ */
+export async function recoverStaleRuntimeLockOnly(config: IseolRuntimeHostConfig, input: {
+  expectedFingerprint: string;
+  operatorToken: string;
+  configuredOperatorToken: string;
+  operatorId: string;
+  confirmation: string;
+  legacyOwnerConfirmation?: string;
+  operatorCredentialVerified?: boolean;
+  at: string;
+  probe?: RuntimeLockOwnerProbe;
+}): Promise<{ status: "recovered" | "rejected"; reason?: string }> {
+  const recovered = await recoverStaleRuntimeLock(config, input);
+  if (recovered.status !== "recovered") return { status: "rejected", reason: recovered.reason };
+  await recovered.releaseMaintenance();
+  return { status: "recovered" };
+}
+
 export async function inspectRuntimeMaintenanceJob(config: IseolRuntimeHostConfig, input: { projectId: string; jobId: string; now: string }) {
   if (!config.projectRunRoot || !config.projectDesktopStateRoot) throw new Error("Project Desktop maintenance roots are not configured");
   const job = await loadDesktopJob(config.projectDesktopStateRoot, input.jobId);
@@ -653,6 +675,21 @@ async function main(): Promise<void> {
   }
   if (command === "runtime-recover-stale") {
     process.stdout.write(JSON.stringify({ status: "rejected", reason: "use maintenance-recover-stale-contain-batch to preserve ownership continuity" }));
+    return;
+  }
+  if (command === "maintenance-recover-stale-lock") {
+    const input = readRuntimeHostStdin<{ expectedFingerprint?: unknown; recoveryConfirmation?: unknown; legacyOwnerConfirmation?: unknown; operatorToken?: unknown }>();
+    const expectedFingerprint = typeof input.expectedFingerprint === "string" ? input.expectedFingerprint : "";
+    const recoveryConfirmation = typeof input.recoveryConfirmation === "string" ? input.recoveryConfirmation : "";
+    const legacyOwnerConfirmation = typeof input.legacyOwnerConfirmation === "string" ? input.legacyOwnerConfirmation : undefined;
+    const operatorToken = typeof input.operatorToken === "string" ? input.operatorToken : "";
+    const operatorCredentialVerified = await verifyCliOperator(operatorToken);
+    const result = await recoverStaleRuntimeLockOnly(config, {
+      expectedFingerprint, recoveryConfirmation, legacyOwnerConfirmation, operatorToken,
+      configuredOperatorToken: "", operatorId: configuredOperatorId, operatorCredentialVerified,
+      at: new Date().toISOString(),
+    });
+    process.stdout.write(JSON.stringify(result));
     return;
   }
   if (command === "maintenance-recover-stale-contain-batch") {

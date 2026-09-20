@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, inspectRuntimeLock, loadRuntimeHostConfig, parseRuntimeHostStdin, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, requestRuntimeStop, resolveRuntimeCodeVersion, runtimeRecoveryLockPath, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
+import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, inspectRuntimeLock, loadRuntimeHostConfig, parseRuntimeHostStdin, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, recoverStaleRuntimeLockOnly, requestRuntimeStop, resolveRuntimeCodeVersion, runtimeRecoveryLockPath, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
 import { approveAndContainRuntimeMaintenanceJob, approveAndContainRuntimeMaintenanceJobs, containRuntimeMaintenanceJob } from "../scripts/iseol-runtime-host.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import { createDesktopJob, desktopJobRevision, loadDesktopJob, loadDesktopJobContainment } from "../src/desktop-agent/job-store.js";
@@ -228,6 +228,26 @@ test("stale recovery and maintenance handoff are one ownership transaction", asy
   assert.equal(result.maintenance?.status, "rejected");
   assert.equal((await inspectRuntimeLock(lockPath, async () => ({ state: "absent" as const }))).state, "stopped");
   assert.equal((await readFile(join(root, "iseol-maintenance.lock"), "utf8").catch(() => null)), null);
+});
+
+test("lock-only recovery removes the exact stale lock without touching maintenance jobs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-lock-only-recovery-"));
+  const lockPath = join(root, "runtime.lock");
+  await writeFile(lockPath, JSON.stringify({ version: 1, pid: 42, startedAt: "2026-01-01T00:00:00.000Z" }));
+  const config = { version: 1 as const, dataRoot: root, modelRoot: join(root, "model"), runRoot: join(root, "runs"), webWorkerRoot: join(root, "workers"), browserProfileRoot: join(root, "profile"), lockPath };
+  const inspection = await inspectRuntimeLock(lockPath, async () => ({ state: "absent" as const }));
+  const result = await recoverStaleRuntimeLockOnly(config, {
+    expectedFingerprint: inspection.fingerprint,
+    operatorToken: "secret", configuredOperatorToken: "secret", operatorId: "operator",
+    confirmation: `I approve stale Runtime lock recovery for ${inspection.fingerprint}`,
+    legacyOwnerConfirmation: `I confirm external owner inspection for Runtime lock ${inspection.fingerprint} pid 42`,
+    at: "2026-01-01T01:00:00.000Z",
+    probe: async () => ({ state: "absent" as const }),
+  });
+  assert.deepEqual(result, { status: "recovered" });
+  assert.equal((await inspectRuntimeLock(lockPath, async () => ({ state: "absent" as const }))).state, "stopped");
+  assert.equal(await readFile(join(root, "iseol-maintenance.lock"), "utf8").catch(() => null), null);
+  assert.equal(await readFile(join(root, "iseol-recovery.lock"), "utf8").catch(() => null), null);
 });
 
 test("maintenance ownership cannot overlap a live Runtime and blocks Runtime takeover", async () => {

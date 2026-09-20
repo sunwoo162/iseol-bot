@@ -16,6 +16,14 @@ I approve stale Runtime lock recovery for <exact fingerprint>
 
 Recovery acquires a recovery ownership file, re-reads the lock, verifies the fingerprint and owner state, acquires maintenance ownership while recovery ownership is held, removes only the unchanged stale lock, and processes the independently approved job entries before releasing maintenance ownership. This combined command is required because a short-lived recovery process cannot safely hand off ownership between separate commands. A changed lock, live or reused owner, unavailable owner identity, competing recovery/maintenance owner, or unreadable lock fails closed.
 
+When the pending jobs are already contained and only the Runtime lock remains, use the lock-only command instead of the batch command:
+
+```powershell
+npm.cmd run iseol:runtime -- maintenance-recover-stale-lock
+```
+
+It accepts the same protected operator credential, exact lock fingerprint, legacy owner-inspection confirmation, and recovery confirmation, but it does not read or mutate Project Desktop jobs. It holds recovery ownership through the maintenance handoff, rechecks the owner and fingerprint immediately before removal, removes only the unchanged lock, and releases both ownership files. It must not be used while the Runtime owner is alive or unconfirmed without the required independent legacy-owner evidence.
+
 Legacy locks without `ownerIdentity`, `ownerExecutable`, and `ownerCommandLine` remain `owner-unconfirmed` even when their PID is absent. They require independent operator evidence, the supported owner probe, and the exact additional confirmation `I confirm external owner inspection for Runtime lock <fingerprint> pid <pid>` before recovery can be authorized. PID absence alone is not stale proof.
 
 ## First operator setup
