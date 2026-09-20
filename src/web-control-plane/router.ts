@@ -1,7 +1,8 @@
 import { resolve } from "node:path";
 import { assertProjectModelId } from "../project-model/contracts.js";
 import { defaultAgentRoleRegistrations, resolveExecutionProfile } from "../project-model/execution-profile.js";
-import { setProjectPurpose } from "../project-model/workspace-store.js";
+import { loadProjectWorkspace, setProjectPurpose } from "../project-model/workspace-store.js";
+import { createProjectWorkRequest, listProjectWorkRequests, claimProjectWorkRequest, updateProjectWorkRequest } from "../project-model/work-request.js";
 import { prepareProjectWorkspaceRun, startProjectWorkspaceRun } from "../project-model/workspace-run-preparation.js";
 import { buildPortfolioDraft, collectProjectEvidence, verifyPortfolioGrounding } from "../project-model/portfolio.js";
 import { ensurePortfolioDocument, updatePortfolioDocument, verifyStoredPortfolioGrounding } from "../project-model/portfolio-store.js";
@@ -117,6 +118,43 @@ export async function routeWebControlPlaneRequest(
   const path = request.path.split("?", 1)[0] ?? request.path;
   const projectModelRoot = deps.projectModelRoot ?? deps.modelRoot;
   const projectHarnessRoot = deps.projectHarnessRoot ?? deps.harnessRoot;
+
+  const workListMatch = /^\/api\/projects\/([^/]+)\/work-requests$/.exec(path);
+  if (workListMatch) {
+    const projectId = decodeId(workListMatch[1] ?? "");
+    if (!projectId) return response(404, { error: "not found" });
+    if (!await loadProjectWorkspace(projectModelRoot, projectId)) return response(404, { error: "not found" });
+    if (request.method === "GET") return response(200, { requests: await listProjectWorkRequests(projectModelRoot, projectId) });
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    if (!request.body || typeof request.body !== "object") return response(400, { error: "invalid work request" });
+    const body = request.body as Record<string, unknown>;
+    if (typeof body.title !== "string" || typeof body.objective !== "string" || typeof body.idempotencyKey !== "string") return response(400, { error: "title, objective and idempotencyKey are required" });
+    try {
+      const result = await createProjectWorkRequest({ root: projectModelRoot, projectId, title: body.title, objective: body.objective, idempotencyKey: body.idempotencyKey, ...(typeof body.nodeId === "string" ? { nodeId: body.nodeId } : {}), at: (deps.now ?? (() => new Date().toISOString()))() });
+      deps.eventBus?.publish({ type: "work-request.created", scope: { projectId }, payload: { projectId, workRequestId: result.request.id, status: result.request.status } });
+      return response(result.created ? 201 : 200, result.request);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("idempotency conflict")) return response(409, { error: error.message });
+      throw error;
+    }
+  }
+
+  const workActionMatch = /^\/api\/projects\/([^/]+)\/work-requests\/([^/]+)\/(claim|cancel)$/.exec(path);
+  if (workActionMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    const projectId = decodeId(workActionMatch[1] ?? "");
+    const workId = decodeId(workActionMatch[2] ?? "");
+    if (!projectId || !workId) return response(404, { error: "not found" });
+    const at = (deps.now ?? (() => new Date().toISOString()))();
+    const result = workActionMatch[3] === "claim"
+      ? await claimProjectWorkRequest(projectModelRoot, projectId, workId, at)
+      : await updateProjectWorkRequest(projectModelRoot, projectId, workId, { status: "cancelled" }, at);
+    if (!result) return response(404, { error: "not found or not claimable" });
+    deps.eventBus?.publish({ type: "work-request.updated", scope: { projectId, runId: result.runId }, payload: { projectId, workRequestId: result.id, status: result.status, runId: result.runId } });
+    return response(200, result);
+  }
 
   if (path === "/api/evaluation") {
     if (request.method !== "GET") return methodNotAllowed();
@@ -281,6 +319,11 @@ export async function routeWebControlPlaneRequest(
       const execution = deps.ideaLabRuntime?.enqueueProjectRun
         ? await deps.ideaLabRuntime.enqueueProjectRun(started.run.request.runId)
         : undefined;
+      if (typeof body.workRequestId === "string") {
+        const linked = await updateProjectWorkRequest(projectModelRoot, projectId, body.workRequestId, { status: "running", runId: started.run.request.runId }, (deps.now ?? (() => new Date().toISOString()))());
+        if (!linked) return response(404, { error: "work request not found" });
+        deps.eventBus?.publish({ type: "work-request.updated", scope: { projectId, runId: started.run.request.runId }, payload: { projectId, workRequestId: linked.id, runId: linked.runId, status: linked.status } });
+      }
       deps.eventBus?.publish({ type: "run.updated", scope: { projectId, runId: started.run.request.runId }, payload: { projectId, runId: started.run.request.runId, status: started.status } });
       return response(started.status === "created" ? 201 : 200, {
         ...started,

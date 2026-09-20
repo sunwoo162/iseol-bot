@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { PrototypeCandidate } from "../src/project-model/contracts.js";
 import { savePrototypeCandidate } from "../src/project-model/prototype-store.js";
 import { loadProjectWorkspace } from "../src/project-model/workspace-store.js";
+import { saveProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { routeWebControlPlaneRequest } from "../src/web-control-plane/router.js";
 
 function candidate(): PrototypeCandidate {
@@ -60,6 +61,24 @@ test("routes prototype and campaign detail reads without mutation", async () => 
     deps,
   );
   assert.equal(missingCampaign.status, 404);
+});
+
+test("work request API persists idempotent queue entries and exposes claims", async () => {
+  const deps = await fixture("secret-token");
+  await saveProjectWorkspace(deps.modelRoot, {
+    version: 1, id: "project-queue", name: "Queue", status: "active",
+    genesis: { prototypeId: "prototype-001", repository: candidate().repository, deployment: candidate().deployment, runs: [], promotedAt: "2026-09-07T00:00:00.000Z" },
+    tree: [{ id: "root", kind: "root", title: "Queue", status: "planned", runIds: [], createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z" }],
+    createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z",
+  });
+  const create = await routeWebControlPlaneRequest({ method: "POST", path: "/api/projects/project-queue/work-requests", headers: { authorization: "Bearer secret-token" }, body: { title: "Implement queue", objective: "Build durable queue", idempotencyKey: "queue-1" } }, deps);
+  assert.equal(create.status, 201);
+  const repeat = await routeWebControlPlaneRequest({ method: "POST", path: "/api/projects/project-queue/work-requests", headers: { authorization: "Bearer secret-token" }, body: { title: "Implement queue", objective: "Build durable queue", idempotencyKey: "queue-1" } }, deps);
+  assert.equal(repeat.status, 200);
+  assert.equal((repeat.body as any).id, (create.body as any).id);
+  const list = await routeWebControlPlaneRequest({ method: "GET", path: "/api/projects/project-queue/work-requests", headers: {} }, deps);
+  assert.equal(list.status, 200);
+  assert.equal((list.body as any).requests.length, 1);
 });
 
 test("rejects unsupported methods and malformed project paths", async () => {

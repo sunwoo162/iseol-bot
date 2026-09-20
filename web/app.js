@@ -711,6 +711,7 @@ async function selectProject(projectId) {
     const view = await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}`);
     renderProject(view);
     await loadPortfolio();
+    await loadWorkRequests();
     setStatus("success", `Project Workspace loaded: ${view.project.name}`);
   } catch (error) {
     clearProjectView();
@@ -718,6 +719,37 @@ async function selectProject(projectId) {
   } finally {
     setLoading(false);
   }
+}
+
+async function loadWorkRequests() {
+  const list = $("#work-request-list");
+  if (!list || !state.selectedProjectId) return;
+  try {
+    const result = await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}/work-requests`);
+    list.replaceChildren();
+    if (!result.requests.length) list.append(element("p", "muted", "No queued work requests."));
+    for (const request of result.requests) {
+      const row = element("p", "mono muted", `${request.title} · ${request.status} · ${request.attempts} attempts`);
+      if (request.runId) row.append(element("span", "", ` · ${request.runId}`));
+      list.append(row);
+    }
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+}
+
+async function queueCurrentWorkRequest() {
+  if (!state.selectedProjectId) return;
+  const objective = $("#project-objective").value.trim();
+  if (!objective) { setStatus("error", "Enter a project objective first."); return; }
+  setLoading(true, "Queueing work request…");
+  try {
+    await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}/work-requests`, {
+      method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ title: objective.slice(0, 120), objective, idempotencyKey: `${state.selectedProjectId}:${objective}` }),
+    });
+    await loadWorkRequests();
+    setStatus("success", "Work request queued.");
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+  finally { setLoading(false); }
 }
 
 function saveToken() {
@@ -743,6 +775,7 @@ function bindEvents() {
   $("#start-project-run").addEventListener("click", () => startProjectRun());
   $("#load-portfolio").addEventListener("click", () => loadPortfolio());
   $("#copy-readme").addEventListener("click", () => copyReadme());
+  $("#queue-work-request").addEventListener("click", () => queueCurrentWorkRequest());
   $("#close-campaign-detail").addEventListener("click", () => { $("#campaign-detail").hidden = true; });
   $("#close-prototype-detail").addEventListener("click", () => { $("#prototype-detail").hidden = true; });
 }
