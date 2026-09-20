@@ -15,6 +15,8 @@ import {
 import {
   buildEvaluationView,
   buildIdeaLabView,
+  buildIdeaLabCampaignDetail,
+  buildPrototypeDetail,
   buildProjectWorkspaceView,
 } from "./view-model.js";
 import type { OperatorReconciliationReason } from "../harness/operator-reconciliation.js";
@@ -242,6 +244,15 @@ export async function routeWebControlPlaneRequest(
     }
   }
 
+  const campaignDetailMatch = /^\/api\/idea-lab\/campaigns\/([^/]+)$/.exec(path);
+  if (campaignDetailMatch) {
+    if (request.method !== "GET") return methodNotAllowed();
+    const campaignId = decodeId(campaignDetailMatch[1] ?? "");
+    if (!campaignId) return response(404, { error: "not found" });
+    const detail = await buildIdeaLabCampaignDetail(deps.modelRoot, deps.harnessRoot, campaignId);
+    return detail ? response(200, detail) : response(404, { error: "not found" });
+  }
+
   const startMatch = /^\/api\/projects\/([^/]+)\/execution-start$/.exec(path);
   if (startMatch) {
     if (request.method !== "POST") return methodNotAllowed();
@@ -436,6 +447,15 @@ export async function routeWebControlPlaneRequest(
       if (error instanceof Error && error.message.includes("cannot be archived")) return response(409, { error: error.message });
       throw error;
     }
+  }
+
+  const prototypeDetailMatch = /^\/api\/prototypes\/([^/]+)$/.exec(path);
+  if (prototypeDetailMatch) {
+    if (request.method !== "GET") return methodNotAllowed();
+    const prototypeId = decodeId(prototypeDetailMatch[1] ?? "");
+    if (!prototypeId) return response(404, { error: "not found" });
+    const detail = await buildPrototypeDetail(deps.modelRoot, deps.harnessRoot, prototypeId);
+    return detail ? response(200, detail) : response(404, { error: "not found" });
   }
 
   const promotionMatch = /^\/api\/prototypes\/([^/]+)\/promote$/.exec(path);

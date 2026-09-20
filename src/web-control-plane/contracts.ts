@@ -59,6 +59,22 @@ export type IdeaLabView = {
   productions: WebIdeaLabProductionSummary[];
 };
 
+export type WebIdeaLabCampaignDetail = {
+  campaign: WebIdeaLabCampaignSummary;
+  productions: WebIdeaLabProductionSummary[];
+  prototypes: WebPrototypeCard[];
+};
+
+export type WebPrototypeDetail = {
+  prototype: WebPrototypeCard;
+  runs: WebRunSummary[];
+  origin?: {
+    campaignId: string;
+    proposalId: string;
+    productionId: string;
+  };
+};
+
 export type WebRunSummary = {
   runId: string;
   objective: string;

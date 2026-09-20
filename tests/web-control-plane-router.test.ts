@@ -47,6 +47,21 @@ test("routes Idea Lab and missing project reads", async () => {
   assert.equal(missing.status, 404);
 });
 
+test("routes prototype and campaign detail reads without mutation", async () => {
+  const deps = await fixture();
+  const prototype = await routeWebControlPlaneRequest(
+    { method: "GET", path: "/api/prototypes/prototype-001", headers: {} },
+    deps,
+  );
+  assert.equal(prototype.status, 200);
+  assert.equal((prototype.body as any).prototype.id, "prototype-001");
+  const missingCampaign = await routeWebControlPlaneRequest(
+    { method: "GET", path: "/api/idea-lab/campaigns/missing", headers: {} },
+    deps,
+  );
+  assert.equal(missingCampaign.status, 404);
+});
+
 test("rejects unsupported methods and malformed project paths", async () => {
   const deps = await fixture();
   const method = await routeWebControlPlaneRequest(

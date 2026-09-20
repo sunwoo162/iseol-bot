@@ -5,12 +5,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
+import { saveIdeaLabCampaign } from "../src/idea-lab/campaign-store.js";
+import type { PrototypeProduction } from "../src/idea-lab/contracts.js";
+import { savePrototypeProduction } from "../src/idea-lab/production-store.js";
 import type { ProjectWorkspace, PrototypeCandidate } from "../src/project-model/contracts.js";
 import { appendProjectHistoryEvent } from "../src/project-model/history-store.js";
 import { savePrototypeCandidate } from "../src/project-model/prototype-store.js";
 import { saveProjectWorkspace } from "../src/project-model/workspace-store.js";
 import {
   buildIdeaLabView,
+  buildIdeaLabCampaignDetail,
+  buildPrototypeDetail,
   buildProjectWorkspaceView,
 } from "../src/web-control-plane/view-model.js";
 
@@ -146,6 +151,59 @@ async function fixture() {
   });
   return { modelRoot, harnessRoot };
 }
+
+test("detail view models expose prototype runs and campaign productions", async () => {
+  const { modelRoot, harnessRoot } = await fixture();
+  await savePrototypeCandidate(modelRoot, {
+    ...candidate(),
+    runIds: ["run-active"],
+    ideaLabOrigin: {
+      campaignId: "campaign-001",
+      proposalId: "proposal-001",
+      productionId: "production-001",
+    },
+  });
+  await saveIdeaLabCampaign(modelRoot, {
+    version: 1,
+    id: "campaign-001",
+    seed: "Build a useful study tool",
+    constraints: [],
+    targetReadyCount: 1,
+    productionConcurrency: 1,
+    proposalIds: [],
+    productionIds: [],
+    status: "producing",
+    createdAt: "2026-09-07T00:00:00.000Z",
+    updatedAt: "2026-09-07T00:00:00.000Z",
+  });
+  const production: PrototypeProduction = {
+    version: 1,
+    id: "production-001",
+    campaignId: "campaign-001",
+    proposalId: "proposal-001",
+    runId: "run-active",
+    repositoryUrl: "https://github.com/example/repo",
+    sandboxRoot: "C:/sandbox",
+    worktreeRoot: "C:/sandbox/production-001",
+    branch: "idea/campaign-001/production-001",
+    baseRef: "main",
+    status: "running",
+    createdAt: "2026-09-07T00:00:00.000Z",
+    updatedAt: "2026-09-07T00:00:00.000Z",
+  };
+  await savePrototypeProduction(modelRoot, production);
+  const prototype = await buildPrototypeDetail(modelRoot, harnessRoot, "prototype-001");
+  assert.ok(prototype);
+  assert.equal(prototype.prototype.id, "prototype-001");
+  assert.equal(prototype.origin?.campaignId, "campaign-001");
+  assert.equal(prototype.runs[0]?.runId, "run-active");
+  const campaign = await buildIdeaLabCampaignDetail(modelRoot, harnessRoot, "campaign-001");
+  assert.ok(campaign);
+  assert.equal(campaign.campaign.id, "campaign-001");
+  assert.equal(campaign.productions[0]?.id, "production-001");
+  assert.equal(campaign.productions[0]?.run?.stage, "IMPLEMENT");
+  assert.equal(campaign.prototypes[0]?.id, "prototype-001");
+});
 
 test("Idea Lab view exposes prototype experience metadata", async () => {
   const { modelRoot } = await fixture();

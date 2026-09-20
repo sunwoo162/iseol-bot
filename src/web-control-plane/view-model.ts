@@ -1,10 +1,10 @@
 import { loadEvaluationReport } from "../evaluation/report-store.js";
 import { evaluationDirectory, listEvaluationJsonFiles } from "../evaluation/store-utils.js";
 import { loadHarnessRun } from "../harness/run-store.js";
-import { listIdeaLabCampaigns } from "../idea-lab/campaign-store.js";
+import { listIdeaLabCampaigns, loadIdeaLabCampaign } from "../idea-lab/campaign-store.js";
 import { listPrototypeProductions } from "../idea-lab/production-store.js";
 import { loadProjectHistory } from "../project-model/history-store.js";
-import { listPrototypeCandidates } from "../project-model/prototype-store.js";
+import { listPrototypeCandidates, loadPrototypeCandidate } from "../project-model/prototype-store.js";
 import { loadProjectWorkspace } from "../project-model/workspace-store.js";
 import type {
   EvaluationView,
@@ -12,12 +12,14 @@ import type {
   ProjectWorkspaceView,
   WebEvaluationReportSummary,
   WebIdeaLabCampaignSummary,
+  WebIdeaLabCampaignDetail,
   WebIdeaLabProductionSummary,
   WebPrototypeCard,
+  WebPrototypeDetail,
   WebRunSummary,
 } from "./contracts.js";
 
-function toPrototypeCard(
+export function toPrototypeCard(
   candidate: Awaited<ReturnType<typeof listPrototypeCandidates>>[number],
 ): WebPrototypeCard {
   return {
@@ -140,6 +142,74 @@ async function buildRunSummary(
       ...(run.request.purposeProfile?.executableRoles ?? []).map((role) => ({ role, status: "executable" as const })),
       ...(run.request.purposeProfile?.plannedRoles ?? []).map((role) => ({ role, status: "planned" as const })),
     ],
+  };
+}
+
+export async function buildIdeaLabCampaignDetail(
+  modelRoot: string,
+  harnessRoot: string,
+  campaignId: string,
+): Promise<WebIdeaLabCampaignDetail | null> {
+  const [campaign, productions, candidates] = await Promise.all([
+    loadIdeaLabCampaign(modelRoot, campaignId),
+    listPrototypeProductions(modelRoot),
+    listPrototypeCandidates(modelRoot),
+  ]);
+  if (!campaign) return null;
+  const campaignProductions: WebIdeaLabProductionSummary[] = [];
+  for (const production of productions.filter((item) => item.campaignId === campaignId)) {
+    const run = await buildRunSummary(harnessRoot, production.runId);
+    campaignProductions.push({
+      id: production.id,
+      campaignId: production.campaignId,
+      proposalId: production.proposalId,
+      runId: production.runId,
+      status: production.status,
+      branch: production.branch,
+      ...(production.commitSha ? { commitSha: production.commitSha } : {}),
+      ...(production.deployment?.url ? { deploymentUrl: production.deployment.url } : {}),
+      ...(safeIdeaLabSummary(production.blockerSummary) ? { blockerSummary: safeIdeaLabSummary(production.blockerSummary) } : {}),
+      updatedAt: production.updatedAt,
+      ...(run ? { run } : {}),
+    });
+  }
+  const campaignSummary: WebIdeaLabCampaignSummary = {
+    id: campaign.id,
+    seed: campaign.seed,
+    status: campaign.status,
+    targetReadyCount: campaign.targetReadyCount,
+    readyCount: campaignProductions.filter((item) => item.status === "ready").length,
+    productionCount: campaignProductions.length,
+    productionConcurrency: campaign.productionConcurrency,
+    ...(safeIdeaLabSummary(campaign.blockerSummary) ? { blockerSummary: safeIdeaLabSummary(campaign.blockerSummary) } : {}),
+    createdAt: campaign.createdAt,
+    updatedAt: campaign.updatedAt,
+  };
+  return {
+    campaign: campaignSummary,
+    productions: campaignProductions,
+    prototypes: candidates
+      .filter((candidate) => candidate.ideaLabOrigin?.campaignId === campaignId)
+      .map(toPrototypeCard),
+  };
+}
+
+export async function buildPrototypeDetail(
+  modelRoot: string,
+  harnessRoot: string,
+  prototypeId: string,
+): Promise<WebPrototypeDetail | null> {
+  const candidate = await loadPrototypeCandidate(modelRoot, prototypeId);
+  if (!candidate) return null;
+  const runs: WebRunSummary[] = [];
+  for (const runId of candidate.runIds) {
+    const summary = await buildRunSummary(harnessRoot, runId);
+    if (summary) runs.push(summary);
+  }
+  return {
+    prototype: toPrototypeCard(candidate),
+    runs,
+    ...(candidate.ideaLabOrigin ? { origin: { ...candidate.ideaLabOrigin } } : {}),
   };
 }
 
