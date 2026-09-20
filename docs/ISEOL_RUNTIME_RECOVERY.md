@@ -22,7 +22,15 @@ When the pending jobs are already contained and only the Runtime lock remains, u
 npm.cmd run iseol:runtime -- maintenance-recover-stale-lock
 ```
 
-It accepts the same protected operator credential, exact lock fingerprint, legacy owner-inspection confirmation, and recovery confirmation, but it does not read or mutate Project Desktop jobs. It holds recovery ownership through the maintenance handoff, rechecks the owner and fingerprint immediately before removal, removes only the unchanged lock, and releases both ownership files. It must not be used while the Runtime owner is alive or unconfirmed without the required independent legacy-owner evidence.
+It authenticates the registered Windows identity and protected credential record; no plaintext token is part of this command's stdin. Stdin contains only the exact fingerprint, legacy owner-inspection confirmation, and recovery confirmation. It does not read or mutate Project Desktop jobs. It holds recovery ownership through the maintenance handoff, rechecks the owner and fingerprint immediately before removal, removes only the unchanged lock, and releases both ownership files. It must not be used while the Runtime owner is alive or unconfirmed without the required independent legacy-owner evidence.
+
+For a Runtime whose legacy lock is still present and whose original console is unavailable, the separately approved controlled external stop command is:
+
+```powershell
+npm.cmd run iseol:runtime -- operator-stop
+```
+
+This command authenticates the registered Windows identity, rechecks the exact PID, process creation time, executable, command line, lock fingerprint, configured data root, and active Desktop leases/mutation states, then sends an external termination signal only to the approved PID. It never removes the lock. External termination can leave the lock and in-flight work indeterminate; run lock-only recovery only after the PID and listener are confirmed absent.
 
 Legacy locks without `ownerIdentity`, `ownerExecutable`, and `ownerCommandLine` remain `owner-unconfirmed` even when their PID is absent. They require independent operator evidence, the supported owner probe, and the exact additional confirmation `I confirm external owner inspection for Runtime lock <fingerprint> pid <pid>` before recovery can be authorized. PID absence alone is not stale proof.
 

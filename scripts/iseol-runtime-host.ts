@@ -188,9 +188,9 @@ function processIdentity(executable: string, createdAt: string | undefined, pid:
   return createHash("sha256").update(JSON.stringify(stable), "utf8").digest("hex");
 }
 
-type ProcessIdentityDetails = { executable: string; commandLine: string; createdAt?: string };
+export type RuntimeProcessIdentity = { executable: string; commandLine: string; createdAt?: string };
 
-async function readProcessIdentity(pid: number): Promise<ProcessIdentityDetails | null> {
+async function readProcessIdentity(pid: number): Promise<RuntimeProcessIdentity | null> {
   if (process.platform === "win32") {
     try {
       const filter = `ProcessId = ${pid}`;
@@ -386,6 +386,63 @@ export async function requestRuntimeStop(config: Pick<IseolRuntimeHostConfig, "l
   const signal = runtimeStopSignal();
   process.kill(pid, signal);
   return { state: "stop-requested", pid, signal };
+}
+
+function normalizedCommandLine(commandLine: string): string {
+  return commandLine.replaceAll("/", "\\").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+export async function requestControlledRuntimeStop(
+  config: Pick<IseolRuntimeHostConfig, "lockPath" | "dataRoot" | "projectDesktopStateRoot">,
+  input: {
+    expectedPid: number;
+    expectedCreatedAt: string;
+    expectedExecutable: string;
+    expectedCommandLine: string;
+    expectedFingerprint: string;
+    operatorId: string;
+    operatorCredentialVerified?: boolean;
+    confirmation: string;
+    at?: string;
+    readProcess?: (pid: number) => Promise<RuntimeProcessIdentity | null>;
+    terminate?: (pid: number) => void;
+  },
+): Promise<{ status: "stop-requested"; pid: number; signal: "SIGTERM" }> {
+  if (!input.operatorId || !input.operatorCredentialVerified) throw new Error("operator-authentication-failed");
+  if (!Number.isInteger(input.expectedPid) || input.expectedPid <= 0) throw new Error("expected PID is invalid");
+  const readProcess = input.readProcess ?? readProcessIdentity;
+  const terminate = input.terminate ?? ((pid: number) => process.kill(pid, "SIGTERM"));
+  let raw: string;
+  try { raw = await readFile(config.lockPath, "utf8"); }
+  catch { throw new Error("runtime lock is unavailable"); }
+  const fingerprint = lockFingerprint(raw);
+  if (fingerprint !== input.expectedFingerprint) throw new Error("runtime lock fingerprint mismatch");
+  let lock: Record<string, unknown>;
+  try { lock = JSON.parse(raw) as Record<string, unknown>; }
+  catch { throw new Error("runtime lock is unreadable"); }
+  if (lock.pid !== input.expectedPid) throw new Error("runtime lock PID mismatch");
+  if (typeof lock.dataRoot !== "string" || resolve(lock.dataRoot) !== resolve(config.dataRoot)) throw new Error("runtime dataRoot mismatch");
+  const first = await readProcess(input.expectedPid);
+  if (!first) throw new Error("process identity unavailable");
+  const matches = (observed: RuntimeProcessIdentity): boolean => Boolean(
+    observed.createdAt === input.expectedCreatedAt
+      && normalizedExecutable(observed.executable) === normalizedExecutable(input.expectedExecutable)
+      && normalizedCommandLine(observed.commandLine) === normalizedCommandLine(input.expectedCommandLine),
+  );
+  if (!matches(first)) throw new Error("process identity changed");
+  if (config.projectDesktopStateRoot) {
+    const nowMs = Date.parse(input.at ?? new Date().toISOString());
+    const jobs = await listDesktopJobs(config.projectDesktopStateRoot);
+    const active = jobs.find((job) => (job.lease && Date.parse(job.lease.expiresAt) > nowMs) || job.status === "leased" || job.status === "indeterminate");
+    if (active) throw new Error(`active Desktop mutation or lease: ${active.jobId}`);
+  }
+  const expectedConfirmation = `I approve controlled external termination of Runtime pid ${input.expectedPid} createdAt ${input.expectedCreatedAt} fingerprint ${input.expectedFingerprint}`;
+  if (input.confirmation !== expectedConfirmation) throw new Error("operator-confirmation-required");
+  const final = await readProcess(input.expectedPid);
+  if (!final || !matches(final)) throw new Error("process identity changed before termination");
+  try { terminate(input.expectedPid); }
+  catch { throw new Error("external termination failed"); }
+  return { status: "stop-requested", pid: input.expectedPid, signal: "SIGTERM" };
 }
 
 export async function recoverStaleRuntimeLock(config: IseolRuntimeHostConfig, input: {
@@ -662,6 +719,26 @@ async function main(): Promise<void> {
     process.stdout.write(JSON.stringify(await requestRuntimeStop(config)));
     return;
   }
+  if (command === "operator-stop") {
+    const input = readRuntimeHostStdin<{ expectedPid?: unknown; expectedCreatedAt?: unknown; expectedExecutable?: unknown; expectedCommandLine?: unknown; expectedFingerprint?: unknown; confirmation?: unknown }>();
+    const operatorCredentialVerified = await verifyCliOperator("");
+    const expectedPid = Number.isInteger(input.expectedPid) ? input.expectedPid as number : 0;
+    const result = await requestControlledRuntimeStop(config, {
+      expectedPid,
+      expectedCreatedAt: typeof input.expectedCreatedAt === "string" ? input.expectedCreatedAt : "",
+      expectedExecutable: typeof input.expectedExecutable === "string" ? input.expectedExecutable : "",
+      expectedCommandLine: typeof input.expectedCommandLine === "string" ? input.expectedCommandLine : "",
+      expectedFingerprint: typeof input.expectedFingerprint === "string" ? input.expectedFingerprint : "",
+      confirmation: typeof input.confirmation === "string" ? input.confirmation : "",
+      operatorId: configuredOperatorId,
+      operatorCredentialVerified,
+      projectDesktopStateRoot: config.projectDesktopStateRoot,
+      dataRoot: config.dataRoot,
+      lockPath: config.lockPath,
+    });
+    process.stdout.write(JSON.stringify(result));
+    return;
+  }
   if (command === "maintenance-status") {
     const runtime = await readRuntimeHostStatus(config);
     let maintenance: Record<string, unknown> = { state: "stopped" };
@@ -678,12 +755,12 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "maintenance-recover-stale-lock") {
-    const input = readRuntimeHostStdin<{ expectedFingerprint?: unknown; recoveryConfirmation?: unknown; legacyOwnerConfirmation?: unknown; operatorToken?: unknown }>();
+    const input = readRuntimeHostStdin<{ expectedFingerprint?: unknown; recoveryConfirmation?: unknown; legacyOwnerConfirmation?: unknown }>();
     const expectedFingerprint = typeof input.expectedFingerprint === "string" ? input.expectedFingerprint : "";
     const recoveryConfirmation = typeof input.recoveryConfirmation === "string" ? input.recoveryConfirmation : "";
     const legacyOwnerConfirmation = typeof input.legacyOwnerConfirmation === "string" ? input.legacyOwnerConfirmation : undefined;
-    const operatorToken = typeof input.operatorToken === "string" ? input.operatorToken : "";
-    const operatorCredentialVerified = await verifyCliOperator(operatorToken);
+    const operatorToken = "";
+    const operatorCredentialVerified = await verifyCliOperator("");
     const result = await recoverStaleRuntimeLockOnly(config, {
       expectedFingerprint, recoveryConfirmation, legacyOwnerConfirmation, operatorToken,
       configuredOperatorToken: "", operatorId: configuredOperatorId, operatorCredentialVerified,

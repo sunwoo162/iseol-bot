@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, inspectRuntimeLock, loadRuntimeHostConfig, parseRuntimeHostStdin, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, recoverStaleRuntimeLockOnly, requestRuntimeStop, resolveRuntimeCodeVersion, runtimeRecoveryLockPath, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
+import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, inspectRuntimeLock, loadRuntimeHostConfig, parseRuntimeHostStdin, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, recoverStaleRuntimeLockOnly, requestControlledRuntimeStop, requestRuntimeStop, resolveRuntimeCodeVersion, runtimeRecoveryLockPath, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
 import { approveAndContainRuntimeMaintenanceJob, approveAndContainRuntimeMaintenanceJobs, containRuntimeMaintenanceJob } from "../scripts/iseol-runtime-host.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import { createDesktopJob, desktopJobRevision, loadDesktopJob, loadDesktopJobContainment } from "../src/desktop-agent/job-store.js";
@@ -136,6 +136,49 @@ test("stop refuses to signal an unverified or reused owner and preserves its loc
   await writeFile(path, JSON.stringify({ version: 1, pid: 999999, ownerIdentity: "unknown-owner", startedAt: "2026-01-01T00:00:00.000Z" }));
   await assert.rejects(requestRuntimeStop({ lockPath: path }), /verified running owner/);
   assert.equal(JSON.parse(await readFile(path, "utf8")).pid, 999999);
+});
+
+test("controlled external stop verifies the exact PID identity and sends only the target signal", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-controlled-stop-"));
+  const lockPath = join(root, "runtime.lock");
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const commandLine = "C:\\Program Files\\nodejs\\node.exe scripts\\iseol-runtime-host.ts start";
+  await writeFile(lockPath, JSON.stringify({ version: 1, pid: 4242, dataRoot: root, ownerExecutable: "C:\\Program Files\\nodejs\\node.exe", ownerCommandLine: commandLine, startedAt: createdAt }));
+  const inspection = await inspectRuntimeLock(lockPath, async () => ({ state: "unavailable" as const }));
+  const signals: Array<{ pid: number; signal: string }> = [];
+  const result = await requestControlledRuntimeStop({ lockPath, dataRoot: root }, {
+    expectedPid: 4242, expectedCreatedAt: createdAt, expectedExecutable: "C:\\Program Files\\nodejs\\node.exe", expectedCommandLine: commandLine,
+    expectedFingerprint: inspection.fingerprint, operatorId: "sunwoo", operatorCredentialVerified: true,
+    confirmation: `I approve controlled external termination of Runtime pid 4242 createdAt ${createdAt} fingerprint ${inspection.fingerprint}`,
+    readProcess: async () => ({ executable: "C:\\Program Files\\nodejs\\node.exe", commandLine, createdAt }),
+    terminate: (pid) => signals.push({ pid, signal: "SIGTERM" }),
+  });
+  assert.deepEqual(result, { status: "stop-requested", pid: 4242, signal: "SIGTERM" });
+  assert.deepEqual(signals, [{ pid: 4242, signal: "SIGTERM" }]);
+  assert.equal(JSON.parse(await readFile(lockPath, "utf8")).pid, 4242);
+});
+
+test("controlled external stop fails closed on PID reuse, changed identity, active lease, or stale fingerprint", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-controlled-stop-guard-"));
+  const lockPath = join(root, "runtime.lock");
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const commandLine = "node scripts/iseol-runtime-host.ts start";
+  await writeFile(lockPath, JSON.stringify({ version: 1, pid: 4242, dataRoot: root, ownerExecutable: "node.exe", ownerCommandLine: commandLine, startedAt: createdAt }));
+  const inspection = await inspectRuntimeLock(lockPath, async () => ({ state: "unavailable" as const }));
+  const base = {
+    expectedPid: 4242, expectedCreatedAt: createdAt, expectedExecutable: "node.exe", expectedCommandLine: commandLine,
+    expectedFingerprint: inspection.fingerprint, operatorId: "sunwoo", operatorCredentialVerified: true,
+    confirmation: `I approve controlled external termination of Runtime pid 4242 createdAt ${createdAt} fingerprint ${inspection.fingerprint}`,
+    terminate: () => { throw new Error("must not terminate"); },
+  } as const;
+  await assert.rejects(requestControlledRuntimeStop({ lockPath, dataRoot: root }, { ...base, readProcess: async () => ({ executable: "node.exe", commandLine, createdAt: "2026-01-01T00:00:01.000Z" }) }), /identity changed/i);
+  await assert.rejects(requestControlledRuntimeStop({ lockPath, dataRoot: root }, { ...base, readProcess: async () => null }), /process identity unavailable/i);
+  const desktopRoot = join(root, "desktop");
+  await mkdir(join(desktopRoot, "jobs", "active"), { recursive: true });
+  await writeFile(join(desktopRoot, "jobs", "active", "job.json"), JSON.stringify({ status: "leased", jobId: "active", lease: { expiresAt: "2099-01-01T00:00:00.000Z" } }));
+  await assert.rejects(requestControlledRuntimeStop({ lockPath, dataRoot: root, projectDesktopStateRoot: desktopRoot }, { ...base, readProcess: async () => ({ executable: "node.exe", commandLine, createdAt }) }), /active Desktop mutation or lease/i);
+  await writeFile(lockPath, JSON.stringify({ version: 1, pid: 4242, dataRoot: root, ownerExecutable: "node.exe", ownerCommandLine: commandLine, startedAt: createdAt, leaseMarker: "changed" }));
+  await assert.rejects(requestControlledRuntimeStop({ lockPath, dataRoot: root }, { ...base, readProcess: async () => ({ executable: "node.exe", commandLine, createdAt }) }), /fingerprint mismatch/i);
 });
 
 test("stale lock recovery requires the exact fingerprint, operator approval, and recovery ownership", async () => {
