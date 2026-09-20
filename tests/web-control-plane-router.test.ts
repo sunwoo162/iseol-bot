@@ -133,3 +133,35 @@ test("operator reconciliation separates inspection from approved mutation", asyn
   }, { ...deps, operatorToken: "operator-token", operatorId: "test-operator", ideaLabRuntime: runtime });
   assert.equal(issued.status, 201);
 });
+
+test("desktop job containment route is operator-gated and does not dispatch", async () => {
+  const deps = await fixture("secret-token");
+  const calls: string[] = [];
+  const runtime = {
+    state: "ready" as const,
+    inspectDesktopJobReconciliation: async () => ({ jobId: "job-1", canContain: true, status: "pending" }),
+    issueDesktopJobContainmentApproval: async () => ({ approvalId: "desktop-approval-1", status: "issued" }),
+    containDesktopJob: async () => { calls.push("contain"); return { status: "contained" }; },
+  };
+  const denied = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-a/desktop-jobs/job-1/operator-reconciliation",
+    headers: { authorization: "Bearer secret-token" }, body: { action: "inspect" },
+  }, { ...deps, operatorToken: "operator-token", operatorId: "operator", ideaLabRuntime: runtime });
+  assert.equal(denied.status, 403);
+  const inspected = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-a/desktop-jobs/job-1/operator-reconciliation",
+    headers: { authorization: "Bearer operator-token" }, body: { action: "inspect" },
+  }, { ...deps, operatorToken: "operator-token", operatorId: "operator", ideaLabRuntime: runtime });
+  assert.equal(inspected.status, 200);
+  const contained = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-a/desktop-jobs/job-1/operator-reconciliation",
+    headers: { authorization: "Bearer operator-token" }, body: { action: "contain", expectedRevision: "r", operationId: "op", approvalId: "a" },
+  }, { ...deps, operatorToken: "operator-token", operatorId: "operator", ideaLabRuntime: runtime });
+  assert.equal(contained.status, 200);
+  assert.deepEqual(calls, ["contain"]);
+  const approval = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-a/desktop-jobs/job-1/operator-approvals",
+    headers: { authorization: "Bearer operator-token" }, body: { requestId: "req", expectedRevision: "r" },
+  }, { ...deps, operatorToken: "operator-token", operatorId: "operator", ideaLabRuntime: runtime });
+  assert.equal(approval.status, 201);
+});

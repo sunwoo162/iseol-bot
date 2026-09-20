@@ -12,7 +12,8 @@ import {
 } from "../desktop-agent/core-service.js";
 import { refreshDevelopmentRunPreflight } from "../harness/run-service.js";
 import { listHarnessRuns, loadHarnessRun, requestHarnessRunRetry } from "../harness/run-store.js";
-import { listDesktopJobs } from "../desktop-agent/job-store.js";
+import { listDesktopJobs, loadDesktopJob } from "../desktop-agent/job-store.js";
+import { containDesktopJobAsOperator, inspectDesktopJobReconciliation, issueDesktopJobContainmentApproval } from "../desktop-agent/operator-reconciliation.js";
 import { inspectProjectRunReconciliation, reconcileProjectRunAsOperator, type ProjectRunReconciliationInput, type ProjectRunReconciliationResult } from "../harness/operator-reconciliation.js";
 import { getActiveWebWorkerSession } from "../chatgpt-web/session-store.js";
 import { issueOperatorApproval, type OperatorApproval } from "../harness/operator-approval-store.js";
@@ -64,6 +65,9 @@ export type IseolRuntimeCapability = {
     projectId: string; runId: string; requestId: string; expectedRevision: string;
     reason: ProjectRunReconciliationInput["reason"]; at: string; expiresAt: string; issuedBy: string;
   }) => Promise<OperatorApproval | { status: "rejected"; reason: string }>;
+  inspectDesktopJobReconciliation?: (input: { projectId: string; jobId: string; now: string }) => Promise<Awaited<ReturnType<typeof inspectDesktopJobReconciliation>> | { error: "project-mismatch" } | null>;
+  issueDesktopJobContainmentApproval?: (input: { projectId: string; jobId: string; requestId: string; expectedRevision: string; at: string; expiresAt: string; issuedBy: string }) => Promise<Awaited<ReturnType<typeof issueDesktopJobContainmentApproval>> | { status: "rejected"; reason: string }>;
+  containDesktopJob?: (input: { projectId: string; jobId: string; expectedRevision: string; operationId: string; approvalId: string; at: string; actor: "operator" }) => Promise<Awaited<ReturnType<typeof containDesktopJobAsOperator>>>;
 };
 type DesktopCoreService = Awaited<ReturnType<typeof startDesktopAgentCoreService>>;
 type ProductionDriver = ReturnType<typeof createIdeaLabProductionRuntimeDriver>;
@@ -300,6 +304,9 @@ export async function startIseolRuntimeServices(
   let inspectProjectRun: IseolRuntimeCapability["inspectProjectRunReconciliation"];
   let reconcileProjectRun: IseolRuntimeCapability["reconcileProjectRun"];
   let issueProjectRunOperatorApproval: IseolRuntimeCapability["issueProjectRunOperatorApproval"];
+  let inspectDesktopJobReconciliationCapability: IseolRuntimeCapability["inspectDesktopJobReconciliation"];
+  let issueDesktopJobContainmentApprovalCapability: IseolRuntimeCapability["issueDesktopJobContainmentApproval"];
+  let containDesktopJobCapability: IseolRuntimeCapability["containDesktopJob"];
   let capability: IseolRuntimeCapability = ideaLabRequested
     ? { state: "blocked" }
     : { state: "disabled" };
@@ -499,6 +506,26 @@ export async function startIseolRuntimeServices(
           }
           return approval;
         };
+        inspectDesktopJobReconciliationCapability = async (input) => {
+          const inspection = await inspectDesktopJobReconciliation({ root: roots.projectDesktopStateRoot!, jobId: input.jobId, now: input.now });
+          if (!inspection) return null;
+          const job = await loadDesktopJob(roots.projectDesktopStateRoot!, input.jobId);
+          const run = job ? await loadHarnessRun(roots.projectRunRoot!, job.runId) : null;
+          if (!run || run.request.projectId !== input.projectId) return { error: "project-mismatch" };
+          return inspection;
+        };
+        issueDesktopJobContainmentApprovalCapability = async (input) => {
+          const inspection = await inspectDesktopJobReconciliationCapability?.({ projectId: input.projectId, jobId: input.jobId, now: input.at });
+          if (!inspection || "error" in inspection || inspection.revision !== input.expectedRevision) return { status: "rejected", reason: "job-not-found-or-project-mismatch" };
+          if (!inspection.canContain) return { status: "rejected", reason: inspection.blockers.join(",") };
+          return issueDesktopJobContainmentApproval({ root: roots.projectDesktopStateRoot!, requestId: input.requestId, jobId: input.jobId, runId: inspection.runId, revision: input.expectedRevision, issuedAt: input.at, expiresAt: input.expiresAt, issuedBy: input.issuedBy });
+        };
+        containDesktopJobCapability = async (input) => {
+          const job = await loadDesktopJob(roots.projectDesktopStateRoot!, input.jobId);
+          const run = job ? await loadHarnessRun(roots.projectRunRoot!, job.runId) : null;
+          if (!run || run.request.projectId !== input.projectId) return { status: "rejected", reason: "job-not-found-or-project-mismatch" };
+          return containDesktopJobAsOperator({ root: roots.projectDesktopStateRoot!, jobId: input.jobId, expectedRevision: input.expectedRevision, operationId: input.operationId, approvalId: input.approvalId, at: input.at, actor: input.actor });
+        };
         for (const run of await listHarnessRuns(roots.projectRunRoot!)) {
           if (run.request.mode === "project-workspace" && shouldAutoRecoverProjectRun(run.state.status)) {
             void enqueueProjectRun(run.request.runId);
@@ -523,6 +550,9 @@ export async function startIseolRuntimeServices(
         ...(inspectProjectRun ? { inspectProjectRunReconciliation: inspectProjectRun } : {}),
         ...(reconcileProjectRun ? { reconcileProjectRun } : {}),
         ...(issueProjectRunOperatorApproval ? { issueProjectRunOperatorApproval } : {}),
+        ...(inspectDesktopJobReconciliationCapability ? { inspectDesktopJobReconciliation: inspectDesktopJobReconciliationCapability } : {}),
+        ...(issueDesktopJobContainmentApprovalCapability ? { issueDesktopJobContainmentApproval: issueDesktopJobContainmentApprovalCapability } : {}),
+        ...(containDesktopJobCapability ? { containDesktopJob: containDesktopJobCapability } : {}),
       },
     });
   } catch (error) {
@@ -544,6 +574,9 @@ export async function startIseolRuntimeServices(
       ...(inspectProjectRun ? { inspectProjectRunReconciliation: inspectProjectRun } : {}),
       ...(reconcileProjectRun ? { reconcileProjectRun } : {}),
       ...(issueProjectRunOperatorApproval ? { issueProjectRunOperatorApproval } : {}),
+      ...(inspectDesktopJobReconciliationCapability ? { inspectDesktopJobReconciliation: inspectDesktopJobReconciliationCapability } : {}),
+      ...(issueDesktopJobContainmentApprovalCapability ? { issueDesktopJobContainmentApproval: issueDesktopJobContainmentApprovalCapability } : {}),
+      ...(containDesktopJobCapability ? { containDesktopJob: containDesktopJobCapability } : {}),
     },
     async dispose() {
       if (disposed) return;

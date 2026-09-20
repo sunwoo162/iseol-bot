@@ -9,6 +9,7 @@ import {
   acquireDesktopJobLease,
   completeDesktopJob,
   createDesktopJob,
+  isDesktopJobContained,
   markDesktopJobIndeterminate,
   requeueDesktopJob,
 } from "./job-store.js";
@@ -187,6 +188,9 @@ export function createDesktopStageExecutor(
       if (job.status === "completed" && job.result) return completedResult(run, job.result);
       if (job.status === "indeterminate") {
         return { type: "waiting-agent", reason: `Desktop Job ${job.jobId} requires reality reconciliation` };
+      }
+      if (await isDesktopJobContained(input.jobRoot, job.jobId)) {
+        return { type: "waiting-agent", reason: `Desktop Job ${job.jobId} is operator-contained pending execution uncertainty` };
       }
       let sessionId = validatedSessionId;
 

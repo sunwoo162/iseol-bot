@@ -47,6 +47,9 @@ export type IdeaLabRuntimeCapability = {
     projectId: string; runId: string; requestId: string; expectedRevision: string;
     reason: OperatorReconciliationReason; at: string; expiresAt: string; issuedBy: string;
   }) => Promise<OperatorApproval | { status: "rejected"; reason: string }>;
+  inspectDesktopJobReconciliation?: (input: { projectId: string; jobId: string; now: string }) => Promise<unknown>;
+  issueDesktopJobContainmentApproval?: (input: { projectId: string; jobId: string; requestId: string; expectedRevision: string; at: string; expiresAt: string; issuedBy: string }) => Promise<unknown>;
+  containDesktopJob?: (input: { projectId: string; jobId: string; expectedRevision: string; operationId: string; approvalId: string; at: string; actor: "operator" }) => Promise<unknown>;
 };
 
 export type WebControlPlaneRouterDependencies = {
@@ -333,6 +336,48 @@ export async function routeWebControlPlaneRequest(
       expiresAt: new Date(Date.parse(now) + ttlMs).toISOString(), issuedBy: deps.operatorId,
     });
     return response("status" in issued && issued.status === "rejected" ? 409 : 201, issued);
+  }
+
+  const desktopJobReconcileMatch = /^\/api\/projects\/([^/]+)\/desktop-jobs\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/operator-reconciliation$/.exec(path);
+  if (desktopJobReconcileMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!operatorAuthorized(request, deps.operatorToken)) return response(403, { error: "operator approval is unavailable" });
+    const projectId = decodeId(desktopJobReconcileMatch[1] ?? "");
+    const jobId = desktopJobReconcileMatch[2] ?? "";
+    if (!projectId || !request.body || typeof request.body !== "object") return response(400, { error: "invalid desktop reconciliation request" });
+    if (!deps.ideaLabRuntime?.inspectDesktopJobReconciliation) return response(503, { error: "project runtime unavailable" });
+    const body = request.body as Record<string, unknown>;
+    if (body.action === "inspect") {
+      return response(200, await deps.ideaLabRuntime.inspectDesktopJobReconciliation({ projectId, jobId, now: (deps.now ?? (() => new Date().toISOString()))() }));
+    }
+    if (body.action !== "contain" || typeof body.expectedRevision !== "string" || typeof body.operationId !== "string" || typeof body.approvalId !== "string") {
+      return response(400, { error: "contain action requires expectedRevision, operationId and approvalId" });
+    }
+    if (!deps.ideaLabRuntime.containDesktopJob) return response(503, { error: "project runtime unavailable" });
+    return response(200, await deps.ideaLabRuntime.containDesktopJob({
+      projectId, jobId, expectedRevision: body.expectedRevision, operationId: body.operationId,
+      approvalId: body.approvalId, at: (deps.now ?? (() => new Date().toISOString()))(), actor: "operator",
+    }));
+  }
+
+  const desktopJobApprovalMatch = /^\/api\/projects\/([^/]+)\/desktop-jobs\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/operator-approvals$/.exec(path);
+  if (desktopJobApprovalMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!deps.operatorId || !operatorAuthorized(request, deps.operatorToken)) return response(403, { error: "operator approval is unavailable" });
+    const projectId = decodeId(desktopJobApprovalMatch[1] ?? "");
+    const jobId = desktopJobApprovalMatch[2] ?? "";
+    if (!projectId || !request.body || typeof request.body !== "object") return response(400, { error: "invalid desktop approval request" });
+    const body = request.body as Record<string, unknown>;
+    if (typeof body.requestId !== "string" || typeof body.expectedRevision !== "string") return response(400, { error: "requestId and expectedRevision are required" });
+    if (!deps.ideaLabRuntime?.issueDesktopJobContainmentApproval) return response(503, { error: "project runtime unavailable" });
+    const now = (deps.now ?? (() => new Date().toISOString()))();
+    const ttlMs = typeof body.ttlMs === "number" && Number.isInteger(body.ttlMs) ? body.ttlMs : 300_000;
+    if (ttlMs <= 0 || ttlMs > 900_000) return response(400, { error: "ttlMs must be between 1 and 900000" });
+    const issued = await deps.ideaLabRuntime.issueDesktopJobContainmentApproval({
+      projectId, jobId, requestId: body.requestId, expectedRevision: body.expectedRevision, at: now,
+      expiresAt: new Date(Date.parse(now) + ttlMs).toISOString(), issuedBy: deps.operatorId,
+    });
+    return response("status" in (issued as Record<string, unknown>) && (issued as Record<string, unknown>).status === "rejected" ? 409 : 201, issued);
   }
 
   const projectMatch = /^\/api\/projects\/([^/]+)$/.exec(path);

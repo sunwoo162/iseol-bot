@@ -11,6 +11,9 @@ import {
   findDesktopJobByIdempotencyKey,
   listRecoverableDesktopJobs,
   loadDesktopJob,
+  containDesktopJob,
+  loadDesktopJobContainment,
+  desktopJobRevision,
   renewDesktopJobLease,
 } from "../src/desktop-agent/job-store.js";
 
@@ -141,5 +144,43 @@ test("completed Desktop Job results must match job run and agent identity", asyn
   await assert.rejects(
     completeDesktopJob(store, "job-001", "session-a", { ...baseResult, agentId: "agent-other" }),
     /agentId mismatch/i,
+  );
+});
+
+test("operator containment preserves an uncertain pending job and blocks redispatch", async () => {
+  const store = await root();
+  await createDesktopJob(store, pack({
+    operations: [{ id: "init", type: "GIT_INIT", cwd: "." }],
+    policyDigest: "a".repeat(64),
+    policySources: [{ kind: "policy", path: "policy.json", sha256: "b".repeat(64), required: true }],
+  }), "2026-09-08T01:00:00.000Z");
+  const first = await containDesktopJob(store, "job-001", {
+    operationId: "contain-1", expectedRevision: desktopJobRevision({ updatedAt: "2026-09-08T01:00:00.000Z", status: "pending", attempts: 0 }), at: "2026-09-08T01:01:00.000Z", actor: "operator",
+    reason: "execution-uncertain",
+  });
+  assert.equal(first.status, "contained");
+  assert.equal(first.record.mutationRisk, "mutation-uncertain");
+  assert.equal((await loadDesktopJob(store, "job-001"))?.status, "pending");
+  assert.equal((await loadDesktopJobContainment(store, "job-001"))?.operationId, "contain-1");
+  assert.deepEqual(await listRecoverableDesktopJobs(store, "2026-09-08T02:00:00.000Z"), []);
+  await assert.rejects(
+    acquireDesktopJobLease(store, "job-001", "session-a", "2026-09-08T02:00:00.000Z", 60_000),
+    /contained.*operator/i,
+  );
+  const duplicate = await containDesktopJob(store, "job-001", {
+    operationId: "contain-1", expectedRevision: desktopJobRevision({ updatedAt: "2026-09-08T01:00:00.000Z", status: "pending", attempts: 0 }), at: "2026-09-08T01:02:00.000Z", actor: "operator",
+    reason: "execution-uncertain",
+  });
+  assert.equal(duplicate.status, "already-contained");
+  assert.equal((await loadDesktopJob(store, "job-001"))?.status, "pending");
+});
+
+test("operator containment rejects leased or indeterminate jobs", async () => {
+  const store = await root();
+  await createDesktopJob(store, pack(), "2026-09-08T01:00:00.000Z");
+  await acquireDesktopJobLease(store, "job-001", "session-a", "2026-09-08T01:00:10.000Z", 60_000);
+  await assert.rejects(
+    containDesktopJob(store, "job-001", { operationId: "contain-2", expectedRevision: "x", at: "2026-09-08T01:00:20.000Z", actor: "operator", reason: "execution-uncertain" }),
+    /active lease/i,
   );
 });

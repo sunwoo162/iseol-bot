@@ -26,6 +26,35 @@ export type DesktopJobRecord = {
   result?: DesktopJobResult;
 };
 
+export type DesktopJobContainmentRecord = {
+  version: 1;
+  jobId: string;
+  runId: string;
+  idempotencyKey: string;
+  attempt: number;
+  originalStatus: DesktopJobRecord["status"];
+  mutationRisk: "mutation-uncertain" | "read-only-uncertain";
+  reason: "execution-uncertain";
+  operationId: string;
+  approvalId?: string;
+  actor: "operator";
+  expectedRevision: string;
+  containedAt: string;
+};
+
+export type DesktopJobContainmentInput = {
+  operationId: string;
+  expectedRevision: string;
+  at: string;
+  actor: "operator";
+  reason: "execution-uncertain";
+  approvalId?: string;
+};
+
+export type DesktopJobContainmentResult =
+  | { status: "contained"; record: DesktopJobContainmentRecord }
+  | { status: "already-contained"; record: DesktopJobContainmentRecord };
+
 function assertJobId(id: string): void {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id)) {
     throw new Error(`Invalid Desktop Job id: ${id}`);
@@ -35,6 +64,73 @@ function assertJobId(id: string): void {
 function jobFile(root: string, jobId: string): string {
   assertJobId(jobId);
   return resolve(root, "jobs", jobId, "job.json");
+}
+
+function containmentFile(root: string, jobId: string): string {
+  assertJobId(jobId);
+  return resolve(root, "containments", `${jobId}.json`);
+}
+
+export function desktopJobRevision(job: Pick<DesktopJobRecord, "updatedAt" | "status" | "attempts">): string {
+  return `${job.updatedAt}:${job.status}:${job.attempts}`;
+}
+
+function mutationRisk(job: DesktopJobRecord): DesktopJobContainmentRecord["mutationRisk"] {
+  return job.pack.operations.some((operation) => ["APPLY_PATCH", "RUN_PROCESS", "GIT_INIT", "GIT_WORKTREE_CREATE", "GIT_COMMIT"].includes(operation.type))
+    ? "mutation-uncertain"
+    : "read-only-uncertain";
+}
+
+async function saveContainment(root: string, record: DesktopJobContainmentRecord): Promise<void> {
+  const path = containmentFile(root, record.jobId);
+  await mkdir(dirname(path), { recursive: true });
+  const temp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  await writeFile(temp, JSON.stringify(record, null, 2), "utf8");
+  await rename(temp, path);
+}
+
+export async function loadDesktopJobContainment(root: string, jobId: string): Promise<DesktopJobContainmentRecord | null> {
+  try {
+    return JSON.parse(await readFile(containmentFile(root, jobId), "utf8")) as DesktopJobContainmentRecord;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+export async function isDesktopJobContained(root: string, jobId: string): Promise<boolean> {
+  return Boolean(await loadDesktopJobContainment(root, jobId));
+}
+
+export async function containDesktopJob(
+  root: string,
+  jobId: string,
+  input: DesktopJobContainmentInput,
+): Promise<DesktopJobContainmentResult> {
+  if (input.actor !== "operator") throw new Error("Desktop job containment requires operator actor");
+  if (!input.operationId || !input.expectedRevision || !input.at) throw new Error("Desktop job containment identity is required");
+  const existingContainment = await loadDesktopJobContainment(root, jobId);
+  if (existingContainment) {
+    if (existingContainment.operationId === input.operationId && existingContainment.expectedRevision === input.expectedRevision) {
+      return { status: "already-contained", record: existingContainment };
+    }
+    throw new Error(`Desktop job is already contained: ${jobId}`);
+  }
+  const job = await loadDesktopJob(root, jobId);
+  if (!job) throw new Error(`Desktop Job not found: ${jobId}`);
+  if (job.lease) throw new Error("Desktop job containment requires no active lease");
+  if (job.status !== "pending") throw new Error(`Desktop job containment requires pending status: ${job.status}`);
+  const actualRevision = desktopJobRevision(job);
+  if (actualRevision !== input.expectedRevision) throw new Error("Desktop job revision mismatch");
+  const record: DesktopJobContainmentRecord = {
+    version: 1, jobId: job.jobId, runId: job.runId, idempotencyKey: job.idempotencyKey,
+    attempt: job.attempts, originalStatus: job.status, mutationRisk: mutationRisk(job),
+    reason: input.reason, operationId: input.operationId, actor: input.actor,
+    ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+    expectedRevision: input.expectedRevision, containedAt: input.at,
+  };
+  await saveContainment(root, record);
+  return { status: "contained", record };
 }
 
 async function saveJob(root: string, job: DesktopJobRecord): Promise<void> {
@@ -139,10 +235,12 @@ export async function acquireDesktopJobLease(
   owner: string,
   now: string,
   durationMs: number,
+  options: { allowContained?: boolean } = {},
 ): Promise<DesktopJobRecord> {
   validateLeaseDuration(durationMs);
   const job = await loadDesktopJob(root, jobId);
   if (!job) throw new Error(`Desktop Job not found: ${jobId}`);
+  if (!options.allowContained && await isDesktopJobContained(root, jobId)) throw new Error(`Desktop Job is contained by operator and cannot be dispatched: ${jobId}`);
   if (job.status === "completed" || job.status === "cancelled") {
     throw new Error(`Desktop Job is terminal: ${jobId}`);
   }
@@ -265,9 +363,12 @@ export async function listRecoverableDesktopJobs(
 ): Promise<DesktopJobRecord[]> {
   const nowMs = Date.parse(now);
   const jobs = await listDesktopJobs(root);
-  return jobs.filter((job) => {
+  const recoverable = jobs.filter((job) => {
     if (job.status === "completed" || job.status === "cancelled") return false;
     if (!job.lease) return true;
     return Date.parse(job.lease.expiresAt) <= nowMs;
   });
+  const result: DesktopJobRecord[] = [];
+  for (const job of recoverable) if (!(await isDesktopJobContained(root, job.jobId))) result.push(job);
+  return result;
 }

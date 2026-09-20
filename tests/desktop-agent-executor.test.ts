@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 import type { DesktopJobResult, DesktopTaskPack } from "../src/desktop-agent/contracts.js";
 import { registerDesktopAgent } from "../src/desktop-agent/agent-registry.js";
-import { loadDesktopJob } from "../src/desktop-agent/job-store.js";
+import { createDesktopJob, loadDesktopJob, containDesktopJob, desktopJobRevision } from "../src/desktop-agent/job-store.js";
 import { createDesktopStageExecutor } from "../src/desktop-agent/desktop-executor.js";
 import { desktopOperationCapability } from "../src/desktop-agent/contracts.js";
 
@@ -108,6 +108,20 @@ test("offline agent returns waiting-agent and missing task intent waits for exte
     now: () => "2026-09-08T03:00:10.000Z",
   });
   assert.equal((await waiting.execute(run(targetRoot))).type, "waiting-external");
+});
+
+test("operator-contained pending jobs wait without dispatch", async () => {
+  const { registryRoot, jobRoot, targetRoot } = await roots();
+  await register(registryRoot, targetRoot);
+  const compiled = task(targetRoot);
+  const job = await createDesktopJob(jobRoot, compiled, "2026-09-08T03:00:00.000Z");
+  await containDesktopJob(jobRoot, job.jobId, { operationId: "contain-exec", expectedRevision: desktopJobRevision(job), at: "2026-09-08T03:00:01.000Z", actor: "operator", reason: "execution-uncertain" });
+  const transport = new FakeTransport();
+  const executor = createDesktopStageExecutor({ registryRoot, jobRoot, transport, compileTaskPack: async () => compiled, now: () => "2026-09-08T03:00:02.000Z" });
+  const result = await executor.execute(run(targetRoot));
+  assert.equal(result.type, "waiting-agent");
+  assert.equal(transport.sendCount, 0);
+  assert.equal((await loadDesktopJob(jobRoot, job.jobId))?.status, "pending");
 });
 
 test("CONTEXT blocks before dispatch when the connected Agent lacks GIT_INIT", async () => {
