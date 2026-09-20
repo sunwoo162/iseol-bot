@@ -154,6 +154,22 @@ test("stale recovery fails closed when the owner identity cannot be verified or 
   assert.equal(changed.status, "rejected");
 });
 
+test("legacy lock recovery requires a separate exact owner-exit confirmation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-legacy-recovery-"));
+  const lockPath = join(root, "runtime.lock");
+  await writeFile(lockPath, JSON.stringify({ version: 1, pid: 42, startedAt: "2026-01-01T00:00:00.000Z" }));
+  const config = { version: 1 as const, dataRoot: root, modelRoot: join(root, "model"), runRoot: join(root, "runs"), webWorkerRoot: join(root, "workers"), browserProfileRoot: join(root, "profile"), lockPath };
+  const inspection = await inspectRuntimeLock(lockPath, async () => ({ state: "absent" as const }));
+  const result = await recoverStaleRuntimeLock(config, {
+    expectedFingerprint: inspection.fingerprint, operatorToken: "secret", configuredOperatorToken: "secret", operatorId: "operator",
+    confirmation: `I approve stale Runtime lock recovery for ${inspection.fingerprint}`,
+    legacyOwnerConfirmation: `I confirm external owner inspection for Runtime lock ${inspection.fingerprint} pid 42`,
+    at: "2026-01-01T01:00:00.000Z", probe: async () => ({ state: "absent" as const }),
+  });
+  assert.equal(result.status, "recovered");
+  await result.releaseMaintenance();
+});
+
 test("recovery ownership blocks Runtime startup and maintenance ownership in both directions", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-host-recovery-race-"));
   const runtimePath = join(root, "runtime.lock");

@@ -344,26 +344,34 @@ export async function recoverStaleRuntimeLock(config: IseolRuntimeHostConfig, in
   configuredOperatorToken: string;
   operatorId: string;
   confirmation: string;
+  legacyOwnerConfirmation?: string;
   at: string;
   probe?: RuntimeLockOwnerProbe;
 }): Promise<{ status: "recovered" | "rejected"; reason?: string; releaseMaintenance: () => Promise<void> }> {
   const reject = (reason: string): { status: "rejected"; reason: string; releaseMaintenance: () => Promise<void> } => ({ status: "rejected", reason, releaseMaintenance: async () => {} });
   if (!input.operatorId || !input.configuredOperatorToken || !equalSecret(input.operatorToken, input.configuredOperatorToken)) return reject("operator-authentication-failed");
   const initial = await inspectRuntimeLock(config.lockPath, input.probe);
-  if (initial.state !== "stale") return reject(`runtime-lock-${initial.state}`);
+  const legacyOwnerConfirmation = `I confirm external owner inspection for Runtime lock ${initial.fingerprint} pid ${String(initial.identity.pid)}`;
+  const ownerConfirmed = initial.state === "stale"
+    || (initial.state === "owner-unconfirmed" && input.legacyOwnerConfirmation === legacyOwnerConfirmation && initial.owner.state === "absent");
+  if (!ownerConfirmed) return reject(`runtime-lock-${initial.state}`);
   if (initial.fingerprint !== input.expectedFingerprint) return reject("runtime-lock-identity-mismatch");
   if (input.confirmation !== `I approve stale Runtime lock recovery for ${input.expectedFingerprint}`) return reject("operator-confirmation-required");
   let releaseRecovery: (() => Promise<void>) | undefined;
   try {
     releaseRecovery = await acquireRuntimeRecoveryLock(config.lockPath, runtimeRecoveryLockPath(config.lockPath), { dataRoot: config.dataRoot, ...(config.codeVersion ? { codeVersion: config.codeVersion } : {}) });
     const verified = await inspectRuntimeLock(config.lockPath, input.probe);
-    if (verified.state !== "stale" || verified.fingerprint !== input.expectedFingerprint) {
+    const verifiedOwnerConfirmed = verified.state === "stale"
+      || (verified.state === "owner-unconfirmed" && input.legacyOwnerConfirmation === legacyOwnerConfirmation && verified.owner.state === "absent");
+    if (!verifiedOwnerConfirmed || verified.fingerprint !== input.expectedFingerprint) {
       await releaseRecovery();
       return reject("runtime-lock-changed-before-recovery");
     }
     const releaseMaintenance = await acquireRuntimeMaintenanceLock(config.lockPath, runtimeMaintenanceLockPath(config.lockPath), { dataRoot: config.dataRoot, ...(config.codeVersion ? { codeVersion: config.codeVersion } : {}) }, { allowRecoveryOwnership: true });
     const final = await inspectRuntimeLock(config.lockPath, input.probe);
-    if (final.state !== "stale" || final.fingerprint !== input.expectedFingerprint) {
+    const finalOwnerConfirmed = final.state === "stale"
+      || (final.state === "owner-unconfirmed" && input.legacyOwnerConfirmation === legacyOwnerConfirmation && final.owner.state === "absent");
+    if (!finalOwnerConfirmed || final.fingerprint !== input.expectedFingerprint) {
       await releaseMaintenance(); await releaseRecovery();
       return reject("runtime-lock-changed-before-release");
     }
@@ -531,6 +539,7 @@ export async function approveAndContainRuntimeMaintenanceJobs(config: IseolRunti
 export async function recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs(config: IseolRuntimeHostConfig, input: RuntimeMaintenanceBatchInput & {
   expectedFingerprint: string;
   recoveryConfirmation: string;
+  legacyOwnerConfirmation?: string;
   probe?: RuntimeLockOwnerProbe;
 }): Promise<{ recovery: "recovered" | "rejected"; recoveryReason?: string; maintenance?: { status: "completed" | "partial" | "rejected"; results: Array<Record<string, unknown>> } }> {
   const recovered = await recoverStaleRuntimeLock(config, {
@@ -539,6 +548,7 @@ export async function recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs(co
     configuredOperatorToken: input.configuredOperatorToken,
     operatorId: input.operatorId,
     confirmation: input.recoveryConfirmation,
+    legacyOwnerConfirmation: input.legacyOwnerConfirmation,
     at: input.at,
     probe: input.probe,
   });
@@ -583,14 +593,15 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "maintenance-recover-stale-contain-batch") {
-    const input = JSON.parse(await readFile(0, "utf8")) as { expectedFingerprint?: unknown; recoveryConfirmation?: unknown; operatorToken?: unknown; jobs?: unknown };
+    const input = JSON.parse(await readFile(0, "utf8")) as { expectedFingerprint?: unknown; recoveryConfirmation?: unknown; legacyOwnerConfirmation?: unknown; operatorToken?: unknown; jobs?: unknown };
     const expectedFingerprint = typeof input.expectedFingerprint === "string" ? input.expectedFingerprint : "";
     const recoveryConfirmation = typeof input.recoveryConfirmation === "string" ? input.recoveryConfirmation : "";
+    const legacyOwnerConfirmation = typeof input.legacyOwnerConfirmation === "string" ? input.legacyOwnerConfirmation : undefined;
     const operatorToken = typeof input.operatorToken === "string" ? input.operatorToken : "";
     const jobs = Array.isArray(input.jobs) ? input.jobs as RuntimeMaintenanceBatchJob[] : [];
     const configuredOperatorToken = process.env.ISEOL_OPERATOR_TOKEN ?? "";
     const operatorId = process.env.ISEOL_OPERATOR_ID ?? "";
-    const result = await recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs(config, { expectedFingerprint, recoveryConfirmation, operatorToken, configuredOperatorToken, operatorId, jobs, at: new Date().toISOString() });
+    const result = await recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs(config, { expectedFingerprint, recoveryConfirmation, legacyOwnerConfirmation, operatorToken, configuredOperatorToken, operatorId, jobs, at: new Date().toISOString() });
     process.stdout.write(JSON.stringify(result));
     return;
   }
