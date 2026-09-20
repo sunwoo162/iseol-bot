@@ -117,6 +117,10 @@ export function loadRuntimeHostConfig(path = process.env.ISEOL_RUNTIME_CONFIG ??
   return config;
 }
 
+export function resolveConfiguredRuntimeOperatorId(storedOperatorId?: string, environmentOperatorId?: string): string {
+  return storedOperatorId?.trim() || environmentOperatorId?.trim() || "";
+}
+
 export async function saveRuntimeHostConfig(path: string, config: Omit<IseolRuntimeHostConfig, "version"> & { version?: 1 }): Promise<void> {
   const normalized = {
     version: 1 as const,
@@ -729,7 +733,7 @@ async function main(): Promise<void> {
     return;
   }
   const storedCredential = await readOperatorCredential(config.operatorCredentialPath!);
-  const configuredOperatorId = process.env.ISEOL_OPERATOR_ID?.trim() || storedCredential?.operatorId || "";
+  const configuredOperatorId = resolveConfiguredRuntimeOperatorId(storedCredential?.operatorId, process.env.ISEOL_OPERATOR_ID);
   const verifyCliOperator = async (operatorToken: string): Promise<boolean> => storedCredential
     ? verifyOperatorCredential({ path: config.operatorCredentialPath!, operatorId: configuredOperatorId, token: operatorToken || undefined })
     : false;
