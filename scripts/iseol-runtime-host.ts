@@ -461,22 +461,22 @@ export type RuntimeMaintenanceBatchJob = {
   expiresAt: string;
 };
 
-export async function approveAndContainRuntimeMaintenanceJobs(config: IseolRuntimeHostConfig, input: {
+type RuntimeMaintenanceBatchInput = {
   jobs: RuntimeMaintenanceBatchJob[];
   operatorToken: string;
   configuredOperatorToken: string;
   operatorId: string;
   at: string;
-}): Promise<{ status: "completed" | "partial" | "rejected"; results: Array<Record<string, unknown>> }> {
+};
+
+async function runRuntimeMaintenanceJobs(config: IseolRuntimeHostConfig, input: RuntimeMaintenanceBatchInput): Promise<{ status: "completed" | "partial" | "rejected"; results: Array<Record<string, unknown>> }> {
   if (!config.projectRunRoot || !config.projectDesktopStateRoot) throw new Error("Project Desktop maintenance roots are not configured");
   if (input.jobs.length === 0) return { status: "rejected", results: [{ status: "rejected", reason: "no-jobs" }] };
-  const release = await acquireRuntimeMaintenanceLock(config.lockPath, runtimeMaintenanceLockPath(config.lockPath), { dataRoot: config.dataRoot, ...(config.codeVersion ? { codeVersion: config.codeVersion } : {}) });
-  try {
-    if (!input.operatorId || !input.configuredOperatorToken || !equalSecret(input.operatorToken, input.configuredOperatorToken)) {
-      return { status: "rejected", results: input.jobs.map(() => ({ status: "rejected", reason: "operator-authentication-failed" })) };
-    }
-    const results: Array<Record<string, unknown>> = [];
-    for (const jobInput of input.jobs) {
+  if (!input.operatorId || !input.configuredOperatorToken || !equalSecret(input.operatorToken, input.configuredOperatorToken)) {
+    return { status: "rejected", results: input.jobs.map(() => ({ status: "rejected", reason: "operator-authentication-failed" })) };
+  }
+  const results: Array<Record<string, unknown>> = [];
+  for (const jobInput of input.jobs) {
       const activeLease = (await listDesktopJobs(config.projectDesktopStateRoot)).find((job) => job.lease && Date.parse(job.lease.expiresAt) > Date.parse(input.at));
       if (activeLease) {
         results.push({ status: "rejected", reason: "active-desktop-lease", jobId: jobInput.jobId });
@@ -518,10 +518,35 @@ export async function approveAndContainRuntimeMaintenanceJobs(config: IseolRunti
         operationId: jobInput.operationId, approvalId: approval.approvalId, at: input.at, actor: "operator",
       });
       results.push({ ...containment, approvalId: approval.approvalId, jobId: jobInput.jobId });
-    }
-    return { status: results.every((result) => result.status === "contained" || result.status === "already-contained") ? "completed" : results.some((result) => result.status === "contained" || result.status === "already-contained") ? "partial" : "rejected", results };
+  }
+  return { status: results.every((result) => result.status === "contained" || result.status === "already-contained") ? "completed" : results.some((result) => result.status === "contained" || result.status === "already-contained") ? "partial" : "rejected", results };
+}
+
+export async function approveAndContainRuntimeMaintenanceJobs(config: IseolRuntimeHostConfig, input: RuntimeMaintenanceBatchInput): Promise<{ status: "completed" | "partial" | "rejected"; results: Array<Record<string, unknown>> }> {
+  const release = await acquireRuntimeMaintenanceLock(config.lockPath, runtimeMaintenanceLockPath(config.lockPath), { dataRoot: config.dataRoot, ...(config.codeVersion ? { codeVersion: config.codeVersion } : {}) });
+  try { return await runRuntimeMaintenanceJobs(config, input); }
+  finally { await release(); }
+}
+
+export async function recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs(config: IseolRuntimeHostConfig, input: RuntimeMaintenanceBatchInput & {
+  expectedFingerprint: string;
+  recoveryConfirmation: string;
+  probe?: RuntimeLockOwnerProbe;
+}): Promise<{ recovery: "recovered" | "rejected"; recoveryReason?: string; maintenance?: { status: "completed" | "partial" | "rejected"; results: Array<Record<string, unknown>> } }> {
+  const recovered = await recoverStaleRuntimeLock(config, {
+    expectedFingerprint: input.expectedFingerprint,
+    operatorToken: input.operatorToken,
+    configuredOperatorToken: input.configuredOperatorToken,
+    operatorId: input.operatorId,
+    confirmation: input.recoveryConfirmation,
+    at: input.at,
+    probe: input.probe,
+  });
+  if (recovered.status !== "recovered") return { recovery: "rejected", recoveryReason: recovered.reason };
+  try {
+    return { recovery: "recovered", maintenance: await runRuntimeMaintenanceJobs(config, input) };
   } finally {
-    await release();
+    await recovered.releaseMaintenance();
   }
 }
 
@@ -554,15 +579,19 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "runtime-recover-stale") {
-    const input = JSON.parse(await readFile(0, "utf8")) as { expectedFingerprint?: unknown; operatorToken?: unknown; confirmation?: unknown };
+    process.stdout.write(JSON.stringify({ status: "rejected", reason: "use maintenance-recover-stale-contain-batch to preserve ownership continuity" }));
+    return;
+  }
+  if (command === "maintenance-recover-stale-contain-batch") {
+    const input = JSON.parse(await readFile(0, "utf8")) as { expectedFingerprint?: unknown; recoveryConfirmation?: unknown; operatorToken?: unknown; jobs?: unknown };
     const expectedFingerprint = typeof input.expectedFingerprint === "string" ? input.expectedFingerprint : "";
+    const recoveryConfirmation = typeof input.recoveryConfirmation === "string" ? input.recoveryConfirmation : "";
     const operatorToken = typeof input.operatorToken === "string" ? input.operatorToken : "";
-    const confirmation = typeof input.confirmation === "string" ? input.confirmation : "";
+    const jobs = Array.isArray(input.jobs) ? input.jobs as RuntimeMaintenanceBatchJob[] : [];
     const configuredOperatorToken = process.env.ISEOL_OPERATOR_TOKEN ?? "";
     const operatorId = process.env.ISEOL_OPERATOR_ID ?? "";
-    const result = await recoverStaleRuntimeLock(config, { expectedFingerprint, operatorToken, configuredOperatorToken, operatorId, confirmation, at: new Date().toISOString() });
-    process.stdout.write(JSON.stringify({ status: result.status, ...(result.reason ? { reason: result.reason } : {}) }));
-    if (result.status === "recovered") await result.releaseMaintenance();
+    const result = await recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs(config, { expectedFingerprint, recoveryConfirmation, operatorToken, configuredOperatorToken, operatorId, jobs, at: new Date().toISOString() });
+    process.stdout.write(JSON.stringify(result));
     return;
   }
   if (command === "maintenance-inspect") {
