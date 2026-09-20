@@ -3,13 +3,17 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, inspectRuntimeLock, loadRuntimeHostConfig, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, runtimeRecoveryLockPath, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
+import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, inspectRuntimeLock, loadRuntimeHostConfig, parseRuntimeHostStdin, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, runtimeRecoveryLockPath, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
 import { approveAndContainRuntimeMaintenanceJob, approveAndContainRuntimeMaintenanceJobs, containRuntimeMaintenanceJob } from "../scripts/iseol-runtime-host.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import { createDesktopJob, desktopJobRevision, loadDesktopJob, loadDesktopJobContainment } from "../src/desktop-agent/job-store.js";
 import { issueDesktopJobContainmentApproval } from "../src/desktop-agent/operator-reconciliation.js";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 import type { DesktopTaskPack } from "../src/desktop-agent/contracts.js";
+
+test("runtime host parses redirected stdin without treating descriptor zero as a filesystem path", () => {
+  assert.deepEqual(parseRuntimeHostStdin<{ operatorId: string }>(JSON.stringify({ operatorId: "operator-1" })), { operatorId: "operator-1" });
+});
 
 test("runtime host loads explicit roots and derives a durable lock path", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-host-"));

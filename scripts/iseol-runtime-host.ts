@@ -134,6 +134,16 @@ export function runtimeMaintenanceLockPath(runtimeLockPath: string): string {
   return resolve(dirname(runtimeLockPath), "iseol-maintenance.lock");
 }
 
+export function parseRuntimeHostStdin<T>(raw: string): T {
+  return JSON.parse(raw) as T;
+}
+
+function readRuntimeHostStdin<T>(): T {
+  // fs.promises.readFile does not accept numeric stdin descriptors on Windows;
+  // readFileSync(0) is the supported cross-shell path for redirected stdin.
+  return parseRuntimeHostStdin<T>(readFileSync(0, "utf8"));
+}
+
 export function runtimeRecoveryLockPath(runtimeLockPath: string): string {
   return resolve(dirname(runtimeLockPath), "iseol-recovery.lock");
 }
@@ -572,7 +582,7 @@ async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   const config = loadRuntimeHostConfig();
   if (command === "operator-bootstrap" || command === "operator-rotate") {
-    const input = JSON.parse(await readFile(0, "utf8")) as { operatorId?: unknown };
+    const input = readRuntimeHostStdin<{ operatorId?: unknown }>();
     const operatorId = typeof input.operatorId === "string" ? input.operatorId : "";
     const result = command === "operator-bootstrap"
       ? await bootstrapOperatorCredential({ path: config.operatorCredentialPath!, operatorId })
@@ -615,7 +625,7 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "maintenance-recover-stale-contain-batch") {
-    const input = JSON.parse(await readFile(0, "utf8")) as { expectedFingerprint?: unknown; recoveryConfirmation?: unknown; legacyOwnerConfirmation?: unknown; operatorToken?: unknown; jobs?: unknown };
+    const input = readRuntimeHostStdin<{ expectedFingerprint?: unknown; recoveryConfirmation?: unknown; legacyOwnerConfirmation?: unknown; operatorToken?: unknown; jobs?: unknown }>();
     const expectedFingerprint = typeof input.expectedFingerprint === "string" ? input.expectedFingerprint : "";
     const recoveryConfirmation = typeof input.recoveryConfirmation === "string" ? input.recoveryConfirmation : "";
     const legacyOwnerConfirmation = typeof input.legacyOwnerConfirmation === "string" ? input.legacyOwnerConfirmation : undefined;
@@ -645,7 +655,7 @@ async function main(): Promise<void> {
     }
     const inspection = await inspectRuntimeMaintenanceJob(config, { projectId, jobId, now: new Date().toISOString() });
     process.stderr.write(`${JSON.stringify(inspection)}\n`);
-    const input = JSON.parse(await readFile(0, "utf8")) as { operatorToken?: unknown; confirmation?: unknown };
+    const input = readRuntimeHostStdin<{ operatorToken?: unknown; confirmation?: unknown }>();
     const operatorToken = typeof input.operatorToken === "string" ? input.operatorToken : "";
     const confirmation = typeof input.confirmation === "string" ? input.confirmation : "";
     const operatorCredentialVerified = await verifyCliOperator(operatorToken);
@@ -656,7 +666,7 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "maintenance-approve-contain-batch") {
-    const input = JSON.parse(await readFile(0, "utf8")) as { operatorToken?: unknown; jobs?: unknown };
+    const input = readRuntimeHostStdin<{ operatorToken?: unknown; jobs?: unknown }>();
     const operatorToken = typeof input.operatorToken === "string" ? input.operatorToken : "";
     const jobs = Array.isArray(input.jobs) ? input.jobs as RuntimeMaintenanceBatchJob[] : [];
     const operatorCredentialVerified = await verifyCliOperator(operatorToken);
