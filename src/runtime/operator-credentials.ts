@@ -33,7 +33,19 @@ export function isValidDpapiCiphertext(value: string): boolean {
   return /^[0-9a-f]{100,}$/i.test(value.trim());
 }
 
-async function powershell(script: string, input: string): Promise<string> {
+export type PowerShellDpapiFailure = "module-load" | "cmdlet-resolution" | "powershell-error" | "child-exit" | "empty-output";
+
+export function classifyPowerShellDpapiFailure(code: number | null, stdout: string, stderr: string): PowerShellDpapiFailure | undefined {
+  const combined = `${stdout}\n${stderr}`;
+  if (/CouldNotAutoloadMatchingModule/i.test(combined)) return "module-load";
+  if (/CommandNotFoundException/i.test(combined)) return "cmdlet-resolution";
+  if (/<S S="Error">/i.test(combined)) return "powershell-error";
+  if (code !== 0) return "child-exit";
+  if (!stdout.trim()) return "empty-output";
+  return undefined;
+}
+
+async function powershell(script: string, input: string, phase: "protect" | "unprotect"): Promise<string> {
   return new Promise((resolveOutput, reject) => {
     const encodedCommand = encodePowerShellCommand(script);
     const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodedCommand], { windowsHide: true });
@@ -45,12 +57,9 @@ async function powershell(script: string, input: string): Promise<string> {
     child.once("close", (code) => {
       const output = stdout.trim();
       const diagnostic = stderr.trim();
-      if (code !== 0 || /#< CLIXML|<S S="Error">|CommandNotFoundException|CouldNotAutoloadMatchingModule/i.test(output) || /<S S="Error">|CommandNotFoundException|CouldNotAutoloadMatchingModule/i.test(diagnostic)) {
-        reject(new Error(`PowerShell DPAPI command failed (exit ${code})`));
-        return;
-      }
-      if (!output) {
-        reject(new Error("PowerShell DPAPI command returned no output"));
+      const failure = classifyPowerShellDpapiFailure(code, output, diagnostic);
+      if (failure) {
+        reject(new Error(`PowerShell DPAPI ${phase} failed: ${failure}${failure === "child-exit" ? ` (exit ${code})` : ""}`));
         return;
       }
       resolveOutput(output);
@@ -62,14 +71,14 @@ async function powershell(script: string, input: string): Promise<string> {
 const dpapiCrypto: CredentialCrypto = {
   async protect(value) {
     if (process.platform !== "win32") throw new Error("operator credential protection requires Windows DPAPI");
-    const encrypted = await powershell("$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; $s = ConvertTo-SecureString ([Console]::In.ReadToEnd()) -AsPlainText -Force; $s | ConvertFrom-SecureString", value);
-    if (!isValidDpapiCiphertext(encrypted)) throw new Error("PowerShell DPAPI command returned invalid ciphertext");
+    const encrypted = await powershell("$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; $s = ConvertTo-SecureString ([Console]::In.ReadToEnd()) -AsPlainText -Force; $s | ConvertFrom-SecureString", value, "protect");
+    if (!isValidDpapiCiphertext(encrypted)) throw new Error("PowerShell DPAPI protect returned invalid ciphertext");
     return encrypted;
   },
   async unprotect(value) {
     if (process.platform !== "win32") throw new Error("operator credential protection requires Windows DPAPI");
-    const plaintext = await powershell("$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; $s = ConvertTo-SecureString ([Console]::In.ReadToEnd()); $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }", value);
-    if (!plaintext || plaintext.startsWith("#< CLIXML")) throw new Error("PowerShell DPAPI command returned invalid plaintext");
+    const plaintext = await powershell("$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue'; Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; $s = ConvertTo-SecureString ([Console]::In.ReadToEnd()); $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }", value, "unprotect");
+    if (!plaintext || plaintext.startsWith("#< CLIXML")) throw new Error("PowerShell DPAPI unprotect returned invalid plaintext");
     return plaintext;
   },
   async userSid() {

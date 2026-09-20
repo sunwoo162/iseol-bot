@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bootstrapOperatorCredential, encodePowerShellCommand, isValidDpapiCiphertext, operatorCredentialPath, readOperatorCredential, rotateOperatorCredential, verifyOperatorCredential, type CredentialCrypto } from "../src/runtime/operator-credentials.js";
+import { bootstrapOperatorCredential, classifyPowerShellDpapiFailure, encodePowerShellCommand, isValidDpapiCiphertext, operatorCredentialPath, readOperatorCredential, rotateOperatorCredential, verifyOperatorCredential, type CredentialCrypto } from "../src/runtime/operator-credentials.js";
 
 function cryptoFixture(): CredentialCrypto {
   return {
@@ -25,6 +25,15 @@ test("DPAPI output validation rejects CLIXML, errors, and empty ciphertext", () 
   assert.equal(isValidDpapiCiphertext("0".repeat(128)), true);
 });
 
+test("PowerShell DPAPI failures expose only a safe phase classification", () => {
+  assert.equal(classifyPowerShellDpapiFailure(1, "", "#< CLIXML\n<S S=\"Error\">CouldNotAutoloadMatchingModule</S>"), "module-load");
+  assert.equal(classifyPowerShellDpapiFailure(1, "", "CommandNotFoundException"), "cmdlet-resolution");
+  assert.equal(classifyPowerShellDpapiFailure(1, "", "<S S=\"Error\">DPAPI failed</S>"), "powershell-error");
+  assert.equal(classifyPowerShellDpapiFailure(1, "", "benign diagnostic"), "child-exit");
+  assert.equal(classifyPowerShellDpapiFailure(0, "", ""), "empty-output");
+  assert.equal(classifyPowerShellDpapiFailure(0, "ciphertext", "#< CLIXML progress"), undefined);
+});
+
 test("operator bootstrap stores only protected credential material and verifies the Windows identity", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-operator-"));
   const path = operatorCredentialPath(root);
@@ -39,6 +48,17 @@ test("operator bootstrap stores only protected credential material and verifies 
   assert.equal(await verifyOperatorCredential({ path, operatorId: "operator-1", token: "wrong", crypto }), false);
 });
 
+test("Windows child PowerShell DPAPI round trip works through the production spawn path", { skip: process.platform !== "win32" }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-operator-dpapi-"));
+  const path = operatorCredentialPath(root);
+  const crypto = undefined;
+  await bootstrapOperatorCredential({ path, operatorId: "isolated-windows-operator", crypto });
+  const record = await readOperatorCredential(path);
+  assert.equal(record?.operatorId, "isolated-windows-operator");
+  assert.equal(Boolean(record?.protectedToken), true);
+  assert.equal(await verifyOperatorCredential({ path, operatorId: "isolated-windows-operator" }), true);
+});
+
 test("operator bootstrap is one-time and rotation replaces the protected credential without exposing a token", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-operator-"));
   const path = operatorCredentialPath(root);
@@ -49,6 +69,14 @@ test("operator bootstrap is one-time and rotation replaces the protected credent
   const record = await readOperatorCredential(path);
   assert.equal(record?.rotatedAt, "2026-09-20T01:00:00.000Z");
   assert.equal(record?.protectedToken.includes("protected:"), true);
+});
+
+test("operator bootstrap does not create a credential when protection fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-operator-failed-"));
+  const path = operatorCredentialPath(root);
+  const crypto: CredentialCrypto = { ...cryptoFixture(), protect: async () => { throw new Error("PowerShell DPAPI protect failed: module-load"); } };
+  await assert.rejects(() => bootstrapOperatorCredential({ path, operatorId: "operator-1", crypto }), /module-load/);
+  assert.equal(await readOperatorCredential(path), undefined);
 });
 
 test("rotation is bound to the Windows identity that performed bootstrap", async () => {
