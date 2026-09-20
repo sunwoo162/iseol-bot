@@ -435,6 +435,14 @@ export async function requestControlledRuntimeStop(
   catch { throw new Error("runtime lock is unreadable"); }
   if (lock.pid !== input.expectedPid) throw new Error("runtime lock PID mismatch");
   if (typeof lock.dataRoot !== "string" || resolve(lock.dataRoot) !== resolve(config.dataRoot)) throw new Error("runtime dataRoot mismatch");
+  for (const ownershipPath of [runtimeMaintenanceLockPath(config.lockPath), runtimeRecoveryLockPath(config.lockPath)]) {
+    try {
+      await readFile(ownershipPath, "utf8");
+      throw new Error("maintenance or recovery ownership is active");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
   const listenerOwner = await readPortOwner(8791);
   if (listenerOwner !== input.expectedPid) throw new Error("Runtime listener ownership mismatch");
   const first = await readProcess(input.expectedPid);
