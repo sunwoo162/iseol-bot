@@ -6,6 +6,13 @@ import { join } from "node:path";
 import { WebProductEventBus } from "../src/web-control-plane/event-bus.js";
 import { connectProgressEventBridge } from "../src/discord-project/progress-event-bridge.js";
 
+async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 test("Web Product events become one bounded durable Discord delivery", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-progress-bridge-"));
   const bus = new WebProductEventBus();
@@ -18,7 +25,7 @@ test("Web Product events become one bounded durable Discord delivery", async () 
     onResult: (_event, result) => results.push(result.status),
   });
   bus.publish({ type: "work-request.updated", scope: { projectId: "project-1" }, payload: { projectId: "project-1", status: "running", blocker: "bounded" } });
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await waitFor(() => sends === 1 && results.length === 1);
   disconnect();
   assert.equal(sends, 1);
   assert.deepEqual(results, ["accepted"]);
