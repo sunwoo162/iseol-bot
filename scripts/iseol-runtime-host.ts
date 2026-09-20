@@ -32,6 +32,18 @@ export type IseolRuntimeHostConfig = {
   operatorCredentialPath?: string;
 };
 
+export type RuntimeCodeVersion = { codeVersion: string; source: "git-head" | "configured" | "unverified" };
+
+export async function resolveRuntimeCodeVersion(config: Pick<IseolRuntimeHostConfig, "codeVersion">): Promise<RuntimeCodeVersion> {
+  try {
+    const result = await execFile("git", ["rev-parse", "HEAD"], { cwd: process.cwd(), timeout: 2000, windowsHide: true, maxBuffer: 4096 });
+    const head = result.stdout.trim();
+    if (/^[0-9a-f]{7,64}$/i.test(head)) return { codeVersion: head, source: "git-head" };
+  } catch { /* Git is optional in packaged deployments. */ }
+  if (config.codeVersion) return { codeVersion: config.codeVersion, source: "configured" };
+  return { codeVersion: "unverified", source: "unverified" };
+}
+
 function overlaps(left: string, right: string): boolean {
   const inside = (root: string, target: string) => {
     const relation = relative(resolve(root), resolve(target));
@@ -155,6 +167,8 @@ export function runtimeStopSignal(platform = process.platform): "SIGINT" | "SIGT
 export type RuntimeLockOwnerProbe = (pid: number, lock: Record<string, unknown>) => Promise<{
   state: "verified" | "absent" | "reused" | "unavailable";
   identity?: string;
+  executable?: string;
+  createdAt?: string;
 }>;
 
 export type RuntimeLockInspection = {
@@ -165,24 +179,30 @@ export type RuntimeLockInspection = {
   reason?: string;
 };
 
-function processIdentity(executable: string, commandLine: string, pid: number): string {
-  return createHash("sha256").update(JSON.stringify({ pid, executable, commandLine }), "utf8").digest("hex");
+function normalizedExecutable(executable: string): string {
+  return executable.replaceAll("/", "\\").toLowerCase();
 }
 
-async function readProcessIdentity(pid: number): Promise<{ executable: string; commandLine: string } | null> {
-  if (pid === process.pid) return { executable: process.execPath, commandLine: [process.execPath, ...process.argv].join(" ") };
+function processIdentity(executable: string, createdAt: string | undefined, pid: number, commandLine?: string): string {
+  const stable = createdAt ? { pid, executable: normalizedExecutable(executable), createdAt } : { pid, executable: normalizedExecutable(executable), commandLine: commandLine ?? "" };
+  return createHash("sha256").update(JSON.stringify(stable), "utf8").digest("hex");
+}
+
+type ProcessIdentityDetails = { executable: string; commandLine: string; createdAt?: string };
+
+async function readProcessIdentity(pid: number): Promise<ProcessIdentityDetails | null> {
   if (process.platform === "win32") {
     try {
       const filter = `ProcessId = ${pid}`;
-      const result = await execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `$p=Get-CimInstance Win32_Process -Filter '${filter}'; if($p){$p | Select-Object ExecutablePath,CommandLine | ConvertTo-Json -Compress}`], { timeout: 2000, maxBuffer: 64 * 1024 });
-      const parsed = JSON.parse(result.stdout.trim()) as { ExecutablePath?: unknown; CommandLine?: unknown };
-      if (typeof parsed.ExecutablePath === "string" && typeof parsed.CommandLine === "string") return { executable: parsed.ExecutablePath, commandLine: parsed.CommandLine };
+      const result = await execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `$p=Get-CimInstance Win32_Process -Filter '${filter}'; if($p){$p | Select-Object ExecutablePath,CommandLine,@{Name='CreationTimeUtc';Expression={$_.CreationDate.ToUniversalTime().ToString('o')}} | ConvertTo-Json -Compress}`], { timeout: 2000, maxBuffer: 64 * 1024 });
+      const parsed = JSON.parse(result.stdout.trim()) as { ExecutablePath?: unknown; CommandLine?: unknown; CreationTimeUtc?: unknown };
+      if (typeof parsed.ExecutablePath === "string" && typeof parsed.CommandLine === "string") return { executable: parsed.ExecutablePath, commandLine: parsed.CommandLine, ...(typeof parsed.CreationTimeUtc === "string" ? { createdAt: parsed.CreationTimeUtc } : {}) };
     } catch { return null; }
     return null;
   }
   try {
     const commandLine = (await readFile(`/proc/${pid}/cmdline`, "utf8")).replaceAll("\0", " ").trim();
-    return commandLine ? { executable: commandLine.split(" ")[0]!, commandLine } : null;
+    return commandLine ? { executable: commandLine.split(" ")[0]!, commandLine, createdAt: new Date(Date.now() - process.uptime() * 1000).toISOString() } : null;
   } catch { return null; }
 }
 
@@ -191,9 +211,11 @@ const defaultRuntimeOwnerProbe: RuntimeLockOwnerProbe = async (pid, lock) => {
     process.kill(pid, 0);
     const observed = await readProcessIdentity(pid);
     if (!observed) return { state: "unavailable" };
-    const observedIdentity = processIdentity(observed.executable, observed.commandLine, pid);
-    if (lock.ownerIdentity === observedIdentity) return { state: "verified", identity: observedIdentity };
-    return { state: "reused", identity: observedIdentity };
+    const observedIdentity = processIdentity(observed.executable, observed.createdAt, pid, observed.commandLine);
+    const result = { identity: observedIdentity, executable: observed.executable, ...(observed.createdAt ? { createdAt: observed.createdAt } : {}) };
+    if (lock.ownerIdentity === observedIdentity) return { state: "verified", ...result };
+    if (typeof lock.ownerCreatedAt === "string" && observed.createdAt && typeof lock.ownerExecutable === "string" && normalizedExecutable(lock.ownerExecutable) === normalizedExecutable(observed.executable)) return { state: "reused", ...result };
+    return { state: "unavailable", ...result };
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "ESRCH"
       ? { state: "absent" }
@@ -205,10 +227,12 @@ function lockFingerprint(raw: string): string {
   return createHash("sha256").update(raw, "utf8").digest("hex");
 }
 
-function runtimeOwnerMetadata(): { ownerIdentity: string; ownerExecutable: string; ownerCommandLine: string } {
+async function runtimeOwnerMetadata(): Promise<{ ownerIdentity: string; ownerExecutable: string; ownerCommandLine: string; ownerCreatedAt: string }> {
   const ownerExecutable = process.execPath;
   const ownerCommandLine = [process.execPath, ...process.argv].join(" ");
-  return { ownerIdentity: processIdentity(ownerExecutable, ownerCommandLine, process.pid), ownerExecutable, ownerCommandLine };
+  const observed = await readProcessIdentity(process.pid);
+  const ownerCreatedAt = observed?.createdAt ?? new Date(Date.now() - process.uptime() * 1000).toISOString();
+  return { ownerIdentity: processIdentity(ownerExecutable, ownerCreatedAt, process.pid, ownerCommandLine), ownerExecutable, ownerCommandLine, ownerCreatedAt };
 }
 
 export async function inspectRuntimeLock(path: string, probe: RuntimeLockOwnerProbe = defaultRuntimeOwnerProbe): Promise<RuntimeLockInspection> {
@@ -233,9 +257,10 @@ export async function inspectRuntimeLock(path: string, probe: RuntimeLockOwnerPr
   if (owner.state === "verified" && identity.ownerIdentity && owner.identity === identity.ownerIdentity) {
     return { state: "running", fingerprint, identity, owner };
   }
-  if (owner.state === "reused" || (owner.state === "verified" && owner.identity !== identity.ownerIdentity)) {
+  if (owner.state === "reused") {
     return { state: "owner-reused", fingerprint, identity, owner };
   }
+  if (owner.state === "unavailable") return { state: "owner-unconfirmed", fingerprint, identity, owner };
   if (owner.state === "absent" && typeof identity.ownerIdentity === "string" && identity.ownerIdentity.length > 0) {
     return { state: "stale", fingerprint, identity, owner };
   }
@@ -262,7 +287,7 @@ async function assertNoMaintenanceOwnership(runtimeLockPath: string): Promise<vo
 export async function acquireRuntimeMaintenanceLock(
   runtimeLockPath: string,
   maintenancePath = runtimeMaintenanceLockPath(runtimeLockPath),
-  metadata: { dataRoot?: string; codeVersion?: string } = {},
+  metadata: { dataRoot?: string; codeVersion?: string; codeVersionSource?: RuntimeCodeVersion["source"] } = {},
   options: { allowRecoveryOwnership?: boolean } = {},
 ): Promise<() => Promise<void>> {
   if (!options.allowRecoveryOwnership) {
@@ -286,14 +311,14 @@ export async function acquireRuntimeMaintenanceLock(
     if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("maintenance ownership already exists; refusing takeover");
     throw error;
   }
-  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, ...runtimeOwnerMetadata(), startedAt: new Date().toISOString(), ...metadata }));
+  await handle.writeFile(JSON.stringify({ version: 2, pid: process.pid, ...(await runtimeOwnerMetadata()), startedAt: new Date().toISOString(), ...metadata }));
   return async () => { await handle.close(); await rm(maintenancePath, { force: true }); };
 }
 
 export async function acquireRuntimeRecoveryLock(
   runtimeLockPath: string,
   recoveryPath = runtimeRecoveryLockPath(runtimeLockPath),
-  metadata: { dataRoot?: string; codeVersion?: string } = {},
+  metadata: { dataRoot?: string; codeVersion?: string; codeVersionSource?: RuntimeCodeVersion["source"] } = {},
 ): Promise<() => Promise<void>> {
   try {
     await readFile(runtimeMaintenanceLockPath(runtimeLockPath), "utf8");
@@ -308,11 +333,11 @@ export async function acquireRuntimeRecoveryLock(
     if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("Runtime recovery ownership already exists; refusing takeover");
     throw error;
   }
-  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, ...runtimeOwnerMetadata(), startedAt: new Date().toISOString(), ...metadata }));
+  await handle.writeFile(JSON.stringify({ version: 2, pid: process.pid, ...(await runtimeOwnerMetadata()), startedAt: new Date().toISOString(), ...metadata }));
   return async () => { await handle.close(); await rm(recoveryPath, { force: true }); };
 }
 
-export async function acquireRuntimeLock(path: string, metadata: { dataRoot?: string; codeVersion?: string } = {}): Promise<() => Promise<void>> {
+export async function acquireRuntimeLock(path: string, metadata: { dataRoot?: string; codeVersion?: string; codeVersionSource?: RuntimeCodeVersion["source"] } = {}): Promise<() => Promise<void>> {
   await assertNoMaintenanceOwnership(path);
   await mkdir(dirname(path), { recursive: true });
   let handle: FileHandle;
@@ -336,8 +361,8 @@ export async function acquireRuntimeLock(path: string, metadata: { dataRoot?: st
     }
     if (!handle!) throw new Error("another Iseol runtime already owns this configuration");
   }
-  const owner = runtimeOwnerMetadata();
-  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, ...owner, startedAt: new Date().toISOString(), ...metadata }));
+  const owner = await runtimeOwnerMetadata();
+  await handle.writeFile(JSON.stringify({ version: 2, pid: process.pid, ...owner, startedAt: new Date().toISOString(), ...metadata }));
   return async () => {
     try {
       const current = JSON.parse(await readFile(path, "utf8")) as { ownerIdentity?: unknown };
@@ -349,7 +374,18 @@ export async function acquireRuntimeLock(path: string, metadata: { dataRoot?: st
 
 export async function readRuntimeHostStatus(config: IseolRuntimeHostConfig): Promise<Record<string, unknown>> {
   const inspection = await inspectRuntimeLock(config.lockPath);
-  return { state: inspection.state, configVersion: config.version, dataRoot: config.dataRoot, codeVersion: config.codeVersion ?? "unknown", fingerprint: inspection.fingerprint, owner: inspection.owner, ...inspection.identity, ...(inspection.reason ? { reason: inspection.reason } : {}) };
+  return { state: inspection.state, configVersion: config.version, dataRoot: config.dataRoot, codeVersion: inspection.identity.codeVersion ?? config.codeVersion ?? "unverified", codeVersionSource: inspection.identity.codeVersionSource ?? (config.codeVersion ? "configured" : "unverified"), fingerprint: inspection.fingerprint, owner: inspection.owner, ...inspection.identity, ...(inspection.reason ? { reason: inspection.reason } : {}) };
+}
+
+export async function requestRuntimeStop(config: Pick<IseolRuntimeHostConfig, "lockPath">): Promise<{ state: "stop-requested"; pid: number; signal: "SIGINT" | "SIGTERM" }> {
+  const inspection = await inspectRuntimeLock(config.lockPath);
+  if (inspection.state !== "running" || inspection.owner.state !== "verified" || !Number.isInteger(inspection.identity.pid)) {
+    throw new Error(`Runtime stop requires a verified running owner (state: ${inspection.state})`);
+  }
+  const pid = inspection.identity.pid as number;
+  const signal = runtimeStopSignal();
+  process.kill(pid, signal);
+  return { state: "stop-requested", pid, signal };
 }
 
 export async function recoverStaleRuntimeLock(config: IseolRuntimeHostConfig, input: {
@@ -600,13 +636,8 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "stop") {
-    const raw = await readFile(config.lockPath, "utf8").catch(() => "");
-    if (!raw) { process.stdout.write(JSON.stringify({ state: "stopped" })); return; }
-    const lock = JSON.parse(raw) as { pid?: unknown };
-    if (!Number.isInteger(lock.pid) || (lock.pid as number) <= 0) throw new Error("runtime lock has invalid owner");
-    const signal = runtimeStopSignal();
-    process.kill(lock.pid as number, signal);
-    process.stdout.write(JSON.stringify({ state: "stop-requested", pid: lock.pid, signal }));
+    if (!(await readFile(config.lockPath, "utf8").catch(() => ""))) { process.stdout.write(JSON.stringify({ state: "stopped" })); return; }
+    process.stdout.write(JSON.stringify(await requestRuntimeStop(config)));
     return;
   }
   if (command === "maintenance-status") {
@@ -676,7 +707,8 @@ async function main(): Promise<void> {
     return;
   }
   if (command !== "start") throw new Error(`unsupported runtime host command: ${command}`);
-  const release = await acquireRuntimeLock(config.lockPath, { dataRoot: config.dataRoot, ...(config.codeVersion ? { codeVersion: config.codeVersion } : {}) });
+  const runtimeCodeVersion = await resolveRuntimeCodeVersion(config);
+  const release = await acquireRuntimeLock(config.lockPath, { dataRoot: config.dataRoot, codeVersion: runtimeCodeVersion.codeVersion, codeVersionSource: runtimeCodeVersion.source });
   let services: IseolRuntimeServices | undefined;
   let stopping = false;
   const stop = async () => {

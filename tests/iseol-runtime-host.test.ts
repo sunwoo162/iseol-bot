@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, inspectRuntimeLock, loadRuntimeHostConfig, parseRuntimeHostStdin, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, runtimeRecoveryLockPath, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
+import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, inspectRuntimeLock, loadRuntimeHostConfig, parseRuntimeHostStdin, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, requestRuntimeStop, resolveRuntimeCodeVersion, runtimeRecoveryLockPath, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
 import { approveAndContainRuntimeMaintenanceJob, approveAndContainRuntimeMaintenanceJobs, containRuntimeMaintenanceJob } from "../scripts/iseol-runtime-host.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import { createDesktopJob, desktopJobRevision, loadDesktopJob, loadDesktopJobContainment } from "../src/desktop-agent/job-store.js";
@@ -29,6 +29,13 @@ test("runtime host loads explicit roots and derives a durable lock path", async 
 test("runtime stop uses a catchable signal on Windows and SIGTERM elsewhere", () => {
   assert.equal(runtimeStopSignal("win32"), "SIGINT");
   assert.equal(runtimeStopSignal("linux"), "SIGTERM");
+});
+
+test("runtime code version prefers the checked-out Git HEAD over stale configured metadata", async () => {
+  const resolved = await resolveRuntimeCodeVersion({ codeVersion: "legacy-configured-version" });
+  assert.equal(resolved.source, "git-head");
+  assert.match(resolved.codeVersion, /^[0-9a-f]{7,64}$/i);
+  assert.notEqual(resolved.codeVersion, "legacy-configured-version");
 });
 
 test("runtime host persists bounded lifecycle metadata atomically", async () => {
@@ -112,6 +119,23 @@ test("runtime lock inspection distinguishes verified owner, stale identity, and 
   await writeFile(path, JSON.stringify({ version: 1, pid: 42, startedAt: "2026-01-01T00:00:00.000Z" }));
   const legacy = await inspectRuntimeLock(path, async () => ({ state: "absent" as const }));
   assert.equal(legacy.state, "owner-unconfirmed");
+});
+
+test("legacy owner identity mismatch remains unconfirmed instead of becoming owner-reused", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-owner-compat-"));
+  const path = join(root, "runtime.lock");
+  await writeFile(path, JSON.stringify({ version: 1, pid: 42, ownerIdentity: "legacy-owner", ownerExecutable: "node.exe", ownerCommandLine: "legacy command", startedAt: "2026-01-01T00:00:00.000Z" }));
+  const inspection = await inspectRuntimeLock(path, async () => ({ state: "unavailable" as const, identity: "different-process" }));
+  assert.equal(inspection.state, "owner-unconfirmed");
+  assert.equal(inspection.owner.state, "unavailable");
+});
+
+test("stop refuses to signal an unverified or reused owner and preserves its lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-stop-guard-"));
+  const path = join(root, "runtime.lock");
+  await writeFile(path, JSON.stringify({ version: 1, pid: 999999, ownerIdentity: "unknown-owner", startedAt: "2026-01-01T00:00:00.000Z" }));
+  await assert.rejects(requestRuntimeStop({ lockPath: path }), /verified running owner/);
+  assert.equal(JSON.parse(await readFile(path, "utf8")).pid, 999999);
 });
 
 test("stale lock recovery requires the exact fingerprint, operator approval, and recovery ownership", async () => {
