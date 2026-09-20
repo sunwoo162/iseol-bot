@@ -243,6 +243,8 @@ export async function approveAndContainRuntimeMaintenanceJob(config: IseolRuntim
     if (!input.operatorId || !input.configuredOperatorToken || !equalSecret(input.operatorToken, input.configuredOperatorToken)) {
       return { status: "rejected" as const, reason: "operator-authentication-failed" };
     }
+    const activeLease = (await listDesktopJobs(config.projectDesktopStateRoot)).find((job) => job.lease && Date.parse(job.lease.expiresAt) > Date.parse(input.at));
+    if (activeLease) return { status: "rejected" as const, reason: "active-desktop-lease" };
     const inspection = await inspectRuntimeMaintenanceJob(config, { projectId: input.projectId, jobId: input.jobId, now: input.at });
     if (!inspection) return { status: "rejected" as const, reason: "job-not-found" };
     if (inspection.revision !== input.expectedRevision) return { status: "rejected" as const, reason: "job-revision-mismatch", inspection };
