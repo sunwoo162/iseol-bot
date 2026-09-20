@@ -1,9 +1,13 @@
 import "dotenv/config";
+import { createHash } from "node:crypto";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
 import { timingSafeEqual } from "node:crypto";
 import { mkdir, open, readFile, rm, rename, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+const execFile = promisify(execFileCallback);
 import { startIseolRuntimeServices, type IseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
 import { loadHarnessRun } from "../src/harness/run-store.js";
 import { listDesktopJobs, loadDesktopJob } from "../src/desktop-agent/job-store.js";
@@ -126,11 +130,116 @@ export function runtimeMaintenanceLockPath(runtimeLockPath: string): string {
   return resolve(dirname(runtimeLockPath), "iseol-maintenance.lock");
 }
 
+export function runtimeRecoveryLockPath(runtimeLockPath: string): string {
+  return resolve(dirname(runtimeLockPath), "iseol-recovery.lock");
+}
+
+export function runtimeStopSignal(platform = process.platform): "SIGINT" | "SIGTERM" {
+  return platform === "win32" ? "SIGINT" : "SIGTERM";
+}
+
+export type RuntimeLockOwnerProbe = (pid: number, lock: Record<string, unknown>) => Promise<{
+  state: "verified" | "absent" | "reused" | "unavailable";
+  identity?: string;
+}>;
+
+export type RuntimeLockInspection = {
+  state: "stopped" | "running" | "stale" | "owner-unconfirmed" | "owner-reused" | "unreadable";
+  fingerprint: string;
+  identity: Record<string, unknown>;
+  owner: { state: "verified" | "absent" | "reused" | "unavailable"; identity?: string };
+  reason?: string;
+};
+
+function processIdentity(executable: string, commandLine: string, pid: number): string {
+  return createHash("sha256").update(JSON.stringify({ pid, executable, commandLine }), "utf8").digest("hex");
+}
+
+async function readProcessIdentity(pid: number): Promise<{ executable: string; commandLine: string } | null> {
+  if (pid === process.pid) return { executable: process.execPath, commandLine: [process.execPath, ...process.argv].join(" ") };
+  if (process.platform === "win32") {
+    try {
+      const filter = `ProcessId = ${pid}`;
+      const result = await execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `$p=Get-CimInstance Win32_Process -Filter '${filter}'; if($p){$p | Select-Object ExecutablePath,CommandLine | ConvertTo-Json -Compress}`], { timeout: 2000, maxBuffer: 64 * 1024 });
+      const parsed = JSON.parse(result.stdout.trim()) as { ExecutablePath?: unknown; CommandLine?: unknown };
+      if (typeof parsed.ExecutablePath === "string" && typeof parsed.CommandLine === "string") return { executable: parsed.ExecutablePath, commandLine: parsed.CommandLine };
+    } catch { return null; }
+    return null;
+  }
+  try {
+    const commandLine = (await readFile(`/proc/${pid}/cmdline`, "utf8")).replaceAll("\0", " ").trim();
+    return commandLine ? { executable: commandLine.split(" ")[0]!, commandLine } : null;
+  } catch { return null; }
+}
+
+const defaultRuntimeOwnerProbe: RuntimeLockOwnerProbe = async (pid, lock) => {
+  try {
+    process.kill(pid, 0);
+    const observed = await readProcessIdentity(pid);
+    if (!observed) return { state: "unavailable" };
+    const observedIdentity = processIdentity(observed.executable, observed.commandLine, pid);
+    if (lock.ownerIdentity === observedIdentity) return { state: "verified", identity: observedIdentity };
+    return { state: "reused", identity: observedIdentity };
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH"
+      ? { state: "absent" }
+      : { state: "unavailable" };
+  }
+};
+
+function lockFingerprint(raw: string): string {
+  return createHash("sha256").update(raw, "utf8").digest("hex");
+}
+
+function runtimeOwnerMetadata(): { ownerIdentity: string; ownerExecutable: string; ownerCommandLine: string } {
+  const ownerExecutable = process.execPath;
+  const ownerCommandLine = [process.execPath, ...process.argv].join(" ");
+  return { ownerIdentity: processIdentity(ownerExecutable, ownerCommandLine, process.pid), ownerExecutable, ownerCommandLine };
+}
+
+export async function inspectRuntimeLock(path: string, probe: RuntimeLockOwnerProbe = defaultRuntimeOwnerProbe): Promise<RuntimeLockInspection> {
+  let raw: string;
+  try { raw = await readFile(path, "utf8"); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { state: "stopped", fingerprint: "", identity: {}, owner: { state: "absent" } };
+    return { state: "unreadable", fingerprint: "", identity: {}, owner: { state: "unavailable" }, reason: "lock-read-failed" };
+  }
+  const fingerprint = lockFingerprint(raw);
+  let identity: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid");
+    identity = parsed as Record<string, unknown>;
+  } catch {
+    return { state: "unreadable", fingerprint, identity: {}, owner: { state: "unavailable" }, reason: "lock-json-invalid" };
+  }
+  const pid = Number.isInteger(identity.pid) && (identity.pid as number) > 0 ? identity.pid as number : null;
+  if (pid === null) return { state: "unreadable", fingerprint, identity, owner: { state: "unavailable" }, reason: "lock-pid-invalid" };
+  const owner = await probe(pid, identity);
+  if (owner.state === "verified" && identity.ownerIdentity && owner.identity === identity.ownerIdentity) {
+    return { state: "running", fingerprint, identity, owner };
+  }
+  if (owner.state === "reused" || (owner.state === "verified" && owner.identity !== identity.ownerIdentity)) {
+    return { state: "owner-reused", fingerprint, identity, owner };
+  }
+  if (owner.state === "absent" && typeof identity.ownerIdentity === "string" && identity.ownerIdentity.length > 0) {
+    return { state: "stale", fingerprint, identity, owner };
+  }
+  return { state: "owner-unconfirmed", fingerprint, identity, owner };
+}
+
 async function assertNoMaintenanceOwnership(runtimeLockPath: string): Promise<void> {
   const maintenancePath = runtimeMaintenanceLockPath(runtimeLockPath);
+  const recoveryPath = runtimeRecoveryLockPath(runtimeLockPath);
   try {
     await readFile(maintenancePath, "utf8");
     throw new Error("maintenance ownership is active; refusing Runtime startup");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  try {
+    await readFile(recoveryPath, "utf8");
+    throw new Error("Runtime recovery ownership is active; refusing Runtime startup");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
@@ -140,12 +249,21 @@ export async function acquireRuntimeMaintenanceLock(
   runtimeLockPath: string,
   maintenancePath = runtimeMaintenanceLockPath(runtimeLockPath),
   metadata: { dataRoot?: string; codeVersion?: string } = {},
+  options: { allowRecoveryOwnership?: boolean } = {},
 ): Promise<() => Promise<void>> {
-  try {
-    await readFile(runtimeLockPath, "utf8");
-    throw new Error("Runtime ownership is active; maintenance mode requires a stopped Runtime");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  if (!options.allowRecoveryOwnership) {
+    try {
+      await readFile(runtimeLockPath, "utf8");
+      throw new Error("Runtime ownership is active; maintenance mode requires a stopped Runtime");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    try {
+      await readFile(runtimeRecoveryLockPath(runtimeLockPath), "utf8");
+      throw new Error("Runtime recovery ownership is active; refusing maintenance takeover");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
   await mkdir(dirname(maintenancePath), { recursive: true });
   let handle: FileHandle;
@@ -154,8 +272,30 @@ export async function acquireRuntimeMaintenanceLock(
     if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("maintenance ownership already exists; refusing takeover");
     throw error;
   }
-  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, startedAt: new Date().toISOString(), ...metadata }));
+  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, ...runtimeOwnerMetadata(), startedAt: new Date().toISOString(), ...metadata }));
   return async () => { await handle.close(); await rm(maintenancePath, { force: true }); };
+}
+
+export async function acquireRuntimeRecoveryLock(
+  runtimeLockPath: string,
+  recoveryPath = runtimeRecoveryLockPath(runtimeLockPath),
+  metadata: { dataRoot?: string; codeVersion?: string } = {},
+): Promise<() => Promise<void>> {
+  try {
+    await readFile(runtimeMaintenanceLockPath(runtimeLockPath), "utf8");
+    throw new Error("maintenance ownership is active; refusing Runtime recovery");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  await mkdir(dirname(recoveryPath), { recursive: true });
+  let handle: FileHandle;
+  try { handle = await open(recoveryPath, "wx"); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("Runtime recovery ownership already exists; refusing takeover");
+    throw error;
+  }
+  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, ...runtimeOwnerMetadata(), startedAt: new Date().toISOString(), ...metadata }));
+  return async () => { await handle.close(); await rm(recoveryPath, { force: true }); };
 }
 
 export async function acquireRuntimeLock(path: string, metadata: { dataRoot?: string; codeVersion?: string } = {}): Promise<() => Promise<void>> {
@@ -174,27 +314,70 @@ export async function acquireRuntimeLock(path: string, metadata: { dataRoot?: st
     }
     if (ownerPid !== null) {
       try { process.kill(ownerPid, 0); } catch (probeError) {
-        if ((probeError as NodeJS.ErrnoException).code !== "ESRCH") {
-          throw new Error("another Iseol runtime already owns this configuration");
+        if ((probeError as NodeJS.ErrnoException).code === "ESRCH") {
+          throw new Error("stale Runtime lock requires explicit operator recovery");
         }
-        await rm(path, { force: true });
-        try { handle = await open(path, "wx"); }
-        catch { throw new Error("runtime lock changed while reclaiming stale ownership"); }
+        throw new Error("Runtime lock owner could not be verified; refusing takeover");
       }
     }
     if (!handle!) throw new Error("another Iseol runtime already owns this configuration");
   }
-  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, startedAt: new Date().toISOString(), ...metadata }));
-  return async () => { await handle.close(); await rm(path, { force: true }); };
+  const owner = runtimeOwnerMetadata();
+  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, ...owner, startedAt: new Date().toISOString(), ...metadata }));
+  return async () => {
+    try {
+      const current = JSON.parse(await readFile(path, "utf8")) as { ownerIdentity?: unknown };
+      if (current.ownerIdentity !== owner.ownerIdentity) throw new Error("Runtime lock ownership changed before release");
+      await rm(path, { force: true });
+    } finally { await handle.close(); }
+  };
 }
 
 export async function readRuntimeHostStatus(config: IseolRuntimeHostConfig): Promise<Record<string, unknown>> {
+  const inspection = await inspectRuntimeLock(config.lockPath);
+  return { state: inspection.state, configVersion: config.version, dataRoot: config.dataRoot, codeVersion: config.codeVersion ?? "unknown", fingerprint: inspection.fingerprint, owner: inspection.owner, ...inspection.identity, ...(inspection.reason ? { reason: inspection.reason } : {}) };
+}
+
+export async function recoverStaleRuntimeLock(config: IseolRuntimeHostConfig, input: {
+  expectedFingerprint: string;
+  operatorToken: string;
+  configuredOperatorToken: string;
+  operatorId: string;
+  confirmation: string;
+  at: string;
+  probe?: RuntimeLockOwnerProbe;
+}): Promise<{ status: "recovered" | "rejected"; reason?: string; releaseMaintenance: () => Promise<void> }> {
+  const reject = (reason: string): { status: "rejected"; reason: string; releaseMaintenance: () => Promise<void> } => ({ status: "rejected", reason, releaseMaintenance: async () => {} });
+  if (!input.operatorId || !input.configuredOperatorToken || !equalSecret(input.operatorToken, input.configuredOperatorToken)) return reject("operator-authentication-failed");
+  const initial = await inspectRuntimeLock(config.lockPath, input.probe);
+  if (initial.state !== "stale") return reject(`runtime-lock-${initial.state}`);
+  if (initial.fingerprint !== input.expectedFingerprint) return reject("runtime-lock-identity-mismatch");
+  if (input.confirmation !== `I approve stale Runtime lock recovery for ${input.expectedFingerprint}`) return reject("operator-confirmation-required");
+  let releaseRecovery: (() => Promise<void>) | undefined;
   try {
-    const lock = JSON.parse(await readFile(config.lockPath, "utf8")) as Record<string, unknown>;
-    return { state: "running", configVersion: config.version, dataRoot: config.dataRoot, codeVersion: config.codeVersion ?? "unknown", ...lock };
+    releaseRecovery = await acquireRuntimeRecoveryLock(config.lockPath, runtimeRecoveryLockPath(config.lockPath), { dataRoot: config.dataRoot, ...(config.codeVersion ? { codeVersion: config.codeVersion } : {}) });
+    const verified = await inspectRuntimeLock(config.lockPath, input.probe);
+    if (verified.state !== "stale" || verified.fingerprint !== input.expectedFingerprint) {
+      await releaseRecovery();
+      return reject("runtime-lock-changed-before-recovery");
+    }
+    const releaseMaintenance = await acquireRuntimeMaintenanceLock(config.lockPath, runtimeMaintenanceLockPath(config.lockPath), { dataRoot: config.dataRoot, ...(config.codeVersion ? { codeVersion: config.codeVersion } : {}) }, { allowRecoveryOwnership: true });
+    const final = await inspectRuntimeLock(config.lockPath, input.probe);
+    if (final.state !== "stale" || final.fingerprint !== input.expectedFingerprint) {
+      await releaseMaintenance(); await releaseRecovery();
+      return reject("runtime-lock-changed-before-release");
+    }
+    const currentRaw = await readFile(config.lockPath, "utf8");
+    if (lockFingerprint(currentRaw) !== input.expectedFingerprint) {
+      await releaseMaintenance(); await releaseRecovery();
+      return reject("runtime-lock-identity-mismatch");
+    }
+    await rm(config.lockPath, { force: false });
+    await releaseRecovery();
+    return { status: "recovered", releaseMaintenance };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { state: "stopped", configVersion: config.version, dataRoot: config.dataRoot, codeVersion: config.codeVersion ?? "unknown" };
-    throw error;
+    await releaseRecovery?.().catch(() => {});
+    return reject(error instanceof Error ? error.message : "runtime-lock-recovery-failed");
   }
 }
 
@@ -354,16 +537,32 @@ async function main(): Promise<void> {
     if (!raw) { process.stdout.write(JSON.stringify({ state: "stopped" })); return; }
     const lock = JSON.parse(raw) as { pid?: unknown };
     if (!Number.isInteger(lock.pid) || (lock.pid as number) <= 0) throw new Error("runtime lock has invalid owner");
-    process.kill(lock.pid as number, "SIGTERM");
-    process.stdout.write(JSON.stringify({ state: "stop-requested", pid: lock.pid }));
+    const signal = runtimeStopSignal();
+    process.kill(lock.pid as number, signal);
+    process.stdout.write(JSON.stringify({ state: "stop-requested", pid: lock.pid, signal }));
     return;
   }
   if (command === "maintenance-status") {
     const runtime = await readRuntimeHostStatus(config);
     let maintenance: Record<string, unknown> = { state: "stopped" };
+    let recovery: Record<string, unknown> = { state: "stopped" };
     try { maintenance = JSON.parse(await readFile(runtimeMaintenanceLockPath(config.lockPath), "utf8")) as Record<string, unknown>; }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    process.stdout.write(JSON.stringify({ runtime, maintenance }));
+    try { recovery = JSON.parse(await readFile(runtimeRecoveryLockPath(config.lockPath), "utf8")) as Record<string, unknown>; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    process.stdout.write(JSON.stringify({ runtime, maintenance, recovery }));
+    return;
+  }
+  if (command === "runtime-recover-stale") {
+    const input = JSON.parse(await readFile(0, "utf8")) as { expectedFingerprint?: unknown; operatorToken?: unknown; confirmation?: unknown };
+    const expectedFingerprint = typeof input.expectedFingerprint === "string" ? input.expectedFingerprint : "";
+    const operatorToken = typeof input.operatorToken === "string" ? input.operatorToken : "";
+    const confirmation = typeof input.confirmation === "string" ? input.confirmation : "";
+    const configuredOperatorToken = process.env.ISEOL_OPERATOR_TOKEN ?? "";
+    const operatorId = process.env.ISEOL_OPERATOR_ID ?? "";
+    const result = await recoverStaleRuntimeLock(config, { expectedFingerprint, operatorToken, configuredOperatorToken, operatorId, confirmation, at: new Date().toISOString() });
+    process.stdout.write(JSON.stringify({ status: result.status, ...(result.reason ? { reason: result.reason } : {}) }));
+    if (result.status === "recovered") await result.releaseMaintenance();
     return;
   }
   if (command === "maintenance-inspect") {
@@ -414,8 +613,8 @@ async function main(): Promise<void> {
   const stop = async () => {
     if (stopping) return;
     stopping = true;
-    await services?.dispose();
-    await release();
+    try { await services?.dispose(); }
+    finally { await release(); }
   };
   process.once("SIGINT", () => { void stop().finally(() => process.exit(130)); });
   process.once("SIGTERM", () => { void stop().finally(() => process.exit(143)); });

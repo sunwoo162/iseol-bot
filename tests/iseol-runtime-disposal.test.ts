@@ -3,7 +3,7 @@ import test from "node:test";
 import type { ChatGptBrowserDriver } from "../src/chatgpt-web/production-browser-adapter.js";
 import { startIseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
 
-test("runtime shutdown starts Desktop and browser disposal even when Idea Lab disposal never settles", async () => {
+test("runtime shutdown serializes disposal and preserves ownership order when Idea Lab disposal never settles", async () => {
   const events: string[] = [];
   const never = new Promise<void>(() => undefined);
   const roots = {
@@ -86,5 +86,5 @@ test("runtime shutdown starts Desktop and browser disposal even when Idea Lab di
   ]);
 
   assert.equal(outcome, "timeout");
-  assert.deepEqual(events, ["web", "runtime", "desktop", "browser"]);
+  assert.deepEqual(events, ["web", "runtime"]);
 });
