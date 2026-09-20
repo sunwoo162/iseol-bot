@@ -86,7 +86,7 @@ async function startCoreAgent(system: Awaited<ReturnType<typeof createSystem>>, 
     url: server.url,
     hello: {
       version: 1, agentId: "agent-idea-e2e", agentVersion: "0.1.0", os: process.platform,
-      capabilities: ["process", "git", "files"], workspaceRoots: [system.sandboxRoot, process.cwd()], token: "secret-token",
+      capabilities: ["process", "git", "files", "operation:GIT_INIT", "operation:GIT_INSPECT"], workspaceRoots: [system.sandboxRoot, process.cwd()], token: "secret-token",
     },
     allowedRoots: [system.sandboxRoot, process.cwd()], heartbeatIntervalMs: 50, now: () => NOW,
     dropResult: dropResult ? (pack, result) => dropResult(pack) && result.status === "completed" : undefined,
@@ -540,7 +540,7 @@ test("Desktop disconnect after patch and commit reconciles the same Idea Lab Run
     url: resources.server.url,
     hello: {
       version: 1, agentId: "agent-idea-e2e", agentVersion: "0.1.0", os: process.platform,
-      capabilities: ["process", "git", "files"], workspaceRoots: [system.sandboxRoot, process.cwd()], token: "secret-token",
+      capabilities: ["process", "git", "files", "operation:GIT_INIT", "operation:GIT_INSPECT"], workspaceRoots: [system.sandboxRoot, process.cwd()], token: "secret-token",
     },
     allowedRoots: [system.sandboxRoot, process.cwd()], heartbeatIntervalMs: 50, now: () => "2026-09-08T08:00:03.000Z",
   });
