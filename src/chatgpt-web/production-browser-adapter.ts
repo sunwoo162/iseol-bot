@@ -15,7 +15,12 @@ export interface ChatGptBrowserDriver {
   readStructuredResult(input: { conversationRef: string; timeoutMs: number; contract: ChatGptWebResultContract }): Promise<unknown>;
   probeConversation(conversationRef: string): Promise<ChatGptWebSessionProbe>;
   closeConversation(conversationRef: string): Promise<void>;
-  recordParserDiagnostic?(input: { runId?: string; projectId?: string; stage: string; sessionId: string; generation: number; conversationRef?: string; resultContract?: ChatGptWebResultContract; message: string; diagnostic?: Record<string, string | boolean> }): Promise<void>;
+  recordParserDiagnostic?(input: {
+    runId?: string; projectId?: string; stage: string; sessionId: string; generation: number;
+    conversationRef?: string; resultContract?: ChatGptWebResultContract; message: string;
+    diagnostic?: Record<string, string | boolean>;
+    correctionAttempt?: number; correctionBudgetUsed?: number; correctionBudgetLimit?: number;
+  }): Promise<void>;
   recordOperationDiagnostic?(input: { runId?: string; projectId?: string; operation: string; phase: "failure"; stage: string; sessionId: string; generation: number; conversationRef?: string; failureClass: string }): Promise<void>;
   dispose?(): Promise<void>;
 }
@@ -117,6 +122,9 @@ export function createProductionChatGptWebAdapter(driver: ChatGptBrowserDriver):
         ...(input.session.conversationRef ? { conversationRef: input.session.conversationRef } : {}),
         message: input.message,
         diagnostic: input.diagnostic,
+        ...(input.correctionAttempt === undefined ? {} : { correctionAttempt: input.correctionAttempt }),
+        ...(input.correctionBudgetUsed === undefined ? {} : { correctionBudgetUsed: input.correctionBudgetUsed }),
+        ...(input.correctionBudgetLimit === undefined ? {} : { correctionBudgetLimit: input.correctionBudgetLimit }),
       });
     },
   };

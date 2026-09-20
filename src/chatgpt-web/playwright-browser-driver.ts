@@ -564,7 +564,20 @@ export async function createPlaywrightChatGptBrowserDriver(
           : /PROPOSE_PATCH requires/i.test(input.message) ? "intent-specific-shape"
             : /patch appendix|patch hunk|unified-diff/i.test(input.message) ? "structured-patch-validation" : "contract-validation";
       const file = resolve(config.lifecycleRoot, "web-workers", "parser-diagnostics.jsonl");
-      try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "parser-rejection", ...(input.runId ? { runId: input.runId } : {}), ...(input.projectId ? { projectId: input.projectId } : {}), stage: input.stage, sessionId: input.sessionId, generation: input.generation, ...(input.resultContract ? { resultContract: input.resultContract } : {}), conversationRefPresent: Boolean(input.conversationRef), category, phase, ...(input.diagnostic ?? {}) })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
+      try {
+        await mkdir(dirname(file), { recursive: true });
+        await appendFile(file, `${JSON.stringify({
+          version: 1, at: new Date().toISOString(), type: "parser-rejection",
+          ...(input.runId ? { runId: input.runId } : {}), ...(input.projectId ? { projectId: input.projectId } : {}),
+          stage: input.stage, sessionId: input.sessionId, generation: input.generation,
+          ...(input.resultContract ? { resultContract: input.resultContract } : {}), conversationRefPresent: Boolean(input.conversationRef),
+          category, phase,
+          ...(input.correctionAttempt === undefined ? {} : { correctionAttempt: input.correctionAttempt }),
+          ...(input.correctionBudgetUsed === undefined ? {} : { correctionBudgetUsed: input.correctionBudgetUsed }),
+          ...(input.correctionBudgetLimit === undefined ? {} : { correctionBudgetLimit: input.correctionBudgetLimit }),
+          ...(input.diagnostic ?? {}),
+        })}\n`, "utf8");
+      } catch { /* diagnostics never affect execution */ }
     },
     async recordOperationDiagnostic(input) {
       if (!config.lifecycleRoot) return;

@@ -487,6 +487,28 @@ test("restart advances past a lost session still referenced by the active pointe
   assert.equal((await loadWebWorkerSession(root, staleId))?.status, "lost");
 });
 
+test("structured rejection diagnostics retain correction attempt and budget without response text", async () => {
+  const { root, run } = await fixture();
+  const diagnostics: Array<Record<string, unknown>> = [];
+  const fake = createFakeChatGptWebBrowserAdapter([
+    { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1, summary: "missing outcome", decisions: [], intents: [] },
+    { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1, summary: "still malformed", decisions: [], intents: [] },
+  ]);
+  fake.adapter.recordResultDiagnostic = async (input) => {
+    diagnostics.push({ ...input.diagnostic, correctionAttempt: input.correctionAttempt, correctionBudgetUsed: input.correctionBudgetUsed, correctionBudgetLimit: input.correctionBudgetLimit });
+  };
+  const result = await createWebReasoningExecutor({
+    workerRoot: root,
+    adapter: fake.adapter,
+    maxRejectedIntents: 2,
+    now: () => "2026-09-08T01:04:00.000Z",
+    runDesktopIntent: async () => { throw new Error("unused"); },
+  }).execute(run);
+  assert.equal(result.type, "retryable-failure");
+  assert.deepEqual(diagnostics.map((item) => [item.correctionAttempt, item.correctionBudgetUsed, item.correctionBudgetLimit]), [[1, 1, 2], [2, 2, 2]]);
+  assert.ok(diagnostics.every((item) => !Object.hasOwn(item, "response") && !Object.hasOwn(item, "prompt")));
+});
+
 test("recovered sessions inherit the project identity for bounded diagnostics", async () => {
   const { root, run } = await fixture();
   const projectRun = { ...run, request: { ...run.request, projectId: "project-web" } };

@@ -289,7 +289,17 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
             return { type: "waiting-external", reason: "ChatGPT Web failure: usage limit" };
           }
           if (error instanceof ChatGptWebStructuredResultError) {
-            rejectedCount += 1;
+            const correctionAttempt = rejectedCount + 1;
+            rejectedCount = correctionAttempt;
+            await input.adapter.recordResultDiagnostic?.({
+              session,
+              contract: resultContract,
+              message: "Structured result correction attempt",
+              diagnostic: error.diagnostic ?? { diagnosticCategory: "structured-result-rejection", parserInputReceived: true },
+              correctionAttempt,
+              correctionBudgetUsed: rejectedCount,
+              correctionBudgetLimit: maxRejected,
+            });
             if (rejectedCount >= maxRejected) {
               return { type: "retryable-failure", reason: `ChatGPT Web failure: rejected structured-result budget exhausted; ${structuredResultFailureClass(error, resultContract)}` };
             }
@@ -341,9 +351,18 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           }
           if (/policy|stale|generation|active session/i.test(reason)) return { type: "retryable-failure", reason };
           const diagnostic = reasoningResultRejectionDiagnostic(rawResult, error);
-          await input.adapter.recordResultDiagnostic?.({ session, contract: resultContract, message: "Reasoning result schema validation failed", diagnostic });
+          const correctionAttempt = rejectedCount + 1;
+          await input.adapter.recordResultDiagnostic?.({
+            session,
+            contract: resultContract,
+            message: "Reasoning result schema validation failed",
+            diagnostic,
+            correctionAttempt,
+            correctionBudgetUsed: correctionAttempt,
+            correctionBudgetLimit: maxRejected,
+          });
           const boundedReason = String(diagnostic.rejectionClass);
-          rejectedCount += 1;
+          rejectedCount = correctionAttempt;
           if (rejectedCount >= maxRejected) return { type: "retryable-failure", reason: `ChatGPT Web failure: rejected structured-result budget exhausted; ${boundedReason}` };
           desktopEvidence = [...desktopEvidence, { kind: "reasoning-rejection", summary: `Structured result rejected: ${boundedReason}` }];
           prompt = compileWebPrompt({ kind: "feedback", run, session, priorTurns, desktopEvidence });

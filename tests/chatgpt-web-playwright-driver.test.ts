@@ -166,6 +166,25 @@ test("PATCH_FRAME_V1 rejection diagnostics persist safely and reload as bounded 
   assert.equal(JSON.stringify(record).includes(sentinel), false);
 });
 
+test("parser diagnostics persist correction attempt and bounded budget metadata without response text", async () => {
+  const lifecycleRoot = await mkdtemp(join(tmpdir(), "iseol-correction-diagnostics-"));
+  const driver = await createPlaywrightChatGptBrowserDriver({ ...config, lifecycleRoot } as any, { backend: fakeBackend().backend });
+  const sentinel = "ISEOL_RESPONSE_SECRET_SENTINEL";
+  await (driver as any).recordParserDiagnostic({
+    runId: "run-project-1", projectId: "project-1", stage: "ANALYZE", sessionId: "session-1", generation: 4,
+    resultContract: "structured-json", message: "Structured result correction attempt",
+    correctionAttempt: 2, correctionBudgetUsed: 2, correctionBudgetLimit: 3,
+    diagnostic: { diagnosticCategory: "response-envelope-malformed", rejectionClass: "json-syntax-error", parserInputReceived: true, responseSha256: "a".repeat(64), responseLengthBucket: "medium", sentinelPresent: sentinel.includes("RESPONSE") ? "yes" : "no" },
+  });
+  const file = join(lifecycleRoot, "web-workers", "parser-diagnostics.jsonl");
+  const record = JSON.parse((await readFile(file, "utf8")).trim());
+  assert.equal(record.correctionAttempt, 2);
+  assert.equal(record.correctionBudgetUsed, 2);
+  assert.equal(record.correctionBudgetLimit, 3);
+  assert.equal(record.rejectionClass, "json-syntax-error");
+  assert.equal(JSON.stringify(record).includes(sentinel), false);
+});
+
 test("result reading routes only the explicitly selected stage contract", async () => {
   const patch = [
     "diff --git a/app.js b/app.js",
