@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
 import { test } from "node:test";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import type { ChatGptBrowserDriver } from "../src/chatgpt-web/production-browser-adapter.js";
-import { hasProjectRuntimeOwner, shouldAutoRecoverProjectRun, startIseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
+import { hasProjectRuntimeOwner, shouldAutoRecoverProjectRun, shouldRecoverIdeaLabCampaign, startIseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
+import { savePrototypeProduction } from "../src/idea-lab/production-store.js";
+import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 
 function browserDriver(onDispose: () => void = () => undefined): ChatGptBrowserDriver {
   return {
@@ -81,6 +85,35 @@ test("Project Workspace recovery does not auto-retry FAILED_RETRYABLE runs", () 
   assert.equal(hasProjectRuntimeOwner([
     { request: { mode: "project-workspace", runId: "run-4" }, state: { status: "RUNNING" } },
   ], "run-4"), false);
+});
+
+test("Idea Lab recovery barrier blocks a producing campaign with WAITING_EXTERNAL production", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-recovery-barrier-"));
+  const modelRoot = join(root, "model");
+  const runRoot = join(root, "runs");
+  await savePrototypeProduction(modelRoot, {
+    version: 1, id: "production-1", campaignId: "campaign-1", proposalId: "proposal-1", runId: "run-1",
+    repositoryUrl: "https://github.com/example/repo.git", sandboxRoot: join(root, "sandbox"), worktreeRoot: join(root, "worktree"),
+    branch: "idea/production-1", baseRef: "main", status: "running", createdAt: "2026-09-20T00:00:00.000Z", updatedAt: "2026-09-20T00:00:00.000Z",
+  });
+  const run: HarnessRuntimeRunEnvelope = {
+    version: 1, request: { version: 1, mode: "idea-lab", runId: "run-1", projectId: "campaign-1", objective: "prototype", targetRoot: join(root, "worktree") },
+    preflight: { version: 1, runId: "run-1", status: "ready" },
+    state: { version: 1, stage: "IMPLEMENT", status: "WAITING_EXTERNAL", completedStages: [], skippedStages: [], updatedAt: "2026-09-20T00:00:00.000Z", reason: "temporary rate limit" },
+    evidence: [], updatedAt: "2026-09-20T00:00:00.000Z",
+  };
+  await saveHarnessRun(runRoot, run);
+  assert.equal(await shouldRecoverIdeaLabCampaign(modelRoot, runRoot, "campaign-1"), false);
+});
+
+test("Idea Lab recovery barrier permits a producing campaign without external-waiting production", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-recovery-barrier-allow-"));
+  await savePrototypeProduction(join(root, "model"), {
+    version: 1, id: "production-1", campaignId: "campaign-1", proposalId: "proposal-1", runId: "run-1",
+    repositoryUrl: "https://github.com/example/repo.git", sandboxRoot: join(root, "sandbox"), worktreeRoot: join(root, "worktree"),
+    branch: "idea/production-1", baseRef: "main", status: "running", createdAt: "2026-09-20T00:00:00.000Z", updatedAt: "2026-09-20T00:00:00.000Z",
+  });
+  assert.equal(await shouldRecoverIdeaLabCampaign(join(root, "model"), join(root, "runs"), "campaign-1"), true);
 });
 
 test("shares one browser across bridge and Idea Lab and disposes it exactly once", async () => {

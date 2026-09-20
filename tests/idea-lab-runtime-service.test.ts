@@ -108,6 +108,36 @@ test("fresh enqueue runs before pending recovery backlog", async () => {
   await runtime.dispose();
 });
 
+test("recovery guard blocks producing campaigns with an external-waiting production", async () => {
+  const root = await mkdtemp(join(tmpdir(), "idea-lab-runtime-waiting-external-"));
+  await saveIdeaLabCampaign(root, campaign("blocked-producing", "producing"));
+  const calls: string[] = [];
+  const runtime = createIdeaLabRuntimeService({
+    modelRoot: root,
+    recoveryGuard: async () => false,
+    superviseCampaign: async (id) => calls.push(id),
+  });
+  await runtime.recover();
+  await runtime.idle();
+  assert.deepEqual(calls, []);
+  await runtime.dispose();
+});
+
+test("recovery guard permits a producing campaign when its durable runs are resumable", async () => {
+  const root = await mkdtemp(join(tmpdir(), "idea-lab-runtime-recoverable-"));
+  await saveIdeaLabCampaign(root, campaign("recoverable-producing", "producing"));
+  const calls: string[] = [];
+  const runtime = createIdeaLabRuntimeService({
+    modelRoot: root,
+    recoveryGuard: async () => true,
+    superviseCampaign: async (id) => calls.push(id),
+  });
+  await runtime.recover();
+  await runtime.idle();
+  assert.deepEqual(calls, ["recoverable-producing"]);
+  await runtime.dispose();
+});
+
 test("runtime retries interrupted campaign supervision once and reuses an already allocated sandbox", async () => {
   const root = await mkdtemp(join(tmpdir(), "idea-lab-runtime-interrupted-allocation-"));
   await saveIdeaLabCampaign(root, {

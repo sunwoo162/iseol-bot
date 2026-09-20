@@ -11,6 +11,7 @@ export type IdeaLabRuntimeService = {
 export type IdeaLabRuntimeOptions = {
   modelRoot: string;
   superviseCampaign: (campaignId: string) => Promise<void>;
+  recoveryGuard?: (campaignId: string) => Promise<boolean>;
   onError?: (campaignId: string, safeSummary: string) => void;
   requestRetry?: (runId: string) => Promise<"accepted" | "already-active" | "not-allowed">;
   concurrency?: 1;
@@ -80,7 +81,8 @@ export function createIdeaLabRuntimeService(options: IdeaLabRuntimeOptions): Ide
             pendingRecoveryAfterPass.delete(campaignId);
 
           if (retryAfterFailure || recoverAfterPass) {
-            schedule(campaignId, "recovery");
+            const allowed = await (options.recoveryGuard?.(campaignId) ?? Promise.resolve(true));
+            if (allowed) schedule(campaignId, "recovery");
           }
         }
       }
@@ -113,7 +115,9 @@ export function createIdeaLabRuntimeService(options: IdeaLabRuntimeOptions): Ide
     },
     async recover() {
       for (const campaign of await listIdeaLabCampaigns(options.modelRoot)) {
-        if (campaign.status === "generating" || campaign.status === "producing") schedule(campaign.id, "recovery");
+        if (campaign.status !== "generating" && campaign.status !== "producing") continue;
+        const allowed = await (options.recoveryGuard?.(campaign.id) ?? Promise.resolve(true));
+        if (allowed) schedule(campaign.id, "recovery");
       }
     },
     idle() {

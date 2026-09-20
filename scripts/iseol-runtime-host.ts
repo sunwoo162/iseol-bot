@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { timingSafeEqual } from "node:crypto";
 import { mkdir, open, readFile, rm, rename, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
@@ -6,7 +7,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { startIseolRuntimeServices, type IseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
 import { loadHarnessRun } from "../src/harness/run-store.js";
 import { listDesktopJobs, loadDesktopJob } from "../src/desktop-agent/job-store.js";
-import { containDesktopJobAsOperator, inspectDesktopJobReconciliation } from "../src/desktop-agent/operator-reconciliation.js";
+import { containDesktopJobAsOperator, inspectDesktopJobReconciliation, issueDesktopJobContainmentApproval } from "../src/desktop-agent/operator-reconciliation.js";
 
 export type IseolRuntimeHostConfig = {
   version: 1;
@@ -226,6 +227,45 @@ export async function containRuntimeMaintenanceJob(config: IseolRuntimeHostConfi
   }
 }
 
+function equalSecret(actual: string, expected: string): boolean {
+  const left = Buffer.from(actual, "utf8");
+  const right = Buffer.from(expected, "utf8");
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+export async function approveAndContainRuntimeMaintenanceJob(config: IseolRuntimeHostConfig, input: {
+  projectId: string; jobId: string; expectedRevision: string; requestId: string; operationId: string;
+  operatorToken: string; configuredOperatorToken: string; operatorId: string; confirmation: string; at: string; expiresAt: string;
+}) {
+  if (!config.projectRunRoot || !config.projectDesktopStateRoot) throw new Error("Project Desktop maintenance roots are not configured");
+  const release = await acquireRuntimeMaintenanceLock(config.lockPath, runtimeMaintenanceLockPath(config.lockPath), { dataRoot: config.dataRoot, ...(config.codeVersion ? { codeVersion: config.codeVersion } : {}) });
+  try {
+    if (!input.operatorId || !input.configuredOperatorToken || !equalSecret(input.operatorToken, input.configuredOperatorToken)) {
+      return { status: "rejected" as const, reason: "operator-authentication-failed" };
+    }
+    const inspection = await inspectRuntimeMaintenanceJob(config, { projectId: input.projectId, jobId: input.jobId, now: input.at });
+    if (!inspection) return { status: "rejected" as const, reason: "job-not-found" };
+    if (inspection.revision !== input.expectedRevision) return { status: "rejected" as const, reason: "job-revision-mismatch", inspection };
+    if (inspection.contained) return { status: "already-contained" as const, inspection };
+    if (!inspection.canContain) return { status: "rejected" as const, reason: inspection.blockers.join(","), inspection };
+    const expectedConfirmation = `I approve containment of ${input.jobId} at revision ${input.expectedRevision}`;
+    if (input.confirmation !== expectedConfirmation) return { status: "rejected" as const, reason: "operator-confirmation-required", inspection };
+    const job = await loadDesktopJob(config.projectDesktopStateRoot, input.jobId);
+    if (!job) return { status: "rejected" as const, reason: "job-not-found" };
+    const approval = await issueDesktopJobContainmentApproval({
+      root: config.projectDesktopStateRoot, requestId: input.requestId, jobId: input.jobId, runId: job.runId,
+      revision: input.expectedRevision, issuedAt: input.at, expiresAt: input.expiresAt, issuedBy: input.operatorId,
+    });
+    const containment = await containDesktopJobAsOperator({
+      root: config.projectDesktopStateRoot, jobId: input.jobId, expectedRevision: input.expectedRevision,
+      operationId: input.operationId, approvalId: approval.approvalId, at: input.at, actor: "operator",
+    });
+    return { ...containment, approvalId: approval.approvalId };
+  } finally {
+    await release();
+  }
+}
+
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   const config = loadRuntimeHostConfig();
@@ -260,6 +300,24 @@ async function main(): Promise<void> {
     const [projectId, jobId, expectedRevision, operationId, approvalId] = process.argv.slice(3);
     if (!projectId || !jobId || !expectedRevision || !operationId || !approvalId) throw new Error("maintenance-contain requires projectId, jobId, expectedRevision, operationId and approvalId");
     process.stdout.write(JSON.stringify(await containRuntimeMaintenanceJob(config, { projectId, jobId, expectedRevision, operationId, approvalId, at: new Date().toISOString() })));
+    return;
+  }
+  if (command === "maintenance-approve-contain") {
+    const [projectId, jobId, expectedRevision, requestId, operationId, expiresAt] = process.argv.slice(3);
+    if (!projectId || !jobId || !expectedRevision || !requestId || !operationId || !expiresAt) {
+      throw new Error("maintenance-approve-contain requires projectId, jobId, expectedRevision, requestId, operationId and expiresAt");
+    }
+    const inspection = await inspectRuntimeMaintenanceJob(config, { projectId, jobId, now: new Date().toISOString() });
+    process.stderr.write(`${JSON.stringify(inspection)}\n`);
+    const input = JSON.parse(await readFile(0, "utf8")) as { operatorToken?: unknown; confirmation?: unknown };
+    const operatorToken = typeof input.operatorToken === "string" ? input.operatorToken : "";
+    const confirmation = typeof input.confirmation === "string" ? input.confirmation : "";
+    const configuredOperatorToken = process.env.ISEOL_OPERATOR_TOKEN ?? "";
+    const operatorId = process.env.ISEOL_OPERATOR_ID ?? "";
+    process.stdout.write(JSON.stringify(await approveAndContainRuntimeMaintenanceJob(config, {
+      projectId, jobId, expectedRevision, requestId, operationId, expiresAt,
+      operatorToken, configuredOperatorToken, operatorId, confirmation, at: new Date().toISOString(),
+    })));
     return;
   }
   if (command !== "start") throw new Error(`unsupported runtime host command: ${command}`);

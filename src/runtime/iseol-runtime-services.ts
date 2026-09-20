@@ -120,6 +120,15 @@ export function shouldAutoRecoverProjectRun(status: string): boolean {
   return false;
 }
 
+export async function shouldRecoverIdeaLabCampaign(modelRoot: string, runRoot: string, campaignId: string): Promise<boolean> {
+  const productions = (await listPrototypeProductions(modelRoot)).filter((production) => production.campaignId === campaignId);
+  for (const production of productions) {
+    const run = await loadHarnessRun(runRoot, production.runId);
+    if (run?.state.status === "WAITING_EXTERNAL") return false;
+  }
+  return true;
+}
+
 export function hasProjectRuntimeOwner(
   runs: ReadonlyArray<{ request: { mode: string; runId: string }; state: { status: string } }>,
   runId: string,
@@ -376,6 +385,7 @@ export async function startIseolRuntimeServices(
         });
         runtime = createRuntime({
           modelRoot: roots.modelRoot,
+          recoveryGuard: async (campaignId) => shouldRecoverIdeaLabCampaign(roots.modelRoot, roots.runRoot, campaignId),
           requestRetry: async (runId) => {
             const production = (await listPrototypeProductions(roots.modelRoot)).find((item) => item.runId === runId);
             if (!production) return "not-allowed";
