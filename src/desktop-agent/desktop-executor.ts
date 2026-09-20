@@ -3,7 +3,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 import type { HarnessEvidenceKind, HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import type { HarnessStageExecutor, HarnessStageExecutionResult } from "../harness/run-supervisor.js";
 import type { DesktopJobResult, DesktopOperationResult, DesktopTaskPack } from "./contracts.js";
-import { desktopTaskPackMutates } from "./contracts.js";
+import { desktopOperationCapability, desktopTaskPackMutates } from "./contracts.js";
 import { listOnlineDesktopAgents } from "./agent-registry.js";
 import {
   acquireDesktopJobLease,
@@ -164,6 +164,13 @@ export function createDesktopStageExecutor(
       }
       if (compiled.agentId !== agent.agentId) {
         return { type: "final-failure", reason: "Desktop Task Pack targets a different Agent" };
+      }
+      const requiredCapabilities = [...new Set(compiled.operations
+        .filter((operation) => operation.type === "GIT_INIT" || operation.type === "GIT_INSPECT")
+        .map((operation) => desktopOperationCapability(operation.type)))];
+      const missingCapability = requiredCapabilities.find((capability) => !agent.capabilities.includes(capability));
+      if (missingCapability) {
+        return { type: "waiting-agent", reason: `Desktop Agent capability is unavailable: ${missingCapability}` };
       }
 
       const leaseDurationMs = input.leaseDurationMs

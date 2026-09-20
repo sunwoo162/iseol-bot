@@ -158,7 +158,7 @@ test("persistent Agent advertises typed execution capabilities without generic p
     },
   });
   assert.ok(hello);
-  assert.deepEqual(hello.capabilities, ["files", "test", "build", "git", "http"]);
+  assert.deepEqual(hello.capabilities, ["files", "test", "build", "git", "http", "operation:GIT_INIT", "operation:GIT_INSPECT"]);
   assert.equal(hello.capabilities.includes("process"), false);
 });
 

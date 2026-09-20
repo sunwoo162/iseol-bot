@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { assertDesktopAgentId } from "./agent-registry.js";
 import { executeDesktopTaskPack } from "./runtime.js";
 import type { DesktopJobResult } from "./contracts.js";
+import { desktopOperationCapability } from "./contracts.js";
 import { loadCompletedDesktopResults, persistCompletedDesktopResult } from "./result-store.js";
 import { connectDesktopAgentWebSocketClient } from "./ws-client.js";
 
@@ -130,7 +131,7 @@ export async function runPersistentDesktopAgent(
           agentId: config.agentId,
           agentVersion: "0.1.0",
           os: process.platform,
-          capabilities: ["files", "test", "build", "git", "http"],
+          capabilities: ["files", "test", "build", "git", "http", desktopOperationCapability("GIT_INIT"), desktopOperationCapability("GIT_INSPECT")],
           workspaceRoots: config.workspaceRoots,
           token: config.token,
         },

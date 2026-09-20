@@ -8,6 +8,7 @@ import type { DesktopJobResult, DesktopTaskPack } from "../src/desktop-agent/con
 import { registerDesktopAgent } from "../src/desktop-agent/agent-registry.js";
 import { loadDesktopJob } from "../src/desktop-agent/job-store.js";
 import { createDesktopStageExecutor } from "../src/desktop-agent/desktop-executor.js";
+import { desktopOperationCapability } from "../src/desktop-agent/contracts.js";
 
 function run(targetRoot: string, stage: HarnessRuntimeRunEnvelope["state"]["stage"] = "TEST"): HarnessRuntimeRunEnvelope {
   return {
@@ -107,6 +108,38 @@ test("offline agent returns waiting-agent and missing task intent waits for exte
     now: () => "2026-09-08T03:00:10.000Z",
   });
   assert.equal((await waiting.execute(run(targetRoot))).type, "waiting-external");
+});
+
+test("CONTEXT blocks before dispatch when the connected Agent lacks GIT_INIT", async () => {
+  const { registryRoot, jobRoot, targetRoot } = await roots();
+  await register(registryRoot, targetRoot);
+  const transport = new FakeTransport();
+  const executor = createDesktopStageExecutor({
+    registryRoot, jobRoot, transport,
+    compileTaskPack: async () => ({ ...task(targetRoot, "CONTEXT"), policyDigest: "policy", policySources: [{ kind: "test", path: "policy", sha256: "policy", required: true }], operations: [{ id: "init", type: "GIT_INIT", cwd: ".", initialBranch: "main" }] }),
+    now: () => "2026-09-08T03:00:10.000Z",
+  });
+  const blocked = await executor.execute(run(targetRoot, "CONTEXT"));
+  assert.deepEqual(blocked, { type: "waiting-agent", reason: `Desktop Agent capability is unavailable: ${desktopOperationCapability("GIT_INIT")}` });
+  assert.equal(transport.sendCount, 0);
+});
+
+test("CONTEXT dispatches GIT_INIT after Agent reconnect advertises the concrete capability", async () => {
+  const { registryRoot, jobRoot, targetRoot } = await roots();
+  await register(registryRoot, targetRoot);
+  await registerDesktopAgent(registryRoot, {
+    version: 1, agentId: "agent-001", agentVersion: "0.2.0", os: "win32",
+    capabilities: ["git", desktopOperationCapability("GIT_INIT")], workspaceRoots: [targetRoot], token: "not-persisted",
+  }, "2026-09-08T03:00:11.000Z");
+  const transport = new FakeTransport();
+  const executor = createDesktopStageExecutor({
+    registryRoot, jobRoot, transport,
+    compileTaskPack: async () => ({ ...task(targetRoot, "CONTEXT"), policyDigest: "policy", policySources: [{ kind: "test", path: "policy", sha256: "policy", required: true }], operations: [{ id: "init", type: "GIT_INIT", cwd: ".", initialBranch: "main" }] }),
+    now: () => "2026-09-08T03:00:12.000Z",
+  });
+  const result = await executor.execute(run(targetRoot, "CONTEXT"));
+  assert.equal(result.type, "completed");
+  assert.equal(transport.sendCount, 1);
 });
 
 test("completed desktop job becomes stage evidence and duplicate execute reuses receipt", async () => {

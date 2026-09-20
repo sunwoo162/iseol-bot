@@ -62,6 +62,11 @@ export type DesktopOperation =
   | GitCommitOperation
   | CheckHttpOperation;
 
+/** Capability token advertised by an Agent for a concrete wire operation. */
+export function desktopOperationCapability(type: DesktopOperation["type"]): string {
+  return `operation:${type}`;
+}
+
 export type DesktopTaskPack = {
   version: 1;
   jobId: string;
