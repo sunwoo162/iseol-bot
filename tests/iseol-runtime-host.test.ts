@@ -13,6 +13,7 @@ import type { DesktopTaskPack } from "../src/desktop-agent/contracts.js";
 
 test("runtime host parses redirected stdin without treating descriptor zero as a filesystem path", () => {
   assert.deepEqual(parseRuntimeHostStdin<{ operatorId: string }>(JSON.stringify({ operatorId: "operator-1" })), { operatorId: "operator-1" });
+  assert.deepEqual(parseRuntimeHostStdin<{ operatorId: string }>(`\uFEFF${JSON.stringify({ operatorId: "operator-1" })}`), { operatorId: "operator-1" });
 });
 
 test("runtime host loads explicit roots and derives a durable lock path", async () => {

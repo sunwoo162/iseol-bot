@@ -135,7 +135,7 @@ export function runtimeMaintenanceLockPath(runtimeLockPath: string): string {
 }
 
 export function parseRuntimeHostStdin<T>(raw: string): T {
-  return JSON.parse(raw) as T;
+  return JSON.parse(raw.replace(/^\uFEFF/, "")) as T;
 }
 
 function readRuntimeHostStdin<T>(): T {
