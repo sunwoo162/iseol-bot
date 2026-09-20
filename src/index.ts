@@ -36,6 +36,7 @@ import {
 } from "./services/voice-time.js";
 import { startWebhookServer } from "./services/webhook-server.js";
 import { startIseolRuntimeServices } from "./runtime/iseol-runtime-services.js";
+import { createBoundProjectProgressChannelResolver, createDiscordProgressAdapter } from "./discord-project/progress-discord-adapter.js";
 
 const client = new Client({
   intents: [
@@ -49,6 +50,23 @@ const client = new Client({
 const github = new GitHubWebhookService(config.githubToken);
 let iseolRuntimeServices: Awaited<ReturnType<typeof startIseolRuntimeServices>> | null = null;
 let iseolRuntimeStartup: Promise<Awaited<ReturnType<typeof startIseolRuntimeServices>>> | null = null;
+
+function discordProgressRuntimeOptions(): {
+  progressNotificationRoot?: string;
+  progressNotificationAdapter?: ReturnType<typeof createDiscordProgressAdapter>;
+} {
+  // Progress dispatch is explicitly opt-in. The existing Discord client is
+  // reused, while both durable roots must be configured before any message
+  // can be sent. This keeps a partially configured deployment fail-closed.
+  const notificationRoot = process.env.ISEOL_DISCORD_NOTIFICATION_ROOT?.trim();
+  const bindingRoot = process.env.ISEOL_DISCORD_BINDING_ROOT?.trim();
+  if (!notificationRoot || !bindingRoot) return {};
+  const resolveChannel = createBoundProjectProgressChannelResolver({ bindingRoot });
+  return {
+    progressNotificationRoot: notificationRoot,
+    progressNotificationAdapter: createDiscordProgressAdapter(client, resolveChannel),
+  };
+}
 
 let shuttingDown = false;
 async function shutdownIseolRuntime(signal: "SIGINT" | "SIGTERM"): Promise<void> {
@@ -92,7 +110,10 @@ const interactionRouterDependencies: InteractionRouterDependencies = {
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`${readyClient.user.tag} 로그인 완료 · 연결 서버 ${readyClient.guilds.cache.size}개`);
   startWebhookServer(client);
-  iseolRuntimeStartup = startIseolRuntimeServices({ env: process.env });
+  iseolRuntimeStartup = startIseolRuntimeServices({
+    env: process.env,
+    ...discordProgressRuntimeOptions(),
+  });
   void iseolRuntimeStartup
     .then((services) => {
       if (!shuttingDown) iseolRuntimeServices = services;
