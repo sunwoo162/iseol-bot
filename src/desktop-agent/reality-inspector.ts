@@ -158,7 +158,7 @@ export function createDesktopRealityInspector(
         leaseUntil: new Date(Date.parse(at) + inspectTimeoutMs).toISOString(),
         operations: [{ id: "inspect", type: "GIT_INSPECT", cwd: operation.cwd, ...(operation.publish ? { includeRemote: true } : {}) }],
       };
-      input.transport.sendTask(job.pack.agentId, inspectPack);
+      input.transport.sendTask(job.pack.agentId, inspectPack, sessionId);
       const inspectResult = await input.transport.awaitResult(inspectPack.jobId, inspectTimeoutMs);
       const identity = parseIdentity(inspectResult);
       if (!identity) return reality;

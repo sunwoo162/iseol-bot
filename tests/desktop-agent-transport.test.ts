@@ -60,7 +60,7 @@ class FakeWire implements DesktopAgentWire {
   close() { this.closed = true; }
 }
 
-test("hello authentication is strict and duplicate live session is replaced", async () => {
+test("hello authentication is strict and duplicate live identity replacement protects capabilities", async () => {
   const registryRoot = await root();
   const transport = createDesktopAgentTransport({ registryRoot, expectedToken: "secret-token" });
   const first = new FakeWire();
@@ -75,7 +75,21 @@ test("hello authentication is strict and duplicate live session is replaced", as
   const second = new FakeWire();
   await transport.acceptHello("session-2", hello, second);
   assert.equal(first.closed, true);
+  assert.equal(second.closed, false);
   assert.equal(transport.isAgentConnected("agent-001"), true);
+});
+
+test("older capability reconnect cannot replace a newer capable session", async () => {
+  const registryRoot = await root();
+  const transport = createDesktopAgentTransport({ registryRoot, expectedToken: "secret-token" });
+  const capable = new FakeWire();
+  await transport.acceptHello("session-capable", { ...hello, capabilities: ["git", "operation:GIT_INIT"] }, capable);
+  await assert.rejects(
+    transport.acceptHello("session-legacy", hello, new FakeWire()),
+    /more capable session/i,
+  );
+  assert.equal(capable.closed, false);
+  assert.equal(transport.getAgentSessionId("agent-001"), "session-capable");
 });
 
 test("task/result correlation rejects unknown results and disconnect only drops session", async () => {
@@ -321,16 +335,13 @@ test("accepted Desktop Agent hello notifies connection listeners", async () => {
     new FakeWire(),
   );
 
-  await transport.acceptHello(
-    "session-listener-2",
-    hello,
-    new FakeWire(),
-  );
+  transport.disconnect("session-listener-1");
+  await transport.acceptHello("session-listener-2", hello, new FakeWire());
 
   assert.deepEqual(
     connected,
     ["agent-001", "agent-001"],
-    "initial connect and replacement reconnect must both emit",
+    "initial connect and an explicit reconnect after disconnect must both emit",
   );
 
   unsubscribe();

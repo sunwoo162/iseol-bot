@@ -351,7 +351,7 @@ export async function startIseolRuntimeServices(
       if (deployAdapter) {
         const sandboxAdapter: PrototypeSandboxAdapter = createSandboxAdapter({
           dispatch: async (pack) => {
-            desktopCore!.transport.sendTask(pack.agentId, pack);
+            desktopCore!.transport.sendTask(pack.agentId, pack, desktopCore!.transport.getAgentSessionId(pack.agentId) ?? undefined);
             return desktopCore!.transport.awaitResult(pack.jobId, 120_000);
           },
           refreshPreflight: refreshDevelopmentRunPreflight,

@@ -61,6 +61,7 @@ export async function registerDesktopAgent(
   root: string,
   hello: DesktopAgentHello,
   at: string,
+  connectionId?: string,
 ): Promise<DesktopAgentPresence> {
   return serializeAgentWrite(root, hello.agentId, async () => {
     assertDesktopProtocolVersion(hello.version);
@@ -69,6 +70,7 @@ export async function registerDesktopAgent(
     const presence: DesktopAgentPresence = {
       version: 1, agentId: hello.agentId, agentVersion: hello.agentVersion, os: hello.os,
       capabilities: [...hello.capabilities], workspaceRoots: normalizeRoots(hello.workspaceRoots),
+      ...(connectionId ? { connectionId } : {}),
       registeredAt: existing?.registeredAt ?? at, lastHeartbeatAt: at,
     };
     await saveRawPresence(root, presence);
@@ -80,10 +82,12 @@ export async function heartbeatDesktopAgent(
   root: string,
   agentId: string,
   at: string,
+  connectionId?: string,
 ): Promise<DesktopAgentPresence> {
   return serializeAgentWrite(root, agentId, async () => {
     const presence = await loadRawPresence(root, agentId);
     if (!presence) throw new Error(`Desktop Agent not registered: ${agentId}`);
+    if (connectionId && presence.connectionId && presence.connectionId !== connectionId) return presence;
     const next = { ...presence, lastHeartbeatAt: at };
     await saveRawPresence(root, next);
     return next;

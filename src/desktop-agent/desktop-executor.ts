@@ -16,7 +16,7 @@ import {
 export interface DesktopExecutionTransport {
   isAgentConnected(agentId: string): boolean;
   getAgentSessionId(agentId: string): string | null;
-  sendTask(agentId: string, pack: DesktopTaskPack): void;
+  sendTask(agentId: string, pack: DesktopTaskPack, expectedSessionId?: string): void;
   awaitResult(jobId: string, timeoutMs: number): Promise<DesktopJobResult>;
 }
 
@@ -165,6 +165,11 @@ export function createDesktopStageExecutor(
       if (compiled.agentId !== agent.agentId) {
         return { type: "final-failure", reason: "Desktop Task Pack targets a different Agent" };
       }
+      const validatedSessionId = input.transport.getAgentSessionId(agent.agentId);
+      if (!validatedSessionId) return { type: "waiting-agent", reason: "Desktop Agent session is unavailable" };
+      if (agent.connectionId && agent.connectionId !== validatedSessionId) {
+        return { type: "waiting-agent", reason: "Desktop Agent capability snapshot is stale" };
+      }
       const requiredCapabilities = [...new Set(compiled.operations
         .filter((operation) => operation.type === "GIT_INIT" || operation.type === "GIT_INSPECT")
         .map((operation) => desktopOperationCapability(operation.type)))];
@@ -183,8 +188,7 @@ export function createDesktopStageExecutor(
       if (job.status === "indeterminate") {
         return { type: "waiting-agent", reason: `Desktop Job ${job.jobId} requires reality reconciliation` };
       }
-      let sessionId = input.transport.getAgentSessionId(agent.agentId);
-      if (!sessionId) return { type: "waiting-agent", reason: "Desktop Agent session is unavailable" };
+      let sessionId = validatedSessionId;
 
       let leased = await acquireDesktopJobLease(
         input.jobRoot,
@@ -205,7 +209,7 @@ export function createDesktopStageExecutor(
 
       while (true) {
         try {
-          input.transport.sendTask(agent.agentId, dispatchPack);
+          input.transport.sendTask(agent.agentId, dispatchPack, sessionId);
           result = await input.transport.awaitResult(
             job.jobId,
             resultTimeoutMs,

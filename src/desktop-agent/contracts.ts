@@ -21,6 +21,8 @@ export type DesktopAgentHello = {
 };
 
 export type DesktopAgentPresence = Omit<DesktopAgentHello, "token"> & {
+  /** Runtime connection instance that most recently registered this presence. */
+  connectionId?: string;
   registeredAt: string;
   lastHeartbeatAt: string;
 };

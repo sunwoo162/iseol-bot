@@ -23,6 +23,7 @@ export interface DesktopAgentWire {
 export type DesktopAgentSession = {
   sessionId: string;
   agentId: string;
+  capabilities: string[];
   connectedAt: string;
   wire: DesktopAgentWire;
 };
@@ -67,12 +68,16 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
     const previousId = sessionByAgent.get(hello.agentId);
     if (previousId) {
       const previous = sessionsById.get(previousId);
+      const protectedCapabilities = previous?.capabilities.filter((capability) => capability.startsWith("operation:")) ?? [];
+      if (protectedCapabilities.some((capability) => !hello.capabilities.includes(capability))) {
+        throw new Error("Desktop Agent identity is connected with a more capable session");
+      }
       previous?.wire.close("replaced by newer Desktop Agent session");
       sessionsById.delete(previousId);
     }
     const at = now();
-    await registerDesktopAgent(options.registryRoot, hello, at);
-    const session = { sessionId, agentId: hello.agentId, connectedAt: at, wire };
+    await registerDesktopAgent(options.registryRoot, hello, at, sessionId);
+    const session = { sessionId, agentId: hello.agentId, capabilities: [...hello.capabilities], connectedAt: at, wire };
     sessionsById.set(sessionId, session);
     sessionByAgent.set(hello.agentId, sessionId);
 
@@ -91,7 +96,7 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
     const session = sessionsById.get(sessionId);
     if (!session) throw new Error(`Desktop Agent session not found: ${sessionId}`);
     if (message.type === "heartbeat") {
-      await heartbeatDesktopAgent(options.registryRoot, session.agentId, message.at);
+      await heartbeatDesktopAgent(options.registryRoot, session.agentId, message.at, sessionId);
       return;
     }
     if (message.result.agentId !== session.agentId) {
@@ -143,12 +148,15 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
     return sessionId !== undefined && sessionsById.has(sessionId);
   }
 
-  function sendTask(agentId: string, pack: DesktopTaskPack): void {
+  function sendTask(agentId: string, pack: DesktopTaskPack, expectedSessionId?: string): void {
     assertDesktopTaskPack(pack);
     if (pack.agentId !== agentId) throw new Error(`Desktop Task Pack agent mismatch: ${pack.agentId}`);
     const sessionId = sessionByAgent.get(agentId);
     const session = sessionId ? sessionsById.get(sessionId) : undefined;
     if (!session) throw new Error(`Desktop Agent is not connected: ${agentId}`);
+    if (expectedSessionId && sessionId !== expectedSessionId) {
+      throw new Error(`Desktop Agent session changed before dispatch: ${agentId}`);
+    }
     const existing = pending.get(pack.jobId);
 
     if (existing) {

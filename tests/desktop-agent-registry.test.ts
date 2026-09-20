@@ -103,3 +103,15 @@ test("concurrent heartbeats serialize durable presence writes", async () => {
   );
   assert.equal(loaded?.lastHeartbeatAt, timestamps.at(-1));
 });
+
+test("stale connection heartbeat cannot overwrite the current capability snapshot", async () => {
+  const store = await root();
+  await registerDesktopAgent(store, { ...hello, capabilities: ["git"] }, "2026-09-08T01:00:00.000Z", "connection-old");
+  await registerDesktopAgent(store, { ...hello, capabilities: ["git", "operation:GIT_INIT"] }, "2026-09-08T01:00:01.000Z", "connection-new");
+
+  await heartbeatDesktopAgent(store, "agent-001", "2026-09-08T01:00:02.000Z", "connection-old");
+  const current = await getDesktopAgentPresence(store, "agent-001", "2026-09-08T01:00:03.000Z", 60_000);
+  assert.deepEqual(current?.capabilities, ["git", "operation:GIT_INIT"]);
+  assert.equal(current?.connectionId, "connection-new");
+  assert.equal(current?.lastHeartbeatAt, "2026-09-08T01:00:01.000Z");
+});
