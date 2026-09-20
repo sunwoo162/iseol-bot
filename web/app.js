@@ -89,6 +89,10 @@ function prototypeCard(prototype, index) {
   card.append(facts);
 
   const actions = element("div", "prototype-actions");
+  const details = element("button", "ghost-button", "Details");
+  details.type = "button";
+  details.addEventListener("click", () => loadPrototypeDetail(prototype.id));
+  actions.append(details);
   const deployment = element("a", "primary-link", "Open prototype ↗");
   deployment.href = prototype.deployment.url;
   deployment.target = "_blank";
@@ -123,6 +127,10 @@ function campaignCard(campaign) {
   head.append(element("strong", "", "Campaign progress"));
   head.append(element("span", `prototype-state state-${campaign.status}`, campaign.status));
   card.append(head);
+  const details = element("button", "secondary-button", "Open campaign");
+  details.type = "button";
+  details.addEventListener("click", () => loadCampaignDetail(campaign.id));
+  card.append(details);
   card.append(element("p", "campaign-seed", campaign.seed));
   card.append(element("p", "muted", `${campaign.readyCount}/${campaign.targetReadyCount} ready · ${campaign.productionCount} productions · concurrency ${campaign.productionConcurrency}`));
   if (campaign.blockerSummary) card.append(element("p", "campaign-blocker", campaign.blockerSummary));
@@ -152,6 +160,66 @@ function productionCard(production) {
     card.append(open);
   }
   return card;
+}
+
+function renderCampaignDetail(detail) {
+  const section = $("#campaign-detail");
+  const content = $("#campaign-detail-content");
+  section.hidden = false;
+  content.replaceChildren();
+  content.append(element("h3", "", detail.campaign.seed));
+  content.append(element("p", "muted", `${detail.campaign.id} · ${detail.campaign.status} · ${detail.campaign.readyCount}/${detail.campaign.targetReadyCount} ready`));
+  if (detail.campaign.blockerSummary) content.append(element("p", "campaign-blocker", detail.campaign.blockerSummary));
+  const productions = element("div", "production-grid");
+  for (const production of detail.productions) productions.append(productionCard(production));
+  content.append(productions);
+  const prototypes = element("div", "prototype-grid");
+  detail.prototypes.forEach((prototype, index) => prototypes.append(prototypeCard(prototype, index)));
+  if (!detail.prototypes.length) prototypes.append(element("p", "muted", "No prototypes are ready yet."));
+  content.append(prototypes);
+}
+
+function renderPrototypeDetail(detail) {
+  const section = $("#prototype-detail");
+  const content = $("#prototype-detail-content");
+  section.hidden = false;
+  content.replaceChildren();
+  content.append(element("h3", "", detail.prototype.title));
+  content.append(element("p", "", detail.prototype.concept));
+  content.append(element("p", "muted", `${detail.prototype.id} · ${detail.prototype.status}`));
+  if (detail.origin) content.append(element("p", "mono muted", `Campaign ${detail.origin.campaignId} · Production ${detail.origin.productionId}`));
+  const runs = element("div", "run-list");
+  if (!detail.runs.length) runs.append(element("p", "muted", "No genesis Run evidence is available."));
+  for (const run of detail.runs) runs.append(element("p", "mono muted", `${run.runId} · ${run.stage} · ${run.status} · ${run.evidenceCount} evidence`));
+  content.append(runs);
+  if (detail.prototype.deployment.url) {
+    const link = element("a", "primary-link", "Open preview ↗");
+    link.href = detail.prototype.deployment.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    content.append(link);
+  }
+  const promote = element("button", "secondary-button", "Promote to project");
+  promote.type = "button";
+  promote.disabled = detail.prototype.status !== "candidate";
+  promote.addEventListener("click", () => promotePrototype(detail.prototype.id));
+  content.append(promote);
+}
+
+async function loadCampaignDetail(campaignId) {
+  state.selectedCampaignId = campaignId;
+  setLoading(true, "Loading campaign detail…");
+  try { renderCampaignDetail(await fetchJson(`/api/idea-lab/campaigns/${encodeURIComponent(campaignId)}`)); setStatus("success", "Campaign detail loaded."); }
+  catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+  finally { setLoading(false); }
+}
+
+async function loadPrototypeDetail(prototypeId) {
+  state.selectedPrototypeId = prototypeId;
+  setLoading(true, "Loading prototype detail…");
+  try { renderPrototypeDetail(await fetchJson(`/api/prototypes/${encodeURIComponent(prototypeId)}`)); setStatus("success", "Prototype detail loaded."); }
+  catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+  finally { setLoading(false); }
 }
 
 function renderIdeaLab() {
@@ -492,6 +560,39 @@ async function saveExecutionProfile() {
   finally { setLoading(false); }
 }
 
+async function startEventStream() {
+  if (state.eventAbort) state.eventAbort.abort();
+  const controller = new AbortController();
+  state.eventAbort = controller;
+  try {
+    const response = await fetch("/api/events", { headers: authHeaders(), signal: controller.signal });
+    if (!response.ok || !response.body) throw new Error(`event stream unavailable (${response.status})`);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (!controller.signal.aborted) {
+      const part = await reader.read();
+      if (part.done) break;
+      buffer += decoder.decode(part.value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const frame of frames) {
+        const line = frame.split("\n").find((value) => value.startsWith("data: "));
+        if (!line) continue;
+        try {
+          const event = JSON.parse(line.slice(6));
+          if (event.type !== "connected") {
+            await loadIdeaLab({ quiet: true });
+            if (state.selectedProjectId) await selectProject(state.selectedProjectId);
+          }
+        } catch { /* next durable snapshot repairs stale state */ }
+      }
+    }
+  } catch {
+    if (!controller.signal.aborted) setTimeout(startEventStream, 3000);
+  }
+}
+
 async function startProjectRun() {
   const objective = $("#project-objective").value.trim();
   const targetRoot = $("#project-target-root").value.trim();
@@ -642,6 +743,8 @@ function bindEvents() {
   $("#start-project-run").addEventListener("click", () => startProjectRun());
   $("#load-portfolio").addEventListener("click", () => loadPortfolio());
   $("#copy-readme").addEventListener("click", () => copyReadme());
+  $("#close-campaign-detail").addEventListener("click", () => { $("#campaign-detail").hidden = true; });
+  $("#close-prototype-detail").addEventListener("click", () => { $("#prototype-detail").hidden = true; });
 }
 
 async function init() {
@@ -650,6 +753,7 @@ async function init() {
   switchMode("idea-lab");
   clearProjectView();
   await loadIdeaLab();
+  void startEventStream();
 }
 
 init().catch((error) => setStatus("error", error.message));

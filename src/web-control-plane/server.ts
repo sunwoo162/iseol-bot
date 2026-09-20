@@ -6,6 +6,7 @@ import {
   type IdeaLabRuntimeCapability,
   type WebControlPlaneRequest,
 } from "./router.js";
+import { WebProductEventBus } from "./event-bus.js";
 
 const DEFAULT_PORT = 8790;
 const MAX_BODY_BYTES = 64 * 1024;
@@ -28,6 +29,7 @@ export type WebControlPlaneConfig = {
 export type StartWebControlPlaneOptions = WebControlPlaneConfig & {
   port: number;
   ideaLabRuntime?: IdeaLabRuntimeCapability;
+  eventBus?: WebProductEventBus;
 };
 
 function isLoopbackHost(host: string): boolean {
@@ -156,6 +158,32 @@ async function handleRequest(
   res: import("node:http").ServerResponse,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", `http://${options.host}`);
+  if (url.pathname === "/api/events") {
+    if (req.method !== "GET") {
+      res.writeHead(405, { allow: "GET" }).end("method not allowed");
+      return;
+    }
+    if (options.token && headerRecord(req.headers).authorization !== `Bearer ${options.token}`) {
+      sendJson(res, 401, { "content-type": "application/json; charset=utf-8" }, { error: "unauthorized" });
+      return;
+    }
+    const bus = options.eventBus ?? new WebProductEventBus();
+    res.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+    });
+    const write = (event: { id: string; type: string; occurredAt: string; scope?: unknown; payload: unknown }) => {
+      res.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    };
+    write({ id: `connected-${Date.now().toString(36)}`, type: "connected", occurredAt: new Date().toISOString(), payload: { replay: false } });
+    const unsubscribe = bus.subscribe(write);
+    const heartbeat = setInterval(() => { if (!res.destroyed) res.write(": heartbeat\n\n"); }, 25_000);
+    const cleanup = () => { clearInterval(heartbeat); unsubscribe(); };
+    req.on("close", cleanup);
+    res.on("close", cleanup);
+    return;
+  }
   if (url.pathname.startsWith("/api/")) {
     let body: unknown;
     if (req.method === "POST" || req.method === "PUT" || req.method === "PATCH") {
@@ -190,8 +218,9 @@ export async function startWebControlPlaneServer(
     throw new Error(`Invalid Iseol web port: ${options.port}`);
   }
 
+  const eventBus = options.eventBus ?? new WebProductEventBus();
   const server = createServer((req, res) => {
-    void handleRequest(options, req, res).catch((error) => {
+    void handleRequest({ ...options, eventBus }, req, res).catch((error) => {
       if (res.headersSent) {
         res.destroy(error instanceof Error ? error : undefined);
         return;

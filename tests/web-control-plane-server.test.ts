@@ -10,6 +10,7 @@ import {
   resolveWebControlPlaneConfig,
   startWebControlPlaneServer,
 } from "../src/web-control-plane/server.js";
+import { WebProductEventBus } from "../src/web-control-plane/event-bus.js";
 
 function candidate(): PrototypeCandidate {
   return {
@@ -146,6 +147,41 @@ test("server passes ready Idea Lab runtime capability through to campaign creati
     const campaign = await response.json() as { id: string };
     assert.deepEqual(enqueued, [campaign.id]);
   } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("SSE event stream authenticates, emits a connection frame, and forwards bounded events", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-web-events-"));
+  const modelRoot = join(root, "model");
+  const harnessRoot = join(root, "runs");
+  const webRoot = join(root, "web");
+  await mkdir(webRoot, { recursive: true });
+  const bus = new WebProductEventBus();
+  const server = await startWebControlPlaneServer({
+    host: "127.0.0.1", port: 0, token: "secret-token", modelRoot, harnessRoot, webRoot, eventBus: bus,
+  });
+  const address = server.address() as AddressInfo;
+  const controller = new AbortController();
+  try {
+    const denied = await fetch(`http://127.0.0.1:${address.port}/api/events`);
+    assert.equal(denied.status, 401);
+    const stream = await fetch(`http://127.0.0.1:${address.port}/api/events`, {
+      headers: { authorization: "Bearer secret-token" }, signal: controller.signal,
+    });
+    assert.equal(stream.status, 200);
+    assert.match(stream.headers.get("content-type") ?? "", /text\/event-stream/);
+    const reader = stream.body!.getReader();
+    const first = await reader.read();
+    assert.match(new TextDecoder().decode(first.value), /event: connected/);
+    bus.publish({ type: "campaign.updated", scope: { campaignId: "campaign-1" }, payload: { campaignId: "campaign-1", status: "producing" } });
+    const second = await reader.read();
+    const text = new TextDecoder().decode(second.value);
+    assert.match(text, /event: campaign\.updated/);
+    assert.match(text, /campaign-1/);
+    controller.abort();
+  } finally {
+    controller.abort();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });

@@ -62,6 +62,10 @@
           <div class="panel-title"><span>Campaign progress</span><small>Durable production state</small></div>
           <div id="campaign-list" class="campaign-list" aria-live="polite"></div>
           <div id="production-grid" class="production-grid" aria-live="polite"></div>
+          <section id="campaign-detail" class="panel" hidden aria-live="polite">
+            <div class="panel-title"><span>Campaign detail</span><button id="close-campaign-detail" class="ghost-button" type="button">Back</button></div>
+            <div id="campaign-detail-content"></div>
+          </section>
         </section>
         <div class="metric-strip">
           <div><strong id="prototype-count">0</strong><span>prototypes</span></div>
@@ -69,6 +73,10 @@
           <div><strong id="candidate-count">0</strong><span>candidates</span></div>
         </div>
         <div id="prototype-grid" class="prototype-grid" aria-live="polite"></div>
+        <section id="prototype-detail" class="panel" hidden aria-live="polite">
+          <div class="panel-title"><span>Prototype detail</span><button id="close-prototype-detail" class="ghost-button" type="button">Back</button></div>
+          <div id="prototype-detail-content"></div>
+        </section>
       </section>
 
       <section id="project-workspace-view" class="mode-view" hidden>

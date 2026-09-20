@@ -21,6 +21,7 @@ import {
 } from "./view-model.js";
 import type { OperatorReconciliationReason } from "../harness/operator-reconciliation.js";
 import type { OperatorApproval } from "../harness/operator-approval-store.js";
+import type { WebProductEventBus } from "./event-bus.js";
 
 export type WebControlPlaneRequest = {
   method: string;
@@ -68,6 +69,7 @@ export type WebControlPlaneRouterDependencies = {
   now?: () => string;
   campaignIdFactory?: () => string;
   ideaLabRuntime?: IdeaLabRuntimeCapability;
+  eventBus?: WebProductEventBus;
 };
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
@@ -139,6 +141,7 @@ export async function routeWebControlPlaneRequest(
         at: (deps.now ?? (() => new Date().toISOString()))(), idFactory: deps.campaignIdFactory,
       });
       if (deps.ideaLabRuntime?.state === "ready") deps.ideaLabRuntime.enqueue?.(campaign.id);
+      deps.eventBus?.publish({ type: "campaign.created", scope: { campaignId: campaign.id }, payload: { campaignId: campaign.id, status: campaign.status } });
       return response(201, campaign);
     } catch (error) {
       if (error instanceof WebIdeaLabActionError) return response(error.status, { error: error.message });
@@ -213,6 +216,7 @@ export async function routeWebControlPlaneRequest(
       const selectedAt = (deps.now ?? (() => new Date().toISOString()))();
       await setProjectPurpose(projectModelRoot, projectId, profile, selectedAt, "user");
       const view = await buildProjectWorkspaceView(projectModelRoot, projectHarnessRoot, projectId);
+      deps.eventBus?.publish({ type: "project.updated", scope: { projectId }, payload: { projectId, change: "purpose" } });
       return view ? response(200, view) : response(404, { error: "not found" });
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Project workspace not found:")) return response(404, { error: "not found" });
@@ -277,6 +281,7 @@ export async function routeWebControlPlaneRequest(
       const execution = deps.ideaLabRuntime?.enqueueProjectRun
         ? await deps.ideaLabRuntime.enqueueProjectRun(started.run.request.runId)
         : undefined;
+      deps.eventBus?.publish({ type: "run.updated", scope: { projectId, runId: started.run.request.runId }, payload: { projectId, runId: started.run.request.runId, status: started.status } });
       return response(started.status === "created" ? 201 : 200, {
         ...started,
         ...(execution ? { execution } : {}),
@@ -411,9 +416,11 @@ export async function routeWebControlPlaneRequest(
     const campaignId = decodeId(cancelCampaignMatch[1] ?? "");
     if (!campaignId) return response(404, { error: "not found" });
     try {
-      return response(200, await cancelWebIdeaLabCampaign(
+      const cancelled = await cancelWebIdeaLabCampaign(
         deps.modelRoot, campaignId, (deps.now ?? (() => new Date().toISOString()))(),
-      ));
+      );
+      deps.eventBus?.publish({ type: "campaign.updated", scope: { campaignId }, payload: { campaignId, status: cancelled.status } });
+      return response(200, cancelled);
     } catch (error) {
       if (error instanceof WebIdeaLabActionError) return response(error.status, { error: error.message });
       throw error;
@@ -439,9 +446,11 @@ export async function routeWebControlPlaneRequest(
     const prototypeId = decodeId(archiveMatch[1] ?? "");
     if (!prototypeId) return response(404, { error: "not found" });
     try {
-      return response(200, await archivePrototypeCandidate(
+      const archived = await archivePrototypeCandidate(
         deps.modelRoot, prototypeId, (deps.now ?? (() => new Date().toISOString()))(),
-      ));
+      );
+      deps.eventBus?.publish({ type: "prototype.updated", scope: { prototypeId }, payload: { prototypeId, status: archived.status } });
+      return response(200, archived);
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Prototype not found:")) return response(404, { error: "not found" });
       if (error instanceof Error && error.message.includes("cannot be archived")) return response(409, { error: error.message });
@@ -474,6 +483,7 @@ export async function routeWebControlPlaneRequest(
         prototypeId,
         promotedAt: (deps.now ?? (() => new Date().toISOString()))(),
       });
+      deps.eventBus?.publish({ type: "project.promoted", scope: { projectId: workspace.id, prototypeId }, payload: { projectId: workspace.id, prototypeId } });
       return response(200, workspace);
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Prototype not found:")) {
