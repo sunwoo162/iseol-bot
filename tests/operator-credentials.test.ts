@@ -23,6 +23,8 @@ test("DPAPI output validation rejects CLIXML, errors, and empty ciphertext", () 
   assert.equal(isValidDpapiCiphertext(""), false);
   assert.equal(isValidDpapiCiphertext("not-a-ciphertext"), false);
   assert.equal(isValidDpapiCiphertext("0".repeat(128)), true);
+  assert.equal(isValidDpapiCiphertext("dpapi:v1:YWJjZA=="), true);
+  assert.equal(isValidDpapiCiphertext("dpapi:v1:not base64"), false);
 });
 
 test("PowerShell DPAPI failures expose only a safe phase classification", () => {
