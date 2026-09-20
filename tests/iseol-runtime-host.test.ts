@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, loadRuntimeHostConfig, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
-import { approveAndContainRuntimeMaintenanceJob, containRuntimeMaintenanceJob } from "../scripts/iseol-runtime-host.js";
+import { approveAndContainRuntimeMaintenanceJob, approveAndContainRuntimeMaintenanceJobs, containRuntimeMaintenanceJob } from "../scripts/iseol-runtime-host.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import { createDesktopJob, desktopJobRevision, loadDesktopJob, loadDesktopJobContainment } from "../src/desktop-agent/job-store.js";
 import { issueDesktopJobContainmentApproval } from "../src/desktop-agent/operator-reconciliation.js";
@@ -175,4 +175,47 @@ test("maintenance approval requires authenticated explicit confirmation and cont
   if (approved.status === "contained") assert.ok(approved.approvalId);
   assert.equal((await loadDesktopJob(config.projectDesktopStateRoot, job.jobId))?.status, "pending");
   assert.equal((await loadDesktopJobContainment(config.projectDesktopStateRoot, job.jobId))?.mutationRisk, "mutation-uncertain");
+});
+
+test("multi-job maintenance containment keeps one ownership window while preserving independent approvals", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-maintenance-batch-"));
+  const config = {
+    version: 1 as const, dataRoot: root, modelRoot: join(root, "model"), runRoot: join(root, "runs"),
+    webWorkerRoot: join(root, "workers"), browserProfileRoot: join(root, "profile"), lockPath: join(root, "runtime", "iseol-runtime.lock"),
+    projectRunRoot: join(root, "project-runs"), projectDesktopStateRoot: join(root, "project-desktop"),
+  };
+  const makeRun = async (runId: string) => {
+    const run: HarnessRuntimeRunEnvelope = {
+      version: 1, request: { version: 1, mode: "project-workspace", runId, projectId: "project-a", objective: "inspect", targetRoot: join(root, "workspace", runId) },
+      preflight: { version: 1, runId, status: "ready" },
+      state: { version: 1, stage: "CONTEXT", status: "FAILED_RETRYABLE", completedStages: ["PREFLIGHT"], skippedStages: [], updatedAt: "2026-09-20T02:00:00.000Z" },
+      evidence: [], updatedAt: "2026-09-20T02:00:00.000Z",
+    };
+    await saveHarnessRun(config.projectRunRoot, run);
+  };
+  await makeRun("run-batch-1");
+  await makeRun("run-batch-2");
+  const makeJob = async (jobId: string, runId: string, operation: DesktopTaskPack["operations"][number]["type"]) => createDesktopJob(config.projectDesktopStateRoot, {
+    version: 1, jobId, runId, stage: "CONTEXT", attempt: 1, agentId: "agent-live", workspaceRoot: join(root, "workspace", runId),
+    idempotencyKey: `batch:${jobId}`, leaseUntil: "2026-09-20T02:10:00.000Z", operations: [{ id: `${jobId}-op`, type: operation, cwd: "." }],
+    policyDigest: "a".repeat(64), policySources: [{ kind: "policy", path: "policy", sha256: "b".repeat(64), required: true }],
+  }, "2026-09-20T02:00:00.000Z");
+  const job1 = await makeJob("job-batch-1", "run-batch-1", "GIT_INSPECT");
+  const job2 = await makeJob("job-batch-2", "run-batch-2", "GIT_INIT");
+  const revision1 = desktopJobRevision(job1);
+  const revision2 = desktopJobRevision(job2);
+  const result = await approveAndContainRuntimeMaintenanceJobs(config, {
+    operatorToken: "secret", configuredOperatorToken: "secret", operatorId: "operator", at: "2026-09-20T02:00:02.000Z",
+    jobs: [
+      { projectId: "project-a", jobId: job1.jobId, expectedRevision: revision1, requestId: "batch-request-1", operationId: "batch-op-1", expiresAt: "2026-09-20T03:00:00.000Z", confirmation: `I approve containment of ${job1.jobId} at revision ${revision1}` },
+      { projectId: "project-a", jobId: job2.jobId, expectedRevision: revision2, requestId: "batch-request-2", operationId: "batch-op-2", expiresAt: "2026-09-20T03:00:00.000Z", confirmation: "wrong confirmation" },
+    ],
+  });
+  assert.equal(result.results.length, 2);
+  assert.equal(result.results[0]?.status, "contained");
+  assert.equal(result.results[1]?.status, "rejected");
+  assert.equal((await loadDesktopJobContainment(config.projectDesktopStateRoot, job1.jobId))?.mutationRisk, "read-only-uncertain");
+  assert.equal(await loadDesktopJobContainment(config.projectDesktopStateRoot, job2.jobId), null);
+  assert.equal((await loadDesktopJob(config.projectDesktopStateRoot, job1.jobId))?.status, "pending");
+  assert.equal((await loadDesktopJob(config.projectDesktopStateRoot, job2.jobId))?.status, "pending");
 });

@@ -268,6 +268,80 @@ export async function approveAndContainRuntimeMaintenanceJob(config: IseolRuntim
   }
 }
 
+export type RuntimeMaintenanceBatchJob = {
+  projectId: string;
+  jobId: string;
+  expectedRevision: string;
+  requestId: string;
+  operationId: string;
+  confirmation: string;
+  expiresAt: string;
+};
+
+export async function approveAndContainRuntimeMaintenanceJobs(config: IseolRuntimeHostConfig, input: {
+  jobs: RuntimeMaintenanceBatchJob[];
+  operatorToken: string;
+  configuredOperatorToken: string;
+  operatorId: string;
+  at: string;
+}): Promise<{ status: "completed" | "partial" | "rejected"; results: Array<Record<string, unknown>> }> {
+  if (!config.projectRunRoot || !config.projectDesktopStateRoot) throw new Error("Project Desktop maintenance roots are not configured");
+  if (input.jobs.length === 0) return { status: "rejected", results: [{ status: "rejected", reason: "no-jobs" }] };
+  const release = await acquireRuntimeMaintenanceLock(config.lockPath, runtimeMaintenanceLockPath(config.lockPath), { dataRoot: config.dataRoot, ...(config.codeVersion ? { codeVersion: config.codeVersion } : {}) });
+  try {
+    if (!input.operatorId || !input.configuredOperatorToken || !equalSecret(input.operatorToken, input.configuredOperatorToken)) {
+      return { status: "rejected", results: input.jobs.map(() => ({ status: "rejected", reason: "operator-authentication-failed" })) };
+    }
+    const results: Array<Record<string, unknown>> = [];
+    for (const jobInput of input.jobs) {
+      const activeLease = (await listDesktopJobs(config.projectDesktopStateRoot)).find((job) => job.lease && Date.parse(job.lease.expiresAt) > Date.parse(input.at));
+      if (activeLease) {
+        results.push({ status: "rejected", reason: "active-desktop-lease", jobId: jobInput.jobId });
+        continue;
+      }
+      const inspection = await inspectRuntimeMaintenanceJob(config, { projectId: jobInput.projectId, jobId: jobInput.jobId, now: input.at });
+      if (!inspection) {
+        results.push({ status: "rejected", reason: "job-not-found", jobId: jobInput.jobId });
+        continue;
+      }
+      if (inspection.revision !== jobInput.expectedRevision) {
+        results.push({ status: "rejected", reason: "job-revision-mismatch", jobId: jobInput.jobId, inspection });
+        continue;
+      }
+      if (inspection.contained) {
+        results.push({ status: "already-contained", jobId: jobInput.jobId, inspection });
+        continue;
+      }
+      if (!inspection.canContain) {
+        results.push({ status: "rejected", reason: inspection.blockers.join(","), jobId: jobInput.jobId, inspection });
+        continue;
+      }
+      const expectedConfirmation = `I approve containment of ${jobInput.jobId} at revision ${jobInput.expectedRevision}`;
+      if (jobInput.confirmation !== expectedConfirmation) {
+        results.push({ status: "rejected", reason: "operator-confirmation-required", jobId: jobInput.jobId, inspection });
+        continue;
+      }
+      const job = await loadDesktopJob(config.projectDesktopStateRoot, jobInput.jobId);
+      if (!job) {
+        results.push({ status: "rejected", reason: "job-not-found", jobId: jobInput.jobId });
+        continue;
+      }
+      const approval = await issueDesktopJobContainmentApproval({
+        root: config.projectDesktopStateRoot, requestId: jobInput.requestId, jobId: jobInput.jobId, runId: job.runId,
+        revision: jobInput.expectedRevision, issuedAt: input.at, expiresAt: jobInput.expiresAt, issuedBy: input.operatorId,
+      });
+      const containment = await containDesktopJobAsOperator({
+        root: config.projectDesktopStateRoot, jobId: jobInput.jobId, expectedRevision: jobInput.expectedRevision,
+        operationId: jobInput.operationId, approvalId: approval.approvalId, at: input.at, actor: "operator",
+      });
+      results.push({ ...containment, approvalId: approval.approvalId, jobId: jobInput.jobId });
+    }
+    return { status: results.every((result) => result.status === "contained" || result.status === "already-contained") ? "completed" : results.some((result) => result.status === "contained" || result.status === "already-contained") ? "partial" : "rejected", results };
+  } finally {
+    await release();
+  }
+}
+
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   const config = loadRuntimeHostConfig();
@@ -319,6 +393,17 @@ async function main(): Promise<void> {
     process.stdout.write(JSON.stringify(await approveAndContainRuntimeMaintenanceJob(config, {
       projectId, jobId, expectedRevision, requestId, operationId, expiresAt,
       operatorToken, configuredOperatorToken, operatorId, confirmation, at: new Date().toISOString(),
+    })));
+    return;
+  }
+  if (command === "maintenance-approve-contain-batch") {
+    const input = JSON.parse(await readFile(0, "utf8")) as { operatorToken?: unknown; jobs?: unknown };
+    const operatorToken = typeof input.operatorToken === "string" ? input.operatorToken : "";
+    const jobs = Array.isArray(input.jobs) ? input.jobs as RuntimeMaintenanceBatchJob[] : [];
+    const configuredOperatorToken = process.env.ISEOL_OPERATOR_TOKEN ?? "";
+    const operatorId = process.env.ISEOL_OPERATOR_ID ?? "";
+    process.stdout.write(JSON.stringify(await approveAndContainRuntimeMaintenanceJobs(config, {
+      jobs, operatorToken, configuredOperatorToken, operatorId, at: new Date().toISOString(),
     })));
     return;
   }
