@@ -12,6 +12,7 @@ import { startIseolRuntimeServices, type IseolRuntimeServices } from "../src/run
 import { loadHarnessRun } from "../src/harness/run-store.js";
 import { listDesktopJobs, loadDesktopJob } from "../src/desktop-agent/job-store.js";
 import { containDesktopJobAsOperator, inspectDesktopJobReconciliation, issueDesktopJobContainmentApproval } from "../src/desktop-agent/operator-reconciliation.js";
+import { operatorCredentialPath, bootstrapOperatorCredential, readOperatorCredential, rotateOperatorCredential, verifyOperatorCredential } from "../src/runtime/operator-credentials.js";
 
 export type IseolRuntimeHostConfig = {
   version: 1;
@@ -28,6 +29,7 @@ export type IseolRuntimeHostConfig = {
   projectRunRoot?: string;
   projectWebWorkerRoot?: string;
   projectDesktopStateRoot?: string;
+  operatorCredentialPath?: string;
 };
 
 function overlaps(left: string, right: string): boolean {
@@ -97,6 +99,7 @@ export function loadRuntimeHostConfig(path = process.env.ISEOL_RUNTIME_CONFIG ??
     ...(typeof raw.projectRunRoot === "string" && raw.projectRunRoot.trim() ? { projectRunRoot: resolve(raw.projectRunRoot) } : {}),
     ...(typeof raw.projectWebWorkerRoot === "string" && raw.projectWebWorkerRoot.trim() ? { projectWebWorkerRoot: resolve(raw.projectWebWorkerRoot) } : {}),
     ...(typeof raw.projectDesktopStateRoot === "string" && raw.projectDesktopStateRoot.trim() ? { projectDesktopStateRoot: resolve(raw.projectDesktopStateRoot) } : {}),
+    operatorCredentialPath: resolve(raw.operatorCredentialPath ?? operatorCredentialPath(dataRoot)),
   };
   validateProjectRoots(config);
   return config;
@@ -118,6 +121,7 @@ export async function saveRuntimeHostConfig(path: string, config: Omit<IseolRunt
     ...(config.projectRunRoot ? { projectRunRoot: resolve(config.projectRunRoot) } : {}),
     ...(config.projectWebWorkerRoot ? { projectWebWorkerRoot: resolve(config.projectWebWorkerRoot) } : {}),
     ...(config.projectDesktopStateRoot ? { projectDesktopStateRoot: resolve(config.projectDesktopStateRoot) } : {}),
+    operatorCredentialPath: resolve(config.operatorCredentialPath ?? operatorCredentialPath(config.dataRoot)),
   };
   validateProjectRoots(normalized);
   const temporary = `${path}.${process.pid}.tmp`;
@@ -345,11 +349,12 @@ export async function recoverStaleRuntimeLock(config: IseolRuntimeHostConfig, in
   operatorId: string;
   confirmation: string;
   legacyOwnerConfirmation?: string;
+  operatorCredentialVerified?: boolean;
   at: string;
   probe?: RuntimeLockOwnerProbe;
 }): Promise<{ status: "recovered" | "rejected"; reason?: string; releaseMaintenance: () => Promise<void> }> {
   const reject = (reason: string): { status: "rejected"; reason: string; releaseMaintenance: () => Promise<void> } => ({ status: "rejected", reason, releaseMaintenance: async () => {} });
-  if (!input.operatorId || !input.configuredOperatorToken || !equalSecret(input.operatorToken, input.configuredOperatorToken)) return reject("operator-authentication-failed");
+  if (!input.operatorId || (!input.operatorCredentialVerified && (!input.configuredOperatorToken || !equalSecret(input.operatorToken, input.configuredOperatorToken)))) return reject("operator-authentication-failed");
   const initial = await inspectRuntimeLock(config.lockPath, input.probe);
   const legacyOwnerConfirmation = `I confirm external owner inspection for Runtime lock ${initial.fingerprint} pid ${String(initial.identity.pid)}`;
   const ownerConfirmed = initial.state === "stale"
@@ -427,11 +432,12 @@ function equalSecret(actual: string, expected: string): boolean {
 export async function approveAndContainRuntimeMaintenanceJob(config: IseolRuntimeHostConfig, input: {
   projectId: string; jobId: string; expectedRevision: string; requestId: string; operationId: string;
   operatorToken: string; configuredOperatorToken: string; operatorId: string; confirmation: string; at: string; expiresAt: string;
+  operatorCredentialVerified?: boolean;
 }) {
   if (!config.projectRunRoot || !config.projectDesktopStateRoot) throw new Error("Project Desktop maintenance roots are not configured");
   const release = await acquireRuntimeMaintenanceLock(config.lockPath, runtimeMaintenanceLockPath(config.lockPath), { dataRoot: config.dataRoot, ...(config.codeVersion ? { codeVersion: config.codeVersion } : {}) });
   try {
-    if (!input.operatorId || !input.configuredOperatorToken || !equalSecret(input.operatorToken, input.configuredOperatorToken)) {
+    if (!input.operatorId || (!input.operatorCredentialVerified && (!input.configuredOperatorToken || !equalSecret(input.operatorToken, input.configuredOperatorToken)))) {
       return { status: "rejected" as const, reason: "operator-authentication-failed" };
     }
     const activeLease = (await listDesktopJobs(config.projectDesktopStateRoot)).find((job) => job.lease && Date.parse(job.lease.expiresAt) > Date.parse(input.at));
@@ -475,12 +481,13 @@ type RuntimeMaintenanceBatchInput = {
   configuredOperatorToken: string;
   operatorId: string;
   at: string;
+  operatorCredentialVerified?: boolean;
 };
 
 async function runRuntimeMaintenanceJobs(config: IseolRuntimeHostConfig, input: RuntimeMaintenanceBatchInput): Promise<{ status: "completed" | "partial" | "rejected"; results: Array<Record<string, unknown>> }> {
   if (!config.projectRunRoot || !config.projectDesktopStateRoot) throw new Error("Project Desktop maintenance roots are not configured");
   if (input.jobs.length === 0) return { status: "rejected", results: [{ status: "rejected", reason: "no-jobs" }] };
-  if (!input.operatorId || !input.configuredOperatorToken || !equalSecret(input.operatorToken, input.configuredOperatorToken)) {
+  if (!input.operatorId || (!input.operatorCredentialVerified && (!input.configuredOperatorToken || !equalSecret(input.operatorToken, input.configuredOperatorToken)))) {
     return { status: "rejected", results: input.jobs.map(() => ({ status: "rejected", reason: "operator-authentication-failed" })) };
   }
   const results: Array<Record<string, unknown>> = [];
@@ -547,6 +554,7 @@ export async function recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs(co
     operatorToken: input.operatorToken,
     configuredOperatorToken: input.configuredOperatorToken,
     operatorId: input.operatorId,
+    operatorCredentialVerified: input.operatorCredentialVerified,
     confirmation: input.recoveryConfirmation,
     legacyOwnerConfirmation: input.legacyOwnerConfirmation,
     at: input.at,
@@ -563,6 +571,20 @@ export async function recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs(co
 async function main(): Promise<void> {
   const command = process.argv[2] ?? "start";
   const config = loadRuntimeHostConfig();
+  if (command === "operator-bootstrap" || command === "operator-rotate") {
+    const input = JSON.parse(await readFile(0, "utf8")) as { operatorId?: unknown };
+    const operatorId = typeof input.operatorId === "string" ? input.operatorId : "";
+    const result = command === "operator-bootstrap"
+      ? await bootstrapOperatorCredential({ path: config.operatorCredentialPath!, operatorId })
+      : await rotateOperatorCredential({ path: config.operatorCredentialPath!, operatorId });
+    process.stdout.write(JSON.stringify({ status: "configured", operatorId: result.operatorId }));
+    return;
+  }
+  const storedCredential = await readOperatorCredential(config.operatorCredentialPath!);
+  const configuredOperatorId = process.env.ISEOL_OPERATOR_ID?.trim() || storedCredential?.operatorId || "";
+  const verifyCliOperator = async (operatorToken: string): Promise<boolean> => storedCredential
+    ? verifyOperatorCredential({ path: config.operatorCredentialPath!, operatorId: configuredOperatorId, token: operatorToken || undefined })
+    : false;
   if (command === "status") {
     process.stdout.write(JSON.stringify(await readRuntimeHostStatus(config)));
     return;
@@ -599,9 +621,8 @@ async function main(): Promise<void> {
     const legacyOwnerConfirmation = typeof input.legacyOwnerConfirmation === "string" ? input.legacyOwnerConfirmation : undefined;
     const operatorToken = typeof input.operatorToken === "string" ? input.operatorToken : "";
     const jobs = Array.isArray(input.jobs) ? input.jobs as RuntimeMaintenanceBatchJob[] : [];
-    const configuredOperatorToken = process.env.ISEOL_OPERATOR_TOKEN ?? "";
-    const operatorId = process.env.ISEOL_OPERATOR_ID ?? "";
-    const result = await recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs(config, { expectedFingerprint, recoveryConfirmation, legacyOwnerConfirmation, operatorToken, configuredOperatorToken, operatorId, jobs, at: new Date().toISOString() });
+    const operatorCredentialVerified = await verifyCliOperator(operatorToken);
+    const result = await recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs(config, { expectedFingerprint, recoveryConfirmation, legacyOwnerConfirmation, operatorToken, configuredOperatorToken: "", operatorId: configuredOperatorId, operatorCredentialVerified, jobs, at: new Date().toISOString() });
     process.stdout.write(JSON.stringify(result));
     return;
   }
@@ -627,11 +648,10 @@ async function main(): Promise<void> {
     const input = JSON.parse(await readFile(0, "utf8")) as { operatorToken?: unknown; confirmation?: unknown };
     const operatorToken = typeof input.operatorToken === "string" ? input.operatorToken : "";
     const confirmation = typeof input.confirmation === "string" ? input.confirmation : "";
-    const configuredOperatorToken = process.env.ISEOL_OPERATOR_TOKEN ?? "";
-    const operatorId = process.env.ISEOL_OPERATOR_ID ?? "";
+    const operatorCredentialVerified = await verifyCliOperator(operatorToken);
     process.stdout.write(JSON.stringify(await approveAndContainRuntimeMaintenanceJob(config, {
       projectId, jobId, expectedRevision, requestId, operationId, expiresAt,
-      operatorToken, configuredOperatorToken, operatorId, confirmation, at: new Date().toISOString(),
+      operatorToken, configuredOperatorToken: "", operatorId: configuredOperatorId, operatorCredentialVerified, confirmation, at: new Date().toISOString(),
     })));
     return;
   }
@@ -639,10 +659,9 @@ async function main(): Promise<void> {
     const input = JSON.parse(await readFile(0, "utf8")) as { operatorToken?: unknown; jobs?: unknown };
     const operatorToken = typeof input.operatorToken === "string" ? input.operatorToken : "";
     const jobs = Array.isArray(input.jobs) ? input.jobs as RuntimeMaintenanceBatchJob[] : [];
-    const configuredOperatorToken = process.env.ISEOL_OPERATOR_TOKEN ?? "";
-    const operatorId = process.env.ISEOL_OPERATOR_ID ?? "";
+    const operatorCredentialVerified = await verifyCliOperator(operatorToken);
     process.stdout.write(JSON.stringify(await approveAndContainRuntimeMaintenanceJobs(config, {
-      jobs, operatorToken, configuredOperatorToken, operatorId, at: new Date().toISOString(),
+      jobs, operatorToken, configuredOperatorToken: "", operatorId: configuredOperatorId, operatorCredentialVerified, at: new Date().toISOString(),
     })));
     return;
   }

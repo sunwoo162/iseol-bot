@@ -18,6 +18,22 @@ Recovery acquires a recovery ownership file, re-reads the lock, verifies the fin
 
 Legacy locks without `ownerIdentity`, `ownerExecutable`, and `ownerCommandLine` remain `owner-unconfirmed` even when their PID is absent. They require independent operator evidence, the supported owner probe, and the exact additional confirmation `I confirm external owner inspection for Runtime lock <fingerprint> pid <pid>` before recovery can be authorized. PID absence alone is not stale proof.
 
+## First operator setup
+
+The repository does not accept an arbitrary environment value as the first production operator credential. On Windows, the operator must bootstrap a DPAPI-protected credential bound to the current Windows user:
+
+```powershell
+'{"operatorId":"<operator-id>"}' | npm.cmd run iseol:runtime -- operator-bootstrap
+```
+
+The command writes only encrypted credential material under the configured runtime data root and does not print a token. It is one-time; rotation is explicit and must be performed by the registered Windows identity:
+
+```powershell
+'{"operatorId":"<operator-id>"}' | npm.cmd run iseol:runtime -- operator-rotate
+```
+
+The recovery CLI verifies the protected credential and Windows identity. It no longer requires a plaintext token in `.env` when the protected credential exists. The bootstrap and rotation commands must be run by the authorized operator in the intended Windows account; do not place tokens in command-line arguments, logs, Git, or plaintext `.env`.
+
 The latest Runtime checks both maintenance and recovery ownership before startup. Older Runtime binaries do not know the recovery lock, so cross-version startup must remain stopped and externally supervised until the old binary is confirmed absent. This limitation is not solved by deleting a file.
 
 The legacy `runtime-recover-stale` command is deliberately rejected because it cannot preserve the ownership handoff. Before the combined command, inspect `maintenance-status` and both pending jobs. Do not use stale-lock recovery approval as job containment approval. Do not run recovery against the production lock without the separate approval for the exact lock fingerprint and each job.
