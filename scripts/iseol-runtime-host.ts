@@ -154,6 +154,22 @@ export function parseRuntimeHostStdin<T>(raw: string): T {
   return JSON.parse(raw.replace(/^\uFEFF/, "")) as T;
 }
 
+export function normalizeRuntimeLockRecoveryInput(input: {
+  expectedFingerprint?: unknown;
+  recoveryConfirmation?: unknown;
+  legacyOwnerConfirmation?: unknown;
+}): {
+  expectedFingerprint: string;
+  confirmation: string;
+  legacyOwnerConfirmation?: string;
+} {
+  return {
+    expectedFingerprint: typeof input.expectedFingerprint === "string" ? input.expectedFingerprint : "",
+    confirmation: typeof input.recoveryConfirmation === "string" ? input.recoveryConfirmation : "",
+    ...(typeof input.legacyOwnerConfirmation === "string" ? { legacyOwnerConfirmation: input.legacyOwnerConfirmation } : {}),
+  };
+}
+
 function readRuntimeHostStdin<T>(): T {
   // fs.promises.readFile does not accept numeric stdin descriptors on Windows;
   // readFileSync(0) is the supported cross-shell path for redirected stdin.
@@ -783,13 +799,11 @@ async function main(): Promise<void> {
   }
   if (command === "maintenance-recover-stale-lock") {
     const input = readRuntimeHostStdin<{ expectedFingerprint?: unknown; recoveryConfirmation?: unknown; legacyOwnerConfirmation?: unknown }>();
-    const expectedFingerprint = typeof input.expectedFingerprint === "string" ? input.expectedFingerprint : "";
-    const recoveryConfirmation = typeof input.recoveryConfirmation === "string" ? input.recoveryConfirmation : "";
-    const legacyOwnerConfirmation = typeof input.legacyOwnerConfirmation === "string" ? input.legacyOwnerConfirmation : undefined;
+    const recoveryInput = normalizeRuntimeLockRecoveryInput(input);
     const operatorToken = "";
     const operatorCredentialVerified = await verifyCliOperator("");
     const result = await recoverStaleRuntimeLockOnly(config, {
-      expectedFingerprint, recoveryConfirmation, legacyOwnerConfirmation, operatorToken,
+      ...recoveryInput, operatorToken,
       configuredOperatorToken: "", operatorId: configuredOperatorId, operatorCredentialVerified,
       at: new Date().toISOString(),
     });

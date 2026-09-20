@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, inspectRuntimeLock, loadRuntimeHostConfig, parseRuntimeHostStdin, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, recoverStaleRuntimeLockOnly, requestControlledRuntimeStop, requestRuntimeStop, resolveConfiguredRuntimeOperatorId, resolveRuntimeCodeVersion, runtimeRecoveryLockPath, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
+import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, inspectRuntimeLock, loadRuntimeHostConfig, normalizeRuntimeLockRecoveryInput, parseRuntimeHostStdin, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, recoverStaleRuntimeLockOnly, requestControlledRuntimeStop, requestRuntimeStop, resolveConfiguredRuntimeOperatorId, resolveRuntimeCodeVersion, runtimeRecoveryLockPath, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
 import { approveAndContainRuntimeMaintenanceJob, approveAndContainRuntimeMaintenanceJobs, containRuntimeMaintenanceJob } from "../scripts/iseol-runtime-host.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import { createDesktopJob, desktopJobRevision, loadDesktopJob, loadDesktopJobContainment } from "../src/desktop-agent/job-store.js";
@@ -19,6 +19,18 @@ test("runtime host parses redirected stdin without treating descriptor zero as a
 test("stored protected credential identity takes precedence over a stale environment operator id", () => {
   assert.equal(resolveConfiguredRuntimeOperatorId("sunwoo", "user"), "sunwoo");
   assert.equal(resolveConfiguredRuntimeOperatorId(undefined, "user"), "user");
+});
+
+test("lock-only recovery maps the CLI recoveryConfirmation field to the recovery contract", () => {
+  assert.deepEqual(normalizeRuntimeLockRecoveryInput({
+    expectedFingerprint: "fingerprint",
+    recoveryConfirmation: "I approve stale Runtime lock recovery for fingerprint",
+    legacyOwnerConfirmation: "owner-confirmation",
+  }), {
+    expectedFingerprint: "fingerprint",
+    confirmation: "I approve stale Runtime lock recovery for fingerprint",
+    legacyOwnerConfirmation: "owner-confirmation",
+  });
 });
 
 test("runtime host loads explicit roots and derives a durable lock path", async () => {
