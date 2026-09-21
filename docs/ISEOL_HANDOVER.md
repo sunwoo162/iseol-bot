@@ -50,9 +50,9 @@ npm.cmd run iseol:runtime -- maintenance-status
 
 원본 콘솔을 잃은 Windows 프로세스의 외부 종료는 graceful disposal이 아니다. 기존 stop 검증을 우회하거나 lock을 수동 삭제하지 않는다. operator-stop, lock-only recovery, startup은 각각 별도 승인 대상이다. 과거 승인은 새 PID/lock에 자동 적용되지 않는다.
 
-## 당장 이어갈 작업
+## 후속 구현 상태
 
-Idea Lab root 중복과 Project 목록/승격 root 연결을 격리 fixture에서 먼저 재현한다. 이번 조사에서는 코드/설정을 수정하지 않았다. **root 변경은 읽기 화면뿐 아니라 startup recovery가 발견하는 campaign 집합도 바꾸므로**, 화면 복구만 보고 운영 적용해서는 안 된다. WAITING_EXTERNAL barrier가 실제 prod-8 관계를 찾고 중복 enqueue하지 않는지를 합성 상태로 검증한다.
+2026-09-21 후속 구현에서 Idea Lab root 중복, Project 목록 누락, 분리 root promotion 경계를 합성 fixture로 재현하고 수정했다. `scripts/iseol-runtime-host.ts`는 canonical store가 있는 legacy `<dataRoot>/idea-lab` 설정을 컨테이너 root로 정규화하며 canonical/nested 데이터가 동시에 있으면 fail-closed한다. `GET /api/projects`와 UI 목록은 기존 workspace를 직접 조회하고, promotion은 `projectModelRoot`에 저장한다. 다음 세션은 이 변경을 운영에 반영하기 전 startup recovery와 WAITING_EXTERNAL barrier를 운영과 분리된 배포 fixture에서 재검증해야 한다.
 
 등록된 Web token은 operator DPAPI credential과 별개다. 브라우저 acceptance에는 운영자 직접 인증 또는 합성 서버/합성 토큰을 사용한다. 테스트용 토큰을 운영 credential로 등록하지 않는다.
 

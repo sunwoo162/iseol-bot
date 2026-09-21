@@ -2,20 +2,24 @@
 
 상태: 승인된 architecture 1의 구현 계획. 이번 세션은 문서 작성만 승인됐으며 아래 구현·운영 action을 수행하지 않았다. 기존 JSON store/Runtime/Harness/WebWorker/Desktop/Discord를 유지한다. [조사](../../audits/2026-09-21-system-review.md), [제품](../../ISEOL_PRODUCT_SPEC.md), [학습](../../ISEOL_LEARNING_SPEC.md), [아키텍처](../../ISEOL_ARCHITECTURE.md)를 먼저 읽는다.
 
-## 다음 세션의 첫 작업: 저장소 경로와 목록 회귀 재현
+## 완료: 저장소 경로와 목록 회귀 복구
 
-목적은 기존 사용자가 존재하는 campaign과 workspace를 실제 화면에서 선택하게 하는 것이다. 운영 화면을 채우기 위해 새 campaign을 만들지 않는다.
+목적은 기존 사용자가 존재하는 campaign과 workspace를 실제 화면에서 선택하게 하는 것이었다. 운영 화면을 채우기 위해 새 campaign을 만들지 않았다.
 
-1. 최신 Git/작업 트리 및 읽기 전용 상태를 확인한다. 문서 작성 이후 source 변경을 비교한다. 운영 root는 fixture로 사용하지 않는다.
-2. 임시 root에 campaign 1개, failed production 7개, WAITING_EXTERNAL production 1개, READY candidate 0개, 별도 Project root에 active workspace 2개를 구성한다. 모든 ID와 경로는 합성값이다.
-3. `src/idea-lab/store-utils.ts`, `scripts/iseol-runtime-host.ts`, `src/web-control-plane/server.ts`의 root 전달 계약을 테스트로 고정한다. root 중복이 빈 성공으로 숨는 경우를 재현한다. 기존 canonical layout을 보존할 방식을 선택하고 자동 운영 migration은 하지 않는다.
+1. 최신 Git/작업 트리 및 읽기 전용 상태를 확인했다. 운영 root는 fixture로 사용하지 않았다.
+2. 임시 root에 campaign 1개, WAITING_EXTERNAL production/run 1개, 완료된 candidate 1개, 별도 Project root에 기존 active workspace 1개를 구성한다. 모든 ID와 경로는 합성값이다.
+3. `src/idea-lab/store-utils.ts`, `scripts/iseol-runtime-host.ts`, `src/runtime/iseol-runtime-services.ts`와 Web Control Plane의 root 전달 계약을 테스트로 고정한다. root 중복이 빈 성공으로 숨는 경우를 재현한다. 기존 canonical layout을 보존할 방식을 선택하고 자동 운영 migration은 하지 않는다.
 4. `src/web-control-plane/router.ts`와 `web/app.js`에 대한 별도 project list 회귀를 먼저 작성한다. existing workspace와 promoted candidate의 관계를 분리한다. Project 목록 API 계약/권한과 선택 상태를 설계한 뒤 구현한다.
 5. 서로 다른 modelRoot/projectModelRoot에서 promotion→workspace detail의 쓰기/읽기 위치를 재현한다. origin/genesis evidence 보존 및 같은 candidate 반복 promotion의 idempotency를 검증한다.
 6. root 수정 후 startup fixture에서 WAITING_EXTERNAL/WAITING_AGENT/contained job enqueue·redispatch가 0회인지 검사한다. 읽기 복구가 실행 허가를 의미하지 않게 한다.
 7. 실제 임시 브라우저에서 인증→목록→상세→뒤로→오류를 검증한다. fixture promotion만 수행하고 운영 token/profile은 사용하지 않는다.
-8. 집중 테스트, 기존 runtime/containment 회귀, npm test/build/static 검사 후 영어 Conventional Commit. 운영 설정 반영은 결과와 영향 범위를 제시하고 별도 승인받는다.
+8. 집중 테스트, 기존 runtime/containment 회귀, npm test/build/static 검사와 합성 Chrome 검증을 통과시켰다. 운영 설정 반영은 결과와 영향 범위를 제시하고 별도 승인받는다.
 
-완료 기준: fixture 목록 수가 durable 원본과 일치하고 기존 project가 prototype 없이도 선택 가능하다. production waiting은 완료 preview로 보이지 않는다. 분리 root promotion 상세가 성공하며 보호 작업 dispatch 0회다. 실제 브라우저를 실행하지 못했다면 구현 완료와 acceptance 미검증을 별도로 남긴다.
+완료 기준 충족: fixture 목록 수가 durable 원본과 일치하고 기존 project가 prototype 없이도 선택 가능하다. production waiting은 완료 preview로 보이지 않는다. 분리 root promotion 상세가 성공하며 보호 작업 dispatch 0회다. 합성 Chrome에서 목록·상세·뒤로 이동·promotion·오류·빈 상태를 확인했다. 운영 browser acceptance는 아직 미검증이다.
+
+## 다음 세션의 첫 작업
+
+운영 Runtime을 교체하지 않고, 동일 수정본을 별도 배포 fixture로 기동해 canonical root discovery와 recovery barrier를 검증한다. 그 다음 단계는 queue의 terminal Run observer와 명시적 resume UX다.
 
 ## 단계별 범위·검증·완료 기준
 

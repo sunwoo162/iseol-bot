@@ -89,6 +89,16 @@ export function loadRuntimeHostConfig(path = process.env.ISEOL_RUNTIME_CONFIG ??
     if (typeof raw[key] !== "string" || !raw[key].trim()) throw new Error(`runtime configuration field is missing: ${key}`);
   }
   const dataRoot = resolve(raw.dataRoot!);
+  // Store APIs take the model container, not its idea-lab child directory.
+  // Support the historical host configuration without moving or copying data.
+  const configuredModelRoot = resolve(raw.modelRoot!);
+  const legacyIdeaRoot = configuredModelRoot === resolve(dataRoot, "idea-lab");
+  const ideaLabStoreNames = ["campaigns", "productions", "proposals", "prototypes"];
+  const hasCanonicalIdeaLabStore = ideaLabStoreNames.some(name => existsSync(resolve(configuredModelRoot, name)));
+  const hasNestedIdeaLabStore = ideaLabStoreNames.some(name => existsSync(resolve(configuredModelRoot, "idea-lab", name)));
+  if (legacyIdeaRoot && hasCanonicalIdeaLabStore && hasNestedIdeaLabStore) {
+    throw new Error("Ambiguous legacy modelRoot: canonical and nested Idea Lab data both exist");
+  }
   const projectRuntimeEnabled = raw.projectRuntimeEnabled;
   if (projectRuntimeEnabled !== undefined && typeof projectRuntimeEnabled !== "boolean") {
     throw new Error("runtime configuration field must be boolean: projectRuntimeEnabled");
@@ -99,7 +109,7 @@ export function loadRuntimeHostConfig(path = process.env.ISEOL_RUNTIME_CONFIG ??
   const config = {
     version: 1,
     dataRoot,
-    modelRoot: resolve(raw.modelRoot!),
+    modelRoot: legacyIdeaRoot && !hasNestedIdeaLabStore ? dataRoot : configuredModelRoot,
     runRoot: resolve(raw.runRoot!),
     webWorkerRoot: resolve(raw.webWorkerRoot!),
     browserProfileRoot: resolve(raw.browserProfileRoot!),

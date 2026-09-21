@@ -59,6 +59,10 @@ export type IdeaLabView = {
   productions: WebIdeaLabProductionSummary[];
 };
 
+export type ProjectWorkspaceListView = {
+  projects: Array<{ id: string; name: string; status: "active" | "archived"; createdAt: string; updatedAt: string }>;
+};
+
 export type WebIdeaLabCampaignDetail = {
   campaign: WebIdeaLabCampaignSummary;
   productions: WebIdeaLabProductionSummary[];

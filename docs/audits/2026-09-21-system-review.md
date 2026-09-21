@@ -96,6 +96,8 @@ Project 목록은 독립 결함이다. `web/app.js`의 `refreshProjectOptions()`
 
 이번 단계의 새 인증 브라우저 acceptance는 미수행이다. 기본 화면 로드와 사용자가 인증 후 빈 목록을 확인한 선행 관찰만 있다. ChatGPT Web 실제 앱 생성, Discord 전송, GitHub push/PR, 배포는 미검증이다. 모든 과거 분기의 모든 코드와 모든 외부 계정까지 검증한 전수 감사도 아니다. 주요 src 영역·명령·API·설계·테스트를 인벤토리에 매핑했다.
 
-## 다음 안전한 행동
+## 후속 구현 결과와 다음 안전한 행동
 
-운영 설정을 바로 고치지 말고 합성 campaign/prod-8/contained job/active workspace를 갖는 분리 root fixture에서 root 계약과 목록·promotion 경계를 재현한다. WAITING_EXTERNAL discovery가 복구되더라도 enqueue 0회임을 검증한다. 오프라인 코드·테스트는 다음 개발 범위로 승인 후 가능하고, 운영 root 변경·Runtime 교체·Live 요청은 각각 별도 승인이다. 구체 작업은 [로드맵](../superpowers/plans/2026-09-21-integrated-development.md)에 있다.
+조사에서 발견한 세 결함은 이후 격리 구현에서 해결했다. `loadRuntimeHostConfig`가 canonical Idea Lab store가 있는 legacy modelRoot를 dataRoot 컨테이너로 정규화하고 canonical/nested 충돌을 거부한다. `GET /api/projects`와 Project Workspace UI는 직접 workspace 목록을 읽으며 bearer 인증, 빈 목록, 조회 실패를 구분한다. promotion은 `projectModelRoot`를 사용해 분리 root 상세 조회와 일치하고, 이미 promoted된 후보가 다른 root에 조용히 복제되지 않도록 한다. 합성 브라우저 acceptance는 목록→상세→Idea 상세→promotion→Project 선택→오류/빈 상태를 통과했다. 전체 회귀는 591 PASS로 확장됐다. 이 변경은 운영 PID 9108이나 운영 저장소에 적용되지 않았다.
+
+운영 설정을 바로 고치지 말고 이 변경을 포함한 별도 배포 fixture에서 root 계약과 목록·promotion 경계를 다시 확인한다. WAITING_EXTERNAL discovery가 복구돼도 enqueue 0회임을 검증한다. 오프라인 코드·테스트는 다음 개발 범위로 가능하고, 운영 root 변경·Runtime 교체·Live 요청은 각각 별도 승인이다. 구체 작업은 [로드맵](../superpowers/plans/2026-09-21-integrated-development.md)에 있다.

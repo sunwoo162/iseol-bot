@@ -20,6 +20,7 @@ import {
   buildIdeaLabCampaignDetail,
   buildPrototypeDetail,
   buildProjectWorkspaceView,
+  buildProjectWorkspaceListView,
 } from "./view-model.js";
 import type { OperatorReconciliationReason } from "../harness/operator-reconciliation.js";
 import type { OperatorApproval } from "../harness/operator-approval-store.js";
@@ -494,9 +495,16 @@ export async function routeWebControlPlaneRequest(
     return response("status" in (issued as Record<string, unknown>) && (issued as Record<string, unknown>).status === "rejected" ? 409 : 201, issued);
   }
 
+  if (path === "/api/projects") {
+    if (request.method !== "GET") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    return response(200, await buildProjectWorkspaceListView(projectModelRoot));
+  }
+
   const projectMatch = /^\/api\/projects\/([^/]+)$/.exec(path);
   if (projectMatch) {
     if (request.method !== "GET") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
     const projectId = decodeId(projectMatch[1] ?? "");
     if (!projectId) return response(404, { error: "not found" });
     const view = await buildProjectWorkspaceView(
@@ -577,6 +585,7 @@ export async function routeWebControlPlaneRequest(
     try {
       const workspace = await promotePrototype({
         modelRoot: deps.modelRoot,
+        projectModelRoot,
         harnessRoot: deps.harnessRoot,
         prototypeId,
         promotedAt: (deps.now ?? (() => new Date().toISOString()))(),
@@ -586,6 +595,9 @@ export async function routeWebControlPlaneRequest(
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Prototype not found:")) {
         return response(404, { error: "not found" });
+      }
+      if (error instanceof Error && error.message.startsWith("Promoted prototype workspace is missing:")) {
+        return response(409, { error: "promoted project workspace is missing" });
       }
       throw error;
     }

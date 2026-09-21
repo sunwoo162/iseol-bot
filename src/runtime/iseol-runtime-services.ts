@@ -545,6 +545,8 @@ export async function startIseolRuntimeServices(
 
     webServer = await startWeb({
       ...webConfig,
+      modelRoot: roots.modelRoot,
+      harnessRoot: roots.runRoot,
       // Harness preflight resolves the global policy relative to iseolRoot.
       // Live Idea Lab and Project Workspace runs share the repository policy,
       // while their durable model/run roots remain isolated above.

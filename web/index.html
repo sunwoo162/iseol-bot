@@ -89,12 +89,13 @@
           <div class="workspace-picker">
             <label for="project-select">Project</label>
             <select id="project-select">
-              <option value="">Select a promoted project</option>
+              <option value="">Select a project</option>
             </select>
             <button id="refresh-project" class="ghost-button" type="button">Refresh</button>
           </div>
         </div>
 
+        <p id="project-list-status" role="status" aria-live="polite"></p>
         <div id="project-empty" class="empty-state">
           <strong>No project selected.</strong>
           <span>Idea Lab에서 후보를 승격하거나 위에서 프로젝트를 선택하세요.</span>

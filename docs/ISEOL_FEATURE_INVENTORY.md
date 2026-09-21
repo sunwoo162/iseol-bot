@@ -119,5 +119,16 @@ listed as live or rollout work until actually performed.
 | 친구/채팅/커뮤니티/모집 | 4 설계 | Discord 채널·공모전·조직 초대와 별도 제품 도메인 |
 | 검증 가능한 개인 포트폴리오 | 3 부분 | project evidence draft 재사용, user attribution/privacy/학습 링크 신규 |
 
+## 2026-09-21 조회 복구 구현 결과
+
+이번 후속 커밋에서 아래 세 결함을 운영과 분리된 fixture로 재현하고 수정했다. 이 표의 상태는 코드·격리 테스트 기준이며 현재 운영 Runtime 반영을 뜻하지 않는다.
+
+| 기능 | 구현 결과 | 격리 증거 | 운영/Live 상태 |
+|---|---|---|---|
+| Idea Lab model root | legacy `dataRoot/idea-lab` 설정을 canonical store container로 정규화; canonical/nested 동시 존재는 fail-closed | `tests/read-model-roots.test.ts`, `tests/read-model-startup.test.ts` | 운영 Runtime 9108은 교체하지 않음; 적용 전 별도 승인 |
+| Project Workspace 목록 | bearer-protected `GET /api/projects`, workspace store 직접 조회, empty/error 구분, 기존 promotion 선택 병합 | `tests/read-model-roots.test.ts`, `tests/read-model-browser.test.ts` | 실제 운영 목록 acceptance는 Runtime 교체 후 미검증 |
+| 분리 root promotion | `projectModelRoot`에 workspace/history 저장, origin/genesis/evidence 유지, same-process duplicate 및 promoted candidate의 다른 root 재생성 차단 | `tests/read-model-roots.test.ts`, 기존 promotion suites | 실제 외부 promotion/Live prototype 미검증 |
+| startup safety | canonical Idea discovery 후 WAITING_EXTERNAL/WAITING_AGENT/contained job dispatch 0회 유지 | `tests/read-model-startup.test.ts` | 기존 prod-8·contained jobs 변경 없음 |
+
 검토 범위는 주요 제품 기능군, 모든 src 영역/등록 command, 현행 API, 관련 spec/plan와 테스트 목록이다.
 모든 과거 커밋의 모든 줄·외부 계정·브라우저 동선을 실행한 감사는 아니다. 전용 테스트가 확인되지 않은 기능을 테스트 완료로 올리지 않았다.

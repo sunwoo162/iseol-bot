@@ -13,10 +13,13 @@ import { loadProjectWorkspace, saveProjectWorkspace } from "./workspace-store.js
 
 export type PromotePrototypeInput = {
   modelRoot: string;
+  projectModelRoot?: string;
   harnessRoot: string;
   prototypeId: string;
   promotedAt: string;
 };
+
+const promotionInFlight = new Map<string, Promise<ProjectWorkspace>>();
 
 function workspaceIdFor(prototypeId: string): string {
   return `project-${prototypeId}`;
@@ -125,7 +128,7 @@ async function markPromoted(
   });
 }
 
-export async function promotePrototype(
+async function promotePrototypeOnce(
   input: PromotePrototypeInput,
 ): Promise<ProjectWorkspace> {
   const candidate = await loadPrototypeCandidate(input.modelRoot, input.prototypeId);
@@ -133,14 +136,18 @@ export async function promotePrototype(
   assertPromotionReadyPrototype(candidate);
 
   const projectId = workspaceIdFor(candidate.id);
-  const existing = await loadProjectWorkspace(input.modelRoot, projectId);
+  const projectModelRoot = input.projectModelRoot ?? input.modelRoot;
+  const existing = await loadProjectWorkspace(projectModelRoot, projectId);
   if (existing) {
     if (existing.genesis.prototypeId !== candidate.id) {
       throw new Error(`Project workspace identity mismatch: ${projectId}`);
     }
-    await ensureHistory(input.modelRoot, existing);
+    await ensureHistory(projectModelRoot, existing);
     await markPromoted(input.modelRoot, candidate, projectId, input.promotedAt);
     return existing;
+  }
+  if (candidate.status === "promoted" && candidate.promotedProjectId === projectId) {
+    throw new Error(`Promoted prototype workspace is missing: ${projectId}`);
   }
 
   const runs: GenesisRunSnapshot[] = [];
@@ -149,8 +156,24 @@ export async function promotePrototype(
   }
 
   const workspace = createWorkspace(candidate, runs, input.promotedAt);
-  await saveProjectWorkspace(input.modelRoot, workspace);
-  await ensureHistory(input.modelRoot, workspace);
+  await saveProjectWorkspace(projectModelRoot, workspace);
+  await ensureHistory(projectModelRoot, workspace);
   await markPromoted(input.modelRoot, candidate, workspace.id, input.promotedAt);
   return workspace;
+}
+
+export async function promotePrototype(
+  input: PromotePrototypeInput,
+): Promise<ProjectWorkspace> {
+  const projectModelRoot = input.projectModelRoot ?? input.modelRoot;
+  const key = `${projectModelRoot}\0${input.prototypeId}`;
+  const active = promotionInFlight.get(key);
+  if (active) return active;
+  const operation = promotePrototypeOnce(input);
+  promotionInFlight.set(key, operation);
+  try {
+    return await operation;
+  } finally {
+    if (promotionInFlight.get(key) === operation) promotionInFlight.delete(key);
+  }
 }

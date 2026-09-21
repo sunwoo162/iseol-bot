@@ -2,6 +2,7 @@ const TOKEN_KEY = "iseol.web.token";
 const state = {
   mode: "idea-lab",
   ideaLab: { prototypes: [], campaigns: [], productions: [] },
+  projects: [],
   evaluation: { quick: null, soak: null },
   selectedProjectId: "",
   project: null,
@@ -42,7 +43,7 @@ function authHeaders() {
 }
 
 async function fetchJson(path, options = {}) {
-  const response = await fetch(path, options);
+  const response = await fetch(path, { ...options, headers: { ...authHeaders(), ...options.headers } });
   let body = null;
   try { body = await response.json(); } catch { body = null; }
   if (!response.ok) {
@@ -149,7 +150,7 @@ function productionCard(production) {
   head.append(element("strong", "mono", production.id));
   head.append(element("span", `prototype-state state-${production.status}`, production.status));
   card.append(head);
-  card.append(element("p", "muted", `Run ${production.runId} · ${production.run?.stage ?? "pending"}`));
+  card.append(element("p", "muted", `Run ${production.runId} · ${production.run?.stage ?? "pending"} · ${production.run?.status ?? "not created"}`));
   card.append(element("p", "mono muted", `${production.branch} · ${shortSha(production.commitSha)}`));
   if (production.blockerSummary) card.append(element("p", "campaign-blocker", production.blockerSummary));
   if (production.deploymentUrl) {
@@ -250,12 +251,40 @@ function renderIdeaLab() {
 function refreshProjectOptions() {
   const select = $("#project-select");
   const current = state.selectedProjectId;
-  select.replaceChildren(new Option("Select a promoted project", ""));
+  select.replaceChildren(new Option("Select a project", ""));
+  const projects = new Map(state.projects.map(project => [project.id, project.name]));
   for (const prototype of state.ideaLab.prototypes ?? []) {
     if (!prototype.promotedProjectId) continue;
-    select.append(new Option(prototype.title, prototype.promotedProjectId));
+    if (!projects.has(prototype.promotedProjectId)) projects.set(prototype.promotedProjectId, prototype.title);
   }
+  for (const [id, name] of projects) select.append(new Option(`${name} (${id})`, id));
   if ([...select.options].some((option) => option.value === current)) select.value = current;
+}
+
+let projectListGeneration = 0;
+async function loadProjects() {
+  const generation = ++projectListGeneration;
+  const notice = $("#project-list-status");
+  const select = $("#project-select");
+  notice.dataset.kind = "loading";
+  notice.textContent = "Loading projects…";
+  select.disabled = true;
+  try {
+    const result = await fetchJson("/api/projects");
+    if (generation !== projectListGeneration) return false;
+    state.projects = result.projects;
+    refreshProjectOptions();
+    const count = select.options.length - 1;
+    notice.dataset.kind = count ? "success" : "empty";
+    notice.textContent = count ? `${count} projects loaded.` : "No projects available.";
+    select.disabled = count === 0;
+    return true;
+  } catch (error) {
+    if (generation !== projectListGeneration) return false;
+    notice.dataset.kind = "error";
+    notice.textContent = `Project list unavailable: ${error.message}`;
+    return false;
+  }
 }
 
 async function loadIdeaLab({ quiet = false } = {}) {
@@ -322,6 +351,7 @@ async function promotePrototype(prototypeId) {
       body: JSON.stringify({}),
     });
     await loadIdeaLab({ quiet: true });
+    await loadProjects();
     switchMode("project-workspace");
     await selectProject(project.id);
     setStatus("success", `Promoted ${prototypeId} to ${project.id}.`);
@@ -346,7 +376,7 @@ function switchMode(mode) {
   $("#idea-lab-view").hidden = mode !== "idea-lab";
   $("#project-workspace-view").hidden = mode !== "project-workspace";
   $("#evaluation-view").hidden = mode !== "evaluation";
-  if (mode === "project-workspace") refreshProjectOptions();
+  if (mode === "project-workspace") void loadProjects();
   if (mode === "evaluation") void loadEvaluation();
 }
 
@@ -827,7 +857,9 @@ function bindEvents() {
   $("#refresh-ideas").addEventListener("click", () => loadIdeaLab());
   $("#create-campaign").addEventListener("click", () => createCampaign(false));
   $("#make-more").addEventListener("click", () => createCampaign(true));
-  $("#refresh-project").addEventListener("click", () => selectProject(state.selectedProjectId));
+  $("#refresh-project").addEventListener("click", async () => {
+    if (await loadProjects()) await selectProject(state.selectedProjectId);
+  });
   $("#refresh-evaluation").addEventListener("click", () => loadEvaluation());
   $("#project-select").addEventListener("change", (event) => selectProject(event.target.value));
   $("#preview-execution-profile").addEventListener("click", () => previewExecutionProfile());

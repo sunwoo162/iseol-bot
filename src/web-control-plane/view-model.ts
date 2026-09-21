@@ -5,11 +5,12 @@ import { listIdeaLabCampaigns, loadIdeaLabCampaign } from "../idea-lab/campaign-
 import { listPrototypeProductions } from "../idea-lab/production-store.js";
 import { loadProjectHistory } from "../project-model/history-store.js";
 import { listPrototypeCandidates, loadPrototypeCandidate } from "../project-model/prototype-store.js";
-import { loadProjectWorkspace } from "../project-model/workspace-store.js";
+import { loadProjectWorkspace, listProjectWorkspaces } from "../project-model/workspace-store.js";
 import type {
   EvaluationView,
   IdeaLabView,
   ProjectWorkspaceView,
+  ProjectWorkspaceListView,
   WebEvaluationReportSummary,
   WebIdeaLabCampaignSummary,
   WebIdeaLabCampaignDetail,
@@ -18,6 +19,10 @@ import type {
   WebPrototypeDetail,
   WebRunSummary,
 } from "./contracts.js";
+
+export async function buildProjectWorkspaceListView(modelRoot: string): Promise<ProjectWorkspaceListView> {
+  return { projects: (await listProjectWorkspaces(modelRoot)).map(({ id, name, status, createdAt, updatedAt }) => ({ id, name, status, createdAt, updatedAt })) };
+}
 
 export function toPrototypeCard(
   candidate: Awaited<ReturnType<typeof listPrototypeCandidates>>[number],
