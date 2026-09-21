@@ -8,7 +8,7 @@ The Runtime host never removes a lock as a side effect of status or startup. A s
 npm.cmd run iseol:runtime -- maintenance-recover-stale-contain-batch
 ```
 
-The command reads JSON from stdin and uses `ISEOL_OPERATOR_TOKEN` and `ISEOL_OPERATOR_ID` from the operator's authenticated environment. The JSON must contain the exact fingerprint from the immediately preceding inspection, a separate recovery confirmation, and independently approved job entries. The recovery confirmation is:
+The command reads JSON from stdin and authenticates the stored protected operator credential for the current Windows identity. The stored operator ID takes precedence over `ISEOL_OPERATOR_ID`; an arbitrary `ISEOL_OPERATOR_TOKEN` environment value is not a bootstrap credential. Older instructions describing environment-only authentication are historical. The JSON must contain the exact fingerprint from the immediately preceding inspection, a separate recovery confirmation, and independently approved job entries. The recovery confirmation is:
 
 ```text
 I approve stale Runtime lock recovery for <exact fingerprint>
