@@ -48,7 +48,7 @@ npm.cmd run iseol:runtime -- maintenance-status
 
 설정은 `iseol-runtime.json`의 경로 필드만 검사한다. `.env` 전체, operator credential, cookie, raw AI 응답을 출력하지 않는다. JSON은 UTF-8로 읽는다. Windows PowerShell 기본 인코딩에 의한 깨짐을 JSON 손상으로 오판하지 않는다.
 
-원본 콘솔을 잃은 Windows 프로세스의 외부 종료는 graceful disposal이 아니다. 기존 stop 검증을 우회하거나 lock을 수동 삭제하지 않는다. operator-stop, lock-only recovery, startup은 각각 별도 승인 대상이다. 과거 승인은 새 PID/lock에 자동 적용되지 않는다.
+최신 Runtime의 공식 `stop`은 보호된 운영자 identity와 lock owner/fingerprint를 확인한 뒤 Runtime 자체의 identity-bound local control endpoint(named pipe on Windows)를 호출한다. `stop-requested`만으로 정상 종료를 판단하지 않고, Runtime이 `services.dispose()`와 lock release를 끝내 `{"state":"stopped"}`를 반환한 경우에만 성공으로 본다. 원본 콘솔을 잃은 legacy Windows 프로세스의 `operator-stop` 외부 종료는 graceful disposal이 아니다. 기존 stop 검증을 우회하거나 lock을 수동 삭제하지 않는다. operator-stop, lock-only recovery, startup은 각각 별도 승인 대상이다. 과거 승인은 새 PID/lock에 자동 적용되지 않는다.
 
 ## 후속 구현 상태
 

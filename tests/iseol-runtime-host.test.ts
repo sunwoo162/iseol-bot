@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, inspectRuntimeLock, loadRuntimeHostConfig, normalizeRuntimeLockRecoveryInput, parseRuntimeHostStdin, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, recoverStaleRuntimeLockOnly, requestControlledRuntimeStop, requestRuntimeStop, resolveConfiguredRuntimeOperatorId, resolveRuntimeCodeVersion, runtimeRecoveryLockPath, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
+import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, createRuntimeShutdownServer, inspectRuntimeLock, loadRuntimeHostConfig, normalizeRuntimeLockRecoveryInput, parseRuntimeHostStdin, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, recoverStaleRuntimeLockOnly, requestControlledRuntimeStop, requestRuntimeStop, requestRuntimeShutdown, resolveConfiguredRuntimeOperatorId, resolveRuntimeCodeVersion, runRuntimeStopLifecycle, runtimeRecoveryLockPath, runtimeShutdownEndpoint, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
 import { approveAndContainRuntimeMaintenanceJob, approveAndContainRuntimeMaintenanceJobs, containRuntimeMaintenanceJob } from "../scripts/iseol-runtime-host.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import { createDesktopJob, desktopJobRevision, loadDesktopJob, loadDesktopJobContainment } from "../src/desktop-agent/job-store.js";
@@ -46,6 +46,101 @@ test("runtime host loads explicit roots and derives a durable lock path", async 
 test("runtime stop uses a catchable signal on Windows and SIGTERM elsewhere", () => {
   assert.equal(runtimeStopSignal("win32"), "SIGINT");
   assert.equal(runtimeStopSignal("linux"), "SIGTERM");
+});
+
+test("runtime shutdown control returns the final stopped result over its local endpoint", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-shutdown-channel-"));
+  const lockPath = join(root, "runtime.lock");
+  const endpoint = runtimeShutdownEndpoint(lockPath);
+  let calls = 0;
+  const server = await createRuntimeShutdownServer(endpoint, async (request) => {
+    calls += 1;
+    assert.equal(request.expectedPid, 4242);
+    assert.equal(request.expectedFingerprint, "fingerprint");
+    assert.equal(request.expectedOwnerIdentity, "owner");
+    return { status: "stopped", pid: 4242 };
+  });
+  try {
+    const result = await requestRuntimeShutdown(endpoint, {
+      expectedPid: 4242,
+      expectedFingerprint: "fingerprint",
+      expectedOwnerIdentity: "owner",
+      operatorId: "operator",
+      requestId: "request-1",
+    });
+    assert.deepEqual(result, { status: "stopped", pid: 4242 });
+    assert.equal(calls, 1);
+  } finally {
+    await server.close();
+  }
+});
+
+test("runtime shutdown control serializes duplicate requests without a second dispose", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-shutdown-duplicate-"));
+  const endpoint = runtimeShutdownEndpoint(join(root, "runtime.lock"));
+  let handlerCalls = 0;
+  let disposeCalls = 0;
+  let stopPromise: Promise<{ status: "stopped"; pid: number }> | undefined;
+  let resolveStop!: () => void;
+  const stopping = new Promise<void>((resolve) => { resolveStop = resolve; });
+  const server = await createRuntimeShutdownServer(endpoint, async () => {
+    handlerCalls += 1;
+    if (!stopPromise) {
+      disposeCalls += 1;
+      stopPromise = stopping.then(() => ({ status: "stopped" as const, pid: 4242 }));
+    }
+    return stopPromise;
+  });
+  try {
+    const first = requestRuntimeShutdown(endpoint, { expectedPid: 4242, expectedFingerprint: "f", expectedOwnerIdentity: "o", operatorId: "operator", requestId: "request-1" });
+    const second = requestRuntimeShutdown(endpoint, { expectedPid: 4242, expectedFingerprint: "f", expectedOwnerIdentity: "o", operatorId: "operator", requestId: "request-2" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(handlerCalls, 2);
+    assert.equal(disposeCalls, 1);
+    resolveStop();
+    assert.deepEqual(await first, { status: "stopped", pid: 4242 });
+    assert.deepEqual(await second, { status: "stopped", pid: 4242 });
+  } finally {
+    await server.close();
+  }
+});
+
+test("runtime shutdown control reports disposal failure without claiming stopped", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-shutdown-failure-"));
+  const endpoint = runtimeShutdownEndpoint(join(root, "runtime.lock"));
+  const server = await createRuntimeShutdownServer(endpoint, async () => ({ status: "stop-failed", pid: 4242, reason: "dispose failed" }));
+  try {
+    const result = await requestRuntimeShutdown(endpoint, { expectedPid: 4242, expectedFingerprint: "f", expectedOwnerIdentity: "o", operatorId: "operator", requestId: "request-1" });
+    assert.deepEqual(result, { status: "stop-failed", pid: 4242, reason: "dispose failed" });
+  } finally {
+    await server.close();
+  }
+});
+
+test("runtime shutdown control failure does not fall back to a process signal", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-shutdown-unavailable-"));
+  const endpoint = runtimeShutdownEndpoint(join(root, "runtime.lock"));
+  await assert.rejects(requestRuntimeShutdown(endpoint, { expectedPid: 4242, expectedFingerprint: "f", expectedOwnerIdentity: "o", operatorId: "operator", requestId: "request-1" }));
+});
+
+test("runtime stop lifecycle preserves the lock when disposal fails", async () => {
+  let releases = 0;
+  const result = await runRuntimeStopLifecycle({
+    pid: 4242,
+    dispose: async () => { throw new Error("dispose failed"); },
+    release: async () => { releases += 1; },
+  });
+  assert.deepEqual(result, { status: "stop-failed", pid: 4242, reason: "dispose failed" });
+  assert.equal(releases, 0);
+});
+
+test("runtime stop lifecycle reports lock release failure without claiming stopped", async () => {
+  const result = await runRuntimeStopLifecycle({
+    pid: 4242,
+    dispose: async () => undefined,
+    release: async () => { throw new Error("release failed"); },
+  });
+  assert.deepEqual(result, { status: "stop-failed", pid: 4242, reason: "release failed" });
 });
 
 test("runtime code version prefers the checked-out Git HEAD over stale configured metadata", async () => {

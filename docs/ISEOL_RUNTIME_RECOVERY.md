@@ -16,6 +16,12 @@ I approve stale Runtime lock recovery for <exact fingerprint>
 
 Recovery acquires a recovery ownership file, re-reads the lock, verifies the fingerprint and owner state, acquires maintenance ownership while recovery ownership is held, removes only the unchanged stale lock, and processes the independently approved job entries before releasing maintenance ownership. This combined command is required because a short-lived recovery process cannot safely hand off ownership between separate commands. A changed lock, live or reused owner, unavailable owner identity, competing recovery/maintenance owner, or unreadable lock fails closed.
 
+## Graceful Runtime stop
+
+The official `stop` command authenticates the registered protected operator identity, verifies the current lock owner and fingerprint, and sends a one-shot request through the Runtime's identity-bound local control endpoint. On Windows this endpoint is a named pipe; it does not use `process.kill(pid, "SIGINT")`. The Runtime itself runs its shutdown handler, stops accepting new work, awaits `services.dispose()`, verifies the lock owner again, and releases the lock. The command returns `{"state":"stopped"}` only after that sequence completes.
+
+`stop-requested` is not a successful result. A control-channel error, timeout, disposal failure, owner/fingerprint change, or lock-release failure is a failed stop and leaves the process/lock for read-only inspection. The CLI never falls back to a signal or force-kill. Do not start a replacement Runtime until the PID and listener are absent and `status` reports `stopped`. The legacy `operator-stop` command remains a separately approved controlled external termination path for a Runtime that has no control endpoint; it is not graceful and may leave an indeterminate lock or in-flight external work.
+
 When the pending jobs are already contained and only the Runtime lock remains, use the lock-only command instead of the batch command:
 
 ```powershell

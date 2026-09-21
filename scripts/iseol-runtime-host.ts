@@ -1,11 +1,12 @@
 import "dotenv/config";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { timingSafeEqual } from "node:crypto";
-import { mkdir, open, readFile, rm, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, rm, rename, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
+import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 const execFile = promisify(execFileCallback);
 import { startIseolRuntimeServices, type IseolRuntimeServices } from "../src/runtime/iseol-runtime-services.js";
@@ -192,6 +193,129 @@ export function runtimeRecoveryLockPath(runtimeLockPath: string): string {
 
 export function runtimeStopSignal(platform = process.platform): "SIGINT" | "SIGTERM" {
   return platform === "win32" ? "SIGINT" : "SIGTERM";
+}
+
+export type RuntimeShutdownRequest = {
+  expectedPid: number;
+  expectedFingerprint: string;
+  expectedOwnerIdentity: string;
+  operatorId: string;
+  requestId: string;
+};
+
+export type RuntimeShutdownResponse =
+  | { status: "stopped"; pid: number }
+  | { status: "stop-failed"; pid: number; reason: string }
+  | { status: "rejected"; reason: string };
+
+/**
+ * The endpoint is derived from the lock path rather than persisted in the lock.
+ * On Windows this is a named pipe, which avoids the non-catchable SIGINT path
+ * for detached/non-console Node processes. On POSIX it is a private Unix socket
+ * next to the lock and is removed when the server is closed.
+ */
+export function runtimeShutdownEndpoint(lockPath: string): string {
+  const endpointId = createHash("sha256").update(resolve(lockPath), "utf8").digest("hex").slice(0, 32);
+  return process.platform === "win32"
+    ? `\\\\.\\pipe\\iseol-runtime-shutdown-${endpointId}`
+    : resolve(dirname(lockPath), `.iseol-runtime-shutdown-${endpointId}.sock`);
+}
+
+function boundedShutdownReason(error: unknown): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  return reason.replace(/[\r\n]+/g, " ").slice(0, 240) || "shutdown failed";
+}
+
+export async function createRuntimeShutdownServer(
+  endpoint: string,
+  handler: (request: RuntimeShutdownRequest) => Promise<RuntimeShutdownResponse>,
+  onResponse?: (response: RuntimeShutdownResponse) => void,
+): Promise<{ endpoint: string; close: () => Promise<void> }> {
+  if (process.platform !== "win32") await rm(endpoint, { force: true });
+  const server: Server = createServer((socket: Socket) => {
+    let input = "";
+    let settled = false;
+    const finish = async () => {
+      if (settled) return;
+      settled = true;
+      try {
+        if (input.length > 16 * 1024) throw new Error("shutdown request is too large");
+        const parsed = JSON.parse(input) as Partial<RuntimeShutdownRequest>;
+        if (!Number.isInteger(parsed.expectedPid) || parsed.expectedPid <= 0
+          || typeof parsed.expectedFingerprint !== "string"
+          || typeof parsed.expectedOwnerIdentity !== "string"
+          || typeof parsed.operatorId !== "string"
+          || typeof parsed.requestId !== "string") throw new Error("shutdown request is invalid");
+        const response = await handler(parsed as RuntimeShutdownRequest);
+        socket.end(`${JSON.stringify(response)}\n`, () => onResponse?.(response));
+      } catch (error) {
+        socket.end(`${JSON.stringify({ status: "rejected", reason: boundedShutdownReason(error) })}\n`);
+      }
+    };
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk: string) => {
+      if (settled) return;
+      input += chunk;
+      if (input.includes("\n")) {
+        input = input.slice(0, input.indexOf("\n"));
+        void finish();
+      }
+    });
+    socket.on("end", () => { void finish(); });
+    socket.on("error", () => { settled = true; });
+  });
+  await new Promise<void>((resolveListen, rejectListen) => {
+    const onError = (error: Error) => { server.off("listening", onListening); rejectListen(error); };
+    const onListening = () => { server.off("error", onError); resolveListen(); };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(endpoint);
+  });
+  if (process.platform !== "win32") await chmod(endpoint, 0o600);
+  return {
+    endpoint,
+    close: () => new Promise<void>((resolveClose, rejectClose) => {
+      server.close(async (error) => {
+        if (error && (error as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING") { rejectClose(error); return; }
+        if (process.platform !== "win32") await rm(endpoint, { force: true });
+        resolveClose();
+      });
+    }),
+  };
+}
+
+export async function requestRuntimeShutdown(
+  endpoint: string,
+  request: RuntimeShutdownRequest,
+  timeoutMs = 15_000,
+): Promise<RuntimeShutdownResponse> {
+  return new Promise((resolveResponse, rejectResponse) => {
+    let output = "";
+    let settled = false;
+    const socket = createConnection(endpoint);
+    const finish = (error?: Error, response?: RuntimeShutdownResponse) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      if (error) rejectResponse(error);
+      else resolveResponse(response!);
+    };
+    socket.setTimeout(timeoutMs, () => finish(new Error("Runtime graceful shutdown timed out")));
+    socket.setEncoding("utf8");
+    socket.once("connect", () => socket.write(`${JSON.stringify(request)}\n`));
+    socket.on("data", (chunk: string) => {
+      output += chunk;
+      const newline = output.indexOf("\n");
+      if (newline < 0) return;
+      try {
+        const response = JSON.parse(output.slice(0, newline)) as RuntimeShutdownResponse;
+        if (!response || typeof response !== "object" || typeof response.status !== "string") throw new Error("Runtime shutdown response is invalid");
+        finish(undefined, response);
+      } catch (error) { finish(error instanceof Error ? error : new Error("Runtime shutdown response is invalid")); }
+    });
+    socket.once("error", (error) => finish(error instanceof Error ? error : new Error("Runtime shutdown control channel failed")));
+    socket.once("end", () => { if (!settled) finish(new Error("Runtime shutdown control channel closed without a result")); });
+  });
 }
 
 export type RuntimeLockOwnerProbe = (pid: number, lock: Record<string, unknown>) => Promise<{
@@ -418,15 +542,47 @@ export async function readRuntimeHostStatus(config: IseolRuntimeHostConfig): Pro
   return { state: inspection.state, configVersion: config.version, dataRoot: config.dataRoot, codeVersion: inspection.identity.codeVersion ?? config.codeVersion ?? "unverified", codeVersionSource: inspection.identity.codeVersionSource ?? (config.codeVersion ? "configured" : "unverified"), fingerprint: inspection.fingerprint, owner: inspection.owner, ...inspection.identity, ...(inspection.reason ? { reason: inspection.reason } : {}) };
 }
 
-export async function requestRuntimeStop(config: Pick<IseolRuntimeHostConfig, "lockPath">): Promise<{ state: "stop-requested"; pid: number; signal: "SIGINT" | "SIGTERM" }> {
+export async function requestRuntimeStop(config: Pick<IseolRuntimeHostConfig, "lockPath"> & {
+  operatorId?: string;
+  operatorCredentialVerified?: boolean;
+}): Promise<{ state: "stopped"; pid: number }> {
   const inspection = await inspectRuntimeLock(config.lockPath);
   if (inspection.state !== "running" || inspection.owner.state !== "verified" || !Number.isInteger(inspection.identity.pid)) {
     throw new Error(`Runtime stop requires a verified running owner (state: ${inspection.state})`);
   }
+  if (!config.operatorId || !config.operatorCredentialVerified) throw new Error("operator-authentication-failed");
   const pid = inspection.identity.pid as number;
-  const signal = runtimeStopSignal();
-  process.kill(pid, signal);
-  return { state: "stop-requested", pid, signal };
+  const raw = await readFile(config.lockPath, "utf8");
+  const expectedOwnerIdentity = typeof inspection.identity.ownerIdentity === "string" ? inspection.identity.ownerIdentity : "";
+  if (!expectedOwnerIdentity || lockFingerprint(raw) !== inspection.fingerprint) throw new Error("Runtime lock changed before graceful stop");
+  const response = await requestRuntimeShutdown(runtimeShutdownEndpoint(config.lockPath), {
+    expectedPid: pid,
+    expectedFingerprint: inspection.fingerprint,
+    expectedOwnerIdentity,
+    operatorId: config.operatorId,
+    requestId: randomUUID(),
+  });
+  if (response.status === "stopped") return { state: "stopped", pid: response.pid };
+  if (response.status === "stop-failed") throw new Error(`Runtime graceful shutdown failed: ${response.reason}`);
+  throw new Error(`Runtime graceful shutdown rejected: ${response.reason}`);
+}
+
+export async function runRuntimeStopLifecycle(input: {
+  pid: number;
+  dispose: () => Promise<void>;
+  release: () => Promise<void>;
+  close?: () => void;
+}): Promise<RuntimeShutdownResponse> {
+  try {
+    await input.dispose();
+    await input.release();
+    input.close?.();
+    return { status: "stopped", pid: input.pid };
+  } catch (error) {
+    // Releasing a lock after a partial disposal would allow another Runtime
+    // to start while resources may still be alive, so fail closed instead.
+    return { status: "stop-failed", pid: input.pid, reason: boundedShutdownReason(error) };
+  }
 }
 
 function normalizedCommandLine(commandLine: string): string {
@@ -769,7 +925,8 @@ async function main(): Promise<void> {
   }
   if (command === "stop") {
     if (!(await readFile(config.lockPath, "utf8").catch(() => ""))) { process.stdout.write(JSON.stringify({ state: "stopped" })); return; }
-    process.stdout.write(JSON.stringify(await requestRuntimeStop(config)));
+    const operatorCredentialVerified = await verifyCliOperator("");
+    process.stdout.write(JSON.stringify(await requestRuntimeStop({ ...config, operatorId: configuredOperatorId, operatorCredentialVerified })));
     return;
   }
   if (command === "operator-stop") {
@@ -876,14 +1033,27 @@ async function main(): Promise<void> {
   const release = await acquireRuntimeLock(config.lockPath, { dataRoot: config.dataRoot, codeVersion: runtimeCodeVersion.codeVersion, codeVersionSource: runtimeCodeVersion.source });
   let services: IseolRuntimeServices | undefined;
   let stopping = false;
-  const stop = async () => {
-    if (stopping) return;
+  let stopPromise: Promise<RuntimeShutdownResponse> | undefined;
+  let shutdownServer: { close: () => Promise<void> } | undefined;
+  const stop = (): Promise<RuntimeShutdownResponse> => {
+    if (stopPromise) return stopPromise;
     stopping = true;
-    try { await services?.dispose(); }
-    finally { await release(); }
+    stopPromise = runRuntimeStopLifecycle({
+      pid: process.pid,
+      dispose: async () => { await services?.dispose(); },
+      release,
+      close: () => { if (shutdownServer) void shutdownServer.close().catch(() => undefined); },
+    });
+    return stopPromise;
   };
-  process.once("SIGINT", () => { void stop().finally(() => process.exit(130)); });
-  process.once("SIGTERM", () => { void stop().finally(() => process.exit(143)); });
+  const stopFromSignal = (exitCode: number) => {
+    void stop().then((result) => {
+      if (result.status === "stopped") process.exit(exitCode);
+      process.exitCode = 1;
+    });
+  };
+  process.once("SIGINT", () => stopFromSignal(130));
+  process.once("SIGTERM", () => stopFromSignal(143));
   try {
     const env = {
       ...process.env,
@@ -910,10 +1080,28 @@ async function main(): Promise<void> {
       ...(config.projectWebWorkerRoot ? { projectWebWorkerRoot: config.projectWebWorkerRoot } : {}),
       ...(config.projectDesktopStateRoot ? { projectDesktopStateRoot: config.projectDesktopStateRoot } : {}),
     } });
+    shutdownServer = await createRuntimeShutdownServer(runtimeShutdownEndpoint(config.lockPath), async (request) => {
+      if (request.expectedPid !== process.pid) return { status: "rejected", reason: "Runtime PID mismatch" };
+      if (!configuredOperatorId || request.operatorId !== configuredOperatorId) return { status: "rejected", reason: "operator identity mismatch" };
+      let raw: string;
+      try { raw = await readFile(config.lockPath, "utf8"); }
+      catch { return { status: "rejected", reason: "Runtime lock unavailable" }; }
+      if (lockFingerprint(raw) !== request.expectedFingerprint) return { status: "rejected", reason: "Runtime lock fingerprint mismatch" };
+      let lock: Record<string, unknown>;
+      try { lock = JSON.parse(raw) as Record<string, unknown>; }
+      catch { return { status: "rejected", reason: "Runtime lock unreadable" }; }
+      if (lock.pid !== process.pid || lock.ownerIdentity !== request.expectedOwnerIdentity) return { status: "rejected", reason: "Runtime owner identity mismatch" };
+      return stop();
+    }, (response) => {
+      if (response.status === "stopped") setImmediate(() => process.exit(0));
+    });
     process.stdout.write(JSON.stringify({ state: "running", pid: process.pid, dataRoot: config.dataRoot }) + "\n");
     await new Promise<void>(() => undefined);
   } finally {
-    await stop();
+    if (!stopping) {
+      const result = await stop();
+      if (result.status !== "stopped") throw new Error(result.reason);
+    }
   }
 }
 
