@@ -196,7 +196,11 @@ export async function superviseHarnessRun(
       try {
         assertStageCompletionEvidence(stage, combinedEvidence);
         if (nextHarnessStage(stage) === "DONE") {
-          assertRunCompletionEvidence(combinedEvidence, run.request.mode);
+          assertRunCompletionEvidence(combinedEvidence, run.request.mode, {
+            verificationStages: run.request.purposeProfile?.verificationStages,
+            runId: run.request.runId,
+            projectId: run.request.projectId,
+          });
         }
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);

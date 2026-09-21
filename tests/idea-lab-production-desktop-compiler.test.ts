@@ -35,7 +35,7 @@ test("production compiler emits stable Context, Test, and Commit packs", async (
   const compile = createIdeaLabProductionDesktopTaskCompiler(config, { now: () => NOW });
   const context = await compile(runAt("CONTEXT"), "agent-live");
   assert.equal(context?.operations[0]?.type, "GIT_INSPECT");
-  assert.equal(context?.jobId, "run-idea-1:context");
+  assert.equal(context?.jobId, "run-idea-1-context");
   assert.equal(context?.idempotencyKey, "run-idea-1:context");
 
   const testPack = await compile(runAt("TEST"), "agent-live");
@@ -49,7 +49,7 @@ test("production compiler emits stable Context, Test, and Commit packs", async (
   commitRun.evidence = [{ version: 1, id: "context", kind: "command", stage: "CONTEXT", recordedAt: NOW, summary: "Context", provider: "iseol-desktop-agent", reference: "c".repeat(40) }];
   const commit = await compile(commitRun, "agent-live");
   assert.deepEqual(commit?.operations[0], { id: "commit", type: "GIT_COMMIT", cwd: ".", message: "feat: build idea lab prototype", expectedHead: "c".repeat(40), publish: true });
-  assert.equal(commit?.jobId, "run-idea-1:commit");
+  assert.equal(commit?.jobId, "run-idea-1-commit");
   assert.equal(commit?.idempotencyKey, "run-idea-1:commit");
 });
 

@@ -377,6 +377,7 @@ test("reasoning mode captures an executed retryable Desktop result as feedback",
   const result = await executor.execute(run(targetRoot));
   assert.equal(result.type, "completed");
   if (result.type !== "completed") return;
+  assert.equal(result.evidence.length, 0);
   assert.match((result as any).feedback?.[0]?.summary ?? "", /RED test failed/);
   const stored = await loadDesktopJob(jobRoot, "job-test");
   assert.equal(stored?.status, "completed");

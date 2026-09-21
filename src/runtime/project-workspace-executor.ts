@@ -105,7 +105,7 @@ export function createProjectWorkspaceExecutor(input: ProjectWorkspaceExecutorIn
         const job = await findDesktopJobByIdempotencyKey(input.desktopStateRoot, `web-intent:${run.request.runId}:${intentId}`);
         if (!job || job.status !== "completed" || !job.result) throw new Error(`Recovered Desktop Job is not completed: ${intentId}`);
         if (job.runId !== run.request.runId || job.stage !== run.state.stage) throw new Error(`Recovered Desktop Job identity mismatch: ${intentId}`);
-        feedback.push(...desktopJobFeedback(run, job.result));
+        feedback.push(...desktopJobFeedback(run, job.result, job));
       }
     }
     for (const intentRecord of await listDesktopIntents(input.workerRoot, run.request.runId)) {
@@ -116,7 +116,7 @@ export function createProjectWorkspaceExecutor(input: ProjectWorkspaceExecutorIn
       if (!job || job.status !== "completed" || !job.result) continue;
       if (job.runId !== run.request.runId || job.stage !== run.state.stage) throw new Error(`Recovered Desktop Job identity mismatch: ${intentId}`);
       seen.add(intentId);
-      feedback.push(...desktopJobFeedback(run, job.result));
+      feedback.push(...desktopJobFeedback(run, job.result, job));
     }
     return feedback;
   };

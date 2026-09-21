@@ -372,7 +372,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
           if (job.runId !== run.request.runId || job.stage !== run.state.stage) {
             throw new Error(`Recovered Desktop Job identity mismatch: ${intentId}`);
           }
-          feedback.push(...desktopJobFeedback(run, job.result));
+          feedback.push(...desktopJobFeedback(run, job.result, job));
         }
       }
       const persistedIntents = await listDesktopIntents(webWorkerRoot, run.request.runId);
@@ -386,7 +386,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
           throw new Error(`Recovered Desktop Job identity mismatch: ${intentId}`);
         }
         seen.add(intentId);
-        feedback.push(...desktopJobFeedback(run, job.result));
+        feedback.push(...desktopJobFeedback(run, job.result, job));
       }
       return feedback;
     };

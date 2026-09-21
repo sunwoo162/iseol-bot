@@ -41,12 +41,25 @@ export function assertStageCompletionEvidence(
 export function assertRunCompletionEvidence(
   evidence: HarnessEvidenceRecord[],
   mode: DevelopmentRunMode = "project-workspace",
+  identity: {
+    verificationStages?: string[];
+    runId?: string;
+    projectId?: string;
+  } = {},
 ): void {
   const missing: string[] = [];
   for (const stage of completionProfileForMode(mode).requiredEvidenceStages) {
     for (const kind of requiredEvidenceForStage(stage)) {
       if (!hasEvidence(evidence, stage, kind)) missing.push(kind);
     }
+  }
+  if (identity.verificationStages?.includes("BUILD")) {
+    const buildEvidence = evidence.some((item) =>
+      item.kind === "build"
+      && (identity.runId === undefined || item.runId === identity.runId)
+      && (identity.projectId === undefined || item.projectId === identity.projectId),
+    );
+    if (!buildEvidence) missing.push("build");
   }
   if (missing.length > 0) {
     throw new Error(`Run completion is missing required evidence: ${missing.join(", ")}`);

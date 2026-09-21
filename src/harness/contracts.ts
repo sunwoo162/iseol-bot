@@ -88,6 +88,11 @@ export type HarnessEvidenceRecord = {
   summary: string;
   provider?: string;
   reference?: string;
+  /** Optional identity binding for evidence produced by an external executor. */
+  projectId?: string;
+  runId?: string;
+  jobId?: string;
+  executionIdentity?: string;
 };
 
 export type HarnessRunEventType =

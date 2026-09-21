@@ -79,8 +79,10 @@ test("purpose-bound Run reaches DONE through the existing Harness supervisor", a
   assert.equal(started.status, "created");
   assert.equal(started.run.preflight.status, "ready");
   assert.equal(started.run.state.stage, "CONTEXT");
-  const requiredKinds: Record<string, "test" | "review" | "commit" | "pull-request" | "ci" | "deployment" | "production-verification"> = {
+  const requiredKinds: Record<string, "test" | "build" | "review" | "commit" | "pull-request" | "ci" | "deployment" | "production-verification"> = {
     TEST: "test",
+    BUILD: "build",
+    IMPLEMENT: "build",
     SELF_REVIEW: "review",
     COMMIT: "commit",
     PR: "pull-request",
@@ -107,6 +109,8 @@ test("purpose-bound Run reaches DONE through the existing Harness supervisor", a
             stage: run.state.stage,
             recordedAt: run.updatedAt,
             summary: `Deterministic ${run.state.stage} result`,
+            projectId: run.request.projectId,
+            runId: run.request.runId,
           }],
         };
       },

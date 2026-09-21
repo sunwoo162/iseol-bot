@@ -10,6 +10,7 @@ import {
   completeDesktopJob,
   createDesktopJob,
   isDesktopJobContained,
+  type DesktopJobRecord,
   markDesktopJobIndeterminate,
   requeueDesktopJob,
 } from "./job-store.js";
@@ -53,7 +54,11 @@ async function resolveAgent(input: CreateDesktopStageExecutorInput, targetRoot: 
     && agent.workspaceRoots.some((root) => containsPath(root, targetRoot)),
   ) ?? null;
 }
-function evidenceKindForStage(stage: HarnessRuntimeRunEnvelope["state"]["stage"]): HarnessEvidenceKind {
+function evidenceKindForStage(
+  stage: HarnessRuntimeRunEnvelope["state"]["stage"],
+  job?: DesktopJobRecord,
+): HarnessEvidenceKind {
+  if (job?.pack.operations.some((operation) => operation.type === "RUN_PROCESS" && operation.purpose === "build")) return "build";
   if (stage === "TEST") return "test";
   if (stage === "SELF_REVIEW") return "review";
   if (stage === "COMMIT") return "commit";
@@ -114,9 +119,10 @@ function operationFeedback(item: DesktopOperationResult): string {
 export function desktopJobFeedback(
   run: HarnessRuntimeRunEnvelope,
   result: DesktopJobResult,
+  job?: DesktopJobRecord,
 ): DesktopFeedback[] {
   return result.operations.map((item) => ({
-    kind: evidenceKindForStage(run.state.stage),
+    kind: evidenceKindForStage(run.state.stage, job),
     summary: operationFeedback(item),
     reference: item.reference ?? `desktop-job:${result.jobId}:${item.operationId}`,
   }));
@@ -124,21 +130,30 @@ export function desktopJobFeedback(
 function completedResult(
   run: HarnessRuntimeRunEnvelope,
   result: DesktopJobResult,
+  job: DesktopJobRecord,
 ): DesktopCompletedExecutionResult {
   const operationReference = result.operations.find((item) => item.reference)?.reference;
+  const kind = evidenceKindForStage(run.state.stage, job);
+  const evidence = result.status === "completed"
+    ? [{
+        version: 1 as const,
+        id: `desktop-evidence:${run.request.runId}:${job.jobId}:${kind}`,
+        kind,
+        stage: run.state.stage,
+        recordedAt: result.completedAt,
+        summary: `Desktop Job ${result.jobId} completed`,
+        provider: "iseol-desktop-agent",
+        reference: operationReference ?? `desktop-job:${result.jobId}`,
+        ...(run.request.projectId === undefined ? {} : { projectId: run.request.projectId }),
+        runId: run.request.runId,
+        jobId: job.jobId,
+        executionIdentity: job.idempotencyKey,
+      }]
+    : [];
   return {
     type: "completed",
-    evidence: [{
-      version: 1,
-      id: randomUUID(),
-      kind: evidenceKindForStage(run.state.stage),
-      stage: run.state.stage,
-      recordedAt: result.completedAt,
-      summary: `Desktop Job ${result.jobId} completed`,
-      provider: "iseol-desktop-agent",
-      reference: operationReference ?? `desktop-job:${result.jobId}`,
-    }],
-    feedback: desktopJobFeedback(run, result),
+    evidence,
+    feedback: desktopJobFeedback(run, result, job),
   };
 }
 function failureReason(result: DesktopJobResult): string {
@@ -185,7 +200,7 @@ export function createDesktopStageExecutor(
         ?? protectedExecutionWindowMs(compiled, 120_000);
 
       const job = await createDesktopJob(input.jobRoot, compiled, at);
-      if (job.status === "completed" && job.result) return completedResult(run, job.result);
+      if (job.status === "completed" && job.result) return completedResult(run, job.result, job);
       if (job.status === "indeterminate") {
         return { type: "waiting-agent", reason: `Desktop Job ${job.jobId} requires reality reconciliation` };
       }
@@ -293,7 +308,7 @@ export function createDesktopStageExecutor(
       if (result.status === "retryable-failure") {
         if (input.captureRetryableResultAsFeedback) {
           await completeDesktopJob(input.jobRoot, job.jobId, sessionId, result);
-          return completedResult(run, result);
+          return completedResult(run, result, leased);
         }
         await requeueDesktopJob(input.jobRoot, job.jobId, sessionId, result.completedAt);
         return { type: "retryable-failure", reason: failureReason(result) };
@@ -306,7 +321,7 @@ export function createDesktopStageExecutor(
       if (result.status === "final-failure") {
         return { type: "final-failure", reason: failureReason(result) };
       }
-      return completedResult(run, result);
+      return completedResult(run, result, leased);
     },
   };
 }
