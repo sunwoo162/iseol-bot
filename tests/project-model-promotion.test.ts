@@ -6,10 +6,10 @@ import { join } from "node:path";
 import type { HarnessRuntimeRunEnvelope, HarnessRunEvent } from "../src/harness/contracts.js";
 import { appendHarnessRunEvent } from "../src/harness/event-store.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
-import type { PrototypeCandidate } from "../src/project-model/contracts.js";
+import { PROTOTYPE_BROWSER_ACCEPTANCE_CHECKS, type PrototypeCandidate } from "../src/project-model/contracts.js";
 import { loadProjectHistory } from "../src/project-model/history-store.js";
 import { promotePrototype } from "../src/project-model/promotion.js";
-import { loadPrototypeCandidate, savePrototypeCandidate } from "../src/project-model/prototype-store.js";
+import { loadPrototypeCandidate, recordPrototypeBrowserAcceptance, savePrototypeCandidate } from "../src/project-model/prototype-store.js";
 import { loadProjectWorkspace } from "../src/project-model/workspace-store.js";
 
 function candidate(): PrototypeCandidate {
@@ -153,4 +153,22 @@ test("missing Genesis Run aborts before promotion state is committed", async () 
   );
   assert.equal((await loadPrototypeCandidate(modelRoot, broken.id))?.status, "candidate");
   assert.equal(await loadProjectWorkspace(modelRoot, "project-prototype-001"), null);
+});
+
+test("local-preview promotion requires verified browser acceptance", async () => {
+  const { modelRoot, harnessRoot } = await fixture();
+  const local = candidate();
+  local.deployment = { ...local.deployment, provider: "local-preview", deploymentId: "local-preview:1" };
+  local.browserAcceptance = {
+    status: "unverified",
+    checkedAt: "2026-09-07T00:45:00.000Z",
+    checks: Object.fromEntries(PROTOTYPE_BROWSER_ACCEPTANCE_CHECKS.map((check) => [check, "unverified"])) as any,
+  };
+  await savePrototypeCandidate(modelRoot, local);
+  await assert.rejects(() => promotePrototype({ modelRoot, harnessRoot, prototypeId: local.id, promotedAt: "2026-09-07T01:00:00.000Z" }), /browser acceptance/i);
+  const checks = Object.fromEntries(PROTOTYPE_BROWSER_ACCEPTANCE_CHECKS.map((check) => [check, "pass"])) as any;
+  const accepted = await recordPrototypeBrowserAcceptance(modelRoot, local.id, checks, "2026-09-07T00:50:00.000Z");
+  assert.equal(accepted.browserAcceptance?.status, "verified");
+  const promoted = await promotePrototype({ modelRoot, harnessRoot, prototypeId: local.id, promotedAt: "2026-09-07T01:00:00.000Z" });
+  assert.equal(promoted.id, "project-prototype-001");
 });

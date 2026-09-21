@@ -12,6 +12,7 @@ import { appendReasoningTurn, listReasoningTurns } from "./turn-store.js";
 import { recordDesktopIntent } from "./intent-store.js";
 import { validateDesktopIntent } from "./intent-compiler.js";
 import { assertActiveWebWorkerResult, recoverWebWorkerSession } from "./recovery.js";
+import type { RequestBudgetStore } from "./request-budget.js";
 
 export type WebDesktopIntentRunnerInput = {
   run: HarnessRuntimeRunEnvelope;
@@ -42,6 +43,7 @@ export type CreateWebReasoningExecutorInput = {
   sleep?: (ms: number) => Promise<void>;
   rateLimitBackoffMs?: readonly number[];
   commitAuthorized?: boolean;
+  requestBudget?: RequestBudgetStore;
 };
 function digest(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -251,6 +253,8 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
       while (acceptedTurns < maxTurns) {
         let rawResult: unknown;
         let submittedThisAttempt = false;
+        const requestId = `external-${digest(`${session.sessionId}\n${prompt.sha256}\n${acceptedTurns}\n${rejectedCount}\n${recoveries}` ).slice(0, 32)}`;
+        let requestReserved = false;
         try {
           if (openedSessionId !== session.sessionId) {
             const opened = await input.adapter.openOrResumeSession(session, prompt);
@@ -258,6 +262,13 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
               session = await updateWebWorkerSession(input.workerRoot, { ...session, conversationRef: opened.conversationRef });
             }
             openedSessionId = session.sessionId;
+          }
+          if (input.requestBudget) {
+            const reservation = await input.requestBudget.reserve(run.request.runId, requestId, { stage: run.state.stage });
+            if (reservation !== "reserved") {
+              return { type: "waiting-external", reason: reservation === "exhausted" ? "ChatGPT Web external request budget exhausted" : "ChatGPT Web external request already reserved" };
+            }
+            requestReserved = true;
           }
           const submitted = await input.adapter.submitTurn(session, prompt);
           if (submitted?.conversationRef && submitted.conversationRef !== session.conversationRef) {
@@ -269,7 +280,24 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
             resultTimeoutMs,
             resultContract,
           );
+          if (input.requestBudget && requestReserved) {
+            await input.requestBudget.complete(run.request.runId, requestId, "consumed");
+            requestReserved = false;
+          }
         } catch (error) {
+          if (input.requestBudget && requestReserved) {
+            if (submittedThisAttempt && error instanceof ChatGptWebStructuredResultError) {
+              await input.requestBudget.complete(run.request.runId, requestId, "consumed");
+              requestReserved = false;
+            } else if (submittedThisAttempt) {
+              await input.requestBudget.complete(run.request.runId, requestId, "unknown");
+              requestReserved = false;
+              return { type: "waiting-external", reason: "ChatGPT Web request outcome is UNKNOWN; automatic resubmission is blocked" };
+            } else {
+              await input.requestBudget.release(run.request.runId, requestId);
+              requestReserved = false;
+            }
+          }
           if (error instanceof ChatGptWebTemporarilyLimitedError) {
             if (submittedThisAttempt) {
               return { type: "waiting-external", reason: "ChatGPT Web failure: temporary rate limit" };

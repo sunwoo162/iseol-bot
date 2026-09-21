@@ -20,6 +20,8 @@ function deploymentRequest(production: PrototypeProduction): PrototypeDeployRequ
     key: prototypeDeploymentKey(production),
     campaignId: production.campaignId,
     productionId: production.id,
+    runId: production.runId,
+    workspaceRoot: production.worktreeRoot,
     repositoryUrl: production.repositoryUrl,
     branch: production.branch,
     commitSha: production.commitSha,
@@ -99,6 +101,24 @@ function candidateFor(input: MaterializePrototypeCandidateInput): PrototypeCandi
       provider: input.deployment.provider,
       deploymentId: input.deployment.deploymentId,
     },
+    ...(input.deployment.provider === "local-preview"
+      ? {
+          browserAcceptance: {
+            status: "unverified" as const,
+            checkedAt: input.at,
+            checks: {
+              add: "unverified" as const,
+              edit: "unverified" as const,
+              complete: "unverified" as const,
+              delete: "unverified" as const,
+              persistence: "unverified" as const,
+              "empty-state": "unverified" as const,
+              "empty-input": "unverified" as const,
+              responsive: "unverified" as const,
+            },
+          },
+        }
+      : {}),
     runIds: [input.production.runId],
     status: "candidate",
     ideaLabOrigin: {

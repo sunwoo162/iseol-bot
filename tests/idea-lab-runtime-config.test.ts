@@ -59,6 +59,36 @@ test("runtime defaults optional test timeout to 120000", () => {
   assert.equal(config.enabled, true);
   if (config.enabled) assert.equal(config.testTimeoutMs, 120000);
 });
+
+test("local-preview mode requires a trusted executable and preview settings", () => {
+  const env = enabledEnv({
+    ISEOL_IDEA_LAB_DEPLOYMENT_MODE: "local-preview",
+    ISEOL_IDEA_LAB_PREVIEW_EXECUTABLE: process.execPath,
+    ISEOL_IDEA_LAB_PREVIEW_ARGS_JSON: '["-e","require(\\\"http\\\").createServer((_,res)=>res.end(\\\"ok\\\")).listen(Number(process.env.PORT),\\\"127.0.0.1\\\")"]',
+    ISEOL_IDEA_LAB_PREVIEW_HOST: "127.0.0.1",
+    ISEOL_IDEA_LAB_PREVIEW_PORT: "18991",
+    ISEOL_IDEA_LAB_PREVIEW_TIMEOUT_MS: "5000",
+    ISEOL_IDEA_LAB_EXTERNAL_REQUEST_BUDGET: "4",
+  });
+  const config = resolveIdeaLabRuntimeConfig(env, roots);
+  assert.equal(config.enabled, true);
+  if (config.enabled) {
+    assert.equal(config.deploymentMode, "local-preview");
+    assert.equal(config.previewExecutable, process.execPath);
+    assert.equal(config.previewHost, "127.0.0.1");
+    assert.equal(config.previewPort, 18991);
+    assert.equal(config.previewTimeoutMs, 5000);
+    assert.equal(config.externalRequestBudget, 4);
+  }
+  assert.throws(() => resolveIdeaLabRuntimeConfig({ ...env, ISEOL_IDEA_LAB_PREVIEW_PORT: "80" }, roots), /preview port/i);
+  assert.throws(() => resolveIdeaLabRuntimeConfig({ ...env, ISEOL_IDEA_LAB_PREVIEW_HOST: "0.0.0.0" }, roots), /loopback/i);
+});
+
+test("enabled runtime preserves Vercel as the explicit default mode", () => {
+  const config = resolveIdeaLabRuntimeConfig(enabledEnv(), roots);
+  assert.equal(config.enabled, true);
+  if (config.enabled) assert.equal(config.deploymentMode, "vercel");
+});
 test("rejects unsafe sandbox paths, malformed args, non-positive timeout, and unsupported URLs", () => {
   assert.throws(() => resolveIdeaLabRuntimeConfig(enabledEnv({ ISEOL_IDEA_LAB_SANDBOX_ROOT: roots.modelRoot }), roots), /sandbox/i);
   assert.throws(() => resolveIdeaLabRuntimeConfig(enabledEnv({ ISEOL_IDEA_LAB_SANDBOX_ROOT: "C:/iseol/new-sandbox", ISEOL_IDEA_LAB_REPOSITORY_ROOT: "C:/iseol/new-sandbox/repository" }), roots), /outside/i);

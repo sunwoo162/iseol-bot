@@ -6,6 +6,7 @@ import { createHybridStageExecutor } from "../chatgpt-web/hybrid-executor.js";
 import { buildValidatedPatchIntent, compileDesktopIntentToTaskPack } from "../chatgpt-web/intent-compiler.js";
 import { listDesktopIntents, loadDesktopIntent } from "../chatgpt-web/intent-store.js";
 import { createWebReasoningExecutor, type WebDesktopIntentRunner } from "../chatgpt-web/web-reasoning-executor.js";
+import { createRequestBudgetStore } from "../chatgpt-web/request-budget.js";
 import { createDesktopStageExecutor, desktopJobFeedback, type DesktopExecutionTransport, type DesktopTaskCompiler } from "../desktop-agent/desktop-executor.js";
 import { findDesktopJobByIdempotencyKey } from "../desktop-agent/job-store.js";
 import { createDesktopRealityInspector } from "../desktop-agent/reality-inspector.js";
@@ -137,6 +138,9 @@ function verifiedReceipt(production: PrototypeProduction): PrototypeDeploymentRe
 export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRuntimeDriverInput) {
   const now = input.now ?? (() => new Date().toISOString());
   const webWorkerRoot = input.roots.webWorkerRoot ?? input.roots.webRoot;
+  const requestBudget = input.externalRequestBudget
+    ? createRequestBudgetStore(webWorkerRoot, input.externalRequestBudget, now)
+    : undefined;
   const activeAdvances = new Map<string, Promise<ProductionAdvanceResult>>();
 
   async function createProduction(proposal: IdeaProposal, ordinal: number): Promise<PrototypeProduction> {
@@ -399,6 +403,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
       now,
       rateLimitBackoffMs: [30_000, 60_000, 120_000],
       commitAuthorized: false,
+      ...(requestBudget ? { requestBudget } : {}),
     });
     desktop = createDesktopStageExecutor({
       registryRoot: input.desktopStateRoot,

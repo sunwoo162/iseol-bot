@@ -16,6 +16,16 @@ export type PrototypeDeploymentSnapshot = {
 
 export type PrototypeCandidateStatus = "candidate" | "promoted" | "archived";
 
+export const PROTOTYPE_BROWSER_ACCEPTANCE_CHECKS = [
+  "add", "edit", "complete", "delete", "persistence", "empty-state", "empty-input", "responsive",
+] as const;
+export type PrototypeBrowserAcceptanceCheck = typeof PROTOTYPE_BROWSER_ACCEPTANCE_CHECKS[number];
+export type PrototypeBrowserAcceptance = {
+  status: "unverified" | "verified";
+  checkedAt: string;
+  checks: Record<PrototypeBrowserAcceptanceCheck, "pass" | "fail" | "unverified">;
+};
+
 export type IdeaLabPrototypeOrigin = {
   campaignId: string;
   proposalId: string;
@@ -29,6 +39,7 @@ export type PrototypeCandidate = {
   concept: string;
   repository: PrototypeRepositorySnapshot;
   deployment: PrototypeDeploymentSnapshot;
+  browserAcceptance?: PrototypeBrowserAcceptance;
   runIds: string[];
   status: PrototypeCandidateStatus;
   promotedProjectId?: string;
@@ -156,4 +167,7 @@ export function assertPromotionReadyPrototype(candidate: PrototypeCandidate): vo
   assertRequired(candidate.repository.branch, "repository branch");
   assertRequired(candidate.repository.commitSha, "repository commit");
   assertRequired(candidate.deployment.url, "deployment url");
+  if (candidate.deployment.provider === "local-preview" && candidate.browserAcceptance?.status !== "verified") {
+    throw new Error(`Local preview browser acceptance is required before promotion: ${candidate.id}`);
+  }
 }

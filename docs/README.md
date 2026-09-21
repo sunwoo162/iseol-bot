@@ -14,3 +14,8 @@
 기존 `superpowers/specs/`와 `superpowers/plans/`는 삭제하지 않는다. 오래된 절차의 당시 상태는 최신 운영 상태가 아니다. Runtime 복구 문서의 환경변수 전용 인증 설명은 현행 보호 credential 계약으로 정정했으며, 실제 작업에서는 항상 현행 CLI와 대조한다.
 
 이번 문서군은 제품 코드 구현이나 운영 전환 승인이 아니다. 운영 시작/종료, 외부 AI 요청, containment, GitHub/Discord/배포는 각각 현재 세션의 승인 범위를 확인한다.
+# Local preview implementation
+
+See [ISEOL_LOCAL_PREVIEW.md](ISEOL_LOCAL_PREVIEW.md) for the Vercel-free
+Idea Lab deployment mode, trusted local process contract, browser acceptance
+gate, and durable external request budget.

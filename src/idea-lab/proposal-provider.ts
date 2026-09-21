@@ -16,6 +16,8 @@ export type IdeaProposalProviderInput = {
   requestedCount: number;
   accepted: IdeaProposalDraft[];
   attempt: number;
+  /** Durable identity used when this provider reserves an external request. */
+  budgetIdentity?: string;
 };
 
 export interface IdeaProposalProvider {

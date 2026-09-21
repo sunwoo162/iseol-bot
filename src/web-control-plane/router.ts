@@ -8,6 +8,8 @@ import { prepareProjectWorkspaceRun, startProjectWorkspaceRun } from "../project
 import { buildPortfolioDraft, collectProjectEvidence, verifyPortfolioGrounding } from "../project-model/portfolio.js";
 import { ensurePortfolioDocument, updatePortfolioDocument, verifyStoredPortfolioGrounding } from "../project-model/portfolio-store.js";
 import { archivePrototypeCandidate } from "../idea-lab/prototype-actions.js";
+import { recordPrototypeBrowserAcceptance } from "../project-model/prototype-store.js";
+import { PROTOTYPE_BROWSER_ACCEPTANCE_CHECKS, type PrototypeBrowserAcceptanceCheck } from "../project-model/contracts.js";
 import { promotePrototype } from "../project-model/promotion.js";
 import {
   cancelWebIdeaLabCampaign,
@@ -571,6 +573,37 @@ export async function routeWebControlPlaneRequest(
     if (!prototypeId) return response(404, { error: "not found" });
     const detail = await buildPrototypeDetail(deps.modelRoot, deps.harnessRoot, prototypeId);
     return detail ? response(200, detail) : response(404, { error: "not found" });
+  }
+
+  const acceptanceMatch = /^\/api\/prototypes\/([^/]+)\/browser-acceptance$/.exec(path);
+  if (acceptanceMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    const prototypeId = decodeId(acceptanceMatch[1] ?? "");
+    if (!prototypeId) return response(404, { error: "not found" });
+    const body = request.body as { checks?: unknown } | undefined;
+    const checks = body?.checks;
+    if (!checks || typeof checks !== "object" || Array.isArray(checks)) return response(400, { error: "checks are required" });
+    const normalized: Record<PrototypeBrowserAcceptanceCheck, "pass" | "fail" | "unverified"> = {} as Record<PrototypeBrowserAcceptanceCheck, "pass" | "fail" | "unverified">;
+    for (const check of PROTOTYPE_BROWSER_ACCEPTANCE_CHECKS) {
+      const value = (checks as Record<string, unknown>)[check];
+      if (value !== "pass" && value !== "fail" && value !== "unverified") return response(400, { error: `invalid acceptance check: ${check}` });
+      normalized[check] = value;
+    }
+    try {
+      const updated = await recordPrototypeBrowserAcceptance(
+        deps.modelRoot,
+        prototypeId,
+        normalized,
+        (deps.now ?? (() => new Date().toISOString()))(),
+      );
+      deps.eventBus?.publish({ type: "prototype.updated", scope: { prototypeId }, payload: { prototypeId, status: updated.status, browserAcceptance: updated.browserAcceptance?.status } });
+      return response(200, updated);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Prototype not found:")) return response(404, { error: "not found" });
+      if (error instanceof Error && error.message.includes("immutable")) return response(409, { error: error.message });
+      throw error;
+    }
   }
 
   const promotionMatch = /^\/api\/prototypes\/([^/]+)\/promote$/.exec(path);

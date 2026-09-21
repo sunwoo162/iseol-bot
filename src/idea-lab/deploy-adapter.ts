@@ -5,6 +5,8 @@ export type PrototypeDeployRequest = {
   repositoryUrl: string;
   branch: string;
   commitSha: string;
+  runId?: string;
+  workspaceRoot?: string;
 };
 
 export type PrototypeDeploymentReceipt = {

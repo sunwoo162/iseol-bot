@@ -30,6 +30,7 @@ import {
   type ChatGptBrowserDriver,
 } from "../chatgpt-web/production-browser-adapter.js";
 import { createChatGptIdeaProposalProvider } from "../idea-lab/chatgpt-proposal-provider.js";
+import { createRequestBudgetStore } from "../chatgpt-web/request-budget.js";
 import {
   resolveIdeaLabRuntimeConfig,
   type IdeaLabRuntimeConfig,
@@ -47,9 +48,7 @@ import {
   createDesktopPrototypeSandboxAdapter,
   type PrototypeSandboxAdapter,
 } from "../idea-lab/sandbox-adapter.js";
-import {
-  resolveVercelPrototypeDeployAdapter,
-} from "../idea-lab/vercel-deploy-adapter.js";
+import { resolveIdeaLabDeployAdapter } from "../idea-lab/local-preview-deploy-adapter.js";
 import type { PrototypeDeployAdapter } from "../idea-lab/deploy-adapter.js";
 import { createProjectWorkspaceExecutor } from "./project-workspace-executor.js";
 import { createProjectWorkspaceDesktopTaskCompiler } from "./project-workspace-desktop-compiler.js";
@@ -78,7 +77,7 @@ type RuntimeDependencies = {
   startWeb?: typeof startWebControlPlaneServer;
   resolveBrowser?: typeof resolveProductionChatGptBrowserDriver;
   createBridge?: typeof startChatGptWebBridgeService;
-  resolveDeploy?: (env: Record<string, string | undefined>) => PrototypeDeployAdapter | null | Promise<PrototypeDeployAdapter | null>;
+  resolveDeploy?: (env: Record<string, string | undefined>, config?: Extract<IdeaLabRuntimeConfig, { enabled: true }>) => PrototypeDeployAdapter | null | Promise<PrototypeDeployAdapter | null>;
   createProposalProvider?: typeof createChatGptIdeaProposalProvider;
   createProductionDriver?: typeof createIdeaLabProductionRuntimeDriver;
   createRuntime?: typeof createIdeaLabRuntimeService;
@@ -223,6 +222,7 @@ type OwnedResources = {
   runtime?: IdeaLabRuntimeService;
   desktopCore?: DesktopCoreService | null;
   browser?: ChatGptBrowserDriver | null;
+  deployAdapter?: PrototypeDeployAdapter & { dispose?: () => Promise<void> };
 };
 
 async function disposeOwnedResources(resources: OwnedResources, suppressErrors = false): Promise<void> {
@@ -231,6 +231,7 @@ async function disposeOwnedResources(resources: OwnedResources, suppressErrors =
     async () => closeWebServer(resources.webServer),
     async () => { if (resources.bridge?.enabled) await resources.bridge.dispose(); },
     async () => { await resources.runtime?.dispose(); },
+    async () => { await resources.deployAdapter?.dispose?.(); },
     async () => { await resources.desktopCore?.close(); },
     async () => { await resources.browser?.dispose?.(); },
   ];
@@ -288,7 +289,7 @@ export async function startIseolRuntimeServices(
   const startWeb = deps.startWeb ?? startWebControlPlaneServer;
   const resolveBrowser = deps.resolveBrowser ?? resolveProductionChatGptBrowserDriver;
   const createBridge = deps.createBridge ?? startChatGptWebBridgeService;
-  const resolveDeploy = deps.resolveDeploy ?? resolveVercelPrototypeDeployAdapter;
+  const resolveDeploy = deps.resolveDeploy ?? resolveIdeaLabDeployAdapter;
   const createProposalProvider = deps.createProposalProvider ?? createChatGptIdeaProposalProvider;
   const createProductionDriver = deps.createProductionDriver ?? createIdeaLabProductionRuntimeDriver;
   const createRuntime = deps.createRuntime ?? createIdeaLabRuntimeService;
@@ -304,6 +305,7 @@ export async function startIseolRuntimeServices(
   let browser: ChatGptBrowserDriver | null = null;
   let bridge: ChatGptWebBridgeService | undefined;
   let runtime: IdeaLabRuntimeService | undefined;
+  let deployAdapterOwned: (PrototypeDeployAdapter & { dispose?: () => Promise<void> }) | undefined;
   let webServer: Server | undefined;
   let unsubscribeAgentConnected: (() => void) | undefined;
   const projectActiveRuns = new Map<string, Promise<void>>();
@@ -358,11 +360,15 @@ export async function startIseolRuntimeServices(
       if (ideaLabConfig.enabled) {
       let deployAdapter: PrototypeDeployAdapter | null = null;
       try {
-        deployAdapter = await resolveDeploy(env);
+        deployAdapter = await resolveDeploy(env, ideaLabConfig);
       } catch {
         deployAdapter = null;
       }
       if (deployAdapter) {
+        deployAdapterOwned = deployAdapter;
+        const requestBudget = ideaLabConfig.externalRequestBudget
+          ? createRequestBudgetStore(roots.webWorkerRoot ?? roots.webRoot, ideaLabConfig.externalRequestBudget)
+          : undefined;
         const sandboxAdapter: PrototypeSandboxAdapter = createSandboxAdapter({
           dispatch: async (pack) => {
             desktopCore!.transport.sendTask(pack.agentId, pack, desktopCore!.transport.getAgentSessionId(pack.agentId) ?? undefined);
@@ -370,7 +376,7 @@ export async function startIseolRuntimeServices(
           },
           refreshPreflight: refreshDevelopmentRunPreflight,
         });
-        const proposalProvider = createProposalProvider(browser);
+        const proposalProvider = createProposalProvider(browser, requestBudget ? { requestBudget } : undefined);
         const productionDriver: ProductionDriver = createProductionDriver({
           ...ideaLabConfig,
           roots,
@@ -569,7 +575,7 @@ export async function startIseolRuntimeServices(
   } catch (error) {
     unsubscribeAgentConnected?.();
     unsubscribeAgentConnected = undefined;
-    await disposeOwnedResources({ webServer, bridge, runtime, desktopCore, browser }, true);
+    await disposeOwnedResources({ webServer, bridge, runtime, deployAdapter: deployAdapterOwned, desktopCore, browser }, true);
     throw error;
   }
 
@@ -595,7 +601,7 @@ export async function startIseolRuntimeServices(
       unsubscribeAgentConnected?.();
       unsubscribeAgentConnected = undefined;
       disposed = true;
-      await disposeOwnedResources({ webServer, bridge, runtime, desktopCore, browser });
+      await disposeOwnedResources({ webServer, bridge, runtime, deployAdapter: deployAdapterOwned, desktopCore, browser });
     },
   };
 }

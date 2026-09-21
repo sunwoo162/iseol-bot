@@ -14,6 +14,7 @@ import { loadHarnessRunEvents } from "../src/harness/event-store.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import { superviseHarnessRun, type HarnessStageExecutor } from "../src/harness/run-supervisor.js";
 import { completionProfileForMode } from "../src/idea-lab/completion-profile.js";
+import { assertPrototypeProduction } from "../src/idea-lab/contracts.js";
 
 const NOW = "2026-09-08T12:00:00.000Z";
 
@@ -116,4 +117,16 @@ test("Project Workspace supervisor does not auto-skip PR", async () => {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+test("local preview acceptance stays separate from HTTP completion and old production records remain valid", () => {
+  const production = {
+    version: 1, id: "prod-1", campaignId: "camp-1", proposalId: "proposal-1", runId: "run-prod-1",
+    repositoryUrl: "https://github.com/example/repo.git", sandboxRoot: "C:/sandbox", worktreeRoot: "C:/sandbox/camp/prod-1",
+    branch: "idea/camp-1/prod-1", baseRef: "main", status: "ready", createdAt: NOW, updatedAt: NOW,
+    deployment: { provider: "local-preview", deploymentId: "local-preview:run-prod-1:prod-1:19091", url: "http://127.0.0.1:19091/", commitSha: "a".repeat(40), deployedAt: NOW, verifiedAt: NOW },
+  };
+  assert.doesNotThrow(() => assertPrototypeProduction(production));
+  assert.equal((production as any).acceptance, undefined);
+  assert.doesNotThrow(() => assertPrototypeProduction({ ...production, acceptance: { status: "unverified" } }));
+  assert.deepEqual(completionProfileForMode("idea-lab").requiredEvidenceStages, ["TEST", "SELF_REVIEW", "COMMIT", "DEPLOY", "PRODUCTION_VERIFY"]);
 });

@@ -7,6 +7,7 @@ import type { IdeaProposalDraft, IdeaProposalProvider } from "./proposal-provide
 import { assertIdeaProposalProviderResult } from "./proposal-provider.js";
 import { evaluateProposalDistinctness } from "./distinctness.js";
 import { loadHarnessRun } from "../harness/run-store.js";
+import { ExternalRequestBudgetExhaustedError, ExternalRequestOutcomeUnknownError } from "../chatgpt-web/request-budget.js";
 
 export class IdeaLabCampaignBlockedError extends Error {
   constructor(message: string) {
@@ -125,13 +126,22 @@ async function generateOneProposal(
   const attempt = campaign.proposalIds.length + 1;
   if (attempt > attemptBudget) return blockCampaign(input, campaign, "Idea proposal attempt budget exhausted");
   const acceptedDrafts = proposals.filter((item) => item.status === "accepted").map(proposalDraft);
-  const generated = await input.proposalProvider.generate({
-    seed: campaign.seed,
-    constraints: [...campaign.constraints],
-    requestedCount: 1,
-    accepted: acceptedDrafts,
-    attempt,
-  });
+  let generated: IdeaProposalDraft[];
+  try {
+    generated = await input.proposalProvider.generate({
+      seed: campaign.seed,
+      constraints: [...campaign.constraints],
+      requestedCount: 1,
+      accepted: acceptedDrafts,
+      attempt,
+      budgetIdentity: `campaign-${campaign.id}`,
+    });
+  } catch (error) {
+    if (error instanceof ExternalRequestBudgetExhaustedError || error instanceof ExternalRequestOutcomeUnknownError) {
+      return blockCampaign(input, campaign, error.message);
+    }
+    throw error;
+  }
   assertIdeaProposalProviderResult(generated, 1);
   const item = generated[0]!;
   const distinctness = evaluateProposalDistinctness(item, acceptedDrafts);

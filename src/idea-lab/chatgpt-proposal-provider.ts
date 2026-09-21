@@ -2,6 +2,11 @@ import { createHash } from "node:crypto";
 import { ChatGptWebSessionLostError } from "../chatgpt-web/browser-adapter.js";
 import type { ChatGptBrowserDriver } from "../chatgpt-web/production-browser-adapter.js";
 import {
+  ExternalRequestBudgetExhaustedError,
+  ExternalRequestOutcomeUnknownError,
+  type RequestBudgetStore,
+} from "../chatgpt-web/request-budget.js";
+import {
   assertIdeaProposalProviderResult,
   type IdeaProposalProvider,
   type IdeaProposalProviderInput,
@@ -40,7 +45,7 @@ function compilePrompt(input: IdeaProposalProviderInput): { body: string; sha256
 
 export function createChatGptIdeaProposalProvider(
   driver: ChatGptBrowserDriver,
-  options: { timeoutMs?: number } = {},
+  options: { timeoutMs?: number; requestBudget?: RequestBudgetStore } = {},
 ): IdeaProposalProvider {
   const timeoutMs = options.timeoutMs ?? 30_000;
   return {
@@ -48,12 +53,23 @@ export function createChatGptIdeaProposalProvider(
       const prompt = compilePrompt(input);
       let conversationRef: string | undefined;
       let primaryError: unknown;
+      const budgetIdentity = input.budgetIdentity;
+      const requestId = budgetIdentity ? `proposal-${prompt.sha256.slice(0, 48)}-${input.attempt}` : undefined;
+      let budgetReserved = false;
+      let submitAttempted = false;
+      let responseReceived = false;
       try {
+        if (options.requestBudget && budgetIdentity && requestId) {
+          const reservation = await options.requestBudget.reserve(budgetIdentity, requestId, { stage: "IDEA_PROPOSAL" });
+          if (reservation !== "reserved") throw new ExternalRequestBudgetExhaustedError();
+          budgetReserved = true;
+        }
         const opened = await driver.openOrResumeConversation({
           prompt: prompt.body,
           promptSha256: prompt.sha256,
         });
         conversationRef = opened.conversationRef;
+        submitAttempted = true;
         const submitted = await driver.submitPrompt({
           ...(conversationRef ? { conversationRef } : {}),
           prompt: prompt.body,          promptSha256: prompt.sha256,
@@ -63,10 +79,30 @@ export function createChatGptIdeaProposalProvider(
           throw new ChatGptWebSessionLostError("Idea proposal conversation reference is unavailable after submit");
         }
         const result = await driver.readStructuredResult({ conversationRef, timeoutMs, contract: "structured-json" });
+        responseReceived = true;
         assertIdeaProposalProviderResult(result, input.requestedCount);
+        if (options.requestBudget && budgetIdentity && requestId && budgetReserved) {
+          await options.requestBudget.complete(budgetIdentity, requestId, "consumed");
+          budgetReserved = false;
+        }
         return result.map((item) => ({ ...item }));
       } catch (error) {
         primaryError = error;
+        if (options.requestBudget && budgetIdentity && requestId && budgetReserved) {
+          if (submitAttempted && !responseReceived) {
+            await options.requestBudget.complete(budgetIdentity, requestId, "unknown");
+            budgetReserved = false;
+            if (!(error instanceof ExternalRequestBudgetExhaustedError)) {
+              throw new ExternalRequestOutcomeUnknownError();
+            }
+          } else if (submitAttempted) {
+            await options.requestBudget.complete(budgetIdentity, requestId, "consumed");
+            budgetReserved = false;
+          } else {
+            await options.requestBudget.release(budgetIdentity, requestId);
+            budgetReserved = false;
+          }
+        }
         throw error;
       } finally {
         if (conversationRef) {

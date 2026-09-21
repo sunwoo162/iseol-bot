@@ -14,6 +14,7 @@ import {
   IdeaLabCampaignBlockedError,
   superviseIdeaLabCampaign,
 } from "../src/idea-lab/campaign-supervisor.js";
+import { ExternalRequestOutcomeUnknownError } from "../src/chatgpt-web/request-budget.js";
 
 const NOW = "2026-09-08T05:00:00.000Z";
 const draft = (title: string, n: number) => ({
@@ -120,6 +121,27 @@ test("missing provider or protected production blocker moves Campaign to blocked
   assert.equal(blocked.status, "blocked");
   assert.match(blocked.blockerSummary ?? "", /Desktop Agent unavailable/);
   assert.doesNotMatch(blocked.blockerSummary ?? "", /token|cookie|secret=/i);
+});
+
+test("proposal UNKNOWN blocks the campaign without allowing another proposal request", async () => {
+  const root = await fixture(1);
+  let calls = 0;
+  const result = await superviseIdeaLabCampaign({
+    root,
+    campaignId: "camp-1",
+    proposalProvider: {
+      generate: async () => {
+        calls += 1;
+        throw new ExternalRequestOutcomeUnknownError();
+      },
+    },
+    createProduction: async (proposal, ordinal) => productionFor(proposal as IdeaProposal, ordinal),
+    advanceProduction: async (production) => production,
+    now: () => NOW,
+  });
+  assert.equal(result.status, "blocked");
+  assert.match(result.blockerSummary ?? "", /UNKNOWN/i);
+  assert.equal(calls, 1);
 });
 
 test("explicit retry makes a failed production with an active READY Run discoverable", async () => {

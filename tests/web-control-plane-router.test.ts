@@ -3,7 +3,7 @@ import test from "node:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PrototypeCandidate } from "../src/project-model/contracts.js";
+import { PROTOTYPE_BROWSER_ACCEPTANCE_CHECKS, type PrototypeCandidate } from "../src/project-model/contracts.js";
 import { savePrototypeCandidate } from "../src/project-model/prototype-store.js";
 import { loadProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { saveProjectWorkspace } from "../src/project-model/workspace-store.js";
@@ -46,6 +46,19 @@ test("routes Idea Lab and missing project reads", async () => {
     deps,
   );
   assert.equal(missing.status, 404);
+});
+
+test("records authenticated browser acceptance separately from local preview readiness", async () => {
+  const deps = await fixture("secret-token");
+  const checks = Object.fromEntries(PROTOTYPE_BROWSER_ACCEPTANCE_CHECKS.map((check) => [check, "pass"]));
+  const response = await routeWebControlPlaneRequest({
+    method: "POST",
+    path: "/api/prototypes/prototype-001/browser-acceptance",
+    headers: { authorization: "Bearer secret-token" },
+    body: { checks },
+  }, deps);
+  assert.equal(response.status, 200);
+  assert.equal((response.body as any).browserAcceptance.status, "verified");
 });
 
 test("routes prototype and campaign detail reads without mutation", async () => {

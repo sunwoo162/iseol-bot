@@ -11,6 +11,7 @@ import { createFakeChatGptWebBrowserAdapter, ChatGptWebSessionLostError } from "
 import { getActiveWebWorkerSession } from "../src/chatgpt-web/session-store.js";
 import { appendReasoningTurn, listReasoningTurns } from "../src/chatgpt-web/turn-store.js";
 import { loadDesktopIntent } from "../src/chatgpt-web/intent-store.js";
+import { createRequestBudgetStore } from "../src/chatgpt-web/request-budget.js";
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "iseol-web-reasoning-"));
@@ -485,6 +486,28 @@ test("restart advances past a lost session still referenced by the active pointe
   const active = await getActiveWebWorkerSession(root, "run-web", "IMPLEMENT");
   assert.equal(active?.generation, 2);
   assert.equal((await loadWebWorkerSession(root, staleId))?.status, "lost");
+});
+
+test("request budget records an unknown submitted turn and blocks automatic resubmission", async () => {
+  const { root, run } = await fixture();
+  let submissions = 0;
+  const adapter = {
+    openOrResumeSession: async () => ({ conversationRef: "conv-budget" }),
+    submitTurn: async () => { submissions += 1; return undefined; },
+    awaitStructuredResult: async () => { throw new ChatGptWebSessionLostError("response lost"); },
+    probeSession: async () => "lost",
+    closeSession: async () => undefined,
+  } as any;
+  const budget = createRequestBudgetStore(root, 1, () => "2026-09-08T01:00:00.000Z");
+  const first = createWebReasoningExecutor({ workerRoot: root, adapter, requestBudget: budget, now: () => "2026-09-08T01:00:00.000Z", runDesktopIntent: async () => { throw new Error("unused"); } });
+  const firstResult = await first.execute(run);
+  assert.deepEqual(firstResult, { type: "waiting-external", reason: "ChatGPT Web request outcome is UNKNOWN; automatic resubmission is blocked" });
+  assert.equal(submissions, 1);
+  assert.equal((await budget.inspect(run.request.runId))?.unknown, 1);
+  const second = createWebReasoningExecutor({ workerRoot: root, adapter, requestBudget: budget, now: () => "2026-09-08T01:00:00.000Z", runDesktopIntent: async () => { throw new Error("unused"); } });
+  const secondResult = await second.execute(run);
+  assert.deepEqual(secondResult, { type: "waiting-external", reason: "ChatGPT Web external request already reserved" });
+  assert.equal(submissions, 1);
 });
 
 test("structured rejection diagnostics retain correction attempt and budget without response text", async () => {

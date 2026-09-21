@@ -45,6 +45,12 @@ export type IdeaProposal = {
   verifiedAt?: string;
 };
 
+export type PrototypeBrowserAcceptance = {
+  status: "unverified" | "verified";
+  checkedAt?: string;
+  checks?: Record<string, "pass" | "fail" | "unverified">;
+};
+
 export type PrototypeProduction = {
   version: 1;
   id: string;
@@ -58,6 +64,7 @@ export type PrototypeProduction = {
   baseRef: string;
   commitSha?: string;
   deployment?: PrototypeDeploymentProgress;
+  acceptance?: PrototypeBrowserAcceptance;
   status: PrototypeProductionStatus;
   failureSummary?: string;
   blockerSummary?: string;
@@ -165,7 +172,7 @@ export function assertIdeaProposal(value: unknown): asserts value is IdeaProposa
   const item = value as Record<string, unknown>;
   assertExactKeys(item, [
     "version", "id", "campaignId", "proposalId", "runId", "repositoryUrl", "sandboxRoot",
-    "worktreeRoot", "branch", "baseRef", "commitSha", "deployment", "status", "failureSummary",
+    "worktreeRoot", "branch", "baseRef", "commitSha", "deployment", "acceptance", "status", "failureSummary",
     "blockerSummary", "createdAt", "updatedAt",
   ], "production");
   assertVersion(item.version);
@@ -191,6 +198,19 @@ export function assertIdeaProposal(value: unknown): asserts value is IdeaProposa
     }
     for (const key of ["deployedAt", "verifiedAt"] as const) {
       if (deployment[key] !== undefined) requireTimestamp(deployment[key], `deployment ${key}`);
+    }
+  }
+  if (item.acceptance !== undefined) {
+    if (!item.acceptance || typeof item.acceptance !== "object") throw new Error("Idea Lab production acceptance must be an object");
+    const acceptance = item.acceptance as Record<string, unknown>;
+    assertExactKeys(acceptance, ["status", "checkedAt", "checks"], "acceptance");
+    if (acceptance.status !== "unverified" && acceptance.status !== "verified") throw new Error("Invalid Idea Lab browser acceptance status");
+    if (acceptance.checkedAt !== undefined) requireTimestamp(acceptance.checkedAt, "acceptance checkedAt");
+    if (acceptance.checks !== undefined) {
+      if (!acceptance.checks || typeof acceptance.checks !== "object") throw new Error("Idea Lab acceptance checks must be an object");
+      for (const value of Object.values(acceptance.checks as Record<string, unknown>)) {
+        if (value !== "pass" && value !== "fail" && value !== "unverified") throw new Error("Invalid Idea Lab acceptance check status");
+      }
     }
   }
 }

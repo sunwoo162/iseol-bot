@@ -8,6 +8,10 @@ import {
 import type { ChatGptBrowserDriver } from "../src/chatgpt-web/production-browser-adapter.js";
 import { createChatGptIdeaProposalProvider } from "../src/idea-lab/chatgpt-proposal-provider.js";
 import type { IdeaProposalDraft } from "../src/idea-lab/proposal-provider.js";
+import { createRequestBudgetStore, ExternalRequestBudgetExhaustedError, ExternalRequestOutcomeUnknownError } from "../src/chatgpt-web/request-budget.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const draft: IdeaProposalDraft = {
   title: "Quiet Queue",
@@ -116,5 +120,26 @@ test("provider rejects invalid or oversized request context before opening ChatG
     const provider = createChatGptIdeaProposalProvider(fake.value);
     await assert.rejects(() => provider.generate(input), /requestedCount|context/i);
     assert.deepEqual(fake.calls, []);
+  }
+});
+
+test("proposal submissions consume one common budget and UNKNOWN blocks resubmission", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-proposal-budget-"));
+  try {
+    let submitCount = 0;
+    const fake = driver({
+      submitPrompt: async (input) => { submitCount += 1; return { conversationRef: "proposal-conv" }; },
+      readStructuredResult: async () => { throw new ChatGptWebSessionLostError("result unavailable"); },
+    });
+    const budget = createRequestBudgetStore(root, 1);
+    const provider = createChatGptIdeaProposalProvider(fake.value, { requestBudget: budget });
+    const input = { seed: "seed", constraints: [], requestedCount: 1, accepted: [], attempt: 1, budgetIdentity: "campaign-camp-1" };
+    await assert.rejects(() => provider.generate(input), ExternalRequestOutcomeUnknownError);
+    const record = await budget.inspect("campaign-camp-1");
+    assert.equal(record?.unknown, 1);
+    await assert.rejects(() => provider.generate(input), ExternalRequestBudgetExhaustedError);
+    assert.equal(submitCount, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
