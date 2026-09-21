@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, createRuntimeShutdownServer, inspectRuntimeLock, loadRuntimeHostConfig, normalizeRuntimeLockRecoveryInput, parseRuntimeHostStdin, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, recoverStaleRuntimeLockOnly, requestControlledRuntimeStop, requestRuntimeStop, requestRuntimeShutdown, resolveConfiguredRuntimeOperatorId, resolveRuntimeCodeVersion, runRuntimeStopLifecycle, runtimeRecoveryLockPath, runtimeShutdownEndpoint, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
+import { acquireRuntimeLock, acquireRuntimeMaintenanceLock, acquireRuntimeRecoveryLock, createRuntimeShutdownServer, inspectRuntimeLock, loadRuntimeHostConfig, normalizeRuntimeLockRecoveryInput, parseRuntimeHostStdin, recoverStaleRuntimeLock, recoverStaleRuntimeLockAndContainRuntimeMaintenanceJobs, recoverStaleRuntimeLockOnly, requestControlledRuntimeStop, requestRuntimeStop, requestRuntimeShutdown, resolveConfiguredRuntimeDesktopAgentPort, resolveConfiguredRuntimeOperatorId, resolveRuntimeCodeVersion, runRuntimeStopLifecycle, runtimeRecoveryLockPath, runtimeShutdownEndpoint, runtimeStopSignal, saveRuntimeHostConfig } from "../scripts/iseol-runtime-host.js";
 import { approveAndContainRuntimeMaintenanceJob, approveAndContainRuntimeMaintenanceJobs, containRuntimeMaintenanceJob } from "../scripts/iseol-runtime-host.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import { createDesktopJob, desktopJobRevision, loadDesktopJob, loadDesktopJobContainment } from "../src/desktop-agent/job-store.js";
@@ -19,6 +19,14 @@ test("runtime host parses redirected stdin without treating descriptor zero as a
 test("stored protected credential identity takes precedence over a stale environment operator id", () => {
   assert.equal(resolveConfiguredRuntimeOperatorId("sunwoo", "user"), "sunwoo");
   assert.equal(resolveConfiguredRuntimeOperatorId(undefined, "user"), "user");
+});
+
+test("controlled stop requires the explicitly configured Desktop Core port", () => {
+  assert.equal(resolveConfiguredRuntimeDesktopAgentPort("18891"), 18891);
+  assert.equal(resolveConfiguredRuntimeDesktopAgentPort(" 8791 "), 8791);
+  assert.equal(resolveConfiguredRuntimeDesktopAgentPort(""), undefined);
+  assert.throws(() => resolveConfiguredRuntimeDesktopAgentPort("0"), /port/i);
+  assert.throws(() => resolveConfiguredRuntimeDesktopAgentPort("not-a-port"), /port/i);
 });
 
 test("lock-only recovery maps the CLI recoveryConfirmation field to the recovery contract", () => {
@@ -261,9 +269,10 @@ test("controlled external stop verifies the exact PID identity and sends only th
   const result = await requestControlledRuntimeStop({ lockPath, dataRoot: root }, {
     expectedPid: 4242, expectedCreatedAt: createdAt, expectedExecutable: "C:\\Program Files\\nodejs\\node.exe", expectedCommandLine: commandLine,
     expectedFingerprint: inspection.fingerprint, operatorId: "sunwoo", operatorCredentialVerified: true,
+    desktopAgentPort: 18891,
     confirmation: `I approve controlled external termination of Runtime pid 4242 createdAt ${createdAt} fingerprint ${inspection.fingerprint}`,
     readProcess: async () => ({ executable: "C:\\Program Files\\nodejs\\node.exe", commandLine, createdAt }),
-    readPortOwner: async () => 4242,
+    readPortOwner: async (port) => { assert.equal(port, 18891); return 4242; },
     terminate: (pid) => signals.push({ pid, signal: "SIGTERM" }),
   });
   assert.deepEqual(result, { status: "stop-requested", pid: 4242, signal: "SIGTERM" });
@@ -281,6 +290,7 @@ test("controlled external stop fails closed on PID reuse, changed identity, acti
   const base = {
     expectedPid: 4242, expectedCreatedAt: createdAt, expectedExecutable: "node.exe", expectedCommandLine: commandLine,
     expectedFingerprint: inspection.fingerprint, operatorId: "sunwoo", operatorCredentialVerified: true,
+    desktopAgentPort: 18891,
     confirmation: `I approve controlled external termination of Runtime pid 4242 createdAt ${createdAt} fingerprint ${inspection.fingerprint}`,
     readPortOwner: async () => 4242,
     terminate: () => { throw new Error("must not terminate"); },
@@ -294,6 +304,25 @@ test("controlled external stop fails closed on PID reuse, changed identity, acti
   await assert.rejects(requestControlledRuntimeStop({ lockPath, dataRoot: root, projectDesktopStateRoot: desktopRoot }, { ...base, readProcess: async () => ({ executable: "node.exe", commandLine, createdAt }) }), /active Desktop mutation or lease/i);
   await writeFile(lockPath, JSON.stringify({ version: 1, pid: 4242, dataRoot: root, ownerExecutable: "node.exe", ownerCommandLine: commandLine, startedAt: createdAt, leaseMarker: "changed" }));
   await assert.rejects(requestControlledRuntimeStop({ lockPath, dataRoot: root }, { ...base, readProcess: async () => ({ executable: "node.exe", commandLine, createdAt }) }), /fingerprint mismatch/i);
+});
+
+test("controlled stop refuses an unconfigured Desktop Core port without signaling", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-controlled-stop-port-"));
+  const lockPath = join(root, "runtime.lock");
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const commandLine = "node scripts/iseol-runtime-host.ts start";
+  await writeFile(lockPath, JSON.stringify({ version: 1, pid: 4242, dataRoot: root, ownerExecutable: "node.exe", ownerCommandLine: commandLine, startedAt: createdAt }));
+  const inspection = await inspectRuntimeLock(lockPath, async () => ({ state: "unavailable" as const }));
+  let terminated = false;
+  await assert.rejects(requestControlledRuntimeStop({ lockPath, dataRoot: root }, {
+    expectedPid: 4242, expectedCreatedAt: createdAt, expectedExecutable: "node.exe", expectedCommandLine: commandLine,
+    expectedFingerprint: inspection.fingerprint, operatorId: "sunwoo", operatorCredentialVerified: true,
+    confirmation: `I approve controlled external termination of Runtime pid 4242 createdAt ${createdAt} fingerprint ${inspection.fingerprint}`,
+    readProcess: async () => ({ executable: "node.exe", commandLine, createdAt }),
+    terminate: () => { terminated = true; },
+  }), /Desktop Agent port is not configured/i);
+  assert.equal(terminated, false);
+  assert.equal(JSON.parse(await readFile(lockPath, "utf8")).pid, 4242);
 });
 
 test("stale lock recovery requires the exact fingerprint, operator approval, and recovery ownership", async () => {

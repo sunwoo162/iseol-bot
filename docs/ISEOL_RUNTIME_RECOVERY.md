@@ -40,6 +40,8 @@ npm.cmd run iseol:runtime -- operator-stop
 
 This command authenticates the registered Windows identity, rechecks the exact PID, process creation time, executable, command line, lock fingerprint, configured data root, and active Desktop leases/mutation states, then sends an external termination signal only to the approved PID. It never removes the lock. External termination can leave the lock and in-flight work indeterminate; run lock-only recovery only after the PID and listener are confirmed absent.
 
+The listener check uses the explicitly configured `ISEOL_DESKTOP_AGENT_PORT` for the target Runtime. `operator-stop` fails closed when that variable is absent or invalid; it never substitutes the legacy `8791` port for an isolated or otherwise differently configured Runtime.
+
 The `operator-stop` stdin object contains `expectedPid`, `expectedCreatedAt`, `expectedExecutable`, `expectedCommandLine`, `expectedFingerprint`, and `confirmation`. The confirmation must be `I approve controlled external termination of Runtime pid <pid> createdAt <createdAt> fingerprint <fingerprint>`. No token is accepted on stdin; authentication uses the protected credential registered for the current Windows identity.
 
 Legacy locks without `ownerIdentity`, `ownerExecutable`, and `ownerCommandLine` remain `owner-unconfirmed` even when their PID is absent. They require independent operator evidence, the supported owner probe, and the exact additional confirmation `I confirm external owner inspection for Runtime lock <fingerprint> pid <pid>` before recovery can be authorized. PID absence alone is not stale proof.

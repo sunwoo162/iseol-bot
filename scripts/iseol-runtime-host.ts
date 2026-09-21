@@ -132,6 +132,22 @@ export function resolveConfiguredRuntimeOperatorId(storedOperatorId?: string, en
   return storedOperatorId?.trim() || environmentOperatorId?.trim() || "";
 }
 
+/**
+ * Resolve the explicitly configured Desktop Core listener used by operator-stop.
+ * The Desktop Core resolver has a legacy 8791 default for startup, but an
+ * external stop must fail closed when the target port was not explicitly
+ * propagated to the CLI process.
+ */
+export function resolveConfiguredRuntimeDesktopAgentPort(value = process.env.ISEOL_DESKTOP_AGENT_PORT): number | undefined {
+  const raw = value?.trim() ?? "";
+  if (!raw) return undefined;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("ISEOL_DESKTOP_AGENT_PORT must be a valid TCP port");
+  }
+  return port;
+}
+
 export async function saveRuntimeHostConfig(path: string, config: Omit<IseolRuntimeHostConfig, "version"> & { version?: 1 }): Promise<void> {
   const normalized = {
     version: 1 as const,
@@ -597,6 +613,7 @@ export async function requestControlledRuntimeStop(
     expectedExecutable: string;
     expectedCommandLine: string;
     expectedFingerprint: string;
+    desktopAgentPort?: number;
     operatorId: string;
     operatorCredentialVerified?: boolean;
     confirmation: string;
@@ -621,6 +638,9 @@ export async function requestControlledRuntimeStop(
   catch { throw new Error("runtime lock is unreadable"); }
   if (lock.pid !== input.expectedPid) throw new Error("runtime lock PID mismatch");
   if (typeof lock.dataRoot !== "string" || resolve(lock.dataRoot) !== resolve(config.dataRoot)) throw new Error("runtime dataRoot mismatch");
+  if (!Number.isInteger(input.desktopAgentPort) || input.desktopAgentPort < 1 || input.desktopAgentPort > 65_535) {
+    throw new Error("Desktop Agent port is not configured");
+  }
   for (const ownershipPath of [runtimeMaintenanceLockPath(config.lockPath), runtimeRecoveryLockPath(config.lockPath)]) {
     try {
       await readFile(ownershipPath, "utf8");
@@ -629,7 +649,7 @@ export async function requestControlledRuntimeStop(
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
-  const listenerOwner = await readPortOwner(8791);
+  const listenerOwner = await readPortOwner(input.desktopAgentPort);
   if (listenerOwner !== input.expectedPid) throw new Error("Runtime listener ownership mismatch");
   const first = await readProcess(input.expectedPid);
   if (!first) throw new Error("process identity unavailable");
@@ -932,6 +952,7 @@ async function main(): Promise<void> {
   if (command === "operator-stop") {
     const input = readRuntimeHostStdin<{ expectedPid?: unknown; expectedCreatedAt?: unknown; expectedExecutable?: unknown; expectedCommandLine?: unknown; expectedFingerprint?: unknown; confirmation?: unknown }>();
     const operatorCredentialVerified = await verifyCliOperator("");
+    const desktopAgentPort = resolveConfiguredRuntimeDesktopAgentPort(process.env.ISEOL_DESKTOP_AGENT_PORT);
     const expectedPid = Number.isInteger(input.expectedPid) ? input.expectedPid as number : 0;
     const result = await requestControlledRuntimeStop(config, {
       expectedPid,
@@ -939,6 +960,7 @@ async function main(): Promise<void> {
       expectedExecutable: typeof input.expectedExecutable === "string" ? input.expectedExecutable : "",
       expectedCommandLine: typeof input.expectedCommandLine === "string" ? input.expectedCommandLine : "",
       expectedFingerprint: typeof input.expectedFingerprint === "string" ? input.expectedFingerprint : "",
+      desktopAgentPort,
       confirmation: typeof input.confirmation === "string" ? input.confirmation : "",
       operatorId: configuredOperatorId,
       operatorCredentialVerified,
