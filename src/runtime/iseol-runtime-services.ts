@@ -308,6 +308,7 @@ export async function startIseolRuntimeServices(
   let deployAdapterOwned: (PrototypeDeployAdapter & { dispose?: () => Promise<void> }) | undefined;
   let webServer: Server | undefined;
   let unsubscribeAgentConnected: (() => void) | undefined;
+  let unsubscribeAgentDisconnected: (() => void) | undefined;
   const projectActiveRuns = new Map<string, Promise<void>>();
   let enqueueProjectRun: IseolRuntimeCapability["enqueueProjectRun"];
   let inspectProjectRun: IseolRuntimeCapability["inspectProjectRunReconciliation"];
@@ -333,7 +334,7 @@ export async function startIseolRuntimeServices(
     const projectRootsConfigured = Boolean(roots.projectModelRoot && roots.projectRunRoot && roots.projectWebWorkerRoot && roots.projectDesktopStateRoot);
     const projectRequested = projectFlag && projectRootsConfigured;
     const projectConfigBlocked = projectFlag && !projectRootsConfigured;
-    if (projectConfigBlocked && !ideaLabRequested) capability = { state: "blocked" };
+    if (projectConfigBlocked && !ideaLabRequested) capability.state = "blocked";
     const needsBrowser = bridgeConfig.enabled || ideaLabConfig.enabled || projectRequested;
     const browserRepositoryRoot = ideaLabConfig.enabled
       ? ideaLabConfig.repositoryRoot
@@ -353,83 +354,122 @@ export async function startIseolRuntimeServices(
 
     const configuredProjectAgentId = projectAgentId(env, ideaLabConfig);
     const runtimeAgentId = ideaLabConfig.enabled ? ideaLabConfig.agentId : configuredProjectAgentId;
-    const desktopAgentReady = runtimeAgentId && desktopCore?.transport && browser
-      ? await waitForDesktopAgentConnection(desktopCore.transport, runtimeAgentId, agentReadyTimeoutMs, sleep)
-      : false;
-    if ((ideaLabConfig.enabled || projectRequested) && desktopCore?.transport && browser && desktopAgentReady) {
-      if (ideaLabConfig.enabled) {
+    const agentTransport = desktopCore?.transport;
+    let initialReadinessWindow = true;
+    let readinessChange: Promise<void> | undefined;
+    let ideaLabInitializationStarted = false;
+
+    const initializeIdeaLab = async (recoverOnStartup: boolean, connectedOverride?: boolean): Promise<void> => {
+      if (!ideaLabConfig.enabled) return;
+      const activeIdeaLabConfig = ideaLabConfig;
+      const connected = connectedOverride ?? Boolean(agentTransport?.isAgentConnected(activeIdeaLabConfig.agentId));
+      if (!agentTransport || !browser || !connected) {
+        capability.state = "blocked";
+        return;
+      }
+      if (runtime) {
+        capability.state = "ready";
+        return;
+      }
+      if (ideaLabInitializationStarted) return;
+      ideaLabInitializationStarted = true;
+
       let deployAdapter: PrototypeDeployAdapter | null = null;
       try {
-        deployAdapter = await resolveDeploy(env, ideaLabConfig);
+        deployAdapter = await resolveDeploy(env, activeIdeaLabConfig);
       } catch {
         deployAdapter = null;
       }
-      if (deployAdapter) {
-        deployAdapterOwned = deployAdapter;
-        const requestBudget = ideaLabConfig.externalRequestBudget
-          ? createRequestBudgetStore(roots.webWorkerRoot ?? roots.webRoot, ideaLabConfig.externalRequestBudget)
-          : undefined;
-        const sandboxAdapter: PrototypeSandboxAdapter = createSandboxAdapter({
-          dispatch: async (pack) => {
-            desktopCore!.transport.sendTask(pack.agentId, pack, desktopCore!.transport.getAgentSessionId(pack.agentId) ?? undefined);
-            return desktopCore!.transport.awaitResult(pack.jobId, 120_000);
-          },
-          refreshPreflight: refreshDevelopmentRunPreflight,
-        });
-        const proposalProvider = createProposalProvider(browser, requestBudget ? { requestBudget } : undefined);
-        const productionDriver: ProductionDriver = createProductionDriver({
-          ...ideaLabConfig,
-          roots,
-          sandboxAdapter,
-          desktopTransport: desktopCore.transport,
-          browserAdapter: createProductionChatGptWebAdapter(browser),
-          desktopTaskCompiler: createIdeaLabProductionDesktopTaskCompiler(ideaLabConfig),
-          desktopStateRoot: desktopConfig.stateRoot,
-          deployAdapter,
-        });
-        runtime = createRuntime({
-          modelRoot: roots.modelRoot,
-          recoveryGuard: async (campaignId) => shouldRecoverIdeaLabCampaign(roots.modelRoot, roots.runRoot, campaignId),
-          requestRetry: async (runId) => {
-            const production = (await listPrototypeProductions(roots.modelRoot)).find((item) => item.runId === runId);
-            if (!production) return "not-allowed";
-            const result = await requestHarnessRunRetry(roots.runRoot, runId, {
-              retryReason: "operator-request",
-              actor: "operator",
-              requestedAt: new Date().toISOString(),
-            });
-            if (result.status === "accepted") runtime?.enqueue(production.campaignId);
-            return result.status;
-          },
-          superviseCampaign: async (campaignId) => {
-            await superviseIdeaLabCampaign({
-              root: roots.modelRoot,
-              harnessRoot: roots.runRoot,
-              campaignId,
-              proposalProvider,
-              ...productionDriver,
-            });
-          },
-        });
-        const liveRuntime = runtime;
-
-        unsubscribeAgentConnected = desktopCore.transport.onAgentConnected?.(
-          (agentId: string) => {
-            if (agentId !== ideaLabConfig.agentId) return;
-
-            void liveRuntime.recover().catch(() => undefined);
-          },
-        );
-
-        await runtime.recover();
-        capability = {
-          state: "ready",
-          enqueue: (campaignId) => runtime!.enqueue(campaignId),
-          retryRun: (runId) => runtime!.retryRun(runId),
-        };
+      if (!deployAdapter) {
+        ideaLabInitializationStarted = false;
+        capability.state = "blocked";
+        return;
       }
 
-      }
+      deployAdapterOwned = deployAdapter;
+      const requestBudget = ideaLabConfig.externalRequestBudget
+        ? createRequestBudgetStore(roots.webWorkerRoot ?? roots.webRoot, ideaLabConfig.externalRequestBudget)
+        : undefined;
+      const sandboxAdapter: PrototypeSandboxAdapter = createSandboxAdapter({
+        dispatch: async (pack) => {
+          agentTransport.sendTask(pack.agentId, pack, agentTransport.getAgentSessionId(pack.agentId) ?? undefined);
+          return agentTransport.awaitResult(pack.jobId, 120_000);
+        },
+        refreshPreflight: refreshDevelopmentRunPreflight,
+      });
+      const proposalProvider = createProposalProvider(browser, requestBudget ? { requestBudget } : undefined);
+      const productionDriver: ProductionDriver = createProductionDriver({
+        ...activeIdeaLabConfig,
+        roots,
+        sandboxAdapter,
+        desktopTransport: agentTransport,
+        browserAdapter: createProductionChatGptWebAdapter(browser),
+        desktopTaskCompiler: createIdeaLabProductionDesktopTaskCompiler(activeIdeaLabConfig),
+        desktopStateRoot: desktopConfig.stateRoot,
+        deployAdapter,
+      });
+      runtime = createRuntime({
+        modelRoot: roots.modelRoot,
+        recoveryGuard: async (campaignId) => shouldRecoverIdeaLabCampaign(roots.modelRoot, roots.runRoot, campaignId),
+        requestRetry: async (runId) => {
+          const production = (await listPrototypeProductions(roots.modelRoot)).find((item) => item.runId === runId);
+          if (!production) return "not-allowed";
+          const result = await requestHarnessRunRetry(roots.runRoot, runId, {
+            retryReason: "operator-request",
+            actor: "operator",
+            requestedAt: new Date().toISOString(),
+          });
+          if (result.status === "accepted") runtime?.enqueue(production.campaignId);
+          return result.status;
+        },
+        superviseCampaign: async (campaignId) => {
+          await superviseIdeaLabCampaign({
+            root: roots.modelRoot,
+            harnessRoot: roots.runRoot,
+            campaignId,
+            proposalProvider,
+            ...productionDriver,
+          });
+        },
+      });
+
+      capability.enqueue = (campaignId) => runtime!.enqueue(campaignId);
+      capability.retryRun = (runId) => runtime!.retryRun(runId);
+      if (recoverOnStartup) await runtime.recover();
+      capability.state = "ready";
+    };
+
+    const refreshIdeaLabReadiness = (recoverOnStartup: boolean, connectedOverride?: boolean): Promise<void> => {
+      if (readinessChange) return readinessChange;
+      readinessChange = initializeIdeaLab(recoverOnStartup, connectedOverride).finally(() => {
+        readinessChange = undefined;
+      });
+      return readinessChange;
+    };
+
+    if (ideaLabConfig.enabled && agentTransport) {
+      unsubscribeAgentConnected = agentTransport.onAgentConnected?.((agentId: string) => {
+        if (agentId !== ideaLabConfig.agentId || initialReadinessWindow) return;
+        void refreshIdeaLabReadiness(false).catch(() => {
+          capability.state = "blocked";
+        });
+      });
+      unsubscribeAgentDisconnected = agentTransport.onAgentDisconnected?.((agentId: string) => {
+        if (agentId !== ideaLabConfig.agentId || initialReadinessWindow) return;
+        capability.state = "blocked";
+      });
+    }
+
+    const desktopAgentReady = runtimeAgentId && desktopCore?.transport && browser
+      ? await waitForDesktopAgentConnection(desktopCore.transport, runtimeAgentId, agentReadyTimeoutMs, sleep)
+      : false;
+    initialReadinessWindow = false;
+    if (ideaLabConfig.enabled) {
+      const connectedAtReadinessBoundary = Boolean(desktopAgentReady)
+        || Boolean(agentTransport?.isAgentConnected(ideaLabConfig.agentId));
+      await refreshIdeaLabReadiness(Boolean(desktopAgentReady), connectedAtReadinessBoundary);
+    }
+    if ((ideaLabConfig.enabled || projectRequested) && desktopCore?.transport && browser && desktopAgentReady) {
       if (projectRequested && desktopCore?.transport && browser && configuredProjectAgentId && desktopAgentReady) {
         const projectAgentReady = configuredProjectAgentId === runtimeAgentId
           ? true
@@ -549,6 +589,14 @@ export async function startIseolRuntimeServices(
       }
     }
 
+    if (enqueueProjectRun) capability.enqueueProjectRun = enqueueProjectRun;
+    if (inspectProjectRun) capability.inspectProjectRunReconciliation = inspectProjectRun;
+    if (reconcileProjectRun) capability.reconcileProjectRun = reconcileProjectRun;
+    if (issueProjectRunOperatorApproval) capability.issueProjectRunOperatorApproval = issueProjectRunOperatorApproval;
+    if (inspectDesktopJobReconciliationCapability) capability.inspectDesktopJobReconciliation = inspectDesktopJobReconciliationCapability;
+    if (issueDesktopJobContainmentApprovalCapability) capability.issueDesktopJobContainmentApproval = issueDesktopJobContainmentApprovalCapability;
+    if (containDesktopJobCapability) capability.containDesktopJob = containDesktopJobCapability;
+
     webServer = await startWeb({
       ...webConfig,
       modelRoot: roots.modelRoot,
@@ -561,20 +609,13 @@ export async function startIseolRuntimeServices(
       ...(roots.projectModelRoot ? { projectModelRoot: roots.projectModelRoot } : {}),
       ...(roots.projectRunRoot ? { projectHarnessRoot: roots.projectRunRoot } : {}),
       ...(input.progressNotificationRoot && input.progressNotificationAdapter ? { progressNotificationRoot: input.progressNotificationRoot, progressNotificationAdapter: input.progressNotificationAdapter } : {}),
-      ideaLabRuntime: {
-        ...capability,
-        ...(enqueueProjectRun ? { enqueueProjectRun } : {}),
-        ...(inspectProjectRun ? { inspectProjectRunReconciliation: inspectProjectRun } : {}),
-        ...(reconcileProjectRun ? { reconcileProjectRun } : {}),
-        ...(issueProjectRunOperatorApproval ? { issueProjectRunOperatorApproval } : {}),
-        ...(inspectDesktopJobReconciliationCapability ? { inspectDesktopJobReconciliation: inspectDesktopJobReconciliationCapability } : {}),
-        ...(issueDesktopJobContainmentApprovalCapability ? { issueDesktopJobContainmentApproval: issueDesktopJobContainmentApprovalCapability } : {}),
-        ...(containDesktopJobCapability ? { containDesktopJob: containDesktopJobCapability } : {}),
-      },
+      ideaLabRuntime: capability,
     });
   } catch (error) {
     unsubscribeAgentConnected?.();
     unsubscribeAgentConnected = undefined;
+    unsubscribeAgentDisconnected?.();
+    unsubscribeAgentDisconnected = undefined;
     await disposeOwnedResources({ webServer, bridge, runtime, deployAdapter: deployAdapterOwned, desktopCore, browser }, true);
     throw error;
   }
@@ -585,21 +626,14 @@ export async function startIseolRuntimeServices(
     desktopCore,
     ...(bridge ? { chatGptBridge: bridge } : {}),
     ...(runtime ? { ideaLabRuntime: runtime } : {}),
-    ideaLabCapability: {
-      ...capability,
-      ...(enqueueProjectRun ? { enqueueProjectRun } : {}),
-      ...(inspectProjectRun ? { inspectProjectRunReconciliation: inspectProjectRun } : {}),
-      ...(reconcileProjectRun ? { reconcileProjectRun } : {}),
-      ...(issueProjectRunOperatorApproval ? { issueProjectRunOperatorApproval } : {}),
-      ...(inspectDesktopJobReconciliationCapability ? { inspectDesktopJobReconciliation: inspectDesktopJobReconciliationCapability } : {}),
-      ...(issueDesktopJobContainmentApprovalCapability ? { issueDesktopJobContainmentApproval: issueDesktopJobContainmentApprovalCapability } : {}),
-      ...(containDesktopJobCapability ? { containDesktopJob: containDesktopJobCapability } : {}),
-    },
+    ideaLabCapability: capability,
     async dispose() {
       if (disposed) return;
 
       unsubscribeAgentConnected?.();
       unsubscribeAgentConnected = undefined;
+      unsubscribeAgentDisconnected?.();
+      unsubscribeAgentDisconnected = undefined;
       disposed = true;
       await disposeOwnedResources({ webServer, bridge, runtime, deployAdapter: deployAdapterOwned, desktopCore, browser });
     },

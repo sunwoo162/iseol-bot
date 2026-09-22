@@ -504,7 +504,7 @@ test("default live Idea Lab wait covers the persistent Agent max reconnect backo
   await services.dispose();
 });
 
-test("configured Desktop Agent reconnect wakes live Idea Lab runtime recovery", async () => {
+test("configured Desktop Agent reconnect does not auto-recover Idea Lab campaigns", async () => {
   let reconnectListener:
     | ((agentId: string) => void)
     | undefined;
@@ -572,9 +572,73 @@ test("configured Desktop Agent reconnect wakes live Idea Lab runtime recovery", 
 
   assert.equal(
     recoverCalls,
-    2,
-    "the configured Agent reconnect must trigger recovery",
+    1,
+    "Agent reconnect must not automatically recover existing campaigns",
   );
+
+  await services.dispose();
+});
+
+test("late Agent connection changes Idea Lab readiness without automatic recovery", async () => {
+  let connected = false;
+  let connectedListener: ((agentId: string) => void) | undefined;
+  let disconnectedListener: ((agentId: string) => void) | undefined;
+  let constructed = 0;
+  let recoverCalls = 0;
+  let capability: any;
+  const transport = {
+    isAgentConnected: (agentId: string) => {
+      assert.equal(agentId, "agent-live");
+      return connected;
+    },
+    onAgentConnected(listener: (agentId: string) => void) {
+      connectedListener = listener;
+      return () => { if (connectedListener === listener) connectedListener = undefined; };
+    },
+    onAgentDisconnected(listener: (agentId: string) => void) {
+      disconnectedListener = listener;
+      return () => { if (disconnectedListener === listener) disconnectedListener = undefined; };
+    },
+    sendTask() {},
+    awaitResult: async () => { throw new Error("unused"); },
+  };
+  const value = fixture({ ideaLabConfig: liveConfig(), agentReadyTimeoutMs: 0 });
+  value.deps.startDesktop = async () => ({ transport, close: async () => undefined });
+  value.deps.resolveDeploy = async () => ({});
+  value.deps.createProductionDriver = () => { constructed += 1; return {}; };
+  value.deps.createRuntime = () => ({
+    recover: async () => { recoverCalls += 1; },
+    dispose: async () => undefined,
+  });
+  value.deps.startWeb = async (options: any) => {
+    capability = options.ideaLabRuntime;
+    return { close: (done?: (error?: Error) => void) => done?.() };
+  };
+
+  const services = await startIseolRuntimeServices(value);
+  assert.equal(capability.state, "blocked");
+  assert.equal(constructed, 0);
+  assert.equal(recoverCalls, 0);
+
+  connected = true;
+  connectedListener!("agent-live");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(capability.state, "ready");
+  assert.equal(services.ideaLabCapability.state, "ready");
+  assert.equal(constructed, 1);
+  assert.equal(recoverCalls, 0);
+
+  connected = false;
+  disconnectedListener!("agent-live");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(capability.state, "blocked");
+
+  connected = true;
+  connectedListener!("agent-live");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(capability.state, "ready");
+  assert.equal(constructed, 1);
+  assert.equal(recoverCalls, 0);
 
   await services.dispose();
 });

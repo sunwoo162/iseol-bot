@@ -347,6 +347,21 @@ test("accepted Desktop Agent hello notifies connection listeners", async () => {
   unsubscribe();
 });
 
+test("transport notifies only the active Agent session on disconnect", async () => {
+  const registryRoot = await root();
+  const transport = createDesktopAgentTransport({ registryRoot, expectedToken: "secret-token" });
+  const disconnected: string[] = [];
+  const unsubscribe = transport.onAgentDisconnected((agentId) => disconnected.push(agentId));
+
+  await transport.acceptHello("session-disconnect-1", hello, new FakeWire());
+  await transport.acceptHello("session-disconnect-2", { ...hello, agentId: "agent-002" }, new FakeWire());
+  transport.disconnect("session-disconnect-1");
+  assert.deepEqual(disconnected, ["agent-001"]);
+  transport.disconnect("session-disconnect-2");
+  assert.deepEqual(disconnected, ["agent-001", "agent-002"]);
+  unsubscribe();
+});
+
 test("connection listener failure does not reject an accepted Desktop Agent hello", async () => {
   const registryRoot = await root();
   const transport = createDesktopAgentTransport({

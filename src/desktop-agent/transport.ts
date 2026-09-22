@@ -55,6 +55,8 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
   const completed = new Map<string, DesktopJobResult>();
   const connectionListeners =
     new Set<(agentId: string) => void>();
+  const disconnectionListeners =
+    new Set<(agentId: string) => void>();
 
   async function acceptHello(
     sessionId: string,
@@ -129,12 +131,29 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
     };
   }
 
+  function onAgentDisconnected(
+    listener: (agentId: string) => void,
+  ): () => void {
+    disconnectionListeners.add(listener);
+
+    return () => {
+      disconnectionListeners.delete(listener);
+    };
+  }
+
   function disconnect(sessionId: string): void {
     const session = sessionsById.get(sessionId);
     if (!session) return;
     sessionsById.delete(sessionId);
     if (sessionByAgent.get(session.agentId) === sessionId) {
       sessionByAgent.delete(session.agentId);
+      for (const listener of disconnectionListeners) {
+        try {
+          listener(session.agentId);
+        } catch {
+          // Listener failure must not invalidate transport cleanup.
+        }
+      }
     }
   }
 
@@ -203,6 +222,7 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
   return {
     acceptHello,
     onAgentConnected,
+    onAgentDisconnected,
     handleMessage,
     disconnect,
     isAgentConnected,
