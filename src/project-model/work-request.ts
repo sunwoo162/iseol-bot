@@ -224,7 +224,7 @@ export async function reconcileProjectWorkRequest(input: {
   projectId: string;
   workId: string;
   at: string;
-  findRun: (runId: string) => Promise<{ runId: string; state: { stage: string; status: string }; updatedAt: string } | null>;
+  findRun: (runId: string) => Promise<{ runId: string; projectId?: string; state: { stage: string; status: string }; updatedAt: string } | null>;
 }): Promise<ProjectWorkRequestProjection | null> {
   const request = await loadProjectWorkRequest(input.root, input.projectId, input.workId);
   if (!request) return null;
@@ -234,6 +234,9 @@ export async function reconcileProjectWorkRequest(input: {
   const run = await input.findRun(request.requestedRunId);
   if (!run) {
     return { request, revision: projectWorkRequestRevision(request), execution: "unknown", transition: "unknown", blocker: "requested Run identity has no durable Run record" };
+  }
+  if (run.projectId !== undefined && run.projectId !== input.projectId) {
+    return { request, revision: projectWorkRequestRevision(request), execution: "unknown", transition: "unknown", blocker: "requested Run project identity mismatch" };
   }
   if (run.runId !== request.requestedRunId) {
     return { request, revision: projectWorkRequestRevision(request), execution: "unknown", transition: "unknown", blocker: "requested Run identity mismatch" };

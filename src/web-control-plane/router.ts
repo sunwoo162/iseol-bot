@@ -184,7 +184,7 @@ export async function routeWebControlPlaneRequest(
     if (!projectId || !workId) return response(404, { error: "not found" });
     const inspection = await reconcileProjectWorkRequest({ root: projectModelRoot, projectId, workId, at: (deps.now ?? (() => new Date().toISOString()))(), findRun: async (runId) => {
       const run = await loadHarnessRun(projectHarnessRoot, runId);
-      return run ? { runId, state: run.state, updatedAt: run.updatedAt } : null;
+      return run ? { runId, projectId: run.request.projectId, state: run.state, updatedAt: run.updatedAt } : null;
     }});
     return inspection ? response(200, inspection) : response(404, { error: "not found" });
   }

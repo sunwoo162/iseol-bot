@@ -181,3 +181,16 @@ test("late or mismatched Run observations cannot overwrite a terminal request", 
   assert.equal(mismatched?.transition, "unknown");
   assert.match(mismatched?.blocker ?? "", /identity mismatch/);
 });
+
+test("Run observations from another project are rejected before queue projection", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-project-boundary-"));
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Boundary", objective: "Boundary", idempotencyKey: "boundary", id: "boundary", at });
+  await updateProjectWorkRequest(root, "project-1", "boundary", { status: "running", requestedRunId: "run-other", runId: "run-other" }, at);
+  const result = await reconcileProjectWorkRequest({
+    root, projectId: "project-1", workId: "boundary", at: "2026-09-20T12:03:00.000Z",
+    findRun: async () => ({ runId: "run-other", projectId: "project-2", state: { stage: "DONE", status: "DONE" }, updatedAt: at }),
+  });
+  assert.equal(result?.request.status, "running");
+  assert.equal(result?.transition, "unknown");
+  assert.match(result?.blocker ?? "", /project identity mismatch/);
+});
