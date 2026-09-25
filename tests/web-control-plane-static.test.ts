@@ -47,6 +47,8 @@ test("browser script supports deployment opening promotion and workspace renderi
   assert.match(script, /api\/execution-profile/);
   assert.match(script, /portfolio/);
   assert.match(script, /savePortfolioEdits/);
+  assert.ok(script.includes("/resume"));
+  assert.ok(script.includes("expectedRevision"));
 });
 
 test("static assets include responsive loading empty unauthorized and error states", async () => {

@@ -769,12 +769,18 @@ async function loadWorkRequests() {
       if (request.status === "queued") {
         const execute = element("button", "secondary-button", "Execute");
         execute.type = "button";
-        execute.addEventListener("click", () => executeWorkRequest(request.id));
+        execute.addEventListener("click", () => resumeWorkRequest(request));
         row.append(execute);
         const cancel = element("button", "ghost-button", "Cancel");
         cancel.type = "button";
         cancel.addEventListener("click", () => cancelWorkRequest(request.id));
         row.append(cancel);
+      }
+      if (request.status === "waiting" && request.requestedRunId) {
+        const resume = element("button", "secondary-button", "Resume");
+        resume.type = "button";
+        resume.addEventListener("click", () => resumeWorkRequest(request));
+        row.append(resume);
       }
       if (request.status === "running" || request.status === "failed" || request.status === "waiting") {
         const inspect = element("button", "ghost-button", "Inspect");
@@ -798,16 +804,18 @@ async function inspectWorkRequest(workRequestId) {
   } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
 }
 
-async function executeWorkRequest(workRequestId) {
+async function resumeWorkRequest(request) {
   if (!state.selectedProjectId) return;
   const targetRoot = $("#project-target-root").value.trim();
   if (!targetRoot) { setStatus("error", "Enter a project workspace root before executing."); return; }
-  const runId = `project-${state.selectedProjectId}-${workRequestId}`;
+  const workRequestId = request.id;
+  const runId = request.requestedRunId || `project-${state.selectedProjectId}-${workRequestId}`;
+  const expectedRevision = `${request.updatedAt}:${request.attempts}`;
   setLoading(true, "Starting the queued Project Workspace request...");
   try {
-    const result = await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}/work-requests/${encodeURIComponent(workRequestId)}/execute`, {
+    const result = await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}/work-requests/${encodeURIComponent(workRequestId)}/resume`, {
       method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ runId, targetRoot }),
+      body: JSON.stringify({ expectedRevision, runId, targetRoot }),
     });
     await selectProject(state.selectedProjectId);
     setStatus(result.status === "waiting" ? "error" : "success", result.blocker ?? "Work request execution connected to the Project Workspace Run.");

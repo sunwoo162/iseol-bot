@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { assertProjectModelId } from "../project-model/contracts.js";
 import { defaultAgentRoleRegistrations, resolveExecutionProfile } from "../project-model/execution-profile.js";
 import { loadProjectWorkspace, setProjectPurpose } from "../project-model/workspace-store.js";
-import { createProjectWorkRequest, listProjectWorkRequests, claimProjectWorkRequest, loadProjectWorkRequest, updateProjectWorkRequest, executeProjectWorkRequest, inspectProjectWorkRequest } from "../project-model/work-request.js";
+import { createProjectWorkRequest, listProjectWorkRequests, claimProjectWorkRequest, loadProjectWorkRequest, updateProjectWorkRequest, executeProjectWorkRequest, projectWorkRequestRevision, reconcileProjectWorkRequest } from "../project-model/work-request.js";
 import { loadHarnessRun } from "../harness/run-store.js";
 import { prepareProjectWorkspaceRun, startProjectWorkspaceRun } from "../project-model/workspace-run-preparation.js";
 import { buildPortfolioDraft, collectProjectEvidence, verifyPortfolioGrounding } from "../project-model/portfolio.js";
@@ -182,11 +182,77 @@ export async function routeWebControlPlaneRequest(
     const projectId = decodeId(workReconcileMatch[1] ?? "");
     const workId = decodeId(workReconcileMatch[2] ?? "");
     if (!projectId || !workId) return response(404, { error: "not found" });
-    const inspection = await inspectProjectWorkRequest(projectModelRoot, projectId, workId, async (runId) => {
+    const inspection = await reconcileProjectWorkRequest({ root: projectModelRoot, projectId, workId, at: (deps.now ?? (() => new Date().toISOString()))(), findRun: async (runId) => {
       const run = await loadHarnessRun(projectHarnessRoot, runId);
       return run ? { runId, state: run.state, updatedAt: run.updatedAt } : null;
-    });
+    }});
     return inspection ? response(200, inspection) : response(404, { error: "not found" });
+  }
+
+  const workResumeMatch = /^\/api\/projects\/([^/]+)\/work-requests\/([^/]+)\/resume$/.exec(path);
+  if (workResumeMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!mutationAuthorized(request, deps.token)) return response(401, { error: "unauthorized" });
+    const projectId = decodeId(workResumeMatch[1] ?? "");
+    const workId = decodeId(workResumeMatch[2] ?? "");
+    if (!projectId || !workId || !await loadProjectWorkspace(projectModelRoot, projectId)) return response(404, { error: "not found" });
+    if (!request.body || typeof request.body !== "object") return response(400, { error: "expectedRevision, runId and targetRoot are required" });
+    const body = request.body as Record<string, unknown>;
+    if (typeof body.expectedRevision !== "string" || typeof body.runId !== "string" || typeof body.targetRoot !== "string") {
+      return response(400, { error: "expectedRevision, runId and targetRoot are required" });
+    }
+    const resumeRunId = body.runId;
+    const resumeTargetRoot = body.targetRoot;
+    const current = await loadProjectWorkRequest(projectModelRoot, projectId, workId);
+    if (!current) return response(404, { error: "not found" });
+    if (projectWorkRequestRevision(current) !== body.expectedRevision) return response(409, { error: "work request revision is stale" });
+    if (current.status === "running") return response(409, { error: current.requestedRunId ? "work request is already running; inspect the linked Run" : "work request has no durable Run identity" });
+    if (current.status !== "queued" && current.status !== "waiting") return response(409, { error: `work request is ${current.status}` });
+    if (current.status === "waiting" && current.requestedRunId !== resumeRunId) return response(409, { error: "waiting work request must resume its existing Run identity" });
+
+    const at = (deps.now ?? (() => new Date().toISOString()))();
+    try {
+      const result = current.status === "queued"
+        ? await executeProjectWorkRequest({
+            root: projectModelRoot, projectId, id: workId, runId: resumeRunId, at,
+          execute: async (workRequest) => {
+            const started = await startProjectWorkspaceRun(projectModelRoot, projectId, { runId: resumeRunId, objective: workRequest.objective, targetRoot: resumeTargetRoot }, {
+              iseolRoot: deps.iseolRoot ?? deps.modelRoot, storeRoot: projectHarnessRoot,
+              ...(deps.policyRoot ? { policyRoot: deps.policyRoot } : {}), loadedAt: at,
+            });
+            const execution = deps.ideaLabRuntime?.enqueueProjectRun
+              ? await deps.ideaLabRuntime.enqueueProjectRun(started.run.request.runId)
+              : "not-configured" as const;
+            return { runId: started.run.request.runId, status: execution === "accepted" ? "created" as const : execution === "already-active" ? "already-active" as const : "not-configured" as const };
+          },
+        })
+        : await (async () => {
+          const started = await startProjectWorkspaceRun(projectModelRoot, projectId, { runId: resumeRunId, objective: current.objective, targetRoot: resumeTargetRoot }, {
+            iseolRoot: deps.iseolRoot ?? deps.modelRoot, storeRoot: projectHarnessRoot,
+            ...(deps.policyRoot ? { policyRoot: deps.policyRoot } : {}), loadedAt: at,
+          });
+          const execution = deps.ideaLabRuntime?.enqueueProjectRun
+            ? await deps.ideaLabRuntime.enqueueProjectRun(started.run.request.runId)
+            : "not-configured" as const;
+          const updated = await updateProjectWorkRequest(projectModelRoot, projectId, workId, {
+            status: execution === "accepted" || execution === "already-active" ? "running" : "waiting",
+            runId: started.run.request.runId,
+            requestedRunId: started.run.request.runId,
+            blocker: execution === "not-configured" ? "Project Runtime is not configured" : undefined,
+          }, at);
+          return {
+            status: execution === "not-configured" ? "waiting" as const : "already-active" as const,
+            request: updated ?? current,
+            runId: started.run.request.runId,
+            ...(execution === "not-configured" ? { blocker: "Project Runtime is not configured" } : {}),
+          };
+        })();
+      if (result.request) deps.eventBus?.publish({ type: "work-request.updated", scope: { projectId, runId: result.runId }, payload: { projectId, workRequestId: result.request.id, status: result.request.status, runId: result.runId, blocker: result.blocker } });
+      return response(result.status === "started" ? 202 : result.status === "waiting" ? 409 : 200, result);
+    } catch (error) {
+      if (error instanceof Error && /workspace not found|Harness Run not found|Run identity|project folder/.test(error.message)) return response(409, { error: error.message });
+      throw error;
+    }
   }
 
   const workActionMatch = /^\/api\/projects\/([^/]+)\/work-requests\/([^/]+)\/(claim|cancel)$/.exec(path);

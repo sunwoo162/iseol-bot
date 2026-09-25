@@ -8,6 +8,8 @@ import { savePrototypeCandidate } from "../src/project-model/prototype-store.js"
 import { loadProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { saveProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { routeWebControlPlaneRequest } from "../src/web-control-plane/router.js";
+import { saveHarnessRun } from "../src/harness/run-store.js";
+import { updateProjectWorkRequest } from "../src/project-model/work-request.js";
 
 function candidate(): PrototypeCandidate {
   return {
@@ -92,6 +94,86 @@ test("work request API persists idempotent queue entries and exposes claims", as
   const list = await routeWebControlPlaneRequest({ method: "GET", path: "/api/projects/project-queue/work-requests", headers: {} }, deps);
   assert.equal(list.status, 200);
   assert.equal((list.body as any).requests.length, 1);
+});
+
+test("explicit work resume is authenticated, revision-bound, and refuses a claimed request without a Run", async () => {
+  const deps = await fixture("secret-token");
+  await saveProjectWorkspace(deps.modelRoot, {
+    version: 1, id: "project-resume", name: "Resume", status: "active",
+    genesis: { prototypeId: "prototype-001", repository: candidate().repository, deployment: candidate().deployment, runs: [], promotedAt: "2026-09-07T00:00:00.000Z" },
+    tree: [{ id: "root", kind: "root", title: "Resume", status: "planned", runIds: [], createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z" }],
+    createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z",
+  });
+  const create = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-resume/work-requests",
+    headers: { authorization: "Bearer secret-token" },
+    body: { title: "Resume work", objective: "Continue safely", idempotencyKey: "resume-1" },
+  }, deps);
+  assert.equal(create.status, 201);
+  const workId = (create.body as any).id as string;
+
+  const unauthorized = await routeWebControlPlaneRequest({
+    method: "POST", path: `/api/projects/project-resume/work-requests/${workId}/resume`, headers: {},
+    body: { expectedRevision: "stale", runId: "run-resume", targetRoot: join(tmpdir(), "resume-target") },
+  }, deps);
+  assert.equal(unauthorized.status, 401);
+
+  const stale = await routeWebControlPlaneRequest({
+    method: "POST", path: `/api/projects/project-resume/work-requests/${workId}/resume`,
+    headers: { authorization: "Bearer secret-token" },
+    body: { expectedRevision: "stale", runId: "run-resume", targetRoot: join(tmpdir(), "resume-target") },
+  }, deps);
+  assert.equal(stale.status, 409);
+  assert.match((stale.body as any).error, /revision/);
+
+  const claimed = await routeWebControlPlaneRequest({
+    method: "POST", path: `/api/projects/project-resume/work-requests/${workId}/claim`,
+    headers: { authorization: "Bearer secret-token" },
+  }, deps);
+  assert.equal(claimed.status, 200);
+  const current = (await routeWebControlPlaneRequest({
+    method: "GET", path: "/api/projects/project-resume/work-requests", headers: {},
+  }, deps)).body as any;
+  const request = current.requests[0];
+  const claimedResume = await routeWebControlPlaneRequest({
+    method: "POST", path: `/api/projects/project-resume/work-requests/${workId}/resume`,
+    headers: { authorization: "Bearer secret-token" },
+    body: { expectedRevision: `${request.updatedAt}:${request.attempts}`, runId: "run-resume", targetRoot: join(tmpdir(), "resume-target") },
+  }, deps);
+  assert.equal(claimedResume.status, 409);
+  assert.match((claimedResume.body as any).error, /Run identity|inspect/i);
+});
+
+test("work reconciliation projects an authoritative terminal Run into the queue", async () => {
+  const deps = await fixture("secret-token");
+  await saveProjectWorkspace(deps.modelRoot, {
+    version: 1, id: "project-observe", name: "Observe", status: "active",
+    genesis: { prototypeId: "prototype-001", repository: candidate().repository, deployment: candidate().deployment, runs: [], promotedAt: "2026-09-07T00:00:00.000Z" },
+    tree: [{ id: "root", kind: "root", title: "Observe", status: "planned", runIds: [], createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z" }],
+    createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z",
+  });
+  const create = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-observe/work-requests",
+    headers: { authorization: "Bearer secret-token" },
+    body: { title: "Observe work", objective: "Observe terminal result", idempotencyKey: "observe-1" },
+  }, deps);
+  const workId = (create.body as any).id as string;
+  await updateProjectWorkRequest(deps.modelRoot, "project-observe", workId, {
+    status: "running", requestedRunId: "run-terminal", runId: "run-terminal",
+  }, "2026-09-07T00:01:00.000Z");
+  await saveHarnessRun(deps.harnessRoot, {
+    version: 1,
+    request: { version: 1, runId: "run-terminal", mode: "project-workspace", projectId: "project-observe", objective: "Observe terminal result", targetRoot: join(tmpdir(), "observe-target") },
+    preflight: { version: 1, runId: "run-terminal", status: "ready" },
+    state: { version: 1, stage: "DONE", status: "DONE", completedStages: [], skippedStages: [], updatedAt: "2026-09-07T00:02:00.000Z" },
+    updatedAt: "2026-09-07T00:02:00.000Z",
+  });
+  const reconciliation = await routeWebControlPlaneRequest({
+    method: "GET", path: `/api/projects/project-observe/work-requests/${workId}/reconciliation`, headers: {},
+  }, deps);
+  assert.equal(reconciliation.status, 200);
+  assert.equal((reconciliation.body as any).request.status, "completed");
+  assert.equal((reconciliation.body as any).transition, "updated");
 });
 
 test("rejects unsupported methods and malformed project paths", async () => {

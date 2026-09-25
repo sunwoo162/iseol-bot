@@ -8,6 +8,7 @@ import {
   createProjectWorkRequest,
   executeProjectWorkRequest,
   inspectProjectWorkRequest,
+  reconcileProjectWorkRequest,
   scheduleProjectWorkRequests,
   listProjectWorkRequests,
   updateProjectWorkRequest,
@@ -98,4 +99,85 @@ test("explicit scheduler selects only dependency-ready requests within its concu
   assert.deepEqual(executed, ["first"]);
   const blocked = await inspectProjectWorkRequest(root, "project-1", "blocked");
   assert.equal(blocked?.execution, "not-started");
+});
+
+test("terminal Run projection completes the linked work request idempotently", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-terminal-"));
+  await createProjectWorkRequest({
+    root,
+    projectId: "project-1",
+    title: "Build",
+    objective: "Build",
+    idempotencyKey: "build",
+    id: "work-1",
+    at,
+  });
+  await updateProjectWorkRequest(root, "project-1", "work-1", {
+    status: "running",
+    requestedRunId: "run-1",
+    runId: "run-1",
+  }, at);
+  const findRun = async () => ({
+    runId: "run-1",
+    state: { stage: "DONE", status: "DONE" },
+    updatedAt: at,
+  });
+  const first = await reconcileProjectWorkRequest({
+    root,
+    projectId: "project-1",
+    workId: "work-1",
+    findRun,
+    at: "2026-09-20T12:01:00.000Z",
+  });
+  const second = await reconcileProjectWorkRequest({
+    root,
+    projectId: "project-1",
+    workId: "work-1",
+    findRun,
+    at: "2026-09-20T12:02:00.000Z",
+  });
+  assert.equal(first.request.status, "completed");
+  assert.equal(second.request.status, "completed");
+  assert.equal(second.transition, "already-completed");
+});
+
+test("Run waiting and final failure statuses map without inventing completion", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-status-map-"));
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Wait", objective: "Wait", idempotencyKey: "wait", id: "wait", at });
+  await updateProjectWorkRequest(root, "project-1", "wait", { status: "running", requestedRunId: "run-wait", runId: "run-wait" }, at);
+  const waiting = await reconcileProjectWorkRequest({
+    root, projectId: "project-1", workId: "wait", at: "2026-09-20T12:01:00.000Z",
+    findRun: async () => ({ runId: "run-wait", state: { stage: "IMPLEMENT", status: "WAITING_EXTERNAL" }, updatedAt: at }),
+  });
+  assert.equal(waiting?.request.status, "waiting");
+  assert.match(waiting?.blocker ?? "", /WAITING_EXTERNAL/);
+
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Fail", objective: "Fail", idempotencyKey: "fail", id: "fail", at });
+  await updateProjectWorkRequest(root, "project-1", "fail", { status: "running", requestedRunId: "run-fail", runId: "run-fail" }, at);
+  const failed = await reconcileProjectWorkRequest({
+    root, projectId: "project-1", workId: "fail", at: "2026-09-20T12:01:00.000Z",
+    findRun: async () => ({ runId: "run-fail", state: { stage: "IMPLEMENT", status: "FAILED_FINAL" }, updatedAt: at }),
+  });
+  assert.equal(failed?.request.status, "failed");
+  assert.equal(failed?.execution, "terminal");
+});
+
+test("late or mismatched Run observations cannot overwrite a terminal request", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-late-run-"));
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Late", objective: "Late", idempotencyKey: "late", id: "late", at });
+  await updateProjectWorkRequest(root, "project-1", "late", { status: "completed", requestedRunId: "run-late", runId: "run-late" }, at);
+  const late = await reconcileProjectWorkRequest({
+    root, projectId: "project-1", workId: "late", at: "2026-09-20T12:01:00.000Z",
+    findRun: async () => ({ runId: "run-late", state: { stage: "IMPLEMENT", status: "FAILED_FINAL" }, updatedAt: at }),
+  });
+  assert.equal(late?.request.status, "completed");
+  assert.equal(late?.transition, "already-completed");
+
+  const mismatched = await reconcileProjectWorkRequest({
+    root, projectId: "project-1", workId: "late", at: "2026-09-20T12:02:00.000Z",
+    findRun: async () => ({ runId: "another-run", state: { stage: "DONE", status: "DONE" }, updatedAt: at }),
+  });
+  assert.equal(mismatched?.request.status, "completed");
+  assert.equal(mismatched?.transition, "unknown");
+  assert.match(mismatched?.blocker ?? "", /identity mismatch/);
 });

@@ -198,6 +198,73 @@ export type ProjectWorkRequestReconciliation = {
   blocker?: string;
 };
 
+export type ProjectWorkRequestProjection = {
+  request: ProjectWorkRequest;
+  revision: string;
+  execution: "run-found" | "unknown" | "terminal";
+  transition: "updated" | "already-running" | "already-waiting" | "already-completed" | "already-failed" | "already-cancelled" | "unknown";
+  run?: { runId: string; stage: string; status: string; updatedAt: string };
+  blocker?: string;
+};
+
+function workStatusForRun(status: string): ProjectWorkRequestStatus {
+  if (status === "DONE") return "completed";
+  if (status === "FAILED_FINAL") return "failed";
+  if (status === "CANCELLED") return "cancelled";
+  if (status === "WAITING_EXTERNAL" || status === "WAITING_AGENT" || status === "BLOCKED_USER") return "waiting";
+  return "running";
+}
+
+function alreadyProjected(status: ProjectWorkRequestStatus): ProjectWorkRequestProjection["transition"] {
+  return `already-${status}` as ProjectWorkRequestProjection["transition"];
+}
+
+export async function reconcileProjectWorkRequest(input: {
+  root: string;
+  projectId: string;
+  workId: string;
+  at: string;
+  findRun: (runId: string) => Promise<{ runId: string; state: { stage: string; status: string }; updatedAt: string } | null>;
+}): Promise<ProjectWorkRequestProjection | null> {
+  const request = await loadProjectWorkRequest(input.root, input.projectId, input.workId);
+  if (!request) return null;
+  if (!request.requestedRunId) {
+    return { request, revision: projectWorkRequestRevision(request), execution: "unknown", transition: "unknown", blocker: "work request has no durable Run identity" };
+  }
+  const run = await input.findRun(request.requestedRunId);
+  if (!run) {
+    return { request, revision: projectWorkRequestRevision(request), execution: "unknown", transition: "unknown", blocker: "requested Run identity has no durable Run record" };
+  }
+  if (run.runId !== request.requestedRunId) {
+    return { request, revision: projectWorkRequestRevision(request), execution: "unknown", transition: "unknown", blocker: "requested Run identity mismatch" };
+  }
+
+  const runView = { runId: run.runId, stage: run.state.stage, status: run.state.status, updatedAt: run.updatedAt };
+  const nextStatus = workStatusForRun(run.state.status);
+  const terminalRun = ["DONE", "FAILED_FINAL", "CANCELLED"].includes(run.state.status);
+  const terminalRequest = ["completed", "failed", "cancelled"].includes(request.status);
+  if (terminalRequest && request.status !== nextStatus) {
+    return { request, revision: projectWorkRequestRevision(request), run: runView, execution: terminalRun ? "terminal" : "run-found", transition: alreadyProjected(request.status) };
+  }
+  if (request.status === nextStatus) {
+    return { request, revision: projectWorkRequestRevision(request), run: runView, execution: terminalRun ? "terminal" : "run-found", transition: alreadyProjected(request.status) };
+  }
+
+  const updated = await updateProjectWorkRequest(input.root, input.projectId, input.workId, {
+    status: nextStatus,
+    runId: run.runId,
+    blocker: nextStatus === "waiting" ? `Harness Run is ${run.state.status}` : undefined,
+  }, input.at);
+  return {
+    request: updated ?? request,
+    revision: projectWorkRequestRevision(updated ?? request),
+    run: runView,
+    execution: terminalRun ? "terminal" : "run-found",
+    transition: "updated",
+    ...(nextStatus === "waiting" ? { blocker: `Harness Run is ${run.state.status}` } : {}),
+  };
+}
+
 export async function inspectProjectWorkRequest(
   root: string,
   projectId: string,
