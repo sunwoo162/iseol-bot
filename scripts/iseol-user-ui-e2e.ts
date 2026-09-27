@@ -681,6 +681,20 @@ async function createAndVerifyPublicPortfolio(page: Page, baseUrl: string): Prom
     page.getByRole("button", { name: "JSON 내보내기" }).click(),
   ]);
   if (!download.suggestedFilename().endsWith(".json")) throw new Error(`unexpected portfolio export filename: ${download.suggestedFilename()}`);
+  const jsonPath = await download.path();
+  if (!jsonPath) throw new Error("portfolio JSON export did not expose a download path");
+  const jsonExport = JSON.parse(await readFile(jsonPath, "utf8")) as { entries?: Array<{ id: string; title: string }>; evidence?: unknown[] };
+  if (!jsonExport.entries?.some((item) => item.id === entry.entry.id && item.title === entry.entry.title) || !Array.isArray(jsonExport.evidence)) throw new Error("portfolio JSON export did not contain the durable entry and evidence collections");
+
+  const [markdownDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Markdown 내보내기" }).click(),
+  ]);
+  if (markdownDownload.suggestedFilename() !== "iseol-portfolio.md") throw new Error(`unexpected portfolio Markdown filename: ${markdownDownload.suggestedFilename()}`);
+  const markdownPath = await markdownDownload.path();
+  if (!markdownPath) throw new Error("portfolio Markdown export did not expose a download path");
+  const markdownExport = await readFile(markdownPath, "utf8");
+  if (!markdownExport.includes("# ISEOL Portfolio") || !markdownExport.includes(`## ${entry.entry.title}`) || !markdownExport.includes("실제 로컬 학습 기록에서 생성된 공개 항목")) throw new Error("portfolio Markdown export did not contain the durable entry content");
 
   await page.getByRole("button", { name: "공개 링크 복사", exact: true }).click();
   await page.getByRole("status").filter({ hasText: "공개 포트폴리오 링크" }).waitFor();

@@ -2063,3 +2063,21 @@ This log records implementation and verification facts without secrets. It does 
 
 - No operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, external AI/provider request, external connector mutation, deployment, push, data deletion, approved-design change, or AI Broadcast Room implementation occurred.
 - Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, and durable operational data remained untouched.
+
+## 2026-09-28 continuation: portfolio export content verification
+
+### Completed in this unit
+
+1. Strengthened the existing isolated browser portfolio journey to parse the downloaded JSON and require the durable entry plus `entries`/`evidence` collections.
+2. Added a second browser download assertion for `iseol-portfolio.md`, including the portfolio heading, saved entry title, and saved summary.
+3. Kept the existing Portfolio UI, public route, visibility rules, and link fallback unchanged; this unit improves verification evidence rather than inventing a new export format.
+
+### TDD and verification
+
+- Portfolio API/UI journey checks passed `6/6`; root TypeScript check passed.
+- Full isolated browser E2E passed `publicPortfolioRouteAndJsonExport` with JSON and Markdown content assertions, `publicPortfolioShareControl`, all other journeys, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+
+### Scope and safety boundary
+
+- No operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, external AI/provider request, external connector mutation, deployment, push, data deletion, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred.
+- Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, final approved art sources, and deferred broadcast artifacts remained untouched.
