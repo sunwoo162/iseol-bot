@@ -1976,6 +1976,28 @@ This log records implementation and verification facts without secrets. It does 
 - No operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, external AI/provider request, external connector mutation, deployment, push, data deletion, approved-design change, or AI Broadcast Room implementation occurred.
 - Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, and durable operational data remained untouched.
 
+## 2026-09-28 continuation: authenticated Markdown activity export surface
+
+### Completed in this unit
+
+1. Extended the existing owner-scoped Settings data-management flow to expose the already-supported Markdown activity export beside JSON.
+2. Kept the server-provided filename and content authoritative; the UI only downloads the authenticated response and does not create a parallel activity store.
+3. Added a separate Markdown completion status while preserving the existing JSON button behavior and account-deletion boundary.
+4. Strengthened the browser journey to parse the downloaded JSON `events` array and inspect the Markdown file heading, rather than checking filenames alone.
+
+### TDD and verification
+
+- RED: `tests/user-ui-settings-contract.test.ts` failed because the Settings source had no Markdown export call or button.
+- GREEN: focused API/settings checks passed `2/2`.
+- `npm.cmd run test:iseol-user-product`: `308/308` passed.
+- `npm.cmd run user-ui:build` passed with only the existing Vite warnings.
+- Full isolated browser E2E passed `activityExportDownload` with JSON parsing and Markdown content checks, all other journeys, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+
+### Scope and safety boundary
+
+- No operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, external AI/provider request, external connector mutation, deployment, push, data deletion, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred.
+- Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, final approved art sources, and deferred broadcast artifacts remained untouched.
+
 ## 2026-09-28 continuation: Learning progress UI coding-practice count
 
 ### Completed in this unit
