@@ -1546,6 +1546,14 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining coding boundary: no general code-test execution or correctness evaluator is claimed. The approved local JavaScript syntax verifier remains syntax-only; non-JavaScript and unavailable execution remain explicitly waiting. Live operational Runtime throughput, local model availability, external connectors, final approved art originals, weekly digest production, and AI Broadcast Room remain unverified/unavailable or deferred.
 - Safety boundary: no operational Runtime/Agent restart, stale-lock change, UNKNOWN replay, external AI/provider request, deployment, push, data deletion, or approved-design change occurred. Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, and stale PID `55000` remained untouched.
 
+## 2026-09-28 continuation: Learning report unverified-detail projection
+
+- The Learning report card now expands each durable `unverifiedOutcomes` entry into a visible `미검증 기록 상세` list with its bounded label and evidence-reference count. This makes coding practice status inspectable instead of presenting only an aggregate number.
+- No record is reclassified: verified outcomes, portfolio eligibility, mastery, XP, and correctness claims remain unchanged. The UI reads the existing owner-scoped report response only.
+- Evidence: `user-ui/src/pages/Learning.tsx`, `tests/user-ui-learning-report-contract.test.ts`, `src/learning/service.ts`, and `tests/learning-report.test.ts`.
+- Verification: focused report/API/UI coverage `4/4`; user-product regression `308/308`; approved user UI build passed; full isolated browser E2E passed `learningReportUi`, all other journeys, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` across `13` routes.
+- Boundary: no correctness evaluator, hidden tests, external provider, operational Runtime change, UNKNOWN replay, design-source change, deployment, push, data deletion, or AI Broadcast Room implementation occurred.
+
 ## 2026-09-28 continuation: coding practice in Learning progress and reports
 
 - Learning progress/report projection is **B — owner/session/date-scoped, durable, and evidence-separated**. `LearningProgress.actual.codingAttempts` now counts coding attempts separately from legacy question attempts, while `LearningReport.unverifiedOutcomes` includes coding attempts belonging to the report's goal sessions and local-calendar period.

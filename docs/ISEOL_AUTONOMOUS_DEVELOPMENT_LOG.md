@@ -1998,6 +1998,27 @@ This log records implementation and verification facts without secrets. It does 
 - No operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, external AI/provider request, external connector mutation, deployment, push, data deletion, approved-design change, or AI Broadcast Room implementation occurred.
 - Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, and approved design sources remained untouched.
 
+## 2026-09-28 continuation: Learning report unverified-detail projection
+
+### Completed in this unit
+
+1. Added a UI contract asserting that report-level unverified outcomes are rendered as detail, not only as an aggregate count.
+2. Rendered each durable unverified outcome label and its evidence-reference count in the existing Learning report card.
+3. Preserved the evidence boundary: no coding practice was promoted to correctness, mastery, XP, or portfolio eligibility.
+
+### TDD and verification
+
+- RED: `tests/user-ui-learning-report-contract.test.ts` failed because the page lacked `미검증 기록 상세` and `unverifiedOutcomes.map`.
+- GREEN: focused report/API/UI coverage `4/4` passed.
+- `npm.cmd run test:iseol-user-product`: `308/308` passed.
+- `npm.cmd run user-ui:build` passed with only the existing Vite warnings.
+- Full isolated browser E2E passed `learningReportUi`, all other journeys, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` across `13` routes.
+
+### Scope and safety boundary
+
+- No correctness evaluator, hidden tests, operational Runtime/Agent restart, UNKNOWN replay, external AI/provider request, external connector mutation, deployment, push, data deletion, approved-design change, or AI Broadcast Room implementation occurred.
+- Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, and approved design sources remained untouched.
+
 ## 2026-09-28 continuation: coding practice in Learning progress and reports
 
 ### Completed in this unit

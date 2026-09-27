@@ -15,6 +15,8 @@ test("Learning UI exposes an evidence-separated weekly/final report flow", async
   assert.match(page, /근거 기반 보고서 생성/);
   assert.match(page, /검증된 이해/);
   assert.match(page, /미검증 기록/);
+  assert.match(page, /미검증 기록 상세/);
+  assert.match(page, /unverifiedOutcomes\.map/);
   assert.match(page, /숙달|역량을 주장하지 않습니다/);
   assert.match(page, /createPortfolioEntry/);
   assert.match(page, /학습 보고서를 포트폴리오 초안/);
