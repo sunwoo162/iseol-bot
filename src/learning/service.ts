@@ -13,6 +13,7 @@ import { withDurableLearningGoalSessionLock } from "./goal-session-lock.js";
 import { withDurableLearningSessionStartLock } from "./session-start-lock.js";
 import { withDurableLearningReviewLock } from "./review-lock.js";
 import { withDurableLearningCodingAttemptLock } from "./coding-attempt-lock.js";
+import { withDurableLearningAnswerLock } from "./answer-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -890,7 +891,8 @@ export function createLearningService(root: string, options: LearningServiceOpti
     async submitLearningAnswer(principal, sessionId, input): Promise<LearningAnswerReceipt> {
       ensurePrincipal(principal);
       try { assertIdentityId(sessionId); assertIdentityId(input.exerciseId); assertIdentityId(input.attemptId); } catch { throw new Error("Learning answer source is invalid"); }
-      const session = await loadSession(root, principal.userId, sessionId);
+      return withDurableLearningAnswerLock(root, principal.userId, sessionId, input.attemptId, async () => {
+        const session = await loadSession(root, principal.userId, sessionId);
       if (!session || session.userId !== principal.userId) throw new Error("Learning session not found");
       if (session.status === "completed") throw new Error("Learning session is completed");
       const exercise = await loadCodingExercise(root, principal.userId, input.exerciseId);
@@ -943,7 +945,8 @@ export function createLearningService(root: string, options: LearningServiceOpti
         const waiting: LearningFeedback = { ...feedback, blocker: error instanceof Error ? error.message : "local learning evaluator did not complete", updatedAt: now() };
         await saveLearningFeedback(root, waiting);
       }
-      return answer;
+        return answer;
+      }, { waitForMs: 2_000 });
     },
 
     async getLearningAnswerFeedback(principal, answerId): Promise<LearningFeedback | null> {

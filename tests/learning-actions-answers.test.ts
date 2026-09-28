@@ -65,6 +65,26 @@ test("learning answer receipts retain verifier artifact references even when the
   assert.deepEqual(receipt.artifactRefs, [`coding-syntax:${attempt.attempt.id}`]);
 });
 
+test("concurrent learning answer submissions across service instances remain one receipt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-answer-concurrent-"));
+  const owner = principal("answer-concurrent-owner");
+  const firstService = createLearningService(root, { now: () => at });
+  const secondService = createLearningService(root, { now: () => at });
+  const plan = await firstService.createLearningPlan(owner, { title: "Concurrent answers", description: "One receipt", goals: ["one"] });
+  const session = await firstService.startLearningSession(owner, plan.id);
+  const exercise = await firstService.createCodingExercise(owner, { sessionId: session.id, title: "Answer once", prompt: "Write answer", language: "typescript", estimatedMinutes: 5 });
+  const attempt = await firstService.submitCodingAttempt(owner, { exerciseId: exercise.id, clientRequestId: "answer-concurrent-attempt", response: "const answer = 1;" });
+  const input = { exerciseId: exercise.id, attemptId: attempt.attempt.id, response: attempt.attempt.response, artifactRefs: [] };
+
+  const results = await Promise.all([
+    firstService.submitLearningAnswer(owner, session.id, input),
+    secondService.submitLearningAnswer(owner, session.id, input),
+  ]);
+
+  assert.equal(new Set(results.map((result) => result.id)).size, 1);
+  assert.equal((await firstService.listLearningAnswers(owner, session.id)).length, 1);
+});
+
 test("an injected learning action Runtime completes through the owner-bound durable callback", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-learning-action-runtime-"));
   const service = createLearningService(root, {
