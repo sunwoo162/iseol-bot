@@ -36,6 +36,6 @@
 ## Verification record
 
 - RED cross-instance completion test failed with both service instances fulfilling (`2 !== 1`).
-- GREEN learning regression passed `68/68`; user-product regression passed `314/314`; serial root regression passed `678/678`.
+- GREEN learning regression passed `69/69`; user-product regression passed `315/315`; serial root regression passed `678/678`.
 - Root and user UI TypeScript checks, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage included `learningSessionCompletion: "passed"`, two isolated accounts, reload persistence, and responsive `[390,768,1024,1440]` across `13` routes.
 - The lock stores only bounded version/PID/token/timestamp metadata below the owner-scoped learning root. An active owner process is never removed; a dead owner lock is reclaimed only at that exact session path. Cross-machine distributed locking and provider-side exactly-once semantics remain out of scope.
