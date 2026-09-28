@@ -103,7 +103,7 @@ export async function isDesktopJobContained(root: string, jobId: string): Promis
   return Boolean(await loadDesktopJobContainment(root, jobId));
 }
 
-export async function containDesktopJob(
+async function containDesktopJobUnlocked(
   root: string,
   jobId: string,
   input: DesktopJobContainmentInput,
@@ -132,6 +132,19 @@ export async function containDesktopJob(
   };
   await saveContainment(root, record);
   return { status: "contained", record };
+}
+
+export async function containDesktopJob(
+  root: string,
+  jobId: string,
+  input: DesktopJobContainmentInput,
+): Promise<DesktopJobContainmentResult> {
+  return withDurableDesktopJobLock(
+    root,
+    jobId,
+    () => containDesktopJobUnlocked(root, jobId, input),
+    { waitForMs: 2_000 },
+  );
 }
 
 async function saveJob(root: string, job: DesktopJobRecord): Promise<void> {

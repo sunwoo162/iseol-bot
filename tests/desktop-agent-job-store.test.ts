@@ -84,6 +84,28 @@ test("concurrent Job creation converges on one idempotent record across instance
   assert.equal((await listDesktopJobs(store)).length, 1);
 });
 
+test("concurrent operator containment accepts only one decision across instances", async () => {
+  const store = await root();
+  await createDesktopJob(store, pack(), "2026-09-08T01:00:00.000Z");
+  const expectedRevision = desktopJobRevision({ updatedAt: "2026-09-08T01:00:00.000Z", status: "pending", attempts: 0 });
+  const instances = await Promise.all(
+    Array.from({ length: 2 }, (_, index) =>
+      import(`../src/desktop-agent/job-store.ts?contain-instance=${index}-${Date.now()}`),
+    ),
+  );
+  const outcomes = await Promise.allSettled(instances.map((instance, index) => instance.containDesktopJob(store, "job-001", {
+    operationId: `contain-${index + 1}`,
+    expectedRevision,
+    at: `2026-09-08T01:01:0${index}.000Z`,
+    actor: "operator",
+    reason: "execution-uncertain",
+  })));
+
+  assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
+  assert.equal(outcomes.filter((outcome) => outcome.status === "rejected").length, 1);
+  assert.ok((await loadDesktopJobContainment(store, "job-001"))?.operationId);
+});
+
 test("leases are exclusive, renewable by owner, and transferable only after expiry", async () => {
   const store = await root();
   await createDesktopJob(store, pack(), "2026-09-08T01:00:00.000Z");
