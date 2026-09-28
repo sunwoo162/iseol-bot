@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service social profile mutations
+
+- Status: **B — owner-scoped, durable, same-host cross-service social profile serialization, and isolated-product verified; live model/provider execution remains unverified**. Social profile updates now re-read and save under an exact hashed per-user filesystem lock below the platform root, preserving disjoint bio/skills edits from competing service instances.
+- Evidence: `src/social/profile-lock.ts`, `src/social/service.ts`, `tests/social-public-profile-privacy.test.ts`, and the social/profile UI contract tests.
+- TDD: RED reproduced a concurrent bio/skills update ending with the default bio; GREEN preserved both patches across two service instances. The lock records bounded version/PID/token/timestamp metadata, protects active owners, reclaims only an exact dead-owner lock, fails closed on malformed records, and cleans the exact record in `finally`.
+- Verification: focused social/profile/API/UI suite `11/11`; user-product `328/328`; serial root `682/682`; backend/user UI TypeScript checks, backend/user UI builds, and isolated browser E2E all passed. Browser coverage retained two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no database/cross-machine coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Implementation and documentation commits follow this unit.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service private memory mutations
 
 - Status: **B — owner/memory-scoped, durable, same-host cross-service mutation serialization, and isolated-product verified; live model/provider execution remains unverified**. Private memory update, sharing, and delete operations now re-read and mutate one memory under an exact hashed filesystem lock below the platform root. This prevents both last-writer field loss and Windows same-file rename collisions across service instances.
