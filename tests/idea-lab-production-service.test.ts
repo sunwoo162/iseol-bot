@@ -13,6 +13,7 @@ import {
   verifyPrototypeProductionDeployment,
 } from "../src/idea-lab/production-service.js";
 import { loadPrototypeCandidate, savePrototypeCandidate } from "../src/project-model/prototype-store.js";
+import { withDurablePrototypeLock } from "../src/project-model/prototype-lock.js";
 
 const NOW = "2026-09-08T04:00:00.000Z";
 const COMMIT = "a".repeat(40);
@@ -95,4 +96,25 @@ test("candidate materialization is idempotent and rejects conflicting immutable 
     repository: { ...first.repository, commitSha: "c".repeat(40) },
   });
   await assert.rejects(() => materializePrototypeCandidate(input), /identity conflict/i);
+});
+
+test("candidate materialization waits for the durable prototype lock", async () => {
+  const modelRoot = await mkdtemp(join(tmpdir(), "iseol-idea-materialize-lock-"));
+  const verified = { provider: "fake-preview", deploymentId: "dep-prod-1", url: "https://preview.invalid/prod-1", commitSha: COMMIT, deployedAt: NOW, verifiedAt: NOW };
+  const input = { modelRoot, production: production(), proposal: proposal(), run: completedRun(), deployment: verified, at: NOW };
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurablePrototypeLock(modelRoot, "prod-1", async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const materialization = materializePrototypeCandidate(input);
+  void materialization.then(() => { settled = true; }, () => { settled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  assert.equal((await materialization).id, "prod-1");
 });

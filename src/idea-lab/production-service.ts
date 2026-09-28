@@ -2,6 +2,7 @@ import type { HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import { assertRunCompletionEvidence } from "../harness/completion-gates.js";
 import type { PrototypeCandidate } from "../project-model/contracts.js";
 import { loadPrototypeCandidate, savePrototypeCandidate } from "../project-model/prototype-store.js";
+import { withDurablePrototypeLock } from "../project-model/prototype-lock.js";
 import type { IdeaProposal, PrototypeProduction } from "./contracts.js";
 import type {
   PrototypeDeployAdapter,
@@ -144,14 +145,16 @@ export async function materializePrototypeCandidate(
   input: MaterializePrototypeCandidateInput,
 ): Promise<PrototypeCandidate> {
   assertMaterializationInput(input);
-  const next = candidateFor(input);
-  const existing = await loadPrototypeCandidate(input.modelRoot, next.id);
-  if (existing) {
-    if (immutableCandidateIdentity(existing) !== immutableCandidateIdentity(next)) {
-      throw new Error(`Idea Lab prototype identity conflict: ${next.id}`);
+  return withDurablePrototypeLock(input.modelRoot, input.production.id, async () => {
+    const next = candidateFor(input);
+    const existing = await loadPrototypeCandidate(input.modelRoot, next.id);
+    if (existing) {
+      if (immutableCandidateIdentity(existing) !== immutableCandidateIdentity(next)) {
+        throw new Error(`Idea Lab prototype identity conflict: ${next.id}`);
+      }
+      return existing;
     }
-    return existing;
-  }
-  await savePrototypeCandidate(input.modelRoot, next);
-  return next;
+    await savePrototypeCandidate(input.modelRoot, next);
+    return next;
+  }, { waitForMs: 2_000 });
 }
