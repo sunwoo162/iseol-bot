@@ -98,11 +98,13 @@ export async function savePortfolioDocument(root: string, document: StoredPortfo
 }
 
 export async function ensurePortfolioDocument(root: string, draft: PortfolioDraft, at = new Date().toISOString()): Promise<StoredPortfolioDocument> {
-  const existing = await loadPortfolioDocument(root, draft.projectId);
-  if (existing) return existing;
-  const created = createPortfolioDocument(draft, at);
-  await savePortfolioDocument(root, created);
-  return created;
+  return withDurablePortfolioLock(root, draft.projectId, async () => {
+    const existing = await loadPortfolioDocument(root, draft.projectId);
+    if (existing) return existing;
+    const created = createPortfolioDocument(draft, at);
+    await savePortfolioDocument(root, created);
+    return created;
+  }, { waitForMs: 2_000 });
 }
 
 export async function updatePortfolioDocument(

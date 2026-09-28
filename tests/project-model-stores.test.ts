@@ -11,8 +11,9 @@ import {
 } from "../src/project-model/prototype-store.js";
 import { loadProjectWorkspace, saveProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { appendProjectHistoryEvent, appendProjectHistoryEventOnce, loadProjectHistory } from "../src/project-model/history-store.js";
-import { loadPortfolioDocument, savePortfolioDocument, updatePortfolioDocument } from "../src/project-model/portfolio-store.js";
+import { ensurePortfolioDocument, loadPortfolioDocument, savePortfolioDocument, updatePortfolioDocument } from "../src/project-model/portfolio-store.js";
 import { createPortfolioDocument } from "../src/project-model/portfolio-store.js";
+import { withDurablePortfolioLock } from "../src/project-model/portfolio-lock.js";
 
 function candidate(): PrototypeCandidate {
   return {
@@ -102,6 +103,36 @@ test("concurrent portfolio document patches preserve disjoint sections", async (
   const updated = await loadPortfolioDocument(root, document.projectId);
   assert.equal(updated?.sections.find((section) => section.id === "features")?.content, "Edited feature");
   assert.equal(updated?.sections.find((section) => section.id === "technology")?.content, "Edited technology");
+});
+
+test("portfolio document creation waits for the durable portfolio lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-portfolio-create-lock-"));
+  const draft = {
+    version: 1 as const,
+    projectId: "project-prototype-001",
+    generatedAt: "2026-09-07T01:00:00.000Z",
+    overview: "Overview",
+    features: [],
+    technology: [],
+    troubleshooting: [],
+    claims: [],
+    readme: "# Project",
+  };
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurablePortfolioLock(root, draft.projectId, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const creation = ensurePortfolioDocument(root, draft, draft.generatedAt);
+  void creation.then(() => { settled = true; }, () => { settled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  assert.equal((await creation).projectId, draft.projectId);
 });
 
 test("workspace store round trips and missing ids return null", async () => {
