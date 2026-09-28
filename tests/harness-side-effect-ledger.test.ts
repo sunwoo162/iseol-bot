@@ -8,6 +8,7 @@ import {
   loadHarnessSideEffect,
   reserveHarnessSideEffect,
 } from "../src/harness/side-effect-ledger.js";
+import { withDurableHarnessRunEventLock } from "../src/harness/event-lock.js";
 
 test("side effect reservation is idempotent while in progress", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-effects-"));
@@ -122,4 +123,27 @@ test("side effect completion does not retry non-transient rename failures and cl
   assert.equal(attempts, 1);
   const files = await readdir(root, { recursive: true });
   assert.equal(files.some((name) => String(name).endsWith(".tmp")), false);
+});
+
+test("side effect completion waits for the durable Run event lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-effects-lock-"));
+  const input = { runId: "run-lock", key: "deployment:lock", kind: "deployment" as const, at: "2026-09-08T13:00:00.000Z" };
+  await reserveHarnessSideEffect(root, input);
+  let settled = false;
+  let completionPromise: Promise<unknown> | undefined;
+  const pending = withDurableHarnessRunEventLock(
+    root,
+    input.runId,
+    async () => {
+      const ledger = await import("../src/harness/side-effect-ledger.js?side-effect-lock");
+      completionPromise = ledger.completeHarnessSideEffect(root, { runId: input.runId, key: input.key, at: "2026-09-08T13:00:01.000Z" });
+      completionPromise.finally(() => { settled = true; }).catch(() => undefined);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+      assert.equal(settled, false);
+    },
+    { waitForMs: 2_000 },
+  );
+  await pending;
+  await completionPromise;
+  assert.equal((await loadHarnessSideEffect(root, input.runId, input.key))?.status, "completed");
 });

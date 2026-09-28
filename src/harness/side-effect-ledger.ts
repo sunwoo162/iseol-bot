@@ -7,6 +7,7 @@ import type {
 } from "./contracts.js";
 import { assertSafeRunId } from "./run-store.js";
 import { renameWithTransientRetry, type AtomicRenameDependencies } from "../desktop-agent/atomic-file.js";
+import { withDurableHarnessRunEventLock } from "./event-lock.js";
 
 export type ReserveHarnessSideEffectInput = {
   runId: string;
@@ -73,7 +74,7 @@ export async function loadHarnessSideEffect(
   return readReceipt(effectFile(root, runId, key));
 }
 
-export async function reserveHarnessSideEffect(
+async function reserveHarnessSideEffectUnlocked(
   root: string,
   input: ReserveHarnessSideEffectInput,
 ): Promise<HarnessSideEffectReservation> {
@@ -110,7 +111,19 @@ export async function reserveHarnessSideEffect(
   }
 }
 
-export async function completeHarnessSideEffect(
+export async function reserveHarnessSideEffect(
+  root: string,
+  input: ReserveHarnessSideEffectInput,
+): Promise<HarnessSideEffectReservation> {
+  return withDurableHarnessRunEventLock(
+    root,
+    input.runId,
+    () => reserveHarnessSideEffectUnlocked(root, input),
+    { waitForMs: 2_000 },
+  );
+}
+
+async function completeHarnessSideEffectUnlocked(
   root: string,
   input: CompleteHarnessSideEffectInput,
   deps: CompleteHarnessSideEffectDependencies = {},
@@ -129,4 +142,17 @@ export async function completeHarnessSideEffect(
   };
   await replaceReceipt(path, completed, deps);
   return completed;
+}
+
+export async function completeHarnessSideEffect(
+  root: string,
+  input: CompleteHarnessSideEffectInput,
+  deps: CompleteHarnessSideEffectDependencies = {},
+): Promise<HarnessSideEffectReceipt> {
+  return withDurableHarnessRunEventLock(
+    root,
+    input.runId,
+    () => completeHarnessSideEffectUnlocked(root, input, deps),
+    { waitForMs: 2_000 },
+  );
 }
