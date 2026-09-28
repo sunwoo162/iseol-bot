@@ -2355,6 +2355,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root social friend-request response and block interaction coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Team membership authorization rechecks
+
+- Status: **B — manager-gated Team membership mutations now recheck manager authority after acquiring the durable Team membership lock; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A manager removal or status change that wins the lock while another mutation is waiting can no longer be bypassed by a stale pre-lock authorization result.
+- Evidence: `src/teams/service.ts`, `src/teams/membership-lock.ts`, `src/teams/store.ts`, `tests/team-membership-acl.test.ts`.
+- TDD: RED held the Team membership lock, changed the owner membership to `removed`, and showed `addAiMember` proceeding from its stale pre-lock manager check; GREEN added inside-lock authority rechecks to `addAiMember`, `removeMember`, and `removeAiMember` while retaining the fast outside-lock rejection.
+- Verification: focused Team membership ACL `4/4`; user-product `375/375`; serial root `726/726`; backend `tsc` build, user UI build, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes. `git diff --check` was clean apart from standard Windows LF/CRLF warnings.
+- Implementation commit: follows as `fix: recheck team manager authority after membership lock`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Team membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Harness Run pause and resume synchronization
 
 - Status: **B — user-owned Harness Run pause/resume transitions now hold the Run mutation lock across read, compare-save, event, and checkpoint projection; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
