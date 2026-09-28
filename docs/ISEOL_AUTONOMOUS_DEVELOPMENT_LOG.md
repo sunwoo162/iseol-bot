@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service Learning feedback completions
+
+- Status: **B — owner/feedback-scoped, durable, same-host cross-service compare-and-set evaluation completion, and isolated-product verified; live evaluator/provider execution remains unverified**. Learning feedback completion now re-reads feedback inside a durable lock, so competing evaluations preserve the first persisted evaluation and later calls return the durable completed feedback instead of overwriting it.
+- Evidence: `src/learning/feedback-completion-lock.ts`, `src/learning/service.ts`, `tests/learning-feedback-evaluator.test.ts`, and `tests/learning-feedback-reevaluation.test.ts`.
+- TDD: RED reproduced two concurrent evaluations persisting different evaluator versions; GREEN preserved one durable evaluator version and returned it to both callers.
+- Verification: focused Learning evaluator/re-evaluation suite `5/5`; user-product `359/359`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained Learning feedback evaluation/dispute/re-evaluation, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `5b67ddc feat: serialize learning feedback completions`.
+- Boundary: same-host/shared-root coordination only; no distributed evaluator coordinator, live evaluator/provider quality or throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service Learning action completions
 
 - Status: **B — owner/action-scoped, durable, same-host cross-service compare-and-set completion, and isolated-product verified; live Runtime action execution remains unverified**. Learning session action completion now re-reads the action inside a durable lock, so competing responses converge on the first persisted response and later different responses fail with an explicit completion conflict.

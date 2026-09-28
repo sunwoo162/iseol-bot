@@ -1693,6 +1693,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service Learning feedback completions
+
+- Learning feedback completion is **B — owner/feedback-scoped, durable, same-host cross-service compare-and-set, and isolated-browser verified**. `src/learning/feedback-completion-lock.ts` and `src/learning/service.ts` re-read feedback inside a durable lock so competing evaluations preserve the first persisted evaluation and later calls return the durable completed feedback.
+- Evidence: `src/learning/feedback-completion-lock.ts`, `src/learning/service.ts`, `tests/learning-feedback-evaluator.test.ts`, and `tests/learning-feedback-reevaluation.test.ts`.
+- Verification: focused Learning evaluator/re-evaluation `5/5`; user-product `359/359`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with Learning feedback evaluation/dispute/re-evaluation, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `5b67ddc feat: serialize learning feedback completions`.
+- Boundary: same-host/shared-root coordination only; no distributed evaluator coordinator, live evaluator/provider quality or throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service Learning action completions
 
 - Learning session action completion is **B — owner/action-scoped, durable, same-host cross-service compare-and-set, and isolated-browser verified**. `src/learning/action-lock.ts` and `src/learning/service.ts` re-read the action inside a durable lock so competing responses preserve the first persisted response and later different responses fail with an explicit completion conflict.
