@@ -1983,6 +1983,14 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Boundary: same-host/shared-root lifecycle coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Commit: `9d0ab4b feat: serialize project work request cancellation`.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: project-model durable lock cleanup ownership hardening
+
+- Project-model durable locks are **B — same-host durable and isolated-browser verified with owner-token cleanup**. History, promotion, schedule, work-request, and Workspace lock finalizers now remove only their own lock record, preventing Windows waiter/owner cleanup races.
+- Evidence: existing project-model stores, project execution/team/promotion, and browser journeys remain green after the cleanup boundary was unified with the newer Idea Lab/Portfolio locks.
+- Verification: project-model stores `9/9`; execution/team/promotion focused coverage `32/32`; user-product `364/364`; root `696/696`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `0edc49b fix: protect project lock cleanup ownership`.
+- Boundary: lock cleanup ownership only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable Portfolio document creation synchronization
 
 - Portfolio document ensure/create is **B — project-Portfolio-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/project-model/portfolio-store.ts` now shares `src/project-model/portfolio-lock.ts` across existence check and first save, alongside existing patch serialization.

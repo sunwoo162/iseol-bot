@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: project-model durable lock cleanup ownership hardening
+
+- Status: **B — project-model durable lock infrastructure hardened and isolated-product verified; live Runtime/provider execution remains unverified**. Project history, promotion, schedule, work-request, and Workspace locks now verify their owner token before cleanup, preventing a releasing owner from unlinking a newer lock record on Windows.
+- Evidence: `src/project-model/history-lock.ts`, `src/project-model/promotion-lock.ts`, `src/project-model/schedule-lock.ts`, `src/project-model/work-request-lock.ts`, `src/project-model/workspace-lock.ts`, and the existing project-model/runtime/browser coverage.
+- Root cause: production-driver lock-holder coverage exposed an ownership cleanup race in which an old holder could close its handle after a waiter acquired the path, then unconditionally remove the waiter's lock. The project-model lock family now uses the same token-owned cleanup boundary already applied to Idea Lab and Portfolio locks.
+- Verification: project-model stores `9/9`; user-project execution/team/promotion focused coverage `32/32`; user-product `364/364`; serial root `696/696`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained project Workspace/runtime/Idea Lab/Portfolio journeys, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `0edc49b fix: protect project lock cleanup ownership`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root lock cleanup ownership only; no distributed coordinator, operational Runtime/Agent throughput or live provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable Portfolio document creation synchronization
 
 - Status: **B — project-Portfolio-scoped, durable, same-host cross-service serialized, and isolated-product verified; live Runtime/provider execution remains unverified**. Portfolio document ensure/create now holds the same project-specific durable lock used by document patches across existence check and first save, preventing concurrent initializers from racing.
