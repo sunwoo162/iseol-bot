@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HarnessRunEnvelope } from "../src/harness/contracts.js";
-import { loadHarnessRun, requestHarnessRunRetry, saveHarnessRun } from "../src/harness/run-store.js";
+import { loadHarnessRun, requestHarnessRunRetry, saveHarnessRun, saveHarnessRunIfUnchanged } from "../src/harness/run-store.js";
 
 function envelope(targetRoot: string): HarnessRunEnvelope {
   return {
@@ -110,4 +110,38 @@ test("same-run retry is rejected for non-terminal runs", async () => {
   await saveHarnessRun(storeRoot, envelope("C:/repo"));
   const result = await requestHarnessRunRetry(storeRoot, "run-001", { retryReason: "operator-request", actor: "operator", requestedAt: "2026-09-19T03:00:00.000Z" });
   assert.deepEqual(result, { status: "not-allowed", reason: "Run is not terminal FAILED_FINAL" });
+});
+
+test("compare-and-save allows only one winner across independent run-store instances", async () => {
+  const storeRoot = await mkdtemp(join(tmpdir(), "iseol-runs-cas-"));
+  const expected = envelope("C:/repo");
+  await saveHarnessRun(storeRoot, expected);
+
+  const instances = await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      import(`../src/harness/run-store.ts?cas-instance=${index}-${Date.now()}`),
+    ),
+  );
+  const outcomes = await Promise.allSettled(
+    instances.map((instance, index) => {
+      const updatedAt = `2026-09-19T03:00:${String(index).padStart(2, "0")}.000Z`;
+      const next = {
+        ...expected,
+        updatedAt,
+        state: { ...expected.state!, status: "READY" as const, updatedAt },
+      };
+      return instance.saveHarnessRunIfUnchanged(storeRoot, expected, next);
+    }),
+  );
+
+  assert.equal(outcomes.filter((outcome) => outcome.status === "rejected").length, 0);
+  const values = outcomes
+    .filter((outcome): outcome is PromiseFulfilledResult<boolean> => outcome.status === "fulfilled")
+    .map((outcome) => outcome.value);
+  assert.equal(values.filter(Boolean).length, 1);
+  assert.equal(values.filter((value) => !value).length, 7);
+
+  const loaded = await loadHarnessRun(storeRoot, "run-001");
+  assert.equal(loaded?.state.status, "READY");
+  assert.ok(values.includes(true));
 });

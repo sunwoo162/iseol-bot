@@ -8,6 +8,7 @@ import type {
 } from "./contracts.js";
 import { createInitialRunState } from "./state-machine.js";
 import { appendHarnessRunEvent } from "./event-store.js";
+import { withDurableHarnessRunLock } from "./run-lock.js";
 import { renameWithTransientRetry } from "../desktop-agent/atomic-file.js";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
@@ -149,10 +150,17 @@ export async function saveHarnessRunIfUnchanged(
   if (expectedRun.request.runId !== nextRun.request.runId) {
     throw new Error("Harness Run compare-and-save runId mismatch");
   }
-  return serializeRunWrite(root, expectedRun.request.runId, async () => {
-    const current = await loadHarnessRun(root, expectedRun.request.runId);
-    if (!current || JSON.stringify(current) !== JSON.stringify(expectedRun)) return false;
-    await writeNormalizedRun(root, nextRun);
-    return true;
-  });
+  return serializeRunWrite(root, expectedRun.request.runId, () =>
+    withDurableHarnessRunLock(
+      root,
+      expectedRun.request.runId,
+      async () => {
+        const current = await loadHarnessRun(root, expectedRun.request.runId);
+        if (!current || JSON.stringify(current) !== JSON.stringify(expectedRun)) return false;
+        await writeNormalizedRun(root, nextRun);
+        return true;
+      },
+      { waitForMs: 2_000 },
+    ),
+  );
 }
