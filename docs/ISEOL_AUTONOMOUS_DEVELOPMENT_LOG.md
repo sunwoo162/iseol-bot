@@ -3043,3 +3043,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `470916a fix: serialize harness run supervisors`. Documentation commit follows this implementation commit.
 - Boundary: same-host/shared-root supervisor ownership coordination only; it does not claim distributed leadership, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-28 continuation: durable Harness preflight refresh synchronization
+
+- Status: **B — Harness preflight refresh now waits on the Run mutation lock across same-host/shared-root service instances; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. The full refresh read, target validation, policy preparation, and normalized Run write now share one bounded durable mutation boundary.
+- Evidence: `src/harness/run-lock.ts`, `src/harness/run-service.ts`, `tests/harness-run-service.test.ts`.
+- TDD: RED showed preflight refresh completing while a competing Run mutation lock was held; GREEN added the Run-scoped lock wrapper and retained the existing fail-closed validation for missing/non-ready Runs.
+- Verification: focused Harness Run service `3/3`; user-product `366/366`; serial root `709/709`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `1a4afda fix: serialize harness preflight refresh`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root preflight refresh coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
