@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Harness checkpoint synchronization
+
+- Status: **B — Harness checkpoint writes now share the Run-scoped durable event boundary with event append and append-once operations; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
+- Evidence: `src/harness/event-lock.ts`, `src/harness/event-store.ts`, `tests/harness-event-store.test.ts`.
+- TDD: RED showed checkpoint persistence completing while the Run event lock was held; GREEN added the bounded Run-scoped lock wrapper without changing checkpoint filename or latest-record selection semantics.
+- Verification: focused Harness event store `5/5`; user-product `366/366`; serial root rerun `720/720` after one transient non-reproducible first-run failure; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `4cd70bc fix: serialize harness checkpoint persistence`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Harness checkpoint coordination only; distributed locking, live Runtime/Agent throughput, external connector delivery, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Desktop Agent presence synchronization
 
 - Status: **B — Desktop Agent registration and heartbeat writes now coordinate across independent processes with Agent-scoped durable locks, and stale heartbeat timestamps cannot overwrite newer presence; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
