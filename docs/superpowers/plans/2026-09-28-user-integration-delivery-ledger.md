@@ -40,11 +40,11 @@
 - `dispatchDelivery(principal, deliveryId)` performs at most one adapter attempt and persists the outcome.
 - `listDeliveries(principal)` returns only the principal's records.
 
-- [ ] **Step 1: Write RED tests** for durable enqueue/idempotency, owner isolation, blocked consent, missing adapter, delivered adapter, and unknown no-retry behavior.
-- [ ] **Step 2: Run `node --import tsx --test tests/integrations-delivery.test.ts` and verify the failure is caused by the missing integration service.
-- [ ] **Step 3: Implement bounded contracts, atomic owner-scoped JSON storage, deterministic identity, and one-attempt dispatch.**
-- [ ] **Step 4: Re-run the focused integration suite and verify all cases pass.**
-- [ ] **Step 5: Commit `feat: add user integration delivery ledger`.**
+- [x] **Step 1: Write RED tests** for durable enqueue/idempotency, owner isolation, blocked consent, missing adapter, delivered adapter, and unknown no-retry behavior.
+- [x] **Step 2: Run `node --import tsx --test tests/integrations-delivery.test.ts` and verify the failure is caused by the missing integration service.
+- [x] **Step 3: Implement bounded contracts, atomic owner-scoped JSON storage, deterministic identity, and one-attempt dispatch.**
+- [x] **Step 4: Re-run the focused integration suite and verify all cases pass.**
+- [x] **Step 5: Commit `feat: add user integration delivery ledger`.**
 
 ### Task 2: Persist user integration consent and expose status API
 
@@ -62,12 +62,12 @@
 - `GET /api/user/integrations` returns provider status, consent, and last owner-scoped delivery state.
 - `POST /api/user/integrations/:provider/deliveries` accepts only bounded source/event metadata and returns the durable delivery state.
 
-- [ ] **Step 1: Add RED API/settings tests** for default consent, persistence, two-user isolation, and truthful `not-configured` status.
-- [ ] **Step 2: Run the focused API tests and observe the missing route/field failure.**
-- [ ] **Step 3: Add backward-compatible settings normalization and compose the integration service with no live adapters.**
-- [ ] **Step 4: Add authenticated routes with provider/source validation and owner-bound delivery lookup.**
-- [ ] **Step 5: Run focused API/settings and existing user-product tests.**
-- [ ] **Step 6: Commit `feat: expose user integration consent status`.**
+- [x] **Step 1: Add RED API/settings tests** for default consent, persistence, two-user isolation, and truthful `not-configured` status.
+- [x] **Step 2: Run the focused API tests and observe the missing route/field failure.**
+- [x] **Step 3: Add backward-compatible settings normalization and compose the integration service with no live adapters.**
+- [x] **Step 4: Add authenticated routes with provider/source validation and owner-bound delivery lookup.**
+- [x] **Step 5: Run focused API/settings and existing user-product tests.**
+- [x] **Step 6: Commit `feat: expose user integration consent status`.**
 
 ### Task 3: Connect the approved Settings surface and verify regression
 
@@ -79,11 +79,11 @@
 - Modify: `docs/ISEOL_FEATURE_INVENTORY.md`
 - Modify: `docs/ISEOL_AUTONOMOUS_DEVELOPMENT_LOG.md`
 
-- [ ] **Step 1: Add a RED UI contract** for Calendar, GitHub, and Discord consent controls and `연동 API 미연결` truthfulness.
-- [ ] **Step 2: Implement the API-backed consent controls without changing the approved layout or enabling external calls.**
-- [ ] **Step 3: Run the focused UI contract, TypeScript build, and user UI build.**
-- [ ] **Step 4: Run isolated browser verification for consent persistence, second-account isolation, and `not-configured` status.
-- [ ] **Step 5: Run the full user-product/root/browser regression, update evidence docs, and commit `feat: wire user integration settings`.**
+- [x] **Step 1: Add a RED UI contract** for Calendar, GitHub, and Discord consent controls and `연동 API 미연결` truthfulness.
+- [x] **Step 2: Implement the API-backed consent controls without changing the approved layout or enabling external calls.**
+- [x] **Step 3: Run the focused UI contract, TypeScript build, and user UI build.**
+- [x] **Step 4: Run isolated browser verification for consent persistence, second-account isolation, and `not-configured` status.**
+- [x] **Step 5: Run the full user-product/root/browser regression, update evidence docs, and commit `feat: wire user integration settings`.**
 
 ## Completion boundary
 

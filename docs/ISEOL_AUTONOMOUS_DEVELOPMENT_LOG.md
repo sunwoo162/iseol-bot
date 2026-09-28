@@ -2100,3 +2100,25 @@ This log records implementation and verification facts without secrets. It does 
 
 - No operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, external AI/provider request, external connector mutation, deployment, push, data deletion, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred.
 - Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, final approved art sources, and deferred broadcast artifacts remained untouched.
+
+## 2026-09-28 continuation: user integration consent and delivery ledger
+
+### Completed in this unit
+
+1. Added an owner-scoped `IntegrationDelivery` contract/store/service for Calendar, GitHub, and Discord. Delivery identity is deterministic, payloads are bounded, and dispatch uses only explicitly injected adapters.
+2. Added opt-out-by-default `UserSettings.integrations`, backward-compatible normalization, authenticated integration status/delivery routes, and isolated-server composition. `unknown`, `not-configured`, and `blocked` outcomes are durable terminal observations for the same source identity.
+3. Connected the approved Settings integration cards to persisted consent switches. The UI reports `어댑터 준비됨` only from configured local adapters and otherwise keeps the truthful `연동 API 미연결` state.
+4. Added browser verification for two-account consent isolation, reload persistence, configured-adapter truthfulness, and local API status.
+
+### TDD, verification, and commits
+
+- RED tests first exposed the missing delivery service, API route, and UI contract; focused integration/settings/UI checks then passed `12/12`.
+- The full `npm.cmd run test:iseol-user-product` regression passed `309/309`, and the serial `npm.cmd test -- --test-concurrency=1` root regression passed `676/676`.
+- `npx.cmd tsc -p user-ui/tsconfig.json --noEmit`, `npm.cmd run build`, and `npm.cmd run user-ui:build` passed with only the existing Vite warnings.
+- Full isolated browser E2E passed `integrationConsentPersistenceIsolation: "passed"` plus all existing journeys, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Commits: `0314081 feat: add user integration delivery ledger`, `565ea8f feat: expose user integration consent status`, `5ed02e5 fix: restore user ui typecheck`, and `d6a1245 feat: wire user integration consent settings`.
+
+### Scope and safety boundary
+
+- No live Calendar/GitHub/Discord authorization or external delivery was attempted. No external AI/provider request, operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, deployment, push, data deletion, approved-design change, or AI Broadcast Room implementation occurred.
+- Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, final approved art sources, and deferred broadcast artifacts remained untouched.
