@@ -4,6 +4,7 @@ import type { RecruitmentApplication, RecruitmentInput, RecruitmentPost, Recruit
 import { withDurableRecruitmentApplicationLock } from "./application-lock.js";
 import { withDurableRecruitmentReviewLock } from "./review-lock.js";
 import { listApplications, listPosts, loadApplication, loadPost, saveApplication, savePost } from "./store.js";
+import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
 function required(value: string, label: string, max: number): string { const trimmed = value.trim(); if (!trimmed || trimmed.length > max) throw new Error(`${label} is required`); return trimmed; }
@@ -18,11 +19,15 @@ export function createRecruitmentService(root: string, options: RecruitmentServi
     async getPost(principal, postId) { ensurePrincipal(principal); try { assertIdentityId(postId); } catch { return null; } const post = await loadPost(root, postId); if (!post) return null; const canSeeApplications = await options.teamService.isManager(principal, post.teamId); if (!canSeeApplications && post.status !== "open") return null; return { post, applications: canSeeApplications ? (await listApplications(root)).filter((item) => item.postId === post.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : [] }; },
     async apply(principal, postId, message) {
       ensurePrincipal(principal);
-      const post = await loadPost(root, postId);
-      if (!post || post.status !== "open") throw new Error("Recruitment post not found");
-      const team = await options.teamService.getTeam(principal, post.teamId);
-      if (team?.members.some((member) => member.userId === principal.userId)) throw new Error("Already a team member");
-      return withDurableRecruitmentApplicationLock(root, postId, principal.userId, async () => {
+      const initialPost = await loadPost(root, postId);
+      if (!initialPost || initialPost.status !== "open") throw new Error("Recruitment post not found");
+      const initialTeam = await options.teamService.getTeam(principal, initialPost.teamId);
+      if (initialTeam?.members.some((member) => member.userId === principal.userId)) throw new Error("Already a team member");
+      return withDurableTeamMembershipLock(root, initialPost.teamId, async () => withDurableRecruitmentApplicationLock(root, postId, principal.userId, async () => {
+        const post = await loadPost(root, postId);
+        if (!post || post.status !== "open") throw new Error("Recruitment post not found");
+        const team = await options.teamService.getTeam(principal, post.teamId);
+        if (team?.members.some((member) => member.userId === principal.userId)) throw new Error("Already a team member");
         const existing = (await listApplications(root)).find((item) => item.postId === postId && item.applicantUserId === principal.userId && ["pending", "accepted"].includes(item.status));
         if (existing) return { application: existing, created: false };
         const at = now();
@@ -31,7 +36,7 @@ export function createRecruitmentService(root: string, options: RecruitmentServi
         await saveApplication(root, application);
         await options.activityService?.recordActivityEvent(principal, { sourceType: "recruitment", sourceId: application.id, eventType: "recruitment.application.created", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { postId: application.postId, teamId: application.teamId } });
         return { application, created: true };
-      }, { waitForMs: 2_000 });
+      }, { waitForMs: 2_000 }), { waitForMs: 2_000 });
     },
     async reviewApplication(principal, applicationId, action) {
       ensurePrincipal(principal); assertIdentityId(applicationId); if (!["accept", "reject"].includes(action)) throw new Error("Invalid application action"); const initial = await loadApplication(root, applicationId); if (!initial || !await options.teamService.isManager(principal, initial.teamId)) throw new Error("Application not found");
