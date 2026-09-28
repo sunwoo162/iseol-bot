@@ -59,7 +59,15 @@ export async function withDurableNotificationLock<T>(
         try {
           await readFile(path, "utf8");
         } catch (probeError) {
-          if ((probeError as NodeJS.ErrnoException).code === "ENOENT") throw error;
+          if ((probeError as NodeJS.ErrnoException).code === "ENOENT") {
+            // Windows can briefly retain the failed open result after the
+            // competing handle has already closed and removed the lock.
+            // With a bounded wait, treat that edge as transient contention.
+            if (waitForMs <= 0 || Date.now() >= deadline) throw error;
+            await new Promise((resolveWait) => setTimeout(resolveWait, Math.min(pollIntervalMs, Math.max(1, deadline - Date.now()))));
+            continue;
+          }
+          throw probeError;
         }
       } else if (code !== "EEXIST") {
         throw error;
