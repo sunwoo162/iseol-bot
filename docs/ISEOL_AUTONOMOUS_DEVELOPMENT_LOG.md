@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: user-domain durable lock cleanup ownership hardening
+
+- Status: **B — user settings, private memory, and notification durable locks hardened and isolated-product verified; live Runtime/provider execution remains unverified**. Lock finalizers now verify their owner token before cleanup, preventing a releasing service from deleting a newer waiter-owned lock record on Windows.
+- Evidence: `src/settings/settings-lock.ts`, `src/memory/memory-lock.ts`, `src/notifications/notification-lock.ts`, and the existing user settings/memory/notification/AI persistence/browser coverage.
+- Root cause: the same cross-service cleanup race previously found in production/project locks also existed in user-domain lock finalizers; only the owner token may remove a lock record after its handle is closed.
+- Verification: focused settings/memory suite `8/8`; notifications/AI persistence suite `12/12`; user-product `364/364`; serial root `698/698`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained settings, private memory, notifications, AI chat, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `b4f63a2 fix: protect user lock cleanup ownership`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root user-domain lock cleanup ownership only; no distributed coordinator, operational Runtime/Agent throughput or live provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable Prototype archive guard
 
 - Status: **B — Prototype-candidate-scoped, durable, same-host cross-service serialized, and isolated-product verified; live Runtime/provider execution remains unverified**. Prototype archive now uses the locked candidate update path for both promoted-state rejection and archived idempotence, preventing a stale pre-lock read from overwriting a concurrent promotion.

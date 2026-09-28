@@ -1983,6 +1983,14 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Boundary: same-host/shared-root lifecycle coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Commit: `9d0ab4b feat: serialize project work request cancellation`.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: user-domain durable lock cleanup ownership hardening
+
+- User-domain durable locks are **B — same-host durable and isolated-browser verified with owner-token cleanup**. Settings, private memory, and notification finalizers remove only their own lock records, preventing Windows waiter/owner cleanup races.
+- Evidence: existing settings, memory, notification, AI persistence, and browser journeys remain green after the cleanup boundary was unified.
+- Verification: settings/memory focused `8/8`; notifications/AI persistence `12/12`; user-product `364/364`; root `698/698`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `b4f63a2 fix: protect user lock cleanup ownership`.
+- Boundary: user-domain lock cleanup ownership only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable Prototype archive guard
 
 - Prototype archive is **B — candidate-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/idea-lab/prototype-actions.ts` uses the prototype lock's atomic update guard for promoted rejection and archived idempotence, preventing stale archive writes across promotion.
