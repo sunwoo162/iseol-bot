@@ -2365,6 +2365,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root Team membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Study membership authorization rechecks
+
+- Status: **B — Study mutations now coordinate with the canonical Team membership lock and recheck manager or active-human membership authority after waiting; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A Team membership removal that wins the lock while a Study write is waiting can no longer be bypassed by a stale authorization result.
+- Evidence: `src/study/contracts.ts`, `src/study/service.ts`, `src/study/space-lock.ts`, `src/study/submission-lock.ts`, `src/teams/membership-lock.ts`, `tests/study-space.test.ts`.
+- TDD: RED held the shared Team membership lock, changed the manager or member status to `removed`, and showed Study space creation or submission completing after the stale pre-lock check; GREEN added a shared Team-lock mutation boundary, inside-lock manager/member rechecks, and retained the existing Study-space/submission locks for their domain invariants.
+- Verification: focused Study/AI dispatch/API `20/20`; user-product `377/377`; serial root `726/726`; backend `tsc` build, user UI build, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes. `git diff --check` was clean apart from standard Windows LF/CRLF warnings.
+- Implementation commit: follows as `fix: recheck study membership authority under team lock`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Study and Team membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Harness Run pause and resume synchronization
 
 - Status: **B — user-owned Harness Run pause/resume transitions now hold the Run mutation lock across read, compare-save, event, and checkpoint projection; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
