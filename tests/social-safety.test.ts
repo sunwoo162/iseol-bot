@@ -44,3 +44,23 @@ test("social safety operations reject self-targets and unknown users", async () 
   await assert.rejects(() => social.blockUser(principal("safety-only"), "safety-only"), /yourself/i);
   await assert.rejects(() => social.reportUser(principal("safety-only"), "missing-user", "spam"), /not found/i);
 });
+
+test("concurrent block mutations across service instances preserve one active block", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-block-concurrent-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  await users.createUser({ id: "block-owner", email: "block-owner@example.com", displayName: "Block owner", timezone: "Asia/Seoul" });
+  const targets = Array.from({ length: 24 }, (_, index) => `block-target-${index}`);
+  for (const target of targets) await users.createUser({ id: target, email: `${target}@example.com`, displayName: target, timezone: "Asia/Seoul" });
+  const firstService = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+  const secondService = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+
+  const results = await Promise.allSettled(targets.flatMap((target) => [
+    firstService.blockUser(principal("block-owner"), target),
+    secondService.blockUser(principal("block-owner"), target),
+  ]));
+
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, targets.length * 2);
+  assert.equal((await firstService.listBlocks(principal("block-owner"))).length, targets.length);
+  assert.ok((await firstService.listBlocks(principal("block-owner"))).every((block) => block.status === "active"));
+});

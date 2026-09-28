@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { FriendRequest, PublicProfile, SocialBlock, SocialProfile, SocialReport, SocialService, SocialServiceOptions } from "./contracts.js";
+import { withDurableSocialBlockLock } from "./block-lock.js";
 import { withDurableFriendRequestLock } from "./friend-request-lock.js";
 import { withDurableSocialProfileLock } from "./profile-lock.js";
 import { listBlocks, listDirectMessages, listFriendRequests, listReports, loadBlock, loadFriendRequest, loadProfile, saveBlock, saveDirectMessage, saveFriendRequest, saveProfile, saveReport } from "./store.js";
@@ -128,10 +129,18 @@ export function createSocialService(root: string, options: SocialServiceOptions)
       ensurePrincipal(principal); assertIdentityId(otherUserId); if (await isBlocked(principal.userId, otherUserId)) throw new Error("User is blocked"); const allowed = await isAccepted(principal.userId, otherUserId) || await options.canCollaborate?.(principal.userId, otherUserId) === true; if (!allowed) throw new Error("Direct messaging requires an accepted friendship or shared team"); return (await listDirectMessages(root)).filter((message) => (message.senderUserId === principal.userId && message.recipientUserId === otherUserId) || (message.senderUserId === otherUserId && message.recipientUserId === principal.userId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     },
     async blockUser(principal, targetUserId) {
-      ensurePrincipal(principal); assertIdentityId(targetUserId); if (targetUserId === principal.userId) throw new Error("Cannot block yourself"); if (!await options.platformUserService.getUser(targetUserId)) throw new Error("Target user not found"); const current = await loadBlock(root, principal.userId, targetUserId); const at = now(); assertTimestamp(at, "block timestamp"); const block: SocialBlock = { version: 1, id: `block-${principal.userId}-${targetUserId}`, blockerUserId: principal.userId, blockedUserId: targetUserId, status: "active", createdAt: current?.createdAt ?? at, updatedAt: at }; await saveBlock(root, block); await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: block.id, eventType: "social.block.created", eventVersion: 1, actorType: "user", verificationStatus: "unverified", payload: { targetUserId } }); return block;
+      ensurePrincipal(principal); assertIdentityId(targetUserId); if (targetUserId === principal.userId) throw new Error("Cannot block yourself"); if (!await options.platformUserService.getUser(targetUserId)) throw new Error("Target user not found");
+      return withDurableSocialBlockLock(root, principal.userId, targetUserId, async () => {
+        const current = await loadBlock(root, principal.userId, targetUserId);
+        if (current?.status === "active") return current;
+        const at = now(); assertTimestamp(at, "block timestamp"); const block: SocialBlock = { version: 1, id: `block-${principal.userId}-${targetUserId}`, blockerUserId: principal.userId, blockedUserId: targetUserId, status: "active", createdAt: current?.createdAt ?? at, updatedAt: at }; await saveBlock(root, block); await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: block.id, eventType: "social.block.created", eventVersion: 1, actorType: "user", verificationStatus: "unverified", payload: { targetUserId } }); return block;
+      }, { waitForMs: 2_000 });
     },
     async unblockUser(principal, targetUserId) {
-      ensurePrincipal(principal); assertIdentityId(targetUserId); const current = await loadBlock(root, principal.userId, targetUserId); if (!current || current.status !== "active") throw new Error("Block not found"); const at = now(); assertTimestamp(at, "unblock timestamp"); const block: SocialBlock = { ...current, status: "removed", updatedAt: at }; await saveBlock(root, block); return block;
+      ensurePrincipal(principal); assertIdentityId(targetUserId);
+      return withDurableSocialBlockLock(root, principal.userId, targetUserId, async () => {
+        const current = await loadBlock(root, principal.userId, targetUserId); if (!current || current.status !== "active") throw new Error("Block not found"); const at = now(); assertTimestamp(at, "unblock timestamp"); const block: SocialBlock = { ...current, status: "removed", updatedAt: at }; await saveBlock(root, block); return block;
+      }, { waitForMs: 2_000 });
     },
     async listBlocks(principal) { ensurePrincipal(principal); return (await listBlocks(root)).filter((item) => item.blockerUserId === principal.userId && item.status === "active").sort((a, b) => b.createdAt.localeCompare(a.createdAt)); },
     async reportUser(principal, targetUserId, reason) {
