@@ -6,6 +6,7 @@ import type { ProjectWorkspace } from "./contracts.js";
 import { assertProjectModelId } from "./contracts.js";
 import type { ExecutionProfile } from "./execution-profile.js";
 import { appendProjectHistoryEventOnce } from "./history-store.js";
+import { withDurableProjectWorkspaceLock } from "./workspace-lock.js";
 
 function workspaceFile(root: string, id: string): string {
   assertProjectModelId(id);
@@ -69,22 +70,24 @@ export async function setProjectPurpose(
   selectedAt: string,
   source: "user" | "default" = "user",
 ): Promise<ProjectWorkspace> {
-  const workspace = await loadProjectWorkspace(root, projectId);
-  if (!workspace) throw new Error(`Project workspace not found: ${projectId}`);
-  const next: ProjectWorkspace = {
-    ...workspace,
-    purposeSelection: { version: 1, purpose: profile.purpose, selectedAt, source, profile },
-    updatedAt: selectedAt,
-  };
-  await saveProjectWorkspace(root, next);
-  await appendProjectHistoryEventOnce(root, {
-    version: 1,
-    id: `purpose-${projectId}-${profile.purpose}-${selectedAt}`,
-    projectId,
-    type: "purpose-selected",
-    at: selectedAt,
-    summary: `Project purpose selected: ${profile.purpose}`,
-    action: "purpose-selection",
-  });
-  return next;
+  return withDurableProjectWorkspaceLock(root, projectId, async () => {
+    const workspace = await loadProjectWorkspace(root, projectId);
+    if (!workspace) throw new Error(`Project workspace not found: ${projectId}`);
+    const next: ProjectWorkspace = {
+      ...workspace,
+      purposeSelection: { version: 1, purpose: profile.purpose, selectedAt, source, profile },
+      updatedAt: selectedAt,
+    };
+    await saveProjectWorkspace(root, next);
+    await appendProjectHistoryEventOnce(root, {
+      version: 1,
+      id: `purpose-${projectId}-${profile.purpose}-${selectedAt}`,
+      projectId,
+      type: "purpose-selected",
+      at: selectedAt,
+      summary: `Project purpose selected: ${profile.purpose}`,
+      action: "purpose-selection",
+    });
+    return next;
+  }, { waitForMs: 2_000 });
 }

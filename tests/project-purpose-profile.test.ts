@@ -13,7 +13,8 @@ import {
   verifyPortfolioGrounding,
 } from "../src/project-model/portfolio.js";
 import type { ProjectWorkspace } from "../src/project-model/contracts.js";
-import { loadProjectWorkspace, saveProjectWorkspace } from "../src/project-model/workspace-store.js";
+import { loadProjectWorkspace, saveProjectWorkspace, setProjectPurpose } from "../src/project-model/workspace-store.js";
+import { withDurableProjectWorkspaceLock } from "../src/project-model/workspace-lock.js";
 import { loadProjectHistory } from "../src/project-model/history-store.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
@@ -42,6 +43,40 @@ test("purpose profile selects executable stage adapters and labels unsupported s
 test("purpose profile fails closed for empty requirements and unsupported purpose", () => {
   assert.throws(() => resolveExecutionProfile({ purpose: "portfolio", objective: "", roles: [] }), /objective/i);
   assert.throws(() => resolveExecutionProfile({ purpose: "unknown" as never, objective: "x", roles: [] }), /purpose/i);
+});
+
+test("project purpose selection waits for the durable Workspace mutation lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-purpose-lock-"));
+  const at = "2026-09-19T00:00:00.000Z";
+  await saveProjectWorkspace(root, {
+    version: 1,
+    id: "project-purpose-lock",
+    name: "Purpose lock",
+    status: "active",
+    genesis: { prototypeId: "prototype-purpose-lock", repository: { url: "local://pending", branch: "main" }, deployment: { url: "local://pending" }, runs: [], promotedAt: at },
+    tree: [],
+    createdAt: at,
+    updatedAt: at,
+  });
+  const profile = resolveExecutionProfile({ purpose: "portfolio", objective: "Purpose lock test", roles: [] });
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableProjectWorkspaceLock(root, "project-purpose-lock", async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const selection = setProjectPurpose(root, "project-purpose-lock", profile, at).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  const updated = await selection;
+  assert.equal(updated.purposeSelection?.purpose, "portfolio");
 });
 
 test("control plane exposes purpose selection without exposing internal registries", async () => {
