@@ -42,6 +42,15 @@ async function removeDeadOwnerLock(path: string): Promise<boolean> {
   }
 }
 
+async function removeOwnedLock(path: string, token: string): Promise<void> {
+  try {
+    const value = JSON.parse(await readFile(path, "utf8")) as Partial<WorkRequestLockRecord>;
+    if (value.version === 1 && value.token === token) await unlink(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") return;
+  }
+}
+
 async function withLock<T>(path: string, task: () => Promise<T>, options: ProjectWorkRequestLockOptions): Promise<T> {
   await mkdir(dirname(path), { recursive: true });
   let handle: FileHandle;
@@ -76,12 +85,13 @@ async function withLock<T>(path: string, task: () => Promise<T>, options: Projec
       await new Promise((resolve) => setTimeout(resolve, Math.min(pollIntervalMs, Math.max(1, deadline - Date.now()))));
     }
   }
+  const token = randomUUID();
   try {
-    await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token: randomUUID(), createdAt: new Date().toISOString() } satisfies WorkRequestLockRecord), "utf8");
+    await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token, createdAt: new Date().toISOString() } satisfies WorkRequestLockRecord), "utf8");
     return await task();
   } finally {
     await handle.close().catch(() => undefined);
-    await unlink(path).catch(() => undefined);
+    await removeOwnedLock(path, token);
   }
 }
 
