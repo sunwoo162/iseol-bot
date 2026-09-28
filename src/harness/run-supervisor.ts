@@ -12,6 +12,7 @@ import {
 import { appendHarnessRunEvent, saveHarnessCheckpoint } from "./event-store.js";
 import { assertPreflightReady } from "./preflight.js";
 import { loadHarnessRun, saveHarnessRun } from "./run-store.js";
+import { withDurableHarnessRunLock } from "./run-lock.js";
 import { nextHarnessStage, transitionRunState } from "./state-machine.js";
 import { ideaLabSkipReason } from "../idea-lab/completion-profile.js";
 
@@ -145,7 +146,7 @@ async function startIfNeeded(
   });
   return started;
 }
-export async function superviseHarnessRun(
+async function superviseHarnessRunUnlocked(
   input: SuperviseHarnessRunInput,
 ): Promise<HarnessRuntimeRunEnvelope> {
   const maxSteps = input.maxSteps ?? 64;
@@ -290,4 +291,16 @@ export async function superviseHarnessRun(
     summary: reason,
   });
   return run;
+}
+
+export async function superviseHarnessRun(
+  input: SuperviseHarnessRunInput,
+): Promise<HarnessRuntimeRunEnvelope> {
+  return withDurableHarnessRunLock(
+    input.storeRoot,
+    input.runId,
+    () => superviseHarnessRunUnlocked(input),
+    { waitForMs: 2_000 },
+    "supervisor",
+  );
 }

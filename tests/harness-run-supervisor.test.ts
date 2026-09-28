@@ -99,6 +99,36 @@ test("supervisor advances multiple stages without user continue", async () => {
   assert.deepEqual(await loadHarnessRun(root, "run-001"), result);
 });
 
+test("same Run has only one active supervisor across independent instances", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-supervisor-cross-instance-"));
+  await saveHarnessRun(root, runtimeRun("IMPLEMENT"));
+  let calls = 0;
+  const executor: HarnessStageExecutor = {
+    execute: async () => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return { type: "waiting-external", reason: "preview build" };
+    },
+  };
+  const instances = await Promise.all(
+    Array.from({ length: 2 }, (_, index) =>
+      import(`../src/harness/run-supervisor.ts?cross-instance=${index}-${Date.now()}`),
+    ),
+  );
+
+  const outcomes = await Promise.allSettled(instances.map((instance) => instance.superviseHarnessRun({
+    storeRoot: root,
+    runId: "run-001",
+    executor,
+    maxSteps: 2,
+    now: () => "2026-09-07T00:00:10.000Z",
+  })));
+
+  assert.equal(outcomes.filter((outcome) => outcome.status === "rejected").length, 0);
+  assert.equal(calls, 1);
+  assert.equal((await loadHarnessRun(root, "run-001"))?.state.status, "WAITING_EXTERNAL");
+});
+
 test("supervisor preserves a user pause requested during an in-flight stage", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-supervisor-pause-race-"));
   await saveHarnessRun(root, runtimeRun());

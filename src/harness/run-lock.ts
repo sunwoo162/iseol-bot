@@ -5,9 +5,10 @@ import { removeOwnedLock } from "../lock-utils.js";
 
 type HarnessRunLockRecord = { version: 1; pid: number; token: string; createdAt: string };
 export type DurableHarnessRunLockOptions = { waitForMs?: number; pollIntervalMs?: number };
+export type HarnessRunLockScope = "mutation" | "supervisor";
 
-function lockPath(root: string, runId: string): string {
-  const digest = createHash("sha256").update(`harness-run:${runId}`).digest("hex");
+function lockPath(root: string, runId: string, scope: HarnessRunLockScope): string {
+  const digest = createHash("sha256").update(`harness-run:${scope}:${runId}`).digest("hex");
   return resolve(root, ".locks", "harness-runs", `${digest}.lock`);
 }
 
@@ -34,8 +35,9 @@ export async function withDurableHarnessRunLock<T>(
   runId: string,
   task: () => Promise<T>,
   options: DurableHarnessRunLockOptions = {},
+  scope: HarnessRunLockScope = "mutation",
 ): Promise<T> {
-  const path = lockPath(root, runId);
+  const path = lockPath(root, runId, scope);
   await mkdir(dirname(path), { recursive: true });
   let handle: FileHandle;
   const waitForMs = options.waitForMs ?? 0;
