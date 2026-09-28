@@ -1693,6 +1693,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service AI Team discussion requests
+
+- AI Team discussion requests are **B — project/request-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/ai-team/discussion-lock.ts` adds an exact hashed project/request lock; `src/ai-team/discussion-service.ts` now performs the request lookup, local Runtime dispatch, discussion save, and activity receipt inside it, preserving one discussion identity and one dispatch for concurrent retries.
+- Evidence: `src/ai-team/discussion-lock.ts`, `src/ai-team/discussion-service.ts`, `tests/ai-team-discussion.test.ts`.
+- Verification: focused AI Team discussion `4/4`; user-product `344/344`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with AI discussion/approval coverage, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed AI Team discussion coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service AI Team proposal requests
 
 - AI Team proposal requests are **B — project/request-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/ai-team/proposal-lock.ts` adds an exact hashed project/request lock; `src/ai-team/service.ts` now performs the request lookup, local Runtime dispatch, and proposal save inside it, preserving one proposal identity and one dispatch for concurrent retries.
