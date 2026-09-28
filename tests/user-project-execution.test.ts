@@ -159,6 +159,51 @@ test("direct project Run starts serialize across service instances for one Work 
   assert.equal(await loadHarnessRun(join(root, "runs"), "run-cross-second"), null);
 });
 
+test("queued Work Request cancellation shares the durable lifecycle lock with Run start", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-cancel-run-race-"));
+  const options = {
+    platformRoot: join(root, "platform"),
+    projectModelRoot: join(root, "project-model"),
+    projectHarnessRoot: join(root, "runs"),
+    iseolRoot: root,
+    now: () => at,
+  };
+  const firstService = createUserProjectService(options);
+  const secondService = createUserProjectService(options);
+  const owner = principal("cancel-run-race-owner");
+  const project = await firstService.createProject(owner, {
+    name: "Cancel Run race",
+    objective: "serialize cancellation with execution start",
+    purpose: "rapid-prototype",
+    teamMode: "solo",
+  });
+  const work = await firstService.createWorkRequest(owner, project.id, {
+    title: "Race task",
+    objective: "ensure one lifecycle transition wins",
+    idempotencyKey: "cancel-run-race-task",
+  });
+  let enqueueCalls = 0;
+  let releaseEnqueue!: () => void;
+  const enqueueHeld = new Promise<void>((resolve) => { releaseEnqueue = resolve; });
+  const enqueue = async () => {
+    enqueueCalls += 1;
+    await enqueueHeld;
+    return "accepted" as const;
+  };
+
+  const start = firstService.startProjectRun(owner, project.id, { workRequestId: work.request.id, runId: "run-cancel-race" }, enqueue);
+  for (let attempt = 0; attempt < 100 && enqueueCalls < 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(enqueueCalls, 1);
+  const cancel = secondService.cancelWorkRequest(owner, project.id, work.request.id);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  releaseEnqueue();
+
+  const started = await start;
+  assert.equal(started.status, "started");
+  await assert.rejects(cancel, /current status is (running|waiting)/);
+  assert.notEqual((await firstService.getProject(owner, project.id))?.workRequests.find((request) => request.id === work.request.id)?.status, "cancelled");
+});
+
 test("project Run resumes serialize across service instances for one Work Request", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-project-cross-instance-run-resume-"));
   const options = {

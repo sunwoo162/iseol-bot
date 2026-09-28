@@ -330,29 +330,31 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
       return { request, created: result.created };
     },
     async cancelWorkRequest(principal, projectId, workRequestId) {
-      ensurePrincipal(principal);
-      const view = await this.getProject(principal, projectId);
-      if (!view) throw new Error("Project not found");
-      if (view.project.ownerUserId !== principal.userId) throw new Error("Only the project owner can cancel a work request");
-      const workRequest = view.workRequests.find((request) => request.id === workRequestId);
-      if (!workRequest) throw new Error("Work request not found");
-      if (workRequest.status !== "queued") throw new Error(`Only queued work requests can be cancelled; current status is ${workRequest.status}`);
-      const at = now();
-      assertTimestamp(at, "work request cancellation timestamp");
-      const cancelled = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequestId, { status: "cancelled", blocker: "프로젝트 소유자가 실행 전에 취소했습니다." }, at) ?? workRequest;
-      if (options.activityService) {
-        await options.activityService.recordActivityEvent(principal, {
-          sourceType: "project-work-request",
-          sourceId: workRequestId,
-          eventType: "project.work.cancelled",
-          eventVersion: 1,
-          actorType: "user",
-          verificationStatus: "unverified",
-          payload: { projectId, workRequestId },
-          occurredAt: at,
-        });
-      }
-      return cancelled;
+      return withDurableProjectWorkRequestRunLock(options.projectModelRoot, projectId, workRequestId, async () => {
+        ensurePrincipal(principal);
+        const view = await this.getProject(principal, projectId);
+        if (!view) throw new Error("Project not found");
+        if (view.project.ownerUserId !== principal.userId) throw new Error("Only the project owner can cancel a work request");
+        const workRequest = view.workRequests.find((request) => request.id === workRequestId);
+        if (!workRequest) throw new Error("Work request not found");
+        if (workRequest.status !== "queued") throw new Error(`Only queued work requests can be cancelled; current status is ${workRequest.status}`);
+        const at = now();
+        assertTimestamp(at, "work request cancellation timestamp");
+        const cancelled = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequestId, { status: "cancelled", blocker: "프로젝트 소유자가 실행 전에 취소했습니다." }, at) ?? workRequest;
+        if (options.activityService) {
+          await options.activityService.recordActivityEvent(principal, {
+            sourceType: "project-work-request",
+            sourceId: workRequestId,
+            eventType: "project.work.cancelled",
+            eventVersion: 1,
+            actorType: "user",
+            verificationStatus: "unverified",
+            payload: { projectId, workRequestId },
+            occurredAt: at,
+          });
+        }
+        return cancelled;
+      }, { waitForMs: 2_000 });
     },
     async startProjectRun(principal, projectId, input, enqueueProjectRun) {
       return withDurableProjectWorkRequestRunLock(options.projectModelRoot, projectId, input.workRequestId, async () => {
