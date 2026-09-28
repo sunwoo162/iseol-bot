@@ -56,3 +56,27 @@ test("study managers alone can create shared curriculum and tasks", async () => 
   await assert.rejects(() => studies.addCurriculumLink(principal("study-member"), space.id, { kind: "resource", referenceId: "x", label: "x" }), /manager/i);
   await assert.rejects(() => studies.createTask(principal("study-member"), space.id, { title: "x", instructions: "x" }), /manager/i);
 });
+
+test("concurrent study submissions across service instances remain durable", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-study-submission-concurrent-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  await users.createUser({ id: "submission-owner", email: "submission-owner@example.com", displayName: "Submission owner", timezone: "Asia/Seoul" });
+  await users.createUser({ id: "submission-member", email: "submission-member@example.com", displayName: "Submission member", timezone: "Asia/Seoul" });
+  const teams = createTeamService(platformRoot, { now: () => at });
+  const team = await teams.createTeam(principal("submission-owner"), { name: "Submission team", description: "concurrent submissions", kind: "study", visibility: "private", capacity: 3 });
+  await teams.addMember(team.id, "submission-member", "member", at);
+  const firstService = createStudyService(join(platformRoot, "study"), { teamService: teams, now: () => at });
+  const secondService = createStudyService(join(platformRoot, "study"), { teamService: teams, now: () => at });
+  const space = await firstService.createStudySpace(principal("submission-owner"), { teamId: team.id, title: "Submission room", description: "repeated answer writes" });
+  const task = await firstService.createTask(principal("submission-owner"), space.id, { title: "Answer task", instructions: "Write an answer" });
+
+  const results = await Promise.allSettled(Array.from({ length: 24 }, (_, index) => Promise.all([
+    firstService.saveTaskSubmission(principal("submission-member"), space.id, task.id, { answer: `answer-a-${index}`, status: "submitted" }),
+    secondService.saveTaskSubmission(principal("submission-member"), space.id, task.id, { answer: `answer-b-${index}`, status: "submitted" }),
+  ])));
+
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 24);
+  const submission = (await firstService.getStudySpace(principal("submission-member"), space.id))?.mySubmissions[0];
+  assert.match(submission?.answer ?? "", /^answer-[ab]-\d+$/);
+});

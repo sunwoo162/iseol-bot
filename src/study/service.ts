@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CurriculumLink, StudyService, StudyServiceOptions, StudySpace, StudyTask, StudyTaskSubmission } from "./contracts.js";
+import { withDurableStudySubmissionLock } from "./submission-lock.js";
 import { listCurriculumLinks, listStudySpaces, listStudyTasks, loadStudySpace, loadStudyTask, loadTaskSubmission, saveCurriculumLink, saveStudySpace, saveStudyTask, saveTaskSubmission } from "./store.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -61,7 +62,10 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
       const at = now(); assertTimestamp(at, "study task timestamp"); const task: StudyTask = { version: 1, id: `study-task-${randomUUID()}`, studySpaceId: space.id, createdByUserId: principal.userId, title, instructions, ...(input.dueLocalDate ? { dueLocalDate: input.dueLocalDate } : {}), status: "open", createdAt: at, updatedAt: at }; await saveStudyTask(root, task); return task;
     },
     async saveTaskSubmission(principal, studySpaceId, taskId, input) {
-      const space = await loadAccessibleSpace(principal, studySpaceId); if (!space) throw new Error("Study space not found"); assertIdentityId(taskId); const task = await loadStudyTask(root, space.id, taskId); if (!task || task.status !== "open") throw new Error("Study task not found"); if (!(input.status === "draft" || input.status === "submitted")) throw new Error("Invalid submission status"); const answer = required(input.answer, "Study answer", 20_000); const previous = await loadTaskSubmission(root, space.id, task.id, principal.userId); const at = now(); assertTimestamp(at, "study submission timestamp"); const submission: StudyTaskSubmission = { version: 1, id: previous?.id ?? `submission-${randomUUID()}`, studySpaceId: space.id, taskId: task.id, userId: principal.userId, answer, status: input.status, createdAt: previous?.createdAt ?? at, updatedAt: at }; await saveTaskSubmission(root, submission); await options.activityService?.recordActivityEvent(principal, { sourceType: "study", sourceId: submission.id, eventType: "study.task.submission.saved", eventVersion: 1, actorType: "user", verificationStatus: "unverified", payload: { studySpaceId: space.id, taskId: task.id, submissionStatus: submission.status } }); return submission;
+      const space = await loadAccessibleSpace(principal, studySpaceId); if (!space) throw new Error("Study space not found"); assertIdentityId(taskId); if (!(input.status === "draft" || input.status === "submitted")) throw new Error("Invalid submission status"); const answer = required(input.answer, "Study answer", 20_000);
+      return withDurableStudySubmissionLock(root, space.id, taskId, principal.userId, async () => {
+        const task = await loadStudyTask(root, space.id, taskId); if (!task || task.status !== "open") throw new Error("Study task not found"); const previous = await loadTaskSubmission(root, space.id, task.id, principal.userId); const at = now(); assertTimestamp(at, "study submission timestamp"); const submission: StudyTaskSubmission = { version: 1, id: previous?.id ?? `submission-${randomUUID()}`, studySpaceId: space.id, taskId: task.id, userId: principal.userId, answer, status: input.status, createdAt: previous?.createdAt ?? at, updatedAt: at }; await saveTaskSubmission(root, submission); await options.activityService?.recordActivityEvent(principal, { sourceType: "study", sourceId: submission.id, eventType: "study.task.submission.saved", eventVersion: 1, actorType: "user", verificationStatus: "unverified", payload: { studySpaceId: space.id, taskId: task.id, submissionStatus: submission.status } }); return submission;
+      }, { waitForMs: 2_000 });
     },
   };
 }
