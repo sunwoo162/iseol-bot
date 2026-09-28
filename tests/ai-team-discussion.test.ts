@@ -1,0 +1,99 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import assert from "node:assert/strict";
+import type { Principal } from "../src/identity/contracts.js";
+import { createTeamService } from "../src/teams/service.js";
+import { createUserProjectService } from "../src/project-model/user-project-service.js";
+import { createAiTeamDiscussionService } from "../src/ai-team/discussion-service.js";
+import { createAiTeamProposalService } from "../src/ai-team/service.js";
+import { createUserRuntimeDispatchGate } from "../src/runtime/user-runtime-dispatch-gate.js";
+
+const at = "2026-09-27T14:00:00.000Z";
+function principal(userId: string): Principal { return { userId, sessionId: `session-${userId}`, roles: ["user"] }; }
+
+test("AI team technical discussions persist a bounded Runtime answer without creating work", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-discussion-"));
+  const owner = principal("discussion-owner");
+  const teams = createTeamService(join(root, "platform"), { now: () => at });
+  const team = await teams.createTeam(owner, { name: "AI discussion team", description: "technical discussion", kind: "project", visibility: "private", capacity: 3 });
+  await teams.addAiMember(owner, team.id, { agentId: "architect", assignmentRole: "architecture", capabilities: ["context.read", "discussion.propose"], approvalScope: "suggestion-only" }, at);
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const project = await projects.createProject(owner, { name: "Discussion project", objective: "keep AI technical reasoning reviewable", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
+  const discussions = createAiTeamDiscussionService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher: async ({ question }) => ({ status: "completed", answer: `검토 결과: ${question}`, keyPoints: ["경계를 먼저 확인합니다."], alternatives: ["작게 나누어 검증합니다."], risks: ["실행 전 사람 검토가 필요합니다."] }) });
+
+  const discussion = await discussions.requestDiscussion(owner, project.id, { agentId: "architect", requestId: "discussion-1", question: "API 경계를 어떻게 검증할까요?" });
+  assert.equal(discussion.status, "completed");
+  assert.equal(discussion.assignmentRole, "architecture");
+  assert.equal(discussion.answer, "검토 결과: API 경계를 어떻게 검증할까요?");
+  assert.equal((await projects.getProject(owner, project.id))?.workRequests.length, 0);
+  const reloaded = createAiTeamDiscussionService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at });
+  assert.equal((await reloaded.listDiscussions(owner, project.id))[0]?.id, discussion.id);
+});
+
+test("AI team discussion without a local dispatcher stays durably waiting and membership is enforced", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-discussion-waiting-"));
+  const owner = principal("discussion-waiting-owner");
+  const outsider = principal("discussion-waiting-outsider");
+  const teams = createTeamService(join(root, "platform"), { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Waiting discussion team", description: "waiting boundary", kind: "project", visibility: "public", capacity: 3 });
+  await teams.addAiMember(owner, team.id, { agentId: "reviewer", assignmentRole: "review", capabilities: ["discussion.propose"], approvalScope: "suggestion-only" }, at);
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const project = await projects.createProject(owner, { name: "Waiting discussion project", objective: "preserve no-runtime state", purpose: "portfolio", teamMode: "mixed", teamId: team.id });
+  const discussions = createAiTeamDiscussionService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at });
+
+  const waiting = await discussions.requestDiscussion(owner, project.id, { agentId: "reviewer", requestId: "waiting-discussion-1", question: "무엇을 먼저 확인해야 하나요?" });
+  assert.equal(waiting.status, "waiting-runtime");
+  assert.match(waiting.blocker ?? "", /Runtime/i);
+  assert.equal(waiting.answer, undefined);
+  await assert.rejects(() => discussions.listDiscussions(outsider, project.id), /team member|access/i);
+});
+
+test("AI team proposal and discussion dispatches share one per-user Runtime gate", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-shared-runtime-gate-"));
+  const owner = principal("ai-team-shared-gate-owner");
+  const teams = createTeamService(join(root, "platform"), { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Shared Runtime team", description: "one local Runtime boundary", kind: "project", visibility: "private", capacity: 4 });
+  await teams.addAiMember(owner, team.id, { agentId: "architect", assignmentRole: "architecture", capabilities: ["context.read", "task.propose", "discussion.propose"], approvalScope: "suggestion-only" }, at);
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const project = await projects.createProject(owner, { name: "Shared Runtime project", objective: "serialize AI team work", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
+  const sharedGate = createUserRuntimeDispatchGate();
+  let active = 0;
+  let maximumActive = 0;
+  let dispatchCount = 0;
+  let firstEntered: (() => void) | undefined;
+  const firstEnteredPromise = new Promise<void>((resolve) => { firstEntered = resolve; });
+  let releaseFirst: (() => void) | undefined;
+  const firstReleasePromise = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const proposals = createAiTeamProposalService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatchForUser: sharedGate, dispatcher: async ({}) => {
+    dispatchCount += 1;
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    if (dispatchCount === 1) firstEntered?.();
+    await firstReleasePromise;
+    active -= 1;
+    return { status: "proposed" as const, draft: { title: "공용 게이트 제안", objective: "동시 실행을 막습니다.", acceptanceCriteria: ["한 번에 하나"], rationale: "로컬 Runtime 보호" } };
+  } });
+  const discussions = createAiTeamDiscussionService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatchForUser: sharedGate, dispatcher: async ({ question }) => {
+    dispatchCount += 1;
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    active -= 1;
+    return { status: "completed" as const, answer: `토론: ${question}`, keyPoints: ["권한 확인"], alternatives: [], risks: [] };
+  } });
+
+  const proposalRequest = proposals.requestProposal(owner, project.id, { agentId: "architect", requestId: "shared-proposal" });
+  await firstEnteredPromise;
+  const discussionRequest = discussions.requestDiscussion(owner, project.id, { agentId: "architect", requestId: "shared-discussion", question: "겹치나요?" });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(dispatchCount, 1);
+  assert.equal(maximumActive, 1);
+  releaseFirst?.();
+  const [proposal, discussion] = await Promise.all([proposalRequest, discussionRequest]);
+  assert.equal(proposal.status, "proposed");
+  assert.equal(discussion.status, "completed");
+  assert.equal(dispatchCount, 2);
+  assert.equal(maximumActive, 1);
+});
