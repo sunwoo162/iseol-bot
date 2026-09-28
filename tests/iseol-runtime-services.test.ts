@@ -515,6 +515,60 @@ test("runtime wires a durable platform user service into the web control plane",
   }
 });
 
+test("composed Runtime forwards explicitly injected integration adapters to the user Control Plane", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-runtime-integrations-"));
+  let webOptions: any;
+  let adapterCalls = 0;
+  const value = fixture({
+    roots: {
+      iseolRoot: root,
+      modelRoot: join(root, "model"),
+      runRoot: join(root, "runs"),
+      webRoot: join(root, "web"),
+      browserProfileRoot: join(root, "browser"),
+      projectModelRoot: join(root, "project-model"),
+      projectRunRoot: join(root, "project-runs"),
+      projectWebWorkerRoot: join(root, "project-workers"),
+      projectDesktopStateRoot: join(root, "desktop-state"),
+    },
+    webConfig: {
+      host: "127.0.0.1", port: 0, token: "",
+      modelRoot: join(root, "model"), harnessRoot: join(root, "runs"), webRoot: join(root, "web"),
+      platformRoot: join(root, "platform"),
+    },
+    integrationAdapters: {
+      calendar: {
+        deliver: async () => {
+          adapterCalls += 1;
+          return { externalRef: "calendar-event-1" };
+        },
+      },
+    },
+    deps: {
+      startWeb: async (options: any) => {
+        webOptions = options;
+        return { close: (done?: (error?: Error) => void) => done?.() };
+      },
+    },
+  });
+  const services = await startIseolRuntimeServices(value);
+  try {
+    assert.deepEqual(webOptions.integrationConfiguredProviders, ["calendar"]);
+    const user = await services.platformUserService.createUser({ id: "runtime-integrations-user", email: "runtime-integrations@example.com", displayName: "Runtime Integrations", timezone: "Asia/Seoul" });
+    const principal = { userId: user.id, sessionId: "runtime-integrations-session", roles: ["user"] };
+    await services.settingsService.updateSettings(principal, { integrations: { calendar: true } });
+    const queued = await services.integrationService.enqueueDelivery(principal, {
+      provider: "calendar", sourceType: "learning-session", sourceId: "session-1", eventType: "session.scheduled", eventVersion: 1,
+    });
+    const delivered = await services.integrationService.dispatchDelivery(principal, queued.id);
+    assert.equal(delivered.state, "delivered");
+    assert.equal(delivered.externalRef, "calendar-event-1");
+    assert.equal(adapterCalls, 1);
+  } finally {
+    await services.dispose();
+  }
+});
+
 test("Project Workspace runtime stays unavailable when isolated roots are incomplete", async () => {
   let capability: any;
   const value = fixture({ env: { ISEOL_PROJECT_RUNTIME_ENABLED: "true", ISEOL_PROJECT_AGENT_ID: "agent-project" } });

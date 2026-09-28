@@ -106,7 +106,7 @@ import { createAiAgentProfileService } from "../ai-agent/service.js";
 import type { AiAgentProfileService } from "../ai-agent/contracts.js";
 import { createUserRuntimeDispatchGate } from "./user-runtime-dispatch-gate.js";
 import { createIntegrationService } from "../integrations/service.js";
-import type { IntegrationService } from "../integrations/contracts.js";
+import { INTEGRATION_PROVIDERS, type IntegrationAdapter, type IntegrationProvider, type IntegrationService } from "../integrations/contracts.js";
 
 export type IseolRuntimeCapability = {
   state: "disabled" | "ready" | "blocked";
@@ -175,6 +175,7 @@ export type IseolRuntimeInput = {
   aiChatService?: AiChatService;
   aiAgentProfileService?: AiAgentProfileService;
   integrationService?: IntegrationService;
+  integrationAdapters?: Partial<Record<IntegrationProvider, IntegrationAdapter>>;
   aiChatRuntimeDispatcher?: AiChatRuntimeDispatcher;
   localAiRuntimeConfig?: ReturnType<typeof resolveOllamaAiChatRuntimeConfig>;
   desktopConfig?: DesktopAgentCoreConfig;
@@ -416,8 +417,12 @@ export async function startIseolRuntimeServices(
   const activityService = input.activityService ?? createActivityService(platformRoot);
   const settingsService = input.settingsService ?? createSettingsService(platformRoot);
   const integrationService = input.integrationService ?? createIntegrationService(platformRoot, {
+    ...(input.integrationAdapters ? { adapters: input.integrationAdapters } : {}),
     isOptedIn: async (userId, provider) => (await settingsService.getSettings({ userId, sessionId: "integration-settings", roles: [] })).integrations[provider],
   });
+  const integrationConfiguredProviders = input.integrationAdapters
+    ? INTEGRATION_PROVIDERS.filter((provider) => Boolean(input.integrationAdapters?.[provider]))
+    : webConfig.integrationConfiguredProviders;
   const notificationService = input.notificationService ?? createNotificationService(platformRoot);
   const growthService = input.growthService ?? createGrowthService(platformRoot, { settingsService, notificationService });
   const localLearningRuntimeConfig = input.localLearningRuntimeConfig ?? resolveOllamaLearningRuntimeConfig(env);
@@ -903,6 +908,7 @@ export async function startIseolRuntimeServices(
       aiChatService,
       aiAgentProfileService,
       integrationService,
+      ...(integrationConfiguredProviders ? { integrationConfiguredProviders } : {}),
       aiChatRuntimeReady: Boolean(aiChatRuntimeDispatcher),
       aiTeamRuntimeReady: Boolean(aiTeamProposalDispatcher && aiTeamDiscussionDispatcher),
       learningAiRuntimeReady: Boolean(learningPlanDispatcher && learningContentDispatcher && learningActionDispatcher && learningFeedbackDispatcher),
