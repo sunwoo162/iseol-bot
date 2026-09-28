@@ -1693,6 +1693,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service recruitment application reviews
+
+- Recruitment application accept/reject is **B — application-scoped, durable, same-host cross-service terminal review serialization, and isolated-browser verified**. `src/recruitment/review-lock.ts` and `src/recruitment/service.ts` share a durable review lock and re-read the application so concurrent manager decisions produce one terminal review and one explicit conflict.
+- Evidence: `src/recruitment/review-lock.ts`, `src/recruitment/service.ts`, `tests/recruitment-flow.test.ts`.
+- Verification: focused recruitment `3/3`; user-product `361/361`; root `682/682`; backend/user UI TypeScript, both builds, and sequential isolated browser E2E passed with recruitment application review, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `fe7c434 feat: serialize recruitment application reviews`.
+- Boundary: same-host/shared-root coordination only; no distributed review coordinator, external invitation exactly-once delivery, live provider quality, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service AI Team proposal decisions
 
 - AI Team proposal acceptance/rejection is **B — project/proposal-scoped, durable, same-host cross-service terminal decision serialization, and isolated-browser verified**. `src/ai-team/proposal-decision-lock.ts` and `src/ai-team/service.ts` share a durable decision lock and re-read the proposal so concurrent accept/reject calls produce one terminal decision and one explicit status conflict.

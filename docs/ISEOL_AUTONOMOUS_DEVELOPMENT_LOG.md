@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service recruitment application reviews
+
+- Status: **B — application-scoped, durable, same-host cross-service terminal review serialization, and isolated-product verified; external invitation delivery remains provider-bound/unverified**. Recruitment accept/reject now shares a durable application review lock and re-reads the application inside it, so concurrent manager decisions produce one terminal review and one explicit not-found/pending conflict.
+- Evidence: `src/recruitment/review-lock.ts`, `src/recruitment/service.ts`, `tests/recruitment-flow.test.ts`.
+- TDD: RED reproduced concurrent acceptance and rejection both succeeding for one pending application; GREEN persisted exactly one terminal status and rejected the losing review after re-read.
+- Verification: focused recruitment suite `3/3`; user-product `361/361`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and sequential isolated browser E2E passed. Browser coverage retained recruitment application review, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `fe7c434 feat: serialize recruitment application reviews`.
+- Boundary: same-host/shared-root coordination only; no distributed review coordinator, external invitation exactly-once delivery, live provider quality, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service AI Team proposal decisions
 
 - Status: **B — project/proposal-scoped, durable, same-host cross-service terminal decision serialization, and isolated-product verified; live AI Team Runtime execution remains unverified**. AI Team proposal acceptance and rejection now share a durable decision lock and re-read the proposal inside it, so concurrent accept/reject calls produce one terminal decision and one explicit status conflict.
