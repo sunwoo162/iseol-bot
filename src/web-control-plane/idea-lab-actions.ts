@@ -43,6 +43,7 @@ export async function createWebIdeaLabCampaign(options: CreateWebIdeaLabCampaign
   if (typeof body.seed !== "string" || !body.seed.trim() || body.seed.trim().length > 500) {
     throw new WebIdeaLabActionError(400, "Campaign seed must be a non-empty string up to 500 characters");
   }
+  const seed = body.seed.trim();
   const constraints = body.constraints ?? [];
   if (!Array.isArray(constraints) || constraints.length > 20 || constraints.some((item) => typeof item !== "string" || !item.trim())) {
     throw new WebIdeaLabActionError(400, "Campaign constraints must be up to 20 non-empty strings");
@@ -51,22 +52,24 @@ export async function createWebIdeaLabCampaign(options: CreateWebIdeaLabCampaign
   const productionConcurrency = boundedInteger(body.productionConcurrency, 1, 1, 4, "productionConcurrency");
   const id = (options.idFactory ?? (() => `campaign-${randomUUID()}`))();
   try { assertIdeaLabId(id); } catch { throw new WebIdeaLabActionError(400, "Generated Campaign id is invalid"); }
-  if (await loadIdeaLabCampaign(options.root, id)) throw new WebIdeaLabActionError(409, `Campaign already exists: ${id}`);
-  const campaign: IdeaLabCampaign = {
-    version: 1, id, seed: body.seed.trim(), constraints: constraints.map((item) => String(item).trim()),
-    targetReadyCount, productionConcurrency, proposalIds: [], productionIds: [], status: "generating",
-    createdAt: options.at, updatedAt: options.at,
-  };
-  await saveIdeaLabCampaign(options.root, campaign);
-  await appendIdeaLabCampaignEventOnce(options.root, {
-    version: 1,
-    id: `campaign-created-${id}`,
-    campaignId: id,
-    type: "campaign-created",
-    at: options.at,
-    summary: `Created Idea Lab Campaign ${id}`,
-  });
-  return campaign;
+  return withDurableIdeaLabCampaignLock(options.root, id, async () => {
+    if (await loadIdeaLabCampaign(options.root, id)) throw new WebIdeaLabActionError(409, `Campaign already exists: ${id}`);
+    const campaign: IdeaLabCampaign = {
+      version: 1, id, seed, constraints: constraints.map((item) => String(item).trim()),
+      targetReadyCount, productionConcurrency, proposalIds: [], productionIds: [], status: "generating",
+      createdAt: options.at, updatedAt: options.at,
+    };
+    await saveIdeaLabCampaign(options.root, campaign);
+    await appendIdeaLabCampaignEventOnce(options.root, {
+      version: 1,
+      id: `campaign-created-${id}`,
+      campaignId: id,
+      type: "campaign-created",
+      at: options.at,
+      summary: `Created Idea Lab Campaign ${id}`,
+    });
+    return campaign;
+  }, { waitForMs: 2_000 });
 }
 
 export async function cancelWebIdeaLabCampaign(root: string, campaignId: string, at: string): Promise<IdeaLabCampaign> {

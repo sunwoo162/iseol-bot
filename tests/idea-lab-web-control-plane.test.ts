@@ -13,6 +13,7 @@ import type { PrototypeCandidate } from "../src/project-model/contracts.js";
 import { loadPrototypeCandidate, savePrototypeCandidate } from "../src/project-model/prototype-store.js";
 import { routeWebControlPlaneRequest } from "../src/web-control-plane/router.js";
 import { buildIdeaLabView } from "../src/web-control-plane/view-model.js";
+import { createWebIdeaLabCampaign } from "../src/web-control-plane/idea-lab-actions.js";
 
 const NOW = "2026-09-08T07:00:00.000Z";
 
@@ -44,6 +45,30 @@ test("Campaign creation uses defaults and enforces authenticated bounded input",
     body: { seed: "x", targetReadyCount: 999, productionConcurrency: 0 },
   }, { ...deps, campaignIdFactory: () => "camp-web-2" });
   assert.equal(invalid.status, 400);
+});
+
+test("Campaign creation waits for the durable cross-service campaign lock", async () => {
+  const deps = await fixture();
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableIdeaLabCampaignLock(deps.modelRoot, "camp-web-create-lock-1", async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const creation = createWebIdeaLabCampaign({
+    root: deps.modelRoot,
+    body: { seed: "focus tools" },
+    at: NOW,
+    idFactory: () => "camp-web-create-lock-1",
+  });
+  void creation.then(() => { settled = true; }, () => { settled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  assert.equal((await creation).id, "camp-web-create-lock-1");
 });
 
 test("Campaign cancel is authenticated, idempotent, and rejects malformed ids", async () => {
