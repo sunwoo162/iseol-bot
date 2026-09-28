@@ -1998,3 +1998,11 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Verification: focused Work Request `16/16`, combined Work Request/user-project execution `40/40`; user-product `362/362`; root `684/684`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
 - Boundary: same-host/shared-root reconciliation ordering only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Commit: `38bd3cb feat: serialize project work request reconciliation`.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
+## 2026-09-28 continuation: durable project Workspace mutations
+
+- Project Workspace task-tree mutations are **B — project-Workspace-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/project-model/workspace-lock.ts` is shared by Work Request task-node creation and Harness Run attachment, preventing concurrent tree read-modify-save loss.
+- Evidence: `tests/user-project-execution.test.ts` proves two concurrent Work Requests retain both task nodes; existing Project Workspace API/runtime/browser journeys remain green.
+- Verification: focused user-project execution `25/25`; user-product `363/363`; root `684/684`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root Workspace coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Commit: `4f415b0 feat: serialize project workspace mutations`.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
