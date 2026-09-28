@@ -102,7 +102,7 @@ export async function issueDesktopJobContainmentApproval(input: {
   }, { waitForMs: 2000 }));
 }
 
-async function consumeApproval(input: { root: string; approvalId: string; jobId: string; runId: string; revision: string; at: string }): Promise<{ ok: true; approval: DesktopJobOperatorApproval } | { ok: false; reason: string }> {
+export async function consumeDesktopJobContainmentApproval(input: { root: string; approvalId: string; jobId: string; runId: string; revision: string; at: string }): Promise<{ ok: true; approval: DesktopJobOperatorApproval } | { ok: false; reason: string }> {
   const path = approvalPath(input.root, input.approvalId);
   return withDurableDesktopOperatorLock(input.root, input.approvalId, async () => {
     const approval = await readApproval(path);
@@ -147,7 +147,7 @@ async function containDesktopJobAsOperatorImpl(input: {
   if (inspection.revision !== input.expectedRevision) return { status: "conflict", inspection, reason: "job-revision-mismatch" };
   if (inspection.contained && inspection.containment?.operationId === input.operationId) return { status: "already-contained", inspection, containment: inspection.containment };
   if (!inspection.canContain) return { status: "rejected", inspection, reason: inspection.blockers.join(",") };
-  const approval = await consumeApproval({ root: input.root, approvalId: input.approvalId, jobId: inspection.jobId, runId: inspection.runId, revision: input.expectedRevision, at: input.at });
+  const approval = await consumeDesktopJobContainmentApproval({ root: input.root, approvalId: input.approvalId, jobId: inspection.jobId, runId: inspection.runId, revision: input.expectedRevision, at: input.at });
   if (!approval.ok) return { status: "rejected", inspection, reason: approval.reason };
   const contained = await containDesktopJob(input.root, input.jobId, {
     operationId: input.operationId, approvalId: input.approvalId, expectedRevision: input.expectedRevision,
@@ -161,7 +161,7 @@ async function containDesktopJobAsOperatorImpl(input: {
 export async function containDesktopJobAsOperator(input: {
   root: string; jobId: string; expectedRevision: string; operationId: string; approvalId: string; at: string; actor: "operator";
 }): Promise<DesktopJobReconciliationResult> {
-  return serialized(`${input.root}:${input.jobId}`, () => containDesktopJobAsOperatorImpl(input));
+  return serialized(`${input.root}:${input.jobId}`, () => withDurableDesktopOperatorLock(input.root, input.jobId, () => containDesktopJobAsOperatorImpl(input), { waitForMs: 2000 }, "job"));
 }
 
 export async function reconcileVerifiedDesktopJobResult(input: {

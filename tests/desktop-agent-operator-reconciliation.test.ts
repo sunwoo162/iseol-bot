@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { DesktopTaskPack } from "../src/desktop-agent/contracts.js";
 import { createDesktopJob, desktopJobRevision, acquireDesktopJobLease } from "../src/desktop-agent/job-store.js";
-import { containDesktopJobAsOperator, inspectDesktopJobReconciliation, issueDesktopJobContainmentApproval, reconcileVerifiedDesktopJobResult } from "../src/desktop-agent/operator-reconciliation.js";
+import { consumeDesktopJobContainmentApproval, containDesktopJobAsOperator, inspectDesktopJobReconciliation, issueDesktopJobContainmentApproval, reconcileVerifiedDesktopJobResult } from "../src/desktop-agent/operator-reconciliation.js";
 import { persistCompletedDesktopResult } from "../src/desktop-agent/result-store.js";
 
 async function fixture(operation: DesktopTaskPack["operations"][number]) {
@@ -96,16 +96,45 @@ test("desktop operator containment consumes one approval across service instance
   const instances = await Promise.all(
     Array.from({ length: 8 }, (_, index) => import(`../src/desktop-agent/operator-reconciliation.ts?desktop-consume-instance=${index}`)),
   );
-  const attempts = await Promise.allSettled(instances.map((service) => service.containDesktopJobAsOperator({
+  const attempts = await Promise.allSettled(instances.map((service) => service.consumeDesktopJobContainmentApproval({
+    root: f.root,
+    jobId: f.job.jobId,
+    runId: f.job.runId,
+    revision,
+    approvalId: approval.approvalId,
+    at: "2026-09-20T01:00:02.000Z",
+  })));
+  assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 8);
+  assert.equal(attempts.filter((attempt): attempt is PromiseFulfilledResult<{ ok: true }> => attempt.status === "fulfilled" && attempt.value.ok).length, 1);
+  assert.equal(attempts.filter((attempt): attempt is PromiseFulfilledResult<{ ok: false; reason: string }> => attempt.status === "fulfilled" && !attempt.value.ok && attempt.value.reason === "approval-already-consumed").length, 7);
+});
+
+test("desktop operator containment converges on one record across service instances", async () => {
+  const f = await fixture({ id: "init", type: "GIT_INIT", cwd: "." });
+  const revision = desktopJobRevision(f.job);
+  const approvals = await Promise.all(Array.from({ length: 8 }, (_, index) => issueDesktopJobContainmentApproval({
+    root: f.root,
+    requestId: `cross-service-desktop-job-request-${index}`,
+    jobId: f.job.jobId,
+    runId: f.job.runId,
+    revision,
+    issuedAt: "2026-09-20T01:00:01.000Z",
+    expiresAt: "2026-09-20T02:00:00.000Z",
+    issuedBy: "operator",
+  })));
+  const instances = await Promise.all(
+    Array.from({ length: 8 }, (_, index) => import(`../src/desktop-agent/operator-reconciliation.ts?desktop-job-instance=${index}`)),
+  );
+  const attempts = await Promise.allSettled(instances.map((service, index) => service.containDesktopJobAsOperator({
     root: f.root,
     jobId: f.job.jobId,
     expectedRevision: revision,
-    operationId: "cross-service-desktop-containment",
-    approvalId: approval.approvalId,
+    operationId: "cross-service-desktop-job-containment",
+    approvalId: approvals[index]!.approvalId,
     at: "2026-09-20T01:00:02.000Z",
     actor: "operator",
   })));
   assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 8);
   assert.equal(attempts.filter((attempt): attempt is PromiseFulfilledResult<{ status: "contained" }> => attempt.status === "fulfilled" && attempt.value.status === "contained").length, 1);
-  assert.equal(attempts.filter((attempt): attempt is PromiseFulfilledResult<{ status: "rejected"; reason: string }> => attempt.status === "fulfilled" && attempt.value.status === "rejected" && attempt.value.reason === "approval-already-consumed").length, 7);
+  assert.equal(attempts.filter((attempt): attempt is PromiseFulfilledResult<{ status: "already-contained" }> => attempt.status === "fulfilled" && attempt.value.status === "already-contained").length, 7);
 });
