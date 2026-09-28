@@ -11,6 +11,7 @@ import { withDurableLearningPlanAdjustmentAcceptanceLock } from "./plan-adjustme
 import { withDurableLearningReportLock } from "./report-lock.js";
 import { withDurableLearningGoalSessionLock } from "./goal-session-lock.js";
 import { withDurableLearningSessionStartLock } from "./session-start-lock.js";
+import { withDurableLearningReviewLock } from "./review-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -1214,26 +1215,28 @@ export function createLearningService(root: string, options: LearningServiceOpti
     async reviewItem(principal, itemId, input) {
       ensurePrincipal(principal);
       if (!Number.isInteger(input.quality) || input.quality < 0 || input.quality > 5) throw new Error("Review quality must be between 0 and 5");
-      const item = await loadReview(root, principal.userId, itemId);
-      if (!item || item.userId !== principal.userId) throw new Error("Review item not found");
-      const at = now(); assertTimestamp(at, "review completion timestamp");
-      const intervalDays = input.quality >= 4 ? Math.max(2, item.intervalDays * 2) : input.quality >= 3 ? Math.max(1, item.intervalDays) : 1;
-      const reviewed: ReviewItem = {
-        ...item, intervalDays, reviewCount: item.reviewCount + 1, dueAt: addCalendarDays(at, intervalDays, principalTimezone(principal)),
-        lastReviewedAt: at, updatedAt: at,
-      };
-      await saveReview(root, reviewed);
-      await options.activityService?.recordActivityEvent(principal, {
-        sourceType: "learning-review",
-        sourceId: item.id,
-        eventType: "learning.review.completed",
-        eventVersion: reviewed.reviewCount,
-        actorType: "user",
-        verificationStatus: "verified",
-        payload: { quality: input.quality, intervalDays: reviewed.intervalDays },
-        occurredAt: at,
-      });
-      return reviewed;
+      return withDurableLearningReviewLock(root, principal.userId, itemId, async () => {
+        const item = await loadReview(root, principal.userId, itemId);
+        if (!item || item.userId !== principal.userId) throw new Error("Review item not found");
+        const at = now(); assertTimestamp(at, "review completion timestamp");
+        const intervalDays = input.quality >= 4 ? Math.max(2, item.intervalDays * 2) : input.quality >= 3 ? Math.max(1, item.intervalDays) : 1;
+        const reviewed: ReviewItem = {
+          ...item, intervalDays, reviewCount: item.reviewCount + 1, dueAt: addCalendarDays(at, intervalDays, principalTimezone(principal)),
+          lastReviewedAt: at, updatedAt: at,
+        };
+        await saveReview(root, reviewed);
+        await options.activityService?.recordActivityEvent(principal, {
+          sourceType: "learning-review",
+          sourceId: item.id,
+          eventType: "learning.review.completed",
+          eventVersion: reviewed.reviewCount,
+          actorType: "user",
+          verificationStatus: "verified",
+          payload: { quality: input.quality, intervalDays: reviewed.intervalDays },
+          occurredAt: at,
+        });
+        return reviewed;
+      }, { waitForMs: 2_000 });
     },
 
     async analyzeCodeForLearning(principal, input: CodeAnalysisInput): Promise<CodeAnalysisResult> {

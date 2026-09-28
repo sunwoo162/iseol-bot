@@ -92,3 +92,21 @@ test("local code analysis is persisted with explicit provenance and no external 
   assert.equal(events[0]?.verificationStatus, "verified");
   assert.equal(events[0]?.payload.provider, "local-static");
 });
+
+test("concurrent review completions across service instances preserve both transitions", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-review-concurrent-"));
+  const activity = createActivityService(join(root, "activity"), { now: () => at });
+  const firstService = createLearningService(join(root, "learning"), { now: () => at, activityService: activity });
+  const secondService = createLearningService(join(root, "learning"), { now: () => at, activityService: activity });
+  const owner = principal("review-concurrent-owner");
+  const item = await firstService.createReviewItem(owner, { sourceType: "learning-session", sourceId: "session-concurrent", prompt: "Two transitions", answer: "Preserve both", dueAt: at });
+
+  const results = await Promise.all([
+    firstService.reviewItem(owner, item.id, { quality: 5 }),
+    secondService.reviewItem(owner, item.id, { quality: 5 }),
+  ]);
+
+  assert.deepEqual(results.map((result) => result.reviewCount).sort(), [1, 2]);
+  assert.equal((await firstService.listDueReviewItems(owner, "2026-10-01T00:00:00.000Z")).length, 1);
+  assert.equal((await activity.listActivityEvents(owner)).filter((event) => event.eventType === "learning.review.completed").length, 2);
+});
