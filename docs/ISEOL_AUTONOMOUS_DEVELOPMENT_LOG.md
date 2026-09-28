@@ -2304,6 +2304,15 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root coordination only; no distributed coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service community report idempotency
+
+- Status: **B — reporter/target-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Community report creation now re-checks the exact open report identity under a durable lock before allocating a random report ID.
+- Evidence: `src/community/report-lock.ts`, `src/community/service.ts`, `tests/community-flow.test.ts`.
+- TDD: RED reproduced two concurrent identical reports returning different random IDs; GREEN converged both calls on one durable report identity.
+- Verification: focused community/API/UI suite `10/10`; user-product `332/332`; serial root `682/682`; backend/user UI TypeScript checks, backend/user UI builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed coordinator, moderation workflow completion, provider-side delivery guarantee, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: Windows notification lock contention hardening
 
 - Status: **B — existing user-notification idempotency boundary hardened for transient Windows file-handle timing and repeatedly verified**. When an `EPERM` open collision is immediately followed by `ENOENT` while the competing lock is disappearing, the notification lock now retries within its existing bounded wait instead of surfacing a false conflict.

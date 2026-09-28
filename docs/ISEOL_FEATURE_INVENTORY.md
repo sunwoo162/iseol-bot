@@ -1711,6 +1711,12 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - TDD/verification: concurrent 24-target stress moved from `45/48` successful calls to `48/48` with exactly 24 active blocks; focused social safety/messaging/profile/API/UI `7/7`; user-product `331/331`; root `682/682`; types, both builds, and browser E2E passed with two-account isolation and responsive `[390,768,1024,1440]` across `13` routes.
 - Boundary: same-host/shared-root coordination only; distributed coordination, live model/provider execution, provider-side exactly-once delivery, external connector delivery, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room remain unverified/deferred.
 
+## 2026-09-28 continuation: durable cross-service community report idempotency
+
+- Community reports are **B — reporter/target-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/community/report-lock.ts` protects the identity check and creation path in `src/community/service.ts`.
+- TDD/verification: concurrent identical reports moved from two random report IDs to one shared ID; focused community/API/UI `10/10`; user-product `332/332`; root `682/682`; types, both builds, and browser E2E passed with two-account isolation and responsive `[390,768,1024,1440]` across `13` routes.
+- Boundary: same-host/shared-root coordination only; distributed moderation coordination, live model/provider execution, provider-side delivery, external connector delivery, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room remain unverified/deferred.
+
 ## 2026-09-28 continuation: durable cross-service friend request mutations
 
 - Friend request mutations are **B — friendship-record-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/social/friend-request-lock.ts` provides an exact hashed friendship-record lock; `src/social/service.ts` uses it for request creation and accept/reject transitions.
