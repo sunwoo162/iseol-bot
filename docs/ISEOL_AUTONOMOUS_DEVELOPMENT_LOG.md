@@ -2349,6 +2349,15 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root coordination only; no distributed session coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service Learning review completions
+
+- Status: **B — owner/review-item-scoped, durable, same-host cross-service serialized review transitions, and isolated-product verified; live model/provider execution remains unverified**. Review completion now serializes item re-read, interval/review-count calculation, durable save, and verified activity recording so concurrent review actions preserve both transitions instead of losing an increment.
+- Evidence: `src/learning/review-lock.ts`, `src/learning/service.ts`, `tests/learning-review-flow.test.ts`.
+- TDD: RED reproduced two concurrent reviews both persisting `reviewCount: 1`; GREEN preserved sequential counts `[1, 2]` and two verified review events.
+- Verification: focused Learning review/code-analysis suite `5/5`; user-product `353/353`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained Learning review scheduling, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `111ca56 feat: serialize learning review completions`.
+- Boundary: same-host/shared-root coordination only; no distributed review coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service Learning plan adjustments
 
 - Status: **B — owner/goal/input-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Learning plan adjustment drafts now serialize the idempotency lookup and draft persistence by exact user/goal/input identity, so concurrent retries return one proposed adjustment.

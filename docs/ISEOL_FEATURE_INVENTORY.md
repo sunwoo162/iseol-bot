@@ -1735,6 +1735,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Verification: focused Learning persistence `4/4`; user-product `352/352`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with Learning session persistence, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `77496e3 feat: serialize legacy learning session starts`.
 - Boundary: same-host/shared-root coordination only; no distributed session coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service Learning review completions
+
+- Learning review completion is **B — owner/review-item-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/learning/review-lock.ts` serializes item re-read, interval/review-count calculation, durable save, and verified activity recording so concurrent reviews preserve both transitions.
+- Evidence: `src/learning/review-lock.ts`, `src/learning/service.ts`, `tests/learning-review-flow.test.ts`.
+- Verification: focused Learning review/code-analysis `5/5`; user-product `353/353`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with Learning review scheduling, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `111ca56 feat: serialize learning review completions`.
+- Boundary: same-host/shared-root coordination only; no distributed review coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service Learning plan adjustments
 
 - Learning plan adjustment drafts are **B — owner/goal/input-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/learning/plan-adjustment-lock.ts` adds an exact hashed user/goal/input lock; `src/learning/service.ts` now re-checks and persists one proposed adjustment inside it, preserving one acceptance target for later CAS approval.
