@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable Portfolio document creation synchronization
+
+- Status: **B — project-Portfolio-scoped, durable, same-host cross-service serialized, and isolated-product verified; live Runtime/provider execution remains unverified**. Portfolio document ensure/create now holds the same project-specific durable lock used by document patches across existence check and first save, preventing concurrent initializers from racing.
+- Evidence: `src/project-model/portfolio-store.ts`, `src/project-model/portfolio-lock.ts`, `tests/project-model-stores.test.ts`, and the existing Portfolio/API/browser coverage.
+- TDD: RED reproduced Portfolio document creation completing while an independent Portfolio lock holder was still active; GREEN moved the ensure read/create/save boundary under bounded waiting and hardened cleanup to remove only the owner token's lock.
+- Verification: focused project-model stores suite `9/9`; user-product `364/364`; serial root `696/696`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained Portfolio provenance/public views, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `bd50f42 feat: serialize portfolio document creation`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root project Portfolio creation coordination only; no distributed coordinator, operational Runtime/Agent throughput or live provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable Idea Lab campaign creation synchronization
 
 - Status: **B — Idea Lab campaign-scoped, durable, same-host cross-service serialized, and isolated-product verified; live Runtime/provider execution remains unverified**. Authenticated campaign creation now shares the durable campaign lock across duplicate-id detection, campaign persistence, and the creation event append, preventing concurrent service instances from racing on the same campaign id.

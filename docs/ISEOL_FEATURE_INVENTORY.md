@@ -1983,6 +1983,14 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Boundary: same-host/shared-root lifecycle coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Commit: `9d0ab4b feat: serialize project work request cancellation`.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable Portfolio document creation synchronization
+
+- Portfolio document ensure/create is **B — project-Portfolio-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/project-model/portfolio-store.ts` now shares `src/project-model/portfolio-lock.ts` across existence check and first save, alongside existing patch serialization.
+- Evidence: `tests/project-model-stores.test.ts` proves creation waits for a competing durable Portfolio lock; existing Portfolio provenance/public API and browser journeys remain green.
+- Verification: focused project-model stores `9/9`; user-product `364/364`; root `696/696`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `bd50f42 feat: serialize portfolio document creation`.
+- Boundary: same-host/shared-root project Portfolio creation coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable Idea Lab campaign creation synchronization
 
 - Campaign creation is **B — campaign-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/web-control-plane/idea-lab-actions.ts` now shares `src/idea-lab/campaign-lock.ts` across duplicate detection, persistence, and the creation event append.
