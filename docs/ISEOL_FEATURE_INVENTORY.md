@@ -1721,6 +1721,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Verification: focused Learning report `3/3`; user-product `350/350`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with Learning report UI, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `72478a5 feat: serialize learning report creation`.
 - Boundary: same-host/shared-root coordination only; no distributed report coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service Learning goal session starts
+
+- Learning goal day session start is **B — owner/goal/plan/day-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/learning/goal-session-lock.ts` serializes active-session re-read, plan activation, goal activation/revision, and session save; concurrent identical starts return one active session while stale revisions still fail when no matching session exists.
+- Evidence: `src/learning/goal-session-lock.ts`, `src/learning/service.ts`, `tests/learning-goal-start.test.ts`, and `tests/learning-goal-start-api.test.ts`.
+- Verification: focused Learning goal-start/API `4/4`; user-product `351/351`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with Learning goal/day session, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `f07938f feat: serialize learning goal session starts`.
+- Boundary: same-host/shared-root coordination only; no distributed session coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service Learning plan adjustments
 
 - Learning plan adjustment drafts are **B — owner/goal/input-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/learning/plan-adjustment-lock.ts` adds an exact hashed user/goal/input lock; `src/learning/service.ts` now re-checks and persists one proposed adjustment inside it, preserving one acceptance target for later CAS approval.

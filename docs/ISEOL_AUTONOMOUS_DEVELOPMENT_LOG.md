@@ -2331,6 +2331,15 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root coordination only; no distributed report coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service Learning goal session starts
+
+- Status: **B — owner/goal/plan/day-scoped, durable, same-host cross-service idempotent session start, and isolated-product verified; live model/provider execution remains unverified**. Goal day session start now serializes active-session re-read, plan activation, goal activation/revision, and session save. Concurrent identical starts return the one active session; stale revision conflicts remain enforced when no matching active session exists.
+- Evidence: `src/learning/goal-session-lock.ts`, `src/learning/service.ts`, `tests/learning-goal-start.test.ts`, and `tests/learning-goal-start-api.test.ts`.
+- TDD: RED reproduced two concurrent starts creating two active session identities; GREEN converged to one session and preserved stale-revision rejection.
+- Verification: focused Learning goal-start/API suite `4/4`; user-product `351/351`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained Learning goal/day session, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `f07938f feat: serialize learning goal session starts`.
+- Boundary: same-host/shared-root coordination only; no distributed session coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service Learning plan adjustments
 
 - Status: **B — owner/goal/input-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Learning plan adjustment drafts now serialize the idempotency lookup and draft persistence by exact user/goal/input identity, so concurrent retries return one proposed adjustment.
