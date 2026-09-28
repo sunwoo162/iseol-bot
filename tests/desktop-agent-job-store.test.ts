@@ -14,6 +14,7 @@ import {
   containDesktopJob,
   loadDesktopJobContainment,
   desktopJobRevision,
+  requeueDesktopJob,
   renewDesktopJobLease,
 } from "../src/desktop-agent/job-store.js";
 
@@ -158,6 +159,34 @@ test("completion accepts only one terminal result across independent job-store i
   assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
   assert.equal(outcomes.filter((outcome) => outcome.status === "rejected").length, 7);
   assert.equal((await loadDesktopJob(store, "job-001"))?.status, "completed");
+});
+
+test("completion and requeue serialize one Job transition across independent instances", async () => {
+  const store = await root();
+  await createDesktopJob(store, pack(), "2026-09-08T01:00:00.000Z");
+  await acquireDesktopJobLease(store, "job-001", "session-a", "2026-09-08T01:00:10.000Z", 60_000);
+  const instances = await Promise.all(
+    Array.from({ length: 2 }, (_, index) =>
+      import(`../src/desktop-agent/job-store.ts?transition-instance=${index}-${Date.now()}`),
+    ),
+  );
+  const result = {
+    version: 1 as const,
+    jobId: "job-001",
+    runId: "run-001",
+    agentId: "agent-001",
+    status: "completed" as const,
+    completedAt: "2026-09-08T01:00:20.000Z",
+    operations: [{ operationId: "op-1", ok: true, summary: "read" }],
+  };
+  const outcomes = await Promise.allSettled([
+    instances[0]!.completeDesktopJob(store, "job-001", "session-a", result),
+    instances[1]!.requeueDesktopJob(store, "job-001", "session-a", "2026-09-08T01:00:21.000Z"),
+  ]);
+
+  assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
+  assert.equal(outcomes.filter((outcome) => outcome.status === "rejected").length, 1);
+  assert.ok(["completed", "pending"].includes((await loadDesktopJob(store, "job-001"))?.status ?? ""));
 });
 
 test("only unfinished jobs without a live lease are recoverable", async () => {
