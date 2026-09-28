@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service Learning session actions
+
+- Status: **B — owner/session/action-scoped, durable, same-host cross-service idempotent action creation, and isolated-product verified; live Runtime action execution remains unverified**. Learning session action creation now serializes session re-read, action idempotency check, durable action save, and the optional explicitly injected Runtime boundary, so concurrent submissions with one `actionId` return one durable action identity.
+- Evidence: `src/learning/action-lock.ts`, `src/learning/service.ts`, `tests/learning-actions-answers.test.ts`.
+- TDD: RED reproduced two concurrent self-report submissions with one `actionId` creating two action identities; GREEN converged to one action identity and one stored action.
+- Verification: focused Learning actions/answers suite `8/8`; user-product `357/357`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained Learning action waiting, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `c24fe29 feat: serialize learning session actions`.
+- Boundary: same-host/shared-root coordination only; no distributed action coordinator, live Runtime/provider quality or throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service Learning feedback disputes
 
 - Status: **B — owner/feedback-scoped, durable, same-host cross-service idempotent dispute creation, and isolated-product verified; live evaluator/provider execution remains unverified**. Feedback dispute creation now serializes feedback/answer re-read, existing-dispute check, dispute save, feedback/answer status changes, and optional explicitly injected re-evaluation boundary, so concurrent same-reason disputes return one durable dispute identity.
