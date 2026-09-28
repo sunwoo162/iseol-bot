@@ -54,3 +54,30 @@ test("AI team proposal without a local dispatcher is durable waiting and does no
   assert.match(waiting.blocker ?? "", /Runtime/i);
   assert.equal((await projects.getProject(owner, project.id))?.workRequests.length, 0);
 });
+
+test("concurrent AI team proposal requests across service instances remain one proposal", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-proposal-concurrent-"));
+  const owner = principal("proposal-concurrent-owner");
+  const teams = createTeamService(join(root, "platform"), { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Concurrent AI team", description: "proposal idempotency", kind: "project", visibility: "public", capacity: 5 });
+  await teams.addAiMember(owner, team.id, { agentId: "frontend", assignmentRole: "frontend", capabilities: ["context.read", "task.propose"], approvalScope: "owner-approved-execution" }, at);
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const project = await projects.createProject(owner, { name: "Concurrent proposal project", objective: "one durable proposal", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
+  let dispatchCount = 0;
+  const dispatcher = async () => {
+    dispatchCount += 1;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+    return { status: "proposed" as const, draft: { title: "Create typed client", objective: "Add one typed boundary", acceptanceCriteria: ["types compile"], rationale: "keep scope bounded" } };
+  };
+  const firstService = createAiTeamProposalService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher });
+  const secondService = createAiTeamProposalService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher });
+
+  const results = await Promise.all([
+    firstService.requestProposal(owner, project.id, { agentId: "frontend", requestId: "concurrent-proposal" }),
+    secondService.requestProposal(owner, project.id, { agentId: "frontend", requestId: "concurrent-proposal" }),
+  ]);
+
+  assert.equal(dispatchCount, 1);
+  assert.equal(new Set(results.map((result) => result.id)).size, 1);
+  assert.equal((await firstService.listProposals(owner, project.id)).length, 1);
+});
