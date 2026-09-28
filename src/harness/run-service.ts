@@ -17,7 +17,7 @@ export type CreateDevelopmentRunOptions = {
   policyRoot?: string;
 };
 
-export async function createDevelopmentRun(
+async function createDevelopmentRunUnlocked(
   request: DevelopmentRunRequest,
   options: CreateDevelopmentRunOptions,
 ): Promise<HarnessRuntimeRunEnvelope> {
@@ -39,6 +39,18 @@ export async function createDevelopmentRun(
 
   await saveHarnessRun(options.storeRoot, envelope);
   return envelope;
+}
+
+export async function createDevelopmentRun(
+  request: DevelopmentRunRequest,
+  options: CreateDevelopmentRunOptions,
+): Promise<HarnessRuntimeRunEnvelope> {
+  return withDurableHarnessRunLock(
+    options.storeRoot,
+    request.runId,
+    () => createDevelopmentRunUnlocked(request, options),
+    { waitForMs: 2_000 },
+  );
 }
 
 export type RefreshDevelopmentRunPreflightOptions = {

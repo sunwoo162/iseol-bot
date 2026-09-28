@@ -90,3 +90,30 @@ test("preflight refresh waits for the durable Run mutation lock", async () => {
   await Promise.all([holder, refresh]);
   assert.equal((await loadHarnessRun(storeRoot, "run-001"))?.updatedAt, "2026-09-07T00:00:02.000Z");
 });
+
+test("Run creation waits for the durable Run mutation lock before persisting", async () => {
+  const { iseolRoot, targetRoot, storeRoot } = await fixture();
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableHarnessRunLock(storeRoot, "run-001", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const create = createDevelopmentRun(request(targetRoot), {
+    iseolRoot,
+    storeRoot,
+    loadedAt: "2026-09-07T00:00:03.000Z",
+  });
+  const completedBeforeRelease = await Promise.race([
+    create.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]);
+  assert.equal(completedBeforeRelease, false);
+
+  release();
+  await Promise.all([holder, create]);
+  assert.equal((await loadHarnessRun(storeRoot, "run-001"))?.updatedAt, "2026-09-07T00:00:03.000Z");
+});
