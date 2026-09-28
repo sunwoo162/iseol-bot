@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable Idea Lab campaign cancellation synchronization
+
+- Status: **B — Idea Lab campaign-scoped, durable, same-host cross-service serialized, and isolated-product verified; live Runtime/provider execution remains unverified**. Web campaign cancellation now holds the same durable campaign lock across re-read, terminal status transition, campaign persistence, and cancellation event append, so cancellation cannot interleave with campaign supervision.
+- Evidence: `src/web-control-plane/idea-lab-actions.ts`, `src/idea-lab/campaign-lock.ts`, `tests/idea-lab-web-control-plane.test.ts`, and the existing Idea Lab web/browser coverage.
+- TDD: RED reproduced cancellation completing while an independent campaign lock holder was still active; GREEN made the authenticated cancellation action wait on the bounded shared campaign lock and preserve its existing idempotent/terminal semantics.
+- Verification: focused Idea Lab web-control-plane suite `10/10`; user-product `364/364`; serial root `691/691`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained Idea Lab campaign/runtime journeys, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `1f2b8b8 feat: serialize Idea Lab campaign cancellation`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root campaign cancellation coordination only; no distributed coordinator, operational Runtime/Agent throughput or live provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable Idea Lab campaign supervision synchronization
 
 - Status: **B — Idea Lab campaign-scoped, durable, same-host cross-service serialized, and isolated-product verified; live Runtime/provider execution remains unverified**. The public campaign supervisor now holds a durable campaign lock across its full read/propose/produce/advance loop, preventing concurrent supervisor instances from interleaving campaign state transitions.
