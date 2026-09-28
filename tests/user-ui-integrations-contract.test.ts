@@ -26,6 +26,10 @@ test("integrations route opens the integration settings section without inventin
   assert.match(source, /Desktop Agent/);
   assert.match(source, /Agent 준비됨/);
   assert.match(source, /Agent 미연결/);
+  assert.match(source, /getUserIntegrations/);
+  assert.match(source, /Calendar/);
+  assert.match(source, /외부 전달 동의/);
+  assert.match(source, /integrationStatus/);
   assert.match(source, /visibilitychange/);
   assert.match(source, /setInterval/);
   assert.match(source, /clearInterval/);

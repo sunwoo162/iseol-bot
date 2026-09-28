@@ -1225,6 +1225,51 @@ async function verifySettingsPermissionIsolation(pageA: Page, pageB: Page, baseU
   if (await readSwitch(pageB, memoryLabel) !== "true" || await readSwitch(pageB, projectLabel) !== "true" || await readSwitch(pageB, activityLabel) !== "true" || await readSwitch(pageB, teamDocsLabel) !== "false") throw new Error("account A AI context permission leaked into account B");
 }
 
+async function verifyIntegrationConsentIsolation(pageA: Page, pageB: Page, baseUrl: string): Promise<void> {
+  const tokenA = await browserSessionToken(pageA);
+  const tokenB = await browserSessionToken(pageB);
+  const githubLabel = "GitHub 외부 전달 동의";
+  await pageA.goto(`${baseUrl}/app/integrations`);
+  const githubSwitch = pageA.getByRole("switch", { name: githubLabel, exact: true });
+  await githubSwitch.waitFor();
+  if (await githubSwitch.getAttribute("aria-checked") !== "false") throw new Error("account A GitHub integration consent did not start disabled");
+
+  await githubSwitch.click();
+  await pageA.getByText("설정을 저장했습니다.", { exact: true }).waitFor();
+  const integrationsBeforeReload = await browserApi(baseUrl, tokenA, "/api/user/integrations") as { integrations: Array<{ provider: string; optedIn: boolean }> };
+  await pageA.reload();
+  await pageA.waitForFunction(() => {
+    const control = document.querySelector('[role="switch"][aria-label="GitHub 외부 전달 동의"]');
+    return control?.getAttribute("aria-checked") === "true" && !control.hasAttribute("disabled");
+  });
+  if (await pageA.getByRole("switch", { name: githubLabel, exact: true }).getAttribute("aria-checked") !== "true") {
+    const integrationsAfterReload = await browserApi(baseUrl, tokenA, "/api/user/integrations") as { integrations: Array<{ provider: string; optedIn: boolean }> };
+    throw new Error(`account A GitHub integration consent did not persist after reload: ${JSON.stringify({ integrationsBeforeReload, integrationsAfterReload })}`);
+  }
+
+  const integrationsA = await browserApi(baseUrl, tokenA, "/api/user/integrations") as {
+    integrations: Array<{ provider: string; optedIn: boolean; configured: boolean; lastDelivery: unknown }>;
+  };
+  const githubA = integrationsA.integrations.find((provider) => provider.provider === "github");
+  if (!githubA || githubA.optedIn !== true || githubA.configured !== false || githubA.lastDelivery !== null) {
+    throw new Error(`account A integration status was not durable and truthful: ${JSON.stringify(integrationsA)}`);
+  }
+
+  await pageB.goto(`${baseUrl}/app/integrations`);
+  const githubSwitchB = pageB.getByRole("switch", { name: githubLabel, exact: true });
+  await githubSwitchB.waitFor();
+  await pageB.waitForFunction(() => {
+    const control = document.querySelector('[role="switch"][aria-label="GitHub 외부 전달 동의"]');
+    return control?.getAttribute("aria-checked") === "false" && !control.hasAttribute("disabled");
+  });
+  if (await githubSwitchB.getAttribute("aria-checked") !== "false") throw new Error("account A integration consent leaked into account B");
+  const integrationsB = await browserApi(baseUrl, tokenB, "/api/user/integrations") as {
+    integrations: Array<{ provider: string; optedIn: boolean }>;
+  };
+  const githubB = integrationsB.integrations.find((provider) => provider.provider === "github");
+  if (!githubB || githubB.optedIn !== false) throw new Error(`account B integration consent was not isolated: ${JSON.stringify(integrationsB)}`);
+}
+
 async function verifyGrowthAchievements(pageA: Page, pageB: Page, baseUrl: string): Promise<void> {
   const tokenA = await browserSessionToken(pageA);
   const tokenB = await browserSessionToken(pageB);
@@ -2754,6 +2799,7 @@ async function main(): Promise<void> {
     await pageA.getByText("학습 AI 미연결", { exact: true }).waitFor();
     await pageA.getByText("연동 API 미연결", { exact: true }).first().waitFor();
     if (await pageA.getByText("해제", { exact: true }).count() !== 0) throw new Error("unavailable integration exposed a non-functional disconnect action");
+    await verifyIntegrationConsentIsolation(pageA, pageB, baseUrl);
     await pageA.goto(`${baseUrl}/app/world`);
     await pageA.locator('[aria-label="AI Runtime 연결 대기"]').waitFor();
 
@@ -2832,6 +2878,7 @@ async function main(): Promise<void> {
       mobileNavigationAccessibilityUi: "passed",
       worldMissionCompletionUi: "passed",
       activityExportDownload: "passed",
+      integrationConsentPersistenceIsolation: "passed",
       settingsPermissionPersistenceIsolation: "passed",
       weeklyDigestAvailabilityUi: "passed",
       growthAchievementsPersistenceIsolation: "passed",

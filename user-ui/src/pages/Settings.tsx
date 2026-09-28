@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { AppShell } from '../components/Navigation';
 import { Icon, type IconName } from '../components/Icon';
-import { changePassword, exportActivity, getAiAgentProfile, getMe, getRuntimeStatus, getSettings, updateAiAgentProfile, updateSettings, type AiAgentProfile, type UserRuntimeStatus, type UserSettings, UserApiError } from '../api/userApi';
+import { changePassword, exportActivity, getAiAgentProfile, getMe, getRuntimeStatus, getSettings, getUserIntegrations, updateAiAgentProfile, updateSettings, type AiAgentProfile, type UserIntegration, type UserIntegrationProvider, type UserRuntimeStatus, type UserSettings, UserApiError } from '../api/userApi';
 import { signOut } from '../store/userStore';
 import { useUser } from '../store/useUser';
 
@@ -15,7 +15,7 @@ const notificationControls = [
   { key: 'weekly', label: '주간 활동 요약', available: false },
 ] as const;
 
-function Integrations({ runtimeStatus }: { runtimeStatus: UserRuntimeStatus | null }) {
+function Integrations({ runtimeStatus, settings, integrationStatus, onToggle }: { runtimeStatus: UserRuntimeStatus | null; settings: UserSettings | null; integrationStatus: UserIntegration[] | null; onToggle: (provider: UserIntegrationProvider) => void }) {
   const runtimeState = runtimeStatus?.state ?? 'unknown';
   const runtimeBadge = runtimeState === 'ready'
     ? { label: 'Runtime 준비됨', background: '#dcfce7', color: '#166534' }
@@ -45,14 +45,15 @@ function Integrations({ runtimeStatus }: { runtimeStatus: UserRuntimeStatus | nu
   const runtimeDescription = runtimeStatus?.projectExecution === 'ready'
     ? runtimeStatus.agent === 'ready' ? '로컬 실행 capability와 Desktop Agent가 준비되어 있어요' : '로컬 실행 capability는 준비됐지만 Desktop Agent를 기다리는 중이에요'
     : '로컬에서 코드를 실행하기 위한 Desktop Agent';
-  const integrations: Array<{ name: string; desc: string; icon: IconName; status: string; badge?: { label: string; background: string; color: string }; agentBadge?: { label: string; background: string; color: string } }> = [
+  const integrations: Array<{ name: string; desc: string; icon: IconName; status: string; provider?: UserIntegrationProvider; badge?: { label: string; background: string; color: string }; agentBadge?: { label: string; background: string; color: string } }> = [
     { name: 'Runtime 실행 환경', desc: runtimeDescription, icon: 'monitor' as IconName, status: runtimeState, badge: runtimeBadge, agentBadge },
     { name: '개인 AI Runtime', desc: runtimeStatus?.aiChat === 'ready' ? '개인 AI 답변 capability가 준비되어 있어요' : '개인 AI 답변을 위한 로컬 dispatcher', icon: 'sparkles' as IconName, status: runtimeStatus?.aiChat ?? 'unknown', badge: aiChatBadge },
     { name: 'AI 팀 Runtime', desc: runtimeStatus?.aiTeam === 'ready' ? 'AI 팀 제안과 기술 토론 capability가 준비되어 있어요' : 'AI 팀 제안과 기술 토론을 위한 로컬 dispatcher', icon: 'users' as IconName, status: runtimeStatus?.aiTeam ?? 'unknown', badge: aiTeamBadge },
     { name: '학습 AI Runtime', desc: runtimeStatus?.learningAi === 'ready' ? '학습 계획·콘텐츠·피드백 capability가 준비되어 있어요' : '학습 계획·콘텐츠·피드백을 위한 로컬 dispatcher', icon: 'book' as IconName, status: runtimeStatus?.learningAi ?? 'unknown', badge: learningAiBadge },
-    { name: 'GitHub', desc: '프로젝트를 GitHub에 연동하고 코드를 관리해요', icon: 'code' as IconName, status: 'unavailable' },
+    { name: 'Calendar', desc: '학습·프로젝트 일정을 기존 캘린더와 연결해요', icon: 'calendar' as IconName, status: 'unavailable', provider: 'calendar' },
+    { name: 'GitHub', desc: '프로젝트를 GitHub에 연동하고 코드를 관리해요', icon: 'code' as IconName, status: 'unavailable', provider: 'github' },
     { name: 'ChatGPT Web', desc: 'ChatGPT 웹 인터페이스 연결', icon: 'robot' as IconName, status: 'unavailable' },
-    { name: 'Discord', desc: '팀 알림을 Discord로 받아요', icon: 'message' as IconName, status: 'unavailable' },
+    { name: 'Discord', desc: '팀 알림을 Discord로 받아요', icon: 'message' as IconName, status: 'unavailable', provider: 'discord' },
     { name: 'Notion', desc: '학습 노트를 Notion에 동기화', icon: 'fileText' as IconName, status: 'coming' },
     { name: 'Vercel', desc: '프로젝트를 바로 배포해요', icon: 'rocket' as IconName, status: 'coming' },
   ];
@@ -66,7 +67,7 @@ function Integrations({ runtimeStatus }: { runtimeStatus: UserRuntimeStatus | nu
             <p className="font-bold text-sm" style={{ color: '#0f1b35' }}>{i.name}</p>
             <p className="text-xs" style={{ color: '#64748b' }}>{i.desc}</p>
           </div>
-          <div>
+          <div className="flex flex-col items-end gap-2">
             {i.name === 'Runtime 실행 환경' && (
               <div className="flex flex-wrap justify-end gap-1">
                 <span className="text-xs font-bold px-2 py-1 rounded-full" style={{ background: i.badge?.background, color: i.badge?.color }}>{i.badge?.label}</span>
@@ -82,7 +83,13 @@ function Integrations({ runtimeStatus }: { runtimeStatus: UserRuntimeStatus | nu
             {i.name === '학습 AI Runtime' && (
               <span className="text-xs font-bold px-2 py-1 rounded-full" style={{ background: i.badge?.background, color: i.badge?.color }}>{i.badge?.label}</span>
             )}
-            {i.status === 'unavailable' && (
+            {i.provider && (
+              <>
+                <span className="text-xs font-bold px-2 py-1 rounded-full" style={{ background: integrationStatus?.find((item) => item.provider === i.provider)?.configured ? '#dcfce7' : '#f1f5f9', color: integrationStatus?.find((item) => item.provider === i.provider)?.configured ? '#166534' : '#64748b' }}>{integrationStatus?.find((item) => item.provider === i.provider)?.configured ? '어댑터 준비됨' : '연동 API 미연결'}</span>
+                <button type="button" onClick={() => onToggle(i.provider!)} disabled={!settings} role="switch" aria-checked={settings?.integrations[i.provider!] ?? false} aria-label={`${i.name} 외부 전달 동의`} className="text-xs font-bold text-blue-600 disabled:cursor-not-allowed disabled:opacity-50">외부 전달 동의: {settings?.integrations[i.provider!] ? '켜짐' : '꺼짐'}</button>
+              </>
+            )}
+            {!i.provider && i.status === 'unavailable' && (
               <span className="text-xs font-bold px-2 py-1 rounded-full" style={{ background: '#f1f5f9', color: '#64748b' }}>연동 API 미연결</span>
             )}
             {i.status === 'coming' && (
@@ -112,6 +119,7 @@ export default function Settings() {
   const [section, setSection] = useState(() => location.pathname === '/integrations' ? '연동 환경' : '계정');
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<UserRuntimeStatus | null>(null);
+  const [integrationStatus, setIntegrationStatus] = useState<UserIntegration[] | null>(null);
   const [settingsError, setSettingsError] = useState('');
   const [settingsStatus, setSettingsStatus] = useState('');
   const [settingsBusy, setSettingsBusy] = useState(false);
@@ -150,6 +158,12 @@ export default function Settings() {
     });
     settingsLoadRef.current = settingsLoad;
     void settingsLoad.catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void getUserIntegrations().then((result) => { if (active) setIntegrationStatus(result.integrations); }).catch(() => { if (active) setIntegrationStatus(null); });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -211,7 +225,7 @@ export default function Settings() {
     } finally { setSettingsBusy(false); }
   }
 
-  async function toggleSetting<G extends 'aiAccess' | 'aiApproval' | 'notifications' | 'privacy'>(group: G, key: keyof UserSettings[G]): Promise<void> {
+  async function toggleSetting<G extends 'aiAccess' | 'aiApproval' | 'notifications' | 'privacy' | 'integrations'>(group: G, key: keyof UserSettings[G]): Promise<void> {
     let currentSettings = settingsRef.current ?? settings;
     if (!currentSettings && settingsLoadRef.current) {
       try { currentSettings = await settingsLoadRef.current; } catch { return; }
@@ -422,7 +436,7 @@ export default function Settings() {
             </div>
           )}
 
-          {section === '연동 환경' && <Integrations runtimeStatus={runtimeStatus}/>}
+          {section === '연동 환경' && <Integrations runtimeStatus={runtimeStatus} settings={settings} integrationStatus={integrationStatus} onToggle={(provider) => { void toggleSetting('integrations', provider); }}/>}
 
           {section === '개인정보' && (
             <div className="space-y-5">

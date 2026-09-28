@@ -521,9 +521,12 @@ export type UserSettings = {
   aiApproval: { fileWrite: boolean; packageInstall: boolean; buildRun: boolean; externalApi: boolean };
   notifications: { aiDone: boolean; teamInvite: boolean; newMessage: boolean; achieve: boolean; weekly: boolean };
   privacy: { growthInfo: boolean; projectList: boolean; learningHistory: boolean };
+  integrations: { calendar: boolean; github: boolean; discord: boolean };
   createdAt: string;
   updatedAt: string;
 };
+export type UserIntegrationProvider = 'calendar' | 'github' | 'discord';
+export type UserIntegration = { provider: UserIntegrationProvider; optedIn: boolean; configured: boolean; lastDelivery: { state: 'queued' | 'delivered' | 'unknown' | 'not-configured' | 'blocked'; reason?: string } | null };
 
 export type UserRuntimeStatus = {
   version: 1;
@@ -1028,6 +1031,7 @@ export async function listCommunityComments(postId: string): Promise<{ comments:
     export async function reportCommunityContent(postId: string, input: { targetType: 'post' | 'comment'; targetId: string; reason: string }): Promise<{ report: { id: string; targetType: 'post' | 'comment'; targetId: string; postId: string; status: 'open' | 'closed'; createdAt: string } }> { return request<{ report: { id: string; targetType: 'post' | 'comment'; targetId: string; postId: string; status: 'open' | 'closed'; createdAt: string } }>(`/api/user/community/${encodeURIComponent(postId)}/report`, { method: 'POST', body: JSON.stringify(input) }); }
     export async function toggleCommunityLike(postId: string): Promise<{ liked: boolean; likeCount: number }> { return request<{ liked: boolean; likeCount: number }>(`/api/user/community/${encodeURIComponent(postId)}/like`, { method: 'POST' }); }
 export async function getSettings(): Promise<{ settings: UserSettings }> { return request<{ settings: UserSettings }>('/api/user/settings'); }
-export async function updateSettings(patch: { aiAccess?: Partial<UserSettings['aiAccess']>; aiApproval?: Partial<UserSettings['aiApproval']>; notifications?: Partial<UserSettings['notifications']>; privacy?: Partial<UserSettings['privacy']> }): Promise<{ settings: UserSettings }> { return request<{ settings: UserSettings }>('/api/user/settings', { method: 'PATCH', body: JSON.stringify(patch) }); }
+export async function updateSettings(patch: { aiAccess?: Partial<UserSettings['aiAccess']>; aiApproval?: Partial<UserSettings['aiApproval']>; notifications?: Partial<UserSettings['notifications']>; privacy?: Partial<UserSettings['privacy']>; integrations?: Partial<UserSettings['integrations']> }): Promise<{ settings: UserSettings }> { return request<{ settings: UserSettings }>('/api/user/settings', { method: 'PATCH', body: JSON.stringify(patch) }); }
+export async function getUserIntegrations(): Promise<{ integrations: UserIntegration[] }> { return request<{ integrations: UserIntegration[] }>('/api/user/integrations'); }
 export async function getRuntimeStatus(): Promise<{ runtime: UserRuntimeStatus }> { return request<{ runtime: UserRuntimeStatus }>('/api/user/runtime-status'); }
 export async function exportActivity(format: ActivityExport['format']): Promise<ActivityExport> { return request<ActivityExport>(`/api/user/activity/export?format=${encodeURIComponent(format)}`); }
