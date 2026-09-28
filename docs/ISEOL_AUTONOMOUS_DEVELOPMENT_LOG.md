@@ -2340,6 +2340,15 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root coordination only; no distributed session coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service legacy Learning session starts
+
+- Status: **B — owner/plan-scoped, durable, same-host cross-service idempotent legacy session start, and isolated-product verified; live model/provider execution remains unverified**. The general Learning plan session start now serializes active-session re-read and session save, preventing two active sessions for one legacy plan.
+- Evidence: `src/learning/session-start-lock.ts`, `src/learning/service.ts`, `tests/learning-persistence.test.ts`.
+- TDD: RED reproduced two concurrent legacy starts creating two active session identities; GREEN converged to one session identity and one active stored session.
+- Verification: focused Learning persistence suite `4/4`; user-product `352/352`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained Learning session persistence, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `77496e3 feat: serialize legacy learning session starts`.
+- Boundary: same-host/shared-root coordination only; no distributed session coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service Learning plan adjustments
 
 - Status: **B — owner/goal/input-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Learning plan adjustment drafts now serialize the idempotency lookup and draft persistence by exact user/goal/input identity, so concurrent retries return one proposed adjustment.
