@@ -55,3 +55,19 @@ test("personal world cannot be read or changed through another user's principal"
   });
   assert.equal((await service.getWorld(principal("user-a"))).displayName, "Private A");
 });
+
+test("concurrent personal world patches across service instances preserve disjoint fields", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-personal-world-concurrent-"));
+  const firstService = createPersonalWorldService(root, { now: () => at });
+  const secondService = createPersonalWorldService(root, { now: () => at });
+  await firstService.getWorld(principal("user-concurrent"));
+
+  await Promise.all([
+    firstService.updateWorld(principal("user-concurrent"), { displayName: "Concurrent Ari" }),
+    secondService.updateWorld(principal("user-concurrent"), { interests: ["AI/ML"] }),
+  ]);
+
+  const world = await firstService.getWorld(principal("user-concurrent"));
+  assert.equal(world.displayName, "Concurrent Ari");
+  assert.deepEqual(world.interests, ["AI/ML"]);
+});
