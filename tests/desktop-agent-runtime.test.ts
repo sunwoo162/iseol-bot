@@ -121,6 +121,28 @@ test("structured runtime executes file, process, and bounded output operations i
   assert.ok((result.operations[2]?.stdout?.length ?? 0) <= 20);
 });
 
+test("runtime launches npm through npm_execpath when Node is provided by npx", async (t) => {
+  if (process.platform !== "win32" || !process.env.npm_execpath) {
+    t.skip("requires the Windows npm launcher");
+    return;
+  }
+  const { allowed, workspace, harnessPath } = await fixture();
+  await writeFile(join(workspace, "smoke.test.cjs"), "const { test } = require('node:test'); test('npx npm bridge', () => {});\n", "utf8");
+  await writeFile(join(workspace, "package.json"), JSON.stringify({ private: true, scripts: { build: "node --check smoke.test.cjs" } }), "utf8");
+  const pack = policyPack(workspace, harnessPath, [{
+    id: "build",
+    type: "RUN_PROCESS",
+    purpose: "build",
+    cwd: ".",
+    executable: "npm.cmd",
+    args: ["run", "build"],
+    timeoutMs: 10_000,
+  }]);
+  const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed] });
+  assert.equal(result.status, "completed");
+  assert.equal(result.operations[0]?.ok, true);
+});
+
 test("GIT_INIT prepares an empty workspace and GIT_INSPECT accepts an unborn HEAD", async () => {
   const { allowed, workspace, harnessPath } = await fixture();
   const pack = policyPack(workspace, harnessPath, [
@@ -139,6 +161,18 @@ test("GIT_INIT prepares an empty workspace and GIT_INSPECT accepts an unborn HEA
   assert.equal(identity.branch, "main");
   assert.equal(identity.initial, true);
   assert.match(identity.status, /docs\//);
+});
+
+test("GIT_COMMIT creates the first commit in an initialized workspace", async () => {
+  const { allowed, workspace, harnessPath } = await fixture();
+  execFileSync("git", ["init", "--initial-branch", "main"], { cwd: workspace, stdio: "ignore" });
+  const pack = policyPack(workspace, harnessPath, [
+    { id: "commit", type: "GIT_COMMIT", cwd: ".", message: "chore: initialize workspace" },
+  ]);
+  const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed], now: () => "2026-09-19T00:00:00.000Z" });
+  assert.equal(result.status, "completed");
+  assert.match(result.operations.find((item) => item.operationId === "commit")?.summary ?? "", /Created Git commit/i);
+  assert.equal(execFileSync("git", ["rev-list", "--count", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim(), "1");
 });
 
 test("GIT_INIT rejects a workspace nested in another repository", async () => {

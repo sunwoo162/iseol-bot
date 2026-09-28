@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import type {
   DesktopJobResult,
@@ -45,8 +45,11 @@ const DEFAULT_EXECUTABLES = new Set([
 function resolveProcessInvocation(executable: string, args: string[]): { executable: string; args: string[] } {
   const name = basename(executable).toLowerCase();
   if (process.platform === "win32" && (name === "npm" || name === "npm.cmd")) {
-    const npmCli = resolve(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
-    return { executable: process.execPath, args: [npmCli, ...args] };
+    const npmCli = process.env.npm_execpath?.trim();
+    const nodeExecutable = process.env.npm_node_execpath?.trim() || process.execPath;
+    if (npmCli && isAbsolute(npmCli)) return { executable: nodeExecutable, args: [npmCli, ...args] };
+    const localNpmCli = resolve(dirname(nodeExecutable), "node_modules", "npm", "bin", "npm-cli.js");
+    return { executable: nodeExecutable, args: [localNpmCli, ...args] };
   }
   return { executable, args };
 }
@@ -384,18 +387,30 @@ async function executeOperation(
   if (operation.type === "GIT_COMMIT") {
     const cwd = await assertWorkspaceAccess(deps.allowedRoots, workspace, operation.cwd);
     const headBefore = await gitCommand(workspace, cwd, ["rev-parse", "HEAD"], maxOutputBytes);
-    if (headBefore.code !== 0) return commandOperationResult(operation.id, headBefore, "Inspect Git HEAD");
-    const parent = await gitCommand(workspace, cwd, ["rev-parse", "HEAD^"], maxOutputBytes);
-    const subject = await gitCommand(workspace, cwd, ["show", "-s", "--format=%s", "HEAD"], maxOutputBytes);
+    const initial = headBefore.code !== 0 && !operation.expectedHead;
+    if (headBefore.code !== 0 && !initial) {
+      return { operationId: operation.id, ok: false, summary: "Git HEAD does not match expected commit base", reference: "" };
+    }
+    if (initial) {
+      const inside = await gitCommand(workspace, cwd, ["rev-parse", "--is-inside-work-tree"], maxOutputBytes);
+      const branch = await gitCommand(workspace, cwd, ["branch", "--show-current"], maxOutputBytes);
+      if (inside.code !== 0 || inside.stdout.trim() !== "true" || branch.code !== 0 || !branch.stdout.trim()) {
+        const failed = inside.code !== 0 ? inside : branch;
+        return commandOperationResult(operation.id, failed, "Inspect initial Git workspace");
+      }
+    }
+    const parent = initial ? null : await gitCommand(workspace, cwd, ["rev-parse", "HEAD^"], maxOutputBytes);
+    const subject = initial ? null : await gitCommand(workspace, cwd, ["show", "-s", "--format=%s", "HEAD"], maxOutputBytes);
     const status = await gitCommand(workspace, cwd, ["status", "--short"], maxOutputBytes);
     const recovered = Boolean(operation.expectedHead)
-      && parent.code === 0
+      && !initial
+      && parent?.code === 0
       && parent.stdout.trim() === operation.expectedHead
-      && subject.code === 0
+      && subject?.code === 0
       && subject.stdout.trim() === operation.message
       && status.code === 0
       && status.stdout.trim() === "";
-    let commitHead = headBefore.stdout.trim();
+    let commitHead = initial ? "" : headBefore.stdout.trim();
     if (!recovered) {
       if (operation.expectedHead && commitHead !== operation.expectedHead) {
         return { operationId: operation.id, ok: false, summary: "Git HEAD does not match expected commit base", reference: commitHead };
@@ -405,7 +420,13 @@ async function executeOperation(
       const staged = await gitCommand(workspace, cwd, ["diff", "--cached", "--quiet"], maxOutputBytes);
       if (staged.code === 0) return { operationId: operation.id, ok: false, summary: "Git commit has no staged changes" };
       if (staged.code !== 1) return commandOperationResult(operation.id, staged, "Inspect staged Git changes");
-      const commit = await gitCommand(workspace, cwd, ["commit", "-m", operation.message], maxOutputBytes);
+      const userName = await gitCommand(workspace, cwd, ["config", "--get", "user.name"], maxOutputBytes);
+      const userEmail = await gitCommand(workspace, cwd, ["config", "--get", "user.email"], maxOutputBytes);
+      const commitIdentity = [
+        ...(userName.code === 0 && userName.stdout.trim() ? [] : ["-c", "user.name=ISEOL Desktop Agent"]),
+        ...(userEmail.code === 0 && userEmail.stdout.trim() ? [] : ["-c", "user.email=iseol-desktop-agent@localhost"]),
+      ];
+      const commit = await gitCommand(workspace, cwd, [...commitIdentity, "commit", "-m", operation.message], maxOutputBytes);
       const result = commandOperationResult(operation.id, commit, "Created Git commit");
       if (!result.ok) return result;
       const head = await gitCommand(workspace, cwd, ["rev-parse", "HEAD"], maxOutputBytes);
