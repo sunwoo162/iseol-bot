@@ -1693,6 +1693,12 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service activity event mutations
+
+- Activity event record/retract mutations are **B — owner/event-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/activity/event-lock.ts` protects deterministic event identity in `src/activity/service.ts`.
+- TDD/verification: concurrent identical event writes moved from `45/48` successful calls to `48/48` with exactly 24 records; focused activity/growth/API/export `6/6`; user-product `334/334`; root `682/682`; types, both builds, and browser E2E passed with two-account isolation and responsive `[390,768,1024,1440]` across `13` routes.
+- Boundary: same-host/shared-root coordination only; distributed evidence coordination, live model/provider execution, external connector delivery, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room remain unverified/deferred.
+
 ## 2026-09-28 continuation: durable cross-service portfolio entry mutations
 
 - Portfolio entry updates are **B — owner/entry-scoped, durable, same-host cross-service serialized, patch-preserving, and isolated-browser verified**. `src/portfolio/entry-lock.ts` protects the read-modify-save path in `src/portfolio/service.ts`.

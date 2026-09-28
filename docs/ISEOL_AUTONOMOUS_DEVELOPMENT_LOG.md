@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service activity event mutations
+
+- Status: **B — owner/event-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Activity event record and retract mutations now share an exact hashed lock for deterministic event identity.
+- Evidence: `src/activity/event-lock.ts`, `src/activity/service.ts`, `tests/activity-growth-ledger.test.ts`.
+- TDD: RED reproduced concurrent identical event writes with `45/48` successful calls; GREEN completed all `48/48` calls and retained exactly `24` deterministic event records.
+- Verification: focused activity/growth/API/export suite `6/6`; user-product `334/334`; serial root `682/682` after one unrelated Windows-test flake was cleanly re-run; backend/user UI TypeScript checks, backend/user UI builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation, reload persistence, activity timeline/export, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed coordinator, external evidence provider delivery, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service portfolio entry mutations
 
 - Status: **B — owner/entry-scoped, durable, same-host cross-service serialized, patch-preserving, and isolated-product verified; live model/provider execution remains unverified**. Portfolio entry updates now re-read and save under an exact hashed owner/entry lock, preserving disjoint title/visibility edits across service instances.
