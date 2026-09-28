@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { AchievementNotificationInput, AiCompletionNotificationInput, CommunityCommentNotificationInput, DirectMessageNotificationInput, NotificationService, NotificationStreamEvent, NotificationStreamListener, TeamInviteNotificationInput, TeamMessageNotificationInput, UserNotification } from "./contracts.js";
+import { withDurableNotificationLock } from "./notification-lock.js";
 import { listNotifications, listStreamEvents as listStoredStreamEvents, loadNotification, saveNotification, saveStreamEvent } from "./store.js";
 
 function ensurePrincipal(principal: Principal): void {
@@ -18,7 +19,7 @@ export function createNotificationService(root: string, options: { now?: () => s
     const queued = prior.then(() => current);
     notificationTails.set(key, queued);
     await prior;
-    try { return await task(); }
+    try { return await withDurableNotificationLock(root, key, task, { waitForMs: 2_000 }); }
     finally {
       release();
       if (notificationTails.get(key) === queued) notificationTails.delete(key);

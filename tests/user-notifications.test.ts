@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, open, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createAiChatService } from "../src/ai-chat/service.js";
@@ -69,6 +70,57 @@ test("concurrent same-source notification creation converges on one durable reco
   assert.equal(events.length, 1);
   assert.equal(events[0]?.change, "created");
   assert.equal(events[0]?.notificationId, first.id);
+});
+
+test("notification creation waits for a durable cross-service lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-notification-durable-lock-"));
+  const userId = "notification-durable-lock-owner";
+  const messageId = "durable-lock-message";
+  const lockKey = `${userId}:direct-message:${messageId}`;
+  const lockPath = join(root, ".locks", "notifications", `${createHash("sha256").update(lockKey).digest("hex")}.lock`);
+  await mkdir(dirname(lockPath), { recursive: true });
+  const handle = await open(lockPath, "wx");
+  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token: "test-lock", createdAt: at }), "utf8");
+  const notifications = createNotificationService(root, { now: () => at });
+  let settled = false;
+  const pending = notifications.createDirectMessageNotification({ userId, messageId, actorUserId: "notification-durable-lock-sender", conversationUserId: "notification-durable-lock-sender" }).then((value) => {
+    settled = true;
+    return value;
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await handle.close();
+  await unlink(lockPath);
+  const created = await pending;
+  assert.equal(created.source.id, messageId);
+  assert.equal((await notifications.listNotifications(principal(userId))).notifications.length, 1);
+  assert.equal((await notifications.listStreamEvents(userId)).length, 1);
+});
+
+test("notification read waits for the same durable identity lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-notification-read-lock-"));
+  const userId = "notification-read-lock-owner";
+  const notifications = createNotificationService(root, { now: () => at });
+  const created = await notifications.createDirectMessageNotification({ userId, messageId: "read-lock-message", actorUserId: "read-lock-sender", conversationUserId: "read-lock-sender" });
+  const lockKey = `${userId}:notification:${created.id}`;
+  const lockPath = join(root, ".locks", "notifications", `${createHash("sha256").update(lockKey).digest("hex")}.lock`);
+  await mkdir(dirname(lockPath), { recursive: true });
+  const handle = await open(lockPath, "wx");
+  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token: "test-read-lock", createdAt: at }), "utf8");
+  let settled = false;
+  const pending = notifications.markRead(principal(userId), created.id).then((value) => {
+    settled = true;
+    return value;
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await handle.close();
+  await unlink(lockPath);
+  const read = await pending;
+  assert.equal(read.readAt, at);
+  assert.equal((await notifications.listStreamEvents(userId)).filter((event) => event.change === "read").length, 1);
 });
 
 test("community comment notifications are bounded and idempotent by comment identity", async () => {
