@@ -1,0 +1,68 @@
+import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import type { Principal } from "../src/identity/contracts.js";
+import { createPlatformUserService } from "../src/platform-user/service.js";
+import { createCommunityService } from "../src/community/service.js";
+import { createNotificationService } from "../src/notifications/service.js";
+import { createSettingsService } from "../src/settings/service.js";
+
+const at = "2026-09-26T00:00:00.000Z";
+const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
+
+test("community posts and likes are durable, public, and user-attributed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-community-")); const platform = join(root, "platform"); const users = createPlatformUserService(platform, { now: () => at });
+  await users.createUser({ id: "community-a", email: "community-a@example.com", displayName: "Community A", timezone: "Asia/Seoul" }); await users.createUser({ id: "community-b", email: "community-b@example.com", displayName: "Community B", timezone: "Asia/Seoul" });
+  const community = createCommunityService(platform, { platformUserService: users, now: () => at }); const post = await community.createPost(principal("community-a"), { category: "개발 이야기", title: "실제 저장 글", content: "서버에 저장된 커뮤니티 글입니다.", tags: ["TypeScript"] });
+  assert.equal((await community.listPosts(principal("community-b")))[0]?.author.displayName, "Community A"); assert.equal(post.likeCount, 0);
+  assert.deepEqual(await community.toggleLike(principal("community-b"), post.id), { liked: true, likeCount: 1 }); assert.equal((await community.listPosts(principal("community-b")))[0]?.viewerLiked, true);
+  assert.deepEqual(await community.toggleLike(principal("community-b"), post.id), { liked: false, likeCount: 0 });
+  const reloaded = createCommunityService(platform, { platformUserService: users, now: () => at }); assert.equal((await reloaded.listPosts(principal("community-b"))).length, 1);
+});
+
+test("community comments are durable, public, and user-attributed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-community-comments-")); const platform = join(root, "platform"); const users = createPlatformUserService(platform, { now: () => at });
+  await users.createUser({ id: "comment-a", email: "comment-a@example.com", displayName: "Comment A", timezone: "Asia/Seoul" }); await users.createUser({ id: "comment-b", email: "comment-b@example.com", displayName: "Comment B", timezone: "Asia/Seoul" });
+  const community = createCommunityService(platform, { platformUserService: users, now: () => at }); const post = await community.createPost(principal("comment-a"), { category: "질문 · 답변", title: "댓글을 확인합니다", content: "실제 댓글 저장 여부를 확인하는 게시글입니다.", tags: [] });
+  const comment = await community.createComment(principal("comment-b"), post.id, "실제 사용자 댓글입니다.");
+  assert.equal(comment.comment.author.displayName, "Comment B"); assert.equal(comment.comment.postId, post.id); assert.equal((await community.listComments(principal("comment-a"), post.id))[0]?.content, "실제 사용자 댓글입니다.");
+  const reloaded = createCommunityService(platform, { platformUserService: users, now: () => at }); const reloadedPost = (await reloaded.listPosts(principal("comment-a")))[0];
+  assert.equal(reloadedPost?.comments[0]?.author.userId, "comment-b");
+});
+
+test("community comments notify only the persisted post owner when public-message alerts are enabled", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-community-comment-alerts-")); const platform = join(root, "platform"); const users = createPlatformUserService(platform, { now: () => at });
+  await users.createUser({ id: "comment-owner", email: "comment-owner@example.com", displayName: "Comment Owner", timezone: "Asia/Seoul" }); await users.createUser({ id: "commenter", email: "commenter@example.com", displayName: "Commenter", timezone: "Asia/Seoul" }); await users.createUser({ id: "comment-muted", email: "comment-muted@example.com", displayName: "Muted Owner", timezone: "Asia/Seoul" });
+  const settings = createSettingsService(platform, { now: () => at }); const notifications = createNotificationService(platform, { now: () => at });
+  const community = createCommunityService(platform, { platformUserService: users, settingsService: settings, notificationService: notifications, now: () => at });
+  const post = await community.createPost(principal("comment-owner"), { category: "질문 · 답변", title: "알림을 확인합니다", content: "게시글 소유자에게 공개 댓글 알림이 도착해야 합니다.", tags: [] });
+  const first = await community.createComment(principal("commenter"), post.id, "소유자에게 도착하는 댓글입니다.");
+  const ownerInbox = await notifications.listNotifications(principal("comment-owner"));
+  assert.equal(ownerInbox.notifications.length, 1);
+  assert.equal(ownerInbox.notifications[0]?.source.type, "community-comment");
+  assert.equal(ownerInbox.notifications[0]?.source.id, first.comment.id);
+  assert.equal((await notifications.listNotifications(principal("commenter"))).notifications.length, 0);
+
+  await settings.updateSettings(principal("comment-muted"), { notifications: { newMessage: false } });
+  const mutedPost = await community.createPost(principal("comment-muted"), { category: "학습 이야기", title: "알림을 끕니다", content: "꺼진 공개 댓글 알림은 생성되지 않아야 합니다.", tags: [] });
+  await community.createComment(principal("commenter"), mutedPost.id, "꺼진 알림 대상 댓글입니다.");
+  assert.equal((await notifications.listNotifications(principal("comment-muted"))).notifications.length, 0);
+});
+
+test("community reports are durable, target-bound, idempotent, and absent from public post views", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-community-reports-")); const platform = join(root, "platform"); const users = createPlatformUserService(platform, { now: () => at });
+  await users.createUser({ id: "report-author", email: "report-author@example.com", displayName: "Report Author", timezone: "Asia/Seoul" }); await users.createUser({ id: "report-commenter", email: "report-commenter@example.com", displayName: "Report Commenter", timezone: "Asia/Seoul" }); await users.createUser({ id: "reporter", email: "reporter@example.com", displayName: "Reporter", timezone: "Asia/Seoul" });
+  const community = createCommunityService(platform, { platformUserService: users, now: () => at }); const post = await community.createPost(principal("report-author"), { category: "개발 이야기", title: "신고 대상 글", content: "신고 대상 게시글의 공개 내용입니다.", tags: [] }); const comment = await community.createComment(principal("report-commenter"), post.id, "신고 대상 댓글입니다.");
+
+  const postReport = await community.reportContent(principal("reporter"), { targetType: "post", postId: post.id, targetId: post.id, reason: "게시글 신고 사유" });
+  const repeatedPostReport = await community.reportContent(principal("reporter"), { targetType: "post", postId: post.id, targetId: post.id, reason: "다른 사유를 보내도 기존 접수가 유지됩니다." });
+  assert.equal(repeatedPostReport.id, postReport.id);
+  assert.equal(postReport.targetAuthorUserId, "report-author");
+
+  const commentReport = await community.reportContent(principal("reporter"), { targetType: "comment", postId: post.id, targetId: comment.comment.id, reason: "댓글 신고 사유" });
+  assert.equal(commentReport.targetAuthorUserId, "report-commenter");
+  assert.equal((await community.listPosts(principal("reporter")))[0]?.comments[0]?.content, "신고 대상 댓글입니다.");
+  await assert.rejects(() => community.reportContent(principal("reporter"), { targetType: "comment", postId: "community-missing", targetId: comment.comment.id, reason: "불일치 대상" }), /not found/i);
+});
