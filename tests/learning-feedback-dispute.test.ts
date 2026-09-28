@@ -40,3 +40,26 @@ test("feedback disputes preserve the reason, mark the answer disputed, and wait 
   const persistedFeedback = await restarted.getLearningAnswerFeedback(owner, answer.id);
   assert.equal(persistedFeedback?.status, "disputed");
 });
+
+test("concurrent feedback disputes across service instances remain one dispute", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-dispute-concurrent-"));
+  const owner = principal("dispute-concurrent-owner");
+  const firstService = createLearningService(root, { now: () => at });
+  const secondService = createLearningService(root, { now: () => at });
+  const plan = await firstService.createLearningPlan(owner, { title: "Concurrent dispute", description: "One dispute", goals: ["Practice"] });
+  const session = await firstService.startLearningSession(owner, plan.id);
+  const exercise = await firstService.createCodingExercise(owner, { sessionId: session.id, title: "Explain", prompt: "Explain", language: "typescript", estimatedMinutes: 10 });
+  const attempt = await firstService.submitCodingAttempt(owner, { exerciseId: exercise.id, clientRequestId: "dispute-concurrent-attempt", response: "answer" });
+  const answer = await firstService.submitLearningAnswer(owner, session.id, { exerciseId: exercise.id, attemptId: attempt.attempt.id, response: attempt.attempt.response });
+  const feedback = await firstService.getLearningAnswerFeedback(owner, answer.id);
+  assert.ok(feedback);
+  const reason = "동시 이의 제기 사유";
+
+  const results = await Promise.all([
+    (firstService as any).disputeLearningFeedback(owner, feedback.id, { reason }),
+    (secondService as any).disputeLearningFeedback(owner, feedback.id, { reason }),
+  ]);
+
+  assert.equal(new Set(results.map((result: any) => result.dispute.id)).size, 1);
+  assert.equal((await firstService.getLearningAnswerFeedback(owner, answer.id))?.status, "disputed");
+});

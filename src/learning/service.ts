@@ -14,6 +14,7 @@ import { withDurableLearningSessionStartLock } from "./session-start-lock.js";
 import { withDurableLearningReviewLock } from "./review-lock.js";
 import { withDurableLearningCodingAttemptLock } from "./coding-attempt-lock.js";
 import { withDurableLearningAnswerLock } from "./answer-lock.js";
+import { withDurableLearningFeedbackDisputeLock } from "./feedback-dispute-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -1018,7 +1019,8 @@ export function createLearningService(root: string, options: LearningServiceOpti
     async disputeLearningFeedback(principal, feedbackId, input): Promise<LearningFeedbackDisputeResult> {
       ensurePrincipal(principal);
       try { assertIdentityId(feedbackId); } catch { throw new Error("Learning feedback not found"); }
-      const feedback = await loadLearningFeedback(root, principal.userId, feedbackId);
+      return withDurableLearningFeedbackDisputeLock(root, principal.userId, feedbackId, async () => {
+        const feedback = await loadLearningFeedback(root, principal.userId, feedbackId);
       if (!feedback || feedback.userId !== principal.userId) throw new Error("Learning feedback not found");
       const answer = await loadLearningAnswerReceipt(root, principal.userId, feedback.answerId);
       if (!answer || answer.userId !== principal.userId) throw new Error("Learning answer not found");
@@ -1063,7 +1065,8 @@ export function createLearningService(root: string, options: LearningServiceOpti
         const waitingDispute: LearningFeedbackDispute = { ...dispute, blocker: error instanceof Error ? error.message : "local learning evaluator did not complete re-evaluation", updatedAt: now() };
         await saveLearningFeedbackDispute(root, waitingDispute);
         return { dispute: waitingDispute, feedback: updatedFeedback, answer: updatedAnswer };
-      }
+        }
+      }, { waitForMs: 2_000 });
     },
 
     async createLearningPlan(principal, input: LearningPlanInput): Promise<LearningPlan> {
