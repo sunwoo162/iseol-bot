@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { FriendRequest, PublicProfile, SocialBlock, SocialProfile, SocialReport, SocialService, SocialServiceOptions } from "./contracts.js";
+import { withDurableFriendRequestLock } from "./friend-request-lock.js";
 import { withDurableSocialProfileLock } from "./profile-lock.js";
 import { listBlocks, listDirectMessages, listFriendRequests, listReports, loadBlock, loadFriendRequest, loadProfile, saveBlock, saveDirectMessage, saveFriendRequest, saveProfile, saveReport } from "./store.js";
 
@@ -96,8 +97,11 @@ export function createSocialService(root: string, options: SocialServiceOptions)
     },
     async createFriendRequest(principal, targetUserId) {
       ensurePrincipal(principal); assertIdentityId(targetUserId); if (targetUserId === principal.userId) throw new Error("Cannot friend yourself"); if (!await options.platformUserService.getUser(targetUserId)) throw new Error("Target user not found"); if (await isBlocked(principal.userId, targetUserId)) throw new Error("User is blocked");
-      const id = friendshipId(principal.userId, targetUserId); const existing = await loadFriendRequest(root, id); if (existing?.status === "accepted" || existing?.status === "pending") return { request: existing, created: false };
-      const at = now(); assertTimestamp(at, "friend request timestamp"); const request: FriendRequest = { version: 1, id, requesterUserId: principal.userId, targetUserId, status: "pending", createdAt: existing?.createdAt ?? at, updatedAt: at }; await saveFriendRequest(root, request); await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: request.id, eventType: "friend.request.created", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { targetUserId } }); return { request, created: true };
+      const id = friendshipId(principal.userId, targetUserId);
+      return withDurableFriendRequestLock(root, id, async () => {
+        const existing = await loadFriendRequest(root, id); if (existing?.status === "accepted" || existing?.status === "pending") return { request: existing, created: false };
+        const at = now(); assertTimestamp(at, "friend request timestamp"); const request: FriendRequest = { version: 1, id, requesterUserId: principal.userId, targetUserId, status: "pending", createdAt: existing?.createdAt ?? at, updatedAt: at }; await saveFriendRequest(root, request); await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: request.id, eventType: "friend.request.created", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { targetUserId } }); return { request, created: true };
+      }, { waitForMs: 2_000 });
     },
     async listIncomingFriendRequests(principal) {
       ensurePrincipal(principal); const requests = await listFriendRequests(root); const result: Array<FriendRequest & { requester: PublicProfile | null }> = [];
@@ -105,7 +109,10 @@ export function createSocialService(root: string, options: SocialServiceOptions)
       return result.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     },
     async respondToFriendRequest(principal, requestId, action) {
-      ensurePrincipal(principal); assertIdentityId(requestId); if (!["accept", "reject"].includes(action)) throw new Error("Invalid friend request action"); const current = await loadFriendRequest(root, requestId); if (!current || current.targetUserId !== principal.userId || current.status !== "pending") throw new Error("Friend request not found"); const next: FriendRequest = { ...current, status: action === "accept" ? "accepted" : "rejected", updatedAt: now() }; await saveFriendRequest(root, next); await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: next.id, eventType: `friend.request.${action === "accept" ? "accepted" : "rejected"}`, eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { requesterUserId: next.requesterUserId } }); return next;
+      ensurePrincipal(principal); assertIdentityId(requestId); if (!["accept", "reject"].includes(action)) throw new Error("Invalid friend request action");
+      return withDurableFriendRequestLock(root, requestId, async () => {
+        const current = await loadFriendRequest(root, requestId); if (!current || current.targetUserId !== principal.userId || current.status !== "pending") throw new Error("Friend request not found"); const next: FriendRequest = { ...current, status: action === "accept" ? "accepted" : "rejected", updatedAt: now() }; await saveFriendRequest(root, next); await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: next.id, eventType: `friend.request.${action === "accept" ? "accepted" : "rejected"}`, eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { requesterUserId: next.requesterUserId } }); return next;
+      }, { waitForMs: 2_000 });
     },
     async sendDirectMessage(principal, recipientUserId, body) {
       ensurePrincipal(principal); assertIdentityId(recipientUserId); if (recipientUserId === principal.userId || !await options.platformUserService.getUser(recipientUserId)) throw new Error("Recipient not found"); if (await isBlocked(principal.userId, recipientUserId)) throw new Error("User is blocked"); const allowed = await isAccepted(principal.userId, recipientUserId) || await options.canCollaborate?.(principal.userId, recipientUserId) === true; if (!allowed) throw new Error("Direct messaging requires an accepted friendship or shared team"); const at = now(); assertTimestamp(at, "message timestamp"); const message = { version: 1 as const, id: `message-${randomUUID()}`, senderUserId: principal.userId, recipientUserId, body: required(body, "Message", 10_000), createdAt: at }; await saveDirectMessage(root, message); await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: message.id, eventType: "message.sent", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { recipientUserId } });

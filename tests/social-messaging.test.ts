@@ -31,3 +31,24 @@ test("direct messages require accepted friendship and remain private", async () 
   await assert.rejects(() => social.listDirectMessages(principal("social-c"), "social-a"), /accepted friendship|shared team/i);
   assert.equal((await social.listProfiles(principal("social-c"), "alice"))[0]?.displayName, "social-a");
 });
+
+test("friend request creation across service instances is idempotent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-friend-request-concurrent-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  await users.createUser({ id: "friend-a", email: "friend-a@example.com", displayName: "Friend A", timezone: "Asia/Seoul" });
+  await users.createUser({ id: "friend-b", email: "friend-b@example.com", displayName: "Friend B", timezone: "Asia/Seoul" });
+  const activity = createActivityService(platformRoot, { now: () => at });
+  const firstService = createSocialService(platformRoot, { platformUserService: users, activityService: activity, now: () => at });
+  const secondService = createSocialService(platformRoot, { platformUserService: users, activityService: activity, now: () => "2026-09-25T12:00:01.000Z" });
+
+  const [first, second] = await Promise.all([
+    firstService.createFriendRequest(principal("friend-a"), "friend-b"),
+    secondService.createFriendRequest(principal("friend-a"), "friend-b"),
+  ]);
+
+  assert.equal(first.request.id, second.request.id);
+  assert.equal([first.created, second.created].filter(Boolean).length, 1);
+  assert.equal((await firstService.listIncomingFriendRequests(principal("friend-b"))).length, 1);
+  assert.equal((await activity.listActivityEvents(principal("friend-a"))).filter((event) => event.eventType === "friend.request.created").length, 1);
+});
