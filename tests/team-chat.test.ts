@@ -6,6 +6,7 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createTeamService } from "../src/teams/service.js";
+import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
 import { createTeamChatService } from "../src/team-chat/service.js";
 
 const at = "2026-09-27T12:00:00.000Z";
@@ -44,4 +45,32 @@ test("team chat rejects blank and oversized messages", async () => {
   const chat = createTeamChatService(root, { teamService: teams, now: () => at });
   await assert.rejects(() => chat.sendMessage(owner, team.id, "   "), /message/i);
   await assert.rejects(() => chat.sendMessage(owner, team.id, "x".repeat(10_001)), /message/i);
+});
+
+test("team chat send waits for the shared team membership lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-team-chat-lock-"));
+  const users = createPlatformUserService(root, { now: () => at });
+  const owner = principal("chat-lock-owner");
+  await users.createUser({ id: owner.userId, email: "chat-lock-owner@example.com", displayName: "Owner", timezone: "Asia/Seoul" });
+  const teams = createTeamService(root, { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Locked chat", description: "membership boundary", kind: "project", visibility: "private", capacity: 2 });
+  const chat = createTeamChatService(root, { teamService: teams, now: () => at });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(root, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const send = chat.sendMessage(owner, team.id, "잠긴 팀 메시지");
+  assert.equal(await Promise.race([
+    send.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]), false);
+  release();
+  await Promise.all([holder, send]);
+  assert.deepEqual((await chat.listMessages(owner, team.id)).map((message) => message.body), ["잠긴 팀 메시지"]);
 });
