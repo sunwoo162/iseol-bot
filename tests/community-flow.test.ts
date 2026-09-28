@@ -66,3 +66,21 @@ test("community reports are durable, target-bound, idempotent, and absent from p
   assert.equal((await community.listPosts(principal("reporter")))[0]?.comments[0]?.content, "신고 대상 댓글입니다.");
   await assert.rejects(() => community.reportContent(principal("reporter"), { targetType: "comment", postId: "community-missing", targetId: comment.comment.id, reason: "불일치 대상" }), /not found/i);
 });
+
+test("concurrent identical community reports across service instances remain idempotent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-community-report-concurrent-"));
+  const platform = join(root, "platform");
+  const users = createPlatformUserService(platform, { now: () => at });
+  for (const id of ["concurrent-author", "concurrent-reporter"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const firstService = createCommunityService(platform, { platformUserService: users, now: () => at });
+  const secondService = createCommunityService(platform, { platformUserService: users, now: () => at });
+  const post = await firstService.createPost(principal("concurrent-author"), { category: "질문 · 답변", title: "동시 신고 대상", content: "동시에 제출된 신고의 중복 생성을 확인합니다.", tags: [] });
+
+  const results = await Promise.all([
+    firstService.reportContent(principal("concurrent-reporter"), { targetType: "post", postId: post.id, targetId: post.id, reason: "동일 신고 사유" }),
+    secondService.reportContent(principal("concurrent-reporter"), { targetType: "post", postId: post.id, targetId: post.id, reason: "동일 신고 사유" }),
+  ]);
+
+  assert.equal(results[0].id, results[1].id);
+  assert.equal((await firstService.listPosts(principal("concurrent-reporter"))).length, 1);
+});
