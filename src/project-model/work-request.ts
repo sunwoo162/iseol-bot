@@ -3,6 +3,7 @@ import { mkdir, open, readFile, readdir, unlink, writeFile } from "node:fs/promi
 import { dirname, resolve } from "node:path";
 import { assertProjectModelId } from "./contracts.js";
 import { renameWithTransientRetry } from "../desktop-agent/atomic-file.js";
+import { withDurableProjectWorkRequestLock } from "./work-request-lock.js";
 
 export type ProjectWorkRequestStatus = "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
 export type ProjectWorkRequest = {
@@ -105,34 +106,36 @@ export async function listProjectWorkRequests(root: string, projectId: string): 
 export async function createProjectWorkRequest(input: {
   root: string; projectId: string; title: string; objective: string; idempotencyKey: string; nodeId?: string; dependencies?: string[]; at: string; id?: string;
 }): Promise<{ request: ProjectWorkRequest; created: boolean }> {
-  const dependencies = input.dependencies ?? [];
-  if (new Set(dependencies).size !== dependencies.length || dependencies.includes(input.id ?? "")) throw new Error("invalid work request dependency graph");
-  if (dependencies.length) {
-    const knownIds = new Set((await listProjectWorkRequests(input.root, input.projectId)).map((item) => item.id));
-    const missing = dependencies.filter((dependency) => !knownIds.has(dependency));
-    if (missing.length) throw new Error(`unknown work request dependency: ${missing.join(", ")}`);
-  }
-  const existing = (await listProjectWorkRequests(input.root, input.projectId)).find((item) => item.idempotencyKey === input.idempotencyKey);
-  if (existing) {
-    if (existing.title !== input.title || existing.objective !== input.objective || (input.nodeId !== undefined && existing.nodeId !== input.nodeId) || JSON.stringify(existing.dependencies ?? []) !== JSON.stringify(input.dependencies ?? [])) throw new Error("work request idempotency conflict");
-    return { request: existing, created: false };
-  }
-  const request: ProjectWorkRequest = {
-    version: 1,
-    id: input.id ?? `work-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`,
-    projectId: input.projectId,
-    title: input.title,
-    objective: input.objective,
-    ...(input.nodeId ? { nodeId: input.nodeId } : {}),
-    ...(dependencies.length ? { dependencies: [...dependencies] } : {}),
-    status: "queued",
-    idempotencyKey: input.idempotencyKey,
-    attempts: 0,
-    createdAt: input.at,
-    updatedAt: input.at,
-  };
-  await saveProjectWorkRequest(input.root, request);
-  return { request, created: true };
+  return withDurableProjectWorkRequestLock(input.root, input.projectId, input.idempotencyKey, async () => {
+    const dependencies = input.dependencies ?? [];
+    if (new Set(dependencies).size !== dependencies.length || dependencies.includes(input.id ?? "")) throw new Error("invalid work request dependency graph");
+    if (dependencies.length) {
+      const knownIds = new Set((await listProjectWorkRequests(input.root, input.projectId)).map((item) => item.id));
+      const missing = dependencies.filter((dependency) => !knownIds.has(dependency));
+      if (missing.length) throw new Error(`unknown work request dependency: ${missing.join(", ")}`);
+    }
+    const existing = (await listProjectWorkRequests(input.root, input.projectId)).find((item) => item.idempotencyKey === input.idempotencyKey);
+    if (existing) {
+      if (existing.title !== input.title || existing.objective !== input.objective || (input.nodeId !== undefined && existing.nodeId !== input.nodeId) || JSON.stringify(existing.dependencies ?? []) !== JSON.stringify(input.dependencies ?? [])) throw new Error("work request idempotency conflict");
+      return { request: existing, created: false };
+    }
+    const request: ProjectWorkRequest = {
+      version: 1,
+      id: input.id ?? `work-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`,
+      projectId: input.projectId,
+      title: input.title,
+      objective: input.objective,
+      ...(input.nodeId ? { nodeId: input.nodeId } : {}),
+      ...(dependencies.length ? { dependencies: [...dependencies] } : {}),
+      status: "queued",
+      idempotencyKey: input.idempotencyKey,
+      attempts: 0,
+      createdAt: input.at,
+      updatedAt: input.at,
+    };
+    await saveProjectWorkRequest(input.root, request);
+    return { request, created: true };
+  }, { waitForMs: 2_000 });
 }
 
 export type ProjectWorkRequestExecutionResult = {

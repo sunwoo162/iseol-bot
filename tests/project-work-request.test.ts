@@ -13,6 +13,7 @@ import {
   listProjectWorkRequests,
   updateProjectWorkRequest,
 } from "../src/project-model/work-request.js";
+import { withDurableProjectWorkRequestLock } from "../src/project-model/work-request-lock.js";
 
 const at = "2026-09-20T12:00:00.000Z";
 
@@ -25,6 +26,36 @@ test("work request creation is idempotent and durable", async () => {
   assert.equal(second.request.id, "work-1");
   assert.equal((await listProjectWorkRequests(root, "project-1")).length, 1);
   await assert.rejects(() => createProjectWorkRequest({ root, projectId: "project-1", title: "Different", objective: "Different", idempotencyKey: "profile-1", at }));
+});
+
+test("work request creation waits for the shared idempotency lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-request-lock-"));
+  let settled = false;
+  let creation!: ReturnType<typeof createProjectWorkRequest>;
+  await withDurableProjectWorkRequestLock(root, "project-1", "profile-locked", async () => {
+    creation = createProjectWorkRequest({ root, projectId: "project-1", title: "Build profile", objective: "Implement profile", idempotencyKey: "profile-locked", at }).then((value) => {
+      settled = true;
+      return value;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(settled, false);
+    assert.equal((await listProjectWorkRequests(root, "project-1")).length, 0);
+  });
+  const result = await creation;
+  assert.equal(result.created, true);
+  assert.equal(settled, true);
+});
+
+test("concurrent work request creation converges on one identity across service boundaries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-request-cross-instance-"));
+  const [first, second] = await Promise.all([
+    createProjectWorkRequest({ root, projectId: "project-1", title: "Build profile", objective: "Implement profile", idempotencyKey: "profile-cross-instance", at, id: "work-first" }),
+    createProjectWorkRequest({ root, projectId: "project-1", title: "Build profile", objective: "Implement profile", idempotencyKey: "profile-cross-instance", at, id: "work-second" }),
+  ]);
+  assert.equal([first, second].filter((result) => result.created).length, 1);
+  assert.equal(first.request.id, second.request.id);
+  assert.equal((await listProjectWorkRequests(root, "project-1")).length, 1);
+  await assert.rejects(() => createProjectWorkRequest({ root, projectId: "project-1", title: "Different", objective: "Different", idempotencyKey: "profile-cross-instance", at }), /idempotency conflict/);
 });
 
 test("only one worker can claim a queued request and cancellation is durable", async () => {
