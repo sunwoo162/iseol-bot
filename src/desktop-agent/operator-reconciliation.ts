@@ -13,6 +13,7 @@ import {
 } from "./job-store.js";
 import { desktopTaskPackMutates, type DesktopJobResult } from "./contracts.js";
 import { loadCompletedDesktopResults } from "./result-store.js";
+import { withDurableDesktopOperatorLock } from "./operator-reconciliation-lock.js";
 
 const actionQueues = new Map<string, Promise<unknown>>();
 async function serialized<T>(key: string, action: () => Promise<T>): Promise<T> {
@@ -82,21 +83,23 @@ export async function issueDesktopJobContainmentApproval(input: {
   issuedAt: string; expiresAt: string; issuedBy: string;
 }): Promise<DesktopJobOperatorApproval> {
   const request = requestPath(input.root, input.requestId);
-  const existing = await readApproval(request);
-  if (existing) {
-    const identity = JSON.stringify({ jobId: existing.jobId, runId: existing.runId, revision: existing.revision, issuedBy: existing.issuedBy });
-    const requested = JSON.stringify({ jobId: input.jobId, runId: input.runId, revision: input.revision, issuedBy: input.issuedBy });
-    if (identity !== requested) throw new Error("Desktop operator approval request conflicts with an existing request");
-    return existing;
-  }
-  const approval: DesktopJobOperatorApproval = {
-    version: 1, approvalId: `desktop-approval-${randomUUID()}`, requestId: input.requestId,
-    action: "desktop-job-containment", jobId: input.jobId, runId: input.runId, revision: input.revision,
-    issuedAt: input.issuedAt, expiresAt: input.expiresAt, issuedBy: input.issuedBy, state: "issued",
-  };
-  await writeJson(approvalPath(input.root, approval.approvalId), approval);
-  await writeJson(request, approval);
-  return approval;
+  return serialized(request, () => withDurableDesktopOperatorLock(input.root, input.requestId, async () => {
+    const existing = await readApproval(request);
+    if (existing) {
+      const identity = JSON.stringify({ jobId: existing.jobId, runId: existing.runId, revision: existing.revision, issuedBy: existing.issuedBy });
+      const requested = JSON.stringify({ jobId: input.jobId, runId: input.runId, revision: input.revision, issuedBy: input.issuedBy });
+      if (identity !== requested) throw new Error("Desktop operator approval request conflicts with an existing request");
+      return existing;
+    }
+    const approval: DesktopJobOperatorApproval = {
+      version: 1, approvalId: `desktop-approval-${randomUUID()}`, requestId: input.requestId,
+      action: "desktop-job-containment", jobId: input.jobId, runId: input.runId, revision: input.revision,
+      issuedAt: input.issuedAt, expiresAt: input.expiresAt, issuedBy: input.issuedBy, state: "issued",
+    };
+    await writeJson(approvalPath(input.root, approval.approvalId), approval);
+    await writeJson(request, approval);
+    return approval;
+  }, { waitForMs: 2000 }));
 }
 
 async function consumeApproval(input: { root: string; approvalId: string; jobId: string; runId: string; revision: string; at: string }): Promise<{ ok: true; approval: DesktopJobOperatorApproval } | { ok: false; reason: string }> {

@@ -59,3 +59,23 @@ test("verified result from another Run is rejected without changing the pending 
   const result = await reconcileVerifiedDesktopJobResult({ jobRoot: f.root, resultRoot, jobId: f.job.jobId, now: "2026-09-20T01:00:06.000Z" });
   assert.deepEqual(result, { status: "not-matching", reason: "result-identity-mismatch" });
 });
+
+test("desktop operator containment approval issuance is serialized across service instances", async () => {
+  const f = await fixture({ id: "inspect", type: "GIT_INSPECT", cwd: "." });
+  const revision = desktopJobRevision(f.job);
+  const instances = await Promise.all(
+    Array.from({ length: 8 }, (_, index) => import(`../src/desktop-agent/operator-reconciliation.ts?desktop-approval-instance=${index}`)),
+  );
+  const attempts = await Promise.allSettled(instances.map((service, index) => service.issueDesktopJobContainmentApproval({
+    root: f.root,
+    requestId: "cross-service-desktop-request",
+    jobId: f.job.jobId,
+    runId: f.job.runId,
+    revision,
+    issuedAt: "2026-09-20T01:00:01.000Z",
+    expiresAt: "2026-09-20T02:00:00.000Z",
+    issuedBy: `operator-${index}`,
+  })));
+  assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
+  assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 7);
+});
