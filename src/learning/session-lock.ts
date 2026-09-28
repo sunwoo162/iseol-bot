@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { assertIdentityId } from "../identity/contracts.js";
 
 type SessionLockRecord = { version: 1; pid: number; token: string; createdAt: string };
+export type DurableLearningSessionLockOptions = { waitForMs?: number; pollIntervalMs?: number };
 
 function lockPath(root: string, userId: string, sessionId: string): string {
   assertIdentityId(userId);
@@ -39,18 +40,23 @@ export async function withDurableLearningSessionLock<T>(
   userId: string,
   sessionId: string,
   task: () => Promise<T>,
+  options: DurableLearningSessionLockOptions = {},
 ): Promise<T> {
   const path = lockPath(root, userId, sessionId);
   await mkdir(dirname(path), { recursive: true });
   let handle: FileHandle;
-  try {
-    handle = await open(path, "wx");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !(await removeDeadOwnerLock(path))) throw new Error("Learning session revision conflict");
-    try { handle = await open(path, "wx"); }
-    catch (retryError) {
-      if ((retryError as NodeJS.ErrnoException).code === "EEXIST") throw new Error("Learning session revision conflict");
-      throw retryError;
+  const waitForMs = options.waitForMs ?? 0;
+  const pollIntervalMs = Math.max(1, options.pollIntervalMs ?? 10);
+  const deadline = Date.now() + Math.max(0, waitForMs);
+  while (true) {
+    try {
+      handle = await open(path, "wx");
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (await removeDeadOwnerLock(path)) continue;
+      if (waitForMs <= 0 || Date.now() >= deadline) throw new Error("Learning session revision conflict");
+      await new Promise((resolve) => setTimeout(resolve, Math.min(pollIntervalMs, Math.max(1, deadline - Date.now()))));
     }
   }
   try {

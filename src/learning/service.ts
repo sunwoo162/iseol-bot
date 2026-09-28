@@ -721,26 +721,30 @@ export function createLearningService(root: string, options: LearningServiceOpti
     async requestLearningSessionContent(principal, sessionId): Promise<LearningContentRequest> {
       ensurePrincipal(principal);
       try { assertIdentityId(sessionId); } catch { throw new Error("Learning session not found"); }
-      const session = await loadSession(root, principal.userId, sessionId);
-      if (!session || session.userId !== principal.userId) throw new Error("Learning session not found");
-      if (!session.goalId || !session.planVersionId || !session.dayId) throw new Error("Learning goal session content requires an activated goal day");
-      const plan = await loadLearningPlanVersion(root, principal.userId, session.planVersionId);
-      if (!plan || plan.userId !== principal.userId || plan.goalId !== session.goalId || plan.status === "superseded") throw new Error("Learning plan version not found");
-      const day = plan.days.find((candidate) => candidate.id === session.dayId);
-      if (!day) throw new Error("Learning plan day not found");
-      const existing = (await listLearningContentRequests(root, principal.userId)).find((request) => request.userId === principal.userId && request.sessionId === session.id);
-      if (existing) return existing;
-      const at = now(); assertTimestamp(at, "learning content request timestamp");
-      const request: LearningContentRequest = {
-        version: 1, id: "learning-content-request-" + randomUUID(), userId: principal.userId,
-        sessionId: session.id, goalId: session.goalId, planVersionId: plan.id, dayId: day.id,
-        templateId: "learning-day-content", templateVersion: "learning-day-content-v1", scope: "private",
-        inputHash: contentInputHash(session, plan, day), state: "waiting-runtime", budget: { maxMinutes: day.minutes },
-        blocker: "local learning content Runtime is not configured", createdAt: at, updatedAt: at,
-      };
-      await saveLearningContentRequest(root, request);
-      await saveSession(root, nextSessionRevision(session, { contentStatus: "pending", contentRequestId: request.id }));
-      if (!options.contentDispatcher) return request;
+      const reservation = await withSessionMutationLock(`${principal.userId}:${sessionId}`, () => withDurableLearningSessionLock(root, principal.userId, sessionId, async () => {
+        const session = await loadSession(root, principal.userId, sessionId);
+        if (!session || session.userId !== principal.userId) throw new Error("Learning session not found");
+        if (!session.goalId || !session.planVersionId || !session.dayId) throw new Error("Learning goal session content requires an activated goal day");
+        const plan = await loadLearningPlanVersion(root, principal.userId, session.planVersionId);
+        if (!plan || plan.userId !== principal.userId || plan.goalId !== session.goalId || plan.status === "superseded") throw new Error("Learning plan version not found");
+        const day = plan.days.find((candidate) => candidate.id === session.dayId);
+        if (!day) throw new Error("Learning plan day not found");
+        const existing = (await listLearningContentRequests(root, principal.userId)).find((request) => request.userId === principal.userId && request.sessionId === session.id);
+        if (existing) return { request: existing, shouldDispatch: false as const };
+        const at = now(); assertTimestamp(at, "learning content request timestamp");
+        const request: LearningContentRequest = {
+          version: 1, id: "learning-content-request-" + randomUUID(), userId: principal.userId,
+          sessionId: session.id, goalId: session.goalId, planVersionId: plan.id, dayId: day.id,
+          templateId: "learning-day-content", templateVersion: "learning-day-content-v1", scope: "private",
+          inputHash: contentInputHash(session, plan, day), state: "waiting-runtime", budget: { maxMinutes: day.minutes },
+          blocker: "local learning content Runtime is not configured", createdAt: at, updatedAt: at,
+        };
+        await saveLearningContentRequest(root, request);
+        await saveSession(root, nextSessionRevision(session, { contentStatus: "pending", contentRequestId: request.id }));
+        return { request, shouldDispatch: true as const, session, plan, day };
+      }, { waitForMs: 2_000 }));
+      if (!reservation.shouldDispatch || !options.contentDispatcher) return reservation.request;
+      const { request, session, plan, day } = reservation;
       try {
         const result = await dispatchForUser(principal.userId, () => options.contentDispatcher!({
           principal, request, session, plan, day,
@@ -769,24 +773,28 @@ export function createLearningService(root: string, options: LearningServiceOpti
     async completeLearningContent(principal, requestId, input: LearningLessonInput): Promise<LearningContentRequest> {
       ensurePrincipal(principal);
       try { assertIdentityId(requestId); } catch { throw new Error("Learning content request not found"); }
-      const request = await loadLearningContentRequest(root, principal.userId, requestId);
-      if (!request || request.userId !== principal.userId) throw new Error("Learning content request not found");
-      if (request.state === "validated" && request.lesson) return request;
-      const session = await loadSession(root, principal.userId, request.sessionId);
-      const plan = await loadLearningPlanVersion(root, principal.userId, request.planVersionId);
-      const day = plan?.days.find((candidate) => candidate.id === request.dayId);
-      if (!session || session.userId !== principal.userId || !plan || plan.userId !== principal.userId || !day) throw new Error("Learning content source is no longer available");
-      validateLessonInput(input, day);
-      const at = now(); assertTimestamp(at, "learning content completion timestamp");
-      const lesson: LearningLessonContent = {
-        ...input, version: 1, id: "learning-lesson-" + randomUUID(), userId: principal.userId,
-        sessionId: session.id, goalId: request.goalId, planVersionId: plan.id, dayId: day.id,
-        source: { kind: "local-runtime", requestId: request.id }, createdAt: at, updatedAt: at,
-      };
-      const completed: LearningContentRequest = { ...request, state: "validated", lesson, blocker: undefined, updatedAt: at };
-      await saveLearningContentRequest(root, completed);
-      await saveSession(root, nextSessionRevision(session, { contentStatus: "ready", contentRequestId: request.id, contentId: lesson.id }));
-      return completed;
+      const initialRequest = await loadLearningContentRequest(root, principal.userId, requestId);
+      if (!initialRequest || initialRequest.userId !== principal.userId) throw new Error("Learning content request not found");
+      return withSessionMutationLock(`${principal.userId}:${initialRequest.sessionId}`, () => withDurableLearningSessionLock(root, principal.userId, initialRequest.sessionId, async () => {
+        const request = await loadLearningContentRequest(root, principal.userId, requestId);
+        if (!request || request.userId !== principal.userId) throw new Error("Learning content request not found");
+        if (request.state === "validated" && request.lesson) return request;
+        const session = await loadSession(root, principal.userId, request.sessionId);
+        const plan = await loadLearningPlanVersion(root, principal.userId, request.planVersionId);
+        const day = plan?.days.find((candidate) => candidate.id === request.dayId);
+        if (!session || session.userId !== principal.userId || !plan || plan.userId !== principal.userId || !day) throw new Error("Learning content source is no longer available");
+        validateLessonInput(input, day);
+        const at = now(); assertTimestamp(at, "learning content completion timestamp");
+        const lesson: LearningLessonContent = {
+          ...input, version: 1, id: "learning-lesson-" + randomUUID(), userId: principal.userId,
+          sessionId: session.id, goalId: request.goalId, planVersionId: plan.id, dayId: day.id,
+          source: { kind: "local-runtime", requestId: request.id }, createdAt: at, updatedAt: at,
+        };
+        const completed: LearningContentRequest = { ...request, state: "validated", lesson, blocker: undefined, updatedAt: at };
+        await saveLearningContentRequest(root, completed);
+        await saveSession(root, nextSessionRevision(session, { contentStatus: "ready", contentRequestId: request.id, contentId: lesson.id }));
+        return completed;
+      }, { waitForMs: 2_000 }));
     },
 
     async recordLearningSessionAction(principal, sessionId, input: LearningSessionActionInput): Promise<LearningSessionAction> {

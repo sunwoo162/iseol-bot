@@ -6,6 +6,7 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createLearningService } from "../src/learning/service.js";
 import type { LearningContentDispatcher } from "../src/learning/contracts.js";
+import { withDurableLearningSessionLock } from "../src/learning/session-lock.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -66,4 +67,78 @@ test("an explicitly injected local content Runtime can complete later through an
     blocks: [{ id: "other", kind: "concept", conceptIds: [], minutes: 1, title: "무시", content: "무시되어야 합니다." }],
   });
   assert.equal(JSON.stringify(await service.getLearningSessionContent(owner, session.id)), before);
+});
+
+test("learning content reservation waits for a competing shared session lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-content-lock-"));
+  const { service, owner, session } = await started(root);
+  let settled = false;
+  let requestPromise!: ReturnType<typeof service.requestLearningSessionContent>;
+  const held = withDurableLearningSessionLock(root, owner.userId, session.id, async () => {
+    requestPromise = service.requestLearningSessionContent(owner, session.id).then((value) => {
+      settled = true;
+      return value;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(settled, false);
+    assert.equal(await service.getLearningSessionContent(owner, session.id), null);
+  });
+  await held;
+  const request = await requestPromise;
+  assert.equal(request.sessionId, session.id);
+  assert.equal(settled, true);
+});
+
+test("learning content reservation is idempotent across service instances and dispatches once", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-content-cross-instance-"));
+  let calls = 0;
+  let resolveEntered!: () => void;
+  const entered = new Promise<void>((resolve) => { resolveEntered = resolve; });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const dispatcher: LearningContentDispatcher = async () => {
+    calls += 1;
+    if (calls === 1) {
+      resolveEntered();
+      await gate;
+    }
+    return { status: "accepted", blocker: "local content Runtime is processing" };
+  };
+  const { service: firstService, owner, session } = await started(root, dispatcher);
+  const secondService = createLearningService(root, { now: () => at, contentDispatcher: dispatcher });
+  const first = firstService.requestLearningSessionContent(owner, session.id);
+  await entered;
+  const second = await secondService.requestLearningSessionContent(owner, session.id);
+  assert.equal(calls, 1);
+  release();
+  const firstResult = await first;
+  assert.equal(firstResult.id, second.id);
+  assert.equal(firstResult.state, "waiting-runtime");
+});
+
+test("learning content completion waits on the owning session lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-content-complete-lock-"));
+  const { service, owner, session, preview } = await started(root);
+  const request = await service.requestLearningSessionContent(owner, session.id);
+  let settled = false;
+  let completion!: ReturnType<typeof service.completeLearningContent>;
+  await withDurableLearningSessionLock(root, owner.userId, session.id, async () => {
+    completion = service.completeLearningContent(owner, request.id, {
+      title: "잠금 경계 수업",
+      estimatedMinutes: 20,
+      blocks: [
+        { id: "block-concept", kind: "concept", conceptIds: [preview.plan.days[0]!.conceptIds[0]!], minutes: 8, title: "핵심 개념", content: "공유 세션 잠금은 한 번에 하나의 상태 전이를 허용합니다." },
+        { id: "block-question", kind: "question", conceptIds: [preview.plan.days[0]!.conceptIds[0]!], minutes: 12, title: "확인 질문", content: "왜 콘텐츠 완료도 세션 잠금 안에서 처리되어야 할까요?" },
+      ],
+    }).then((value) => {
+      settled = true;
+      return value;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(settled, false);
+    assert.equal((await service.getLearningSessionContent(owner, session.id))?.state, "waiting-runtime");
+  });
+  const completed = await completion;
+  assert.equal(completed.state, "validated");
+  assert.equal(settled, true);
 });
