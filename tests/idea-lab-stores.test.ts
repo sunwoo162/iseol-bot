@@ -142,3 +142,22 @@ test("campaign events append once by semantic identity and reject conflicting re
     );
   });
 });
+
+test("concurrent identical campaign event append-once calls remain one event", async () => {
+  await withRoot(async (root) => {
+    const event: IdeaLabCampaignEvent = {
+      version: 1,
+      id: "evt-concurrent",
+      campaignId: "camp-1",
+      type: "campaign-created",
+      at: NOW,
+      summary: "Created campaign",
+    };
+    const results = await Promise.all([
+      appendIdeaLabCampaignEventOnce(root, event),
+      appendIdeaLabCampaignEventOnce(root, event),
+    ]);
+    assert.deepEqual(results.sort(), [false, true]);
+    assert.deepEqual(await listIdeaLabCampaignEvents(root, event.campaignId), [event]);
+  });
+});
