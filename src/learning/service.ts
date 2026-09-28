@@ -12,6 +12,7 @@ import { withDurableLearningReportLock } from "./report-lock.js";
 import { withDurableLearningGoalSessionLock } from "./goal-session-lock.js";
 import { withDurableLearningSessionStartLock } from "./session-start-lock.js";
 import { withDurableLearningReviewLock } from "./review-lock.js";
+import { withDurableLearningCodingAttemptLock } from "./coding-attempt-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -1329,55 +1330,57 @@ export function createLearningService(root: string, options: LearningServiceOpti
       if (!exercise) throw new Error("Coding exercise not found");
       const clientRequestId = nonEmpty(input.clientRequestId, "Coding attempt request id", 160);
       const response = nonEmpty(input.response, "Coding attempt response", 100_000);
-      const existing = (await listCodingAttempts(root, principal.userId)).find((attempt) => attempt.exerciseId === exercise.id && attempt.clientRequestId === clientRequestId);
-      if (existing) {
-        if (existing.response !== response) throw new Error("Coding attempt idempotency conflict");
-        await recordCodingAttemptActivity(principal, exercise, existing);
-        return { attempt: existing, created: false };
-      }
-      const at = now(); assertTimestamp(at, "coding attempt timestamp");
-      const attempt: CodingAttempt = {
-        version: 1,
-        id: "coding-attempt-" + randomUUID(),
-        userId: principal.userId,
-        exerciseId: exercise.id,
-        clientRequestId,
-        response,
-        submittedAt: at,
-        revealedBeforeSubmit: false,
-        practiceResult: {
-          status: "environment-required",
-          artifactRefs: [],
-          executorId: "none",
-          policyRef: "local-runtime-executor",
-        },
-      };
-      await saveCodingAttempt(root, attempt);
-      if (options.codingAttemptVerifier) {
-        try {
-          await options.codingAttemptVerifier({
-            principal,
-            exercise,
-            attempt,
-            complete: async (practiceResult: CodingPracticeResult) => {
-              const current = (await listCodingAttempts(root, principal.userId)).find((candidate) => candidate.id === attempt.id);
-              if (!current || current.userId !== principal.userId) throw new Error("Coding attempt not found");
-              if (current.practiceResult.status !== "environment-required") {
-                return current;
-              }
-              const updated = { ...current, practiceResult };
-              await saveCodingAttempt(root, updated);
-              return updated;
-            },
-          });
-        } catch {
-          // A verifier failure never upgrades a practice record; the durable
-          // environment-required result remains the truthful fallback.
+      return withDurableLearningCodingAttemptLock(root, principal.userId, exercise.id, clientRequestId, async () => {
+        const existing = (await listCodingAttempts(root, principal.userId)).find((attempt) => attempt.exerciseId === exercise.id && attempt.clientRequestId === clientRequestId);
+        if (existing) {
+          if (existing.response !== response) throw new Error("Coding attempt idempotency conflict");
+          await recordCodingAttemptActivity(principal, exercise, existing);
+          return { attempt: existing, created: false };
         }
-      }
-      const persisted = (await this.listCodingAttempts(principal, exercise.id)).find((candidate) => candidate.id === attempt.id) ?? attempt;
-      await recordCodingAttemptActivity(principal, exercise, persisted);
-      return { attempt: persisted, created: true };
+        const at = now(); assertTimestamp(at, "coding attempt timestamp");
+        const attempt: CodingAttempt = {
+          version: 1,
+          id: "coding-attempt-" + randomUUID(),
+          userId: principal.userId,
+          exerciseId: exercise.id,
+          clientRequestId,
+          response,
+          submittedAt: at,
+          revealedBeforeSubmit: false,
+          practiceResult: {
+            status: "environment-required",
+            artifactRefs: [],
+            executorId: "none",
+            policyRef: "local-runtime-executor",
+          },
+        };
+        await saveCodingAttempt(root, attempt);
+        if (options.codingAttemptVerifier) {
+          try {
+            await options.codingAttemptVerifier({
+              principal,
+              exercise,
+              attempt,
+              complete: async (practiceResult: CodingPracticeResult) => {
+                const current = (await listCodingAttempts(root, principal.userId)).find((candidate) => candidate.id === attempt.id);
+                if (!current || current.userId !== principal.userId) throw new Error("Coding attempt not found");
+                if (current.practiceResult.status !== "environment-required") {
+                  return current;
+                }
+                const updated = { ...current, practiceResult };
+                await saveCodingAttempt(root, updated);
+                return updated;
+              },
+            });
+          } catch {
+            // A verifier failure never upgrades a practice record; the durable
+            // environment-required result remains the truthful fallback.
+          }
+        }
+        const persisted = (await this.listCodingAttempts(principal, exercise.id)).find((candidate) => candidate.id === attempt.id) ?? attempt;
+        await recordCodingAttemptActivity(principal, exercise, persisted);
+        return { attempt: persisted, created: true };
+      }, { waitForMs: 2_000 });
     },
 
     async listCodingAttempts(principal, exerciseId) {

@@ -150,3 +150,23 @@ test("coding attempt submissions create one owner-scoped unverified activity rec
   });
   assert.deepEqual(await activity.listActivityEvents(other), []);
 });
+
+test("concurrent coding attempt submissions with one client request id remain one attempt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-coding-concurrent-"));
+  const owner = principal("coding-concurrent-owner");
+  const firstService = createLearningService(root, { now: () => at });
+  const secondService = createLearningService(root, { now: () => at });
+  const plan = await firstService.createLearningPlan(owner, { title: "Concurrent coding", description: "One request", goals: ["one"] });
+  const session = await firstService.startLearningSession(owner, plan.id);
+  const exercise = await firstService.createCodingExercise(owner, { sessionId: session.id, title: "Concurrent exercise", prompt: "Answer once", language: "typescript", estimatedMinutes: 5 });
+  const input = { exerciseId: exercise.id, clientRequestId: "coding-concurrent-request", response: "const answer = 1;" };
+
+  const results = await Promise.all([
+    firstService.submitCodingAttempt(owner, input),
+    secondService.submitCodingAttempt(owner, input),
+  ]);
+
+  assert.deepEqual(results.map((result) => result.created).sort(), [false, true]);
+  assert.equal(new Set(results.map((result) => result.attempt.id)).size, 1);
+  assert.equal((await firstService.listCodingAttempts(owner, exercise.id)).length, 1);
+});
