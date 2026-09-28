@@ -1,8 +1,10 @@
-# ISEOL 단계적 확장 아키텍처
+# NPC 단계적 확장 아키텍처
 
 상태: 승인된 방향 1의 설계. 제안 API/파일/모델은 아직 구현되지 않았다. 기존 JSON durable store와 실행 경로를 유지한다. DB 전환이나 기존 데이터 소유권 자동 부여는 이번 범위가 아니다.
 
 ## 경계와 원칙
+
+현재 제품 브랜드는 NPC(Nexus Personal Console)이며, 이설은 NPC 안에서 사용자별로 동작하는 개인 AI 에이전트의 통칭이다. 사용자별 AI 프로필은 `src/ai-agent`에 저장하고, 기존 사용자·세션·개인 기억·AI Chat의 소유권 경계를 재사용한다. 프로필 이름과 표현은 사용자 설정이지만, 실행 권한과 외부 부작용 권한을 부여하지 않는다.
 
 기존 Runtime/Harness는 개발 실행 권위, learning store는 학습 권위, growth ledger는 활동 평가 결과 권위다. SSE/Discord/캐릭터는 projection이다. 사용자 AI 대화나 외부 브라우저가 권위 있는 저장소가 되지 않는다.
 
