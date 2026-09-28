@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import { INTEGRATION_PROVIDERS, type IntegrationAdapter, type IntegrationDelivery, type IntegrationDeliveryInput, type IntegrationProvider, type IntegrationService } from "./contracts.js";
+import { withDurableIntegrationDeliveryLock } from "./delivery-lock.js";
 import { listIntegrationDeliveries, loadIntegrationDelivery, saveIntegrationDelivery } from "./store.js";
 
 type IntegrationServiceOptions = {
@@ -65,7 +66,7 @@ export function createIntegrationService(root: string, options: IntegrationServi
       const at = now();
       assertTimestamp(at, "integration delivery timestamp");
       const id = `integration-delivery-${identity(principal.userId, input)}`;
-      return withDeliveryLock(`${principal.userId}:${id}`, async () => {
+      return withDeliveryLock(`${principal.userId}:${id}`, () => withDurableIntegrationDeliveryLock(root, principal.userId, id, async () => {
         const existing = await loadIntegrationDelivery(root, principal.userId, id);
         if (existing) {
           if (!sameInput(existing, input)) throw new Error("Delivery identity conflict");
@@ -88,13 +89,13 @@ export function createIntegrationService(root: string, options: IntegrationServi
         };
         await saveIntegrationDelivery(root, delivery);
         return delivery;
-      });
+      }, { waitForMs: 2_000 }));
     },
 
     async dispatchDelivery(principal, deliveryId) {
       ensurePrincipal(principal);
       assertIdentityId(deliveryId);
-      return withDeliveryLock(`${principal.userId}:${deliveryId}`, async () => {
+      return withDeliveryLock(`${principal.userId}:${deliveryId}`, () => withDurableIntegrationDeliveryLock(root, principal.userId, deliveryId, async () => {
         const current = await loadIntegrationDelivery(root, principal.userId, deliveryId);
         if (!current || current.userId !== principal.userId) throw new Error("Delivery not found");
         if (current.state !== "queued") return current;
@@ -131,7 +132,7 @@ export function createIntegrationService(root: string, options: IntegrationServi
           await saveIntegrationDelivery(root, unknown);
           return unknown;
         }
-      });
+      }, { waitForMs: 2_000 }));
     },
 
     async listDeliveries(principal) {

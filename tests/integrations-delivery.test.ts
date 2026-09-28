@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createIntegrationService } from "../src/integrations/service.js";
+import { withDurableIntegrationDeliveryLock } from "../src/integrations/delivery-lock.js";
 import type { IntegrationDeliveryInput, IntegrationProvider } from "../src/integrations/contracts.js";
 import type { Principal } from "../src/identity/contracts.js";
 
@@ -82,6 +83,63 @@ test("concurrent dispatches attempt one provider delivery and converge on one du
     assert.equal(first.externalRef, "github-event-concurrent");
     assert.equal(second.externalRef, "github-event-concurrent");
     assert.equal((await service.listDeliveries(principal("user-a")))[0]?.attempts, 1);
+  });
+});
+
+test("delivery dispatch waits for the durable cross-service lock", async () => {
+  await withRoot(async (root) => {
+    const service = createIntegrationService(root, {
+      isOptedIn: () => false,
+    });
+    const queued = await service.enqueueDelivery(principal("user-a"), input());
+    let release!: () => void;
+    let acquired!: () => void;
+    const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+    const holder = withDurableIntegrationDeliveryLock(root, "user-a", queued.id, async () => {
+      acquired();
+      await new Promise<void>((resolve) => { release = resolve; });
+    }, { waitForMs: 0 });
+    await holderAcquired;
+
+    const dispatch = service.dispatchDelivery(principal("user-a"), queued.id);
+    assert.equal(await Promise.race([
+      dispatch.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+    ]), false);
+    release();
+    await Promise.all([holder, dispatch]);
+  });
+});
+
+test("concurrent dispatches across service instances call the adapter once", async () => {
+  await withRoot(async (root) => {
+    let calls = 0;
+    const adapter = { deliver: async () => { calls += 1; return { externalRef: "github-cross-service" }; } };
+    const first = createIntegrationService(root, { isOptedIn: () => true, adapters: { github: adapter } });
+    const second = createIntegrationService(root, { isOptedIn: () => true, adapters: { github: adapter } });
+    const queued = await first.enqueueDelivery(principal("user-a"), input());
+    const [left, right] = await Promise.all([
+      first.dispatchDelivery(principal("user-a"), queued.id),
+      second.dispatchDelivery(principal("user-a"), queued.id),
+    ]);
+    assert.equal(calls, 1);
+    assert.equal(left.state, "delivered");
+    assert.equal(right.state, "delivered");
+    assert.equal((await first.listDeliveries(principal("user-a")))[0]?.attempts, 1);
+  });
+});
+
+test("concurrent enqueue identity conflicts have one durable winner", async () => {
+  await withRoot(async (root) => {
+    const first = createIntegrationService(root);
+    const second = createIntegrationService(root);
+    const results = await Promise.allSettled([
+      first.enqueueDelivery(principal("user-a"), input()),
+      second.enqueueDelivery(principal("user-a"), { ...input(), payload: { projectId: "other" } }),
+    ]);
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(results.filter((result) => result.status === "rejected" && /identity conflict/i.test(String(result.reason))).length, 1);
+    assert.equal((await first.listDeliveries(principal("user-a"))).length, 1);
   });
 });
 
