@@ -50,3 +50,20 @@ test("memory edits remain owner-bound and survive a service restart", async () =
   assert.equal(updated?.userId, "user-a");
   assert.deepEqual((await createMemoryService(root, { now: () => at }).listPrivateMemories(principal("user-a"), {}))[0], updated);
 });
+
+test("memory mutations across service instances preserve both patches", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-private-memory-concurrent-"));
+  const firstService = createMemoryService(root, { now: () => "2026-09-25T12:00:00.000Z" });
+  const secondService = createMemoryService(root, { now: () => "2026-09-25T12:00:01.000Z" });
+  const owner = principal("user-concurrent");
+  const memory = await firstService.appendPrivateMemory(owner, { kind: "note", content: "original", source: "source" });
+
+  await Promise.all([
+    firstService.updatePrivateMemory(owner, memory.id, { kind: "learning-note" }),
+    secondService.updatePrivateMemory(owner, memory.id, { source: "updated-source" }),
+  ]);
+
+  const persisted = await createMemoryService(root).listPrivateMemories(owner, {});
+  assert.equal(persisted[0]?.kind, "learning-note");
+  assert.equal(persisted[0]?.source, "updated-source");
+});
