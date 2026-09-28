@@ -37,7 +37,6 @@ test("shutdown records every phase and completes all owned resources", async () 
   assert.equal(events.at(-1)?.lastCompletedStage, "browser");
   assert.deepEqual(events.at(-1)?.remainingStages, []);
 });
-
 test("shutdown bounds a delayed Idea Lab idle and preserves later ownership", async () => {
   const events: ShutdownDiagnostic[] = [];
   let desktopClosed = false;
@@ -114,4 +113,3 @@ test("shutdown continues independent cleanup after a bounded dispose failure", a
   assert.equal(failed?.failureClass, "dispose-error");
   assert.equal(events.at(-1)?.lastCompletedStage, "browser");
 });
-
