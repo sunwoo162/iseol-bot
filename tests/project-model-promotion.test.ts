@@ -11,6 +11,7 @@ import { loadProjectHistory } from "../src/project-model/history-store.js";
 import { promotePrototype } from "../src/project-model/promotion.js";
 import { loadPrototypeCandidate, recordPrototypeBrowserAcceptance, savePrototypeCandidate } from "../src/project-model/prototype-store.js";
 import { loadProjectWorkspace } from "../src/project-model/workspace-store.js";
+import { withDurableProjectPromotionLock } from "../src/project-model/promotion-lock.js";
 
 function candidate(): PrototypeCandidate {
   return {
@@ -132,6 +133,27 @@ test("promotion marks candidate promoted and is idempotent on retry", async () =
   assert.equal(history.filter((event) => event.type === "project-promoted").length, 1);
   assert.equal(history.filter((event) => event.type === "genesis-run-imported").length, 1);
   assert.deepEqual(await loadProjectWorkspace(modelRoot, first.id), first);
+});
+
+test("promotion waits for the durable cross-service promotion lock", async () => {
+  const { modelRoot, harnessRoot } = await fixture();
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableProjectPromotionLock(modelRoot, "prototype-001", async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const promotion = promotePrototype({ modelRoot, harnessRoot, prototypeId: "prototype-001", promotedAt: "2026-09-07T01:00:00.000Z" }).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  assert.equal((await promotion).id, "project-prototype-001");
 });
 
 test("missing Genesis Run aborts before promotion state is committed", async () => {

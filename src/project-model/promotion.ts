@@ -10,6 +10,7 @@ import { assertPromotionReadyPrototype } from "./contracts.js";
 import { appendProjectHistoryEvent, loadProjectHistory } from "./history-store.js";
 import { loadPrototypeCandidate, updatePrototypeCandidate } from "./prototype-store.js";
 import { loadProjectWorkspace, saveProjectWorkspace } from "./workspace-store.js";
+import { withDurableProjectPromotionLock } from "./promotion-lock.js";
 
 export type PromotePrototypeInput = {
   modelRoot: string;
@@ -131,35 +132,37 @@ async function markPromoted(
 async function promotePrototypeOnce(
   input: PromotePrototypeInput,
 ): Promise<ProjectWorkspace> {
-  const candidate = await loadPrototypeCandidate(input.modelRoot, input.prototypeId);
-  if (!candidate) throw new Error(`Prototype not found: ${input.prototypeId}`);
-  assertPromotionReadyPrototype(candidate);
+  return withDurableProjectPromotionLock(input.projectModelRoot ?? input.modelRoot, input.prototypeId, async () => {
+    const candidate = await loadPrototypeCandidate(input.modelRoot, input.prototypeId);
+    if (!candidate) throw new Error(`Prototype not found: ${input.prototypeId}`);
+    assertPromotionReadyPrototype(candidate);
 
-  const projectId = workspaceIdFor(candidate.id);
-  const projectModelRoot = input.projectModelRoot ?? input.modelRoot;
-  const existing = await loadProjectWorkspace(projectModelRoot, projectId);
-  if (existing) {
-    if (existing.genesis.prototypeId !== candidate.id) {
-      throw new Error(`Project workspace identity mismatch: ${projectId}`);
+    const projectId = workspaceIdFor(candidate.id);
+    const projectModelRoot = input.projectModelRoot ?? input.modelRoot;
+    const existing = await loadProjectWorkspace(projectModelRoot, projectId);
+    if (existing) {
+      if (existing.genesis.prototypeId !== candidate.id) {
+        throw new Error(`Project workspace identity mismatch: ${projectId}`);
+      }
+      await ensureHistory(projectModelRoot, existing);
+      await markPromoted(input.modelRoot, candidate, projectId, input.promotedAt);
+      return existing;
     }
-    await ensureHistory(projectModelRoot, existing);
-    await markPromoted(input.modelRoot, candidate, projectId, input.promotedAt);
-    return existing;
-  }
-  if (candidate.status === "promoted" && candidate.promotedProjectId === projectId) {
-    throw new Error(`Promoted prototype workspace is missing: ${projectId}`);
-  }
+    if (candidate.status === "promoted" && candidate.promotedProjectId === projectId) {
+      throw new Error(`Promoted prototype workspace is missing: ${projectId}`);
+    }
 
-  const runs: GenesisRunSnapshot[] = [];
-  for (const runId of candidate.runIds) {
-    runs.push(await importGenesisRun(input.harnessRoot, runId));
-  }
+    const runs: GenesisRunSnapshot[] = [];
+    for (const runId of candidate.runIds) {
+      runs.push(await importGenesisRun(input.harnessRoot, runId));
+    }
 
-  const workspace = createWorkspace(candidate, runs, input.promotedAt);
-  await saveProjectWorkspace(projectModelRoot, workspace);
-  await ensureHistory(projectModelRoot, workspace);
-  await markPromoted(input.modelRoot, candidate, workspace.id, input.promotedAt);
-  return workspace;
+    const workspace = createWorkspace(candidate, runs, input.promotedAt);
+    await saveProjectWorkspace(projectModelRoot, workspace);
+    await ensureHistory(projectModelRoot, workspace);
+    await markPromoted(input.modelRoot, candidate, workspace.id, input.promotedAt);
+    return workspace;
+  }, { waitForMs: 2_000 });
 }
 
 export async function promotePrototype(
