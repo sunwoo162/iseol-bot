@@ -55,6 +55,38 @@ test("an injected learning evaluator completes feedback only with validated tent
   assert.equal(persisted?.evaluation?.evaluatorVersion, "local-evaluator-v1");
 });
 
+test("concurrent learning feedback completions preserve one durable evaluation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-feedback-completion-concurrent-"));
+  const owner = principal("feedback-completion-concurrent-owner");
+  const firstService = createLearningService(root, { now: () => at });
+  const secondService = createLearningService(root, { now: () => at });
+  const plan = await firstService.createLearningPlan(owner, { title: "Concurrent feedback", description: "One evaluation", goals: ["Practice"] });
+  const session = await firstService.startLearningSession(owner, plan.id);
+  const exercise = await firstService.createCodingExercise(owner, { sessionId: session.id, title: "Explain", prompt: "Explain", language: "typescript", estimatedMinutes: 10 });
+  const attempt = await firstService.submitCodingAttempt(owner, { exerciseId: exercise.id, clientRequestId: "feedback-completion-concurrent-attempt", response: "answer" });
+  const answer = await firstService.submitLearningAnswer(owner, session.id, { exerciseId: exercise.id, attemptId: attempt.attempt.id, response: attempt.attempt.response });
+  const feedback = await firstService.getLearningAnswerFeedback(owner, answer.id);
+  assert.ok(feedback);
+  const evaluation = (version: string) => ({
+    attemptId: attempt.attempt.id,
+    rubricVersion: "rubric-v1",
+    evaluatorVersion: version,
+    criteriaResults: [{ criterionId: "explanation", result: "partial" as const, evidenceRefs: [], explanation: version }],
+    feedback: version,
+    misconceptions: [],
+    verification: "tentative" as const,
+    nextAction: "다음 문제를 풀어 보세요.",
+  });
+
+  const results = await Promise.all([
+    firstService.completeLearningFeedback(owner, feedback.id, evaluation("evaluator-v1")),
+    secondService.completeLearningFeedback(owner, feedback.id, evaluation("evaluator-v2")),
+  ]);
+
+  assert.equal(new Set(results.map((result) => result.evaluation?.evaluatorVersion)).size, 1);
+  assert.equal((await firstService.getLearningAnswerFeedback(owner, answer.id))?.evaluation?.evaluatorVersion, results[0].evaluation?.evaluatorVersion);
+});
+
 test("syntax-only verifier evidence cannot be promoted to verified correctness feedback", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-learning-evaluator-syntax-only-"));
   const service = createLearningService(root, {

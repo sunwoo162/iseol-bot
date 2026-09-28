@@ -16,6 +16,7 @@ import { withDurableLearningCodingAttemptLock } from "./coding-attempt-lock.js";
 import { withDurableLearningAnswerLock } from "./answer-lock.js";
 import { withDurableLearningFeedbackDisputeLock } from "./feedback-dispute-lock.js";
 import { withDurableLearningActionLock } from "./action-lock.js";
+import { withDurableLearningFeedbackCompletionLock } from "./feedback-completion-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -979,6 +980,9 @@ export function createLearningService(root: string, options: LearningServiceOpti
     async completeLearningFeedback(principal, feedbackId, input): Promise<LearningFeedback> {
       ensurePrincipal(principal);
       try { assertIdentityId(feedbackId); } catch { throw new Error("Learning feedback not found"); }
+      const initialFeedback = await loadLearningFeedback(root, principal.userId, feedbackId);
+      if (!initialFeedback || initialFeedback.userId !== principal.userId) throw new Error("Learning feedback not found");
+      return withDurableLearningFeedbackCompletionLock(root, principal.userId, feedbackId, async () => {
       const feedback = await loadLearningFeedback(root, principal.userId, feedbackId);
       if (!feedback || feedback.userId !== principal.userId) throw new Error("Learning feedback not found");
       if (feedback.status !== "pending" && feedback.status !== "disputed") return feedback;
@@ -1021,6 +1025,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       await saveLearningFeedback(root, completed);
       await saveLearningAnswerReceipt(root, { ...answer, status: "feedback-ready" });
       return completed;
+      }, { waitForMs: 2_000 });
     },
 
     async disputeLearningFeedback(principal, feedbackId, input): Promise<LearningFeedbackDisputeResult> {
