@@ -58,3 +58,27 @@ test("concurrent recruitment applications across service instances remain one pe
   assert.deepEqual(results.map((result) => result.created).sort(), [false, true]);
   assert.equal((await firstService.getPost(principal("recruit-concurrent-owner"), post.id))?.applications.length, 1);
 });
+
+test("concurrent recruitment application decisions keep one terminal review", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-recruitment-review-concurrent-"));
+  const platform = join(root, "platform");
+  const users = createPlatformUserService(platform, { now: () => at });
+  for (const id of ["recruit-review-owner", "recruit-review-applicant"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const teams = createTeamService(platform, { now: () => at });
+  const activity = createActivityService(platform, { now: () => at });
+  const firstService = createRecruitmentService(platform, { teamService: teams, activityService: activity, now: () => at });
+  const secondService = createRecruitmentService(platform, { teamService: teams, activityService: activity, now: () => at });
+  const team = await teams.createTeam(principal("recruit-review-owner"), { name: "Review Project", description: "serialize review", kind: "project", visibility: "public", capacity: 4 });
+  const post = await firstService.createPost(principal("recruit-review-owner"), { teamId: team.id, kind: "project", title: "Review application", description: "one terminal decision", roles: ["frontend"], tags: [] });
+  const application = (await firstService.apply(principal("recruit-review-applicant"), post.id, "Please review me.")).application;
+
+  const results = await Promise.allSettled([
+    firstService.reviewApplication(principal("recruit-review-owner"), application.id, "accept"),
+    secondService.reviewApplication(principal("recruit-review-owner"), application.id, "reject"),
+  ]);
+
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected" && /not found|pending|review/i.test(String(result.reason))).length, 1);
+  const stored = (await firstService.getPost(principal("recruit-review-owner"), post.id))?.applications[0];
+  assert.ok(stored?.status === "accepted" || stored?.status === "rejected");
+});
