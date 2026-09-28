@@ -60,6 +60,31 @@ test("configured opt-in adapter delivers once and preserves the external referen
   });
 });
 
+test("concurrent dispatches attempt one provider delivery and converge on one durable result", async () => {
+  await withRoot(async (root) => {
+    let calls = 0;
+    let release!: () => void;
+    const adapterReady = new Promise<void>((resolve) => { release = resolve; });
+    const service = createIntegrationService(root, {
+      isOptedIn: () => true,
+      adapters: { github: { deliver: async () => { calls += 1; await adapterReady; return { externalRef: "github-event-concurrent" }; } } },
+    });
+    const queued = await service.enqueueDelivery(principal("user-a"), input());
+    const firstPromise = service.dispatchDelivery(principal("user-a"), queued.id);
+    for (let attempt = 0; attempt < 100 && calls === 0; attempt += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+    const secondPromise = service.dispatchDelivery(principal("user-a"), queued.id);
+    release();
+    const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+    assert.equal(calls, 1);
+    assert.equal(first.state, "delivered");
+    assert.equal(second.state, "delivered");
+    assert.equal(first.externalRef, "github-event-concurrent");
+    assert.equal(second.externalRef, "github-event-concurrent");
+    assert.equal((await service.listDeliveries(principal("user-a")))[0]?.attempts, 1);
+  });
+});
+
 test("disabled consent blocks delivery without calling an adapter", async () => {
   await withRoot(async (root) => {
     let calls = 0;

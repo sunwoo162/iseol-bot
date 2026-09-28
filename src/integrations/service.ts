@@ -43,6 +43,20 @@ export function createIntegrationService(root: string, options: IntegrationServi
   const now = options.now ?? (() => new Date().toISOString());
   const adapters = options.adapters ?? {};
   const isOptedIn = options.isOptedIn ?? (() => false);
+  const deliveryTails = new Map<string, Promise<void>>();
+  async function withDeliveryLock<T>(key: string, task: () => Promise<T>): Promise<T> {
+    const prior = deliveryTails.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    const queued = prior.then(() => current);
+    deliveryTails.set(key, queued);
+    await prior;
+    try { return await task(); }
+    finally {
+      release();
+      if (deliveryTails.get(key) === queued) deliveryTails.delete(key);
+    }
+  }
 
   return {
     async enqueueDelivery(principal, input) {
@@ -51,69 +65,73 @@ export function createIntegrationService(root: string, options: IntegrationServi
       const at = now();
       assertTimestamp(at, "integration delivery timestamp");
       const id = `integration-delivery-${identity(principal.userId, input)}`;
-      const existing = await loadIntegrationDelivery(root, principal.userId, id);
-      if (existing) {
-        if (!sameInput(existing, input)) throw new Error("Delivery identity conflict");
-        return existing;
-      }
-      const delivery: IntegrationDelivery = {
-        version: 1,
-        id,
-        userId: principal.userId,
-        provider: input.provider,
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-        eventType: input.eventType,
-        eventVersion: input.eventVersion,
-        payload: { ...(input.payload ?? {}) },
-        state: "queued",
-        attempts: 0,
-        createdAt: at,
-        updatedAt: at,
-      };
-      await saveIntegrationDelivery(root, delivery);
-      return delivery;
+      return withDeliveryLock(`${principal.userId}:${id}`, async () => {
+        const existing = await loadIntegrationDelivery(root, principal.userId, id);
+        if (existing) {
+          if (!sameInput(existing, input)) throw new Error("Delivery identity conflict");
+          return existing;
+        }
+        const delivery: IntegrationDelivery = {
+          version: 1,
+          id,
+          userId: principal.userId,
+          provider: input.provider,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          eventType: input.eventType,
+          eventVersion: input.eventVersion,
+          payload: { ...(input.payload ?? {}) },
+          state: "queued",
+          attempts: 0,
+          createdAt: at,
+          updatedAt: at,
+        };
+        await saveIntegrationDelivery(root, delivery);
+        return delivery;
+      });
     },
 
     async dispatchDelivery(principal, deliveryId) {
       ensurePrincipal(principal);
       assertIdentityId(deliveryId);
-      const current = await loadIntegrationDelivery(root, principal.userId, deliveryId);
-      if (!current || current.userId !== principal.userId) throw new Error("Delivery not found");
-      if (current.state !== "queued") return current;
-      const at = now();
-      assertTimestamp(at, "integration delivery timestamp");
-      if (!await isOptedIn(principal.userId, current.provider)) {
-        const blocked: IntegrationDelivery = { ...current, state: "blocked", reason: "user-opt-in-required", updatedAt: at };
-        await saveIntegrationDelivery(root, blocked);
-        return blocked;
-      }
-      const adapter = adapters[current.provider];
-      if (!adapter) {
-        const unavailable: IntegrationDelivery = { ...current, state: "not-configured", reason: "provider-adapter-unconfigured", updatedAt: at };
-        await saveIntegrationDelivery(root, unavailable);
-        return unavailable;
-      }
-      const attempting: IntegrationDelivery = { ...current, attempts: current.attempts + 1, updatedAt: at };
-      try {
-        const result = await adapter.deliver(attempting);
-        if ("externalRef" in result) {
-          if (!result.externalRef.trim() || result.externalRef.length > 300 || /[\u0000-\u001f\u007f]/.test(result.externalRef)) throw new Error("Invalid provider reference");
-          const delivered: IntegrationDelivery = { ...attempting, state: "delivered", externalRef: result.externalRef, updatedAt: now() };
-          assertTimestamp(delivered.updatedAt, "integration delivery timestamp");
-          await saveIntegrationDelivery(root, delivered);
-          return delivered;
+      return withDeliveryLock(`${principal.userId}:${deliveryId}`, async () => {
+        const current = await loadIntegrationDelivery(root, principal.userId, deliveryId);
+        if (!current || current.userId !== principal.userId) throw new Error("Delivery not found");
+        if (current.state !== "queued") return current;
+        const at = now();
+        assertTimestamp(at, "integration delivery timestamp");
+        if (!await isOptedIn(principal.userId, current.provider)) {
+          const blocked: IntegrationDelivery = { ...current, state: "blocked", reason: "user-opt-in-required", updatedAt: at };
+          await saveIntegrationDelivery(root, blocked);
+          return blocked;
         }
-        const unknown: IntegrationDelivery = { ...attempting, state: "unknown", reason: "provider-error", updatedAt: now() };
-        assertTimestamp(unknown.updatedAt, "integration delivery timestamp");
-        await saveIntegrationDelivery(root, unknown);
-        return unknown;
-      } catch {
-        const unknown: IntegrationDelivery = { ...attempting, state: "unknown", reason: "provider-error", updatedAt: now() };
-        assertTimestamp(unknown.updatedAt, "integration delivery timestamp");
-        await saveIntegrationDelivery(root, unknown);
-        return unknown;
-      }
+        const adapter = adapters[current.provider];
+        if (!adapter) {
+          const unavailable: IntegrationDelivery = { ...current, state: "not-configured", reason: "provider-adapter-unconfigured", updatedAt: at };
+          await saveIntegrationDelivery(root, unavailable);
+          return unavailable;
+        }
+        const attempting: IntegrationDelivery = { ...current, attempts: current.attempts + 1, updatedAt: at };
+        try {
+          const result = await adapter.deliver(attempting);
+          if ("externalRef" in result) {
+            if (!result.externalRef.trim() || result.externalRef.length > 300 || /[\u0000-\u001f\u007f]/.test(result.externalRef)) throw new Error("Invalid provider reference");
+            const delivered: IntegrationDelivery = { ...attempting, state: "delivered", externalRef: result.externalRef, updatedAt: now() };
+            assertTimestamp(delivered.updatedAt, "integration delivery timestamp");
+            await saveIntegrationDelivery(root, delivered);
+            return delivered;
+          }
+          const unknown: IntegrationDelivery = { ...attempting, state: "unknown", reason: "provider-error", updatedAt: now() };
+          assertTimestamp(unknown.updatedAt, "integration delivery timestamp");
+          await saveIntegrationDelivery(root, unknown);
+          return unknown;
+        } catch {
+          const unknown: IntegrationDelivery = { ...attempting, state: "unknown", reason: "provider-error", updatedAt: now() };
+          assertTimestamp(unknown.updatedAt, "integration delivery timestamp");
+          await saveIntegrationDelivery(root, unknown);
+          return unknown;
+        }
+      });
     },
 
     async listDeliveries(principal) {
