@@ -2313,6 +2313,15 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root coordination only; no distributed Learning acceptance coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service Learning project application acceptance
+
+- Status: **B — owner/goal/proposal-scoped, durable, same-host cross-service idempotent acceptance, and isolated-product verified; live Runtime/provider execution remains unverified**. Learning project application acceptance now serializes proposal re-read, linked Work Request creation, accepted proposal save, learning link creation, and acceptance activity recording. Re-entry on an already accepted proposal returns the existing durable result without repeating side effects.
+- Evidence: `src/learning/project-application-acceptance-lock.ts`, `src/learning/service.ts`, `tests/learning-project-application.test.ts`, and `tests/learning-project-application-api.test.ts`.
+- TDD: RED reproduced two service instances calling acceptance with two Work Request calls and two activity calls; GREEN reduced both to one and returned one linked request/link identity.
+- Verification: focused Learning project application/API suite `5/5`; user-product `349/349`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained Learning application UI, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `64f308f feat: serialize learning project application acceptance`.
+- Boundary: same-host/shared-root coordination only; no distributed acceptance coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service Learning plan adjustments
 
 - Status: **B — owner/goal/input-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Learning plan adjustment drafts now serialize the idempotency lookup and draft persistence by exact user/goal/input identity, so concurrent retries return one proposed adjustment.
