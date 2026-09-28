@@ -37,3 +37,24 @@ test("recruitment application acceptance adds a member and rejects duplicate acc
   assert.equal((await teams.listMemberships(team.id)).some((member) => member.userId === "recruit-b"), true);
   await assert.rejects(() => recruitment.apply(principal("recruit-b"), post.id, "already joined"), /already a team member/i);
 });
+
+test("concurrent recruitment applications across service instances remain one pending application", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-recruitment-concurrent-"));
+  const platform = join(root, "platform");
+  const users = createPlatformUserService(platform, { now: () => at });
+  for (const id of ["recruit-concurrent-owner", "recruit-concurrent-applicant"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const teams = createTeamService(platform, { now: () => at });
+  const activity = createActivityService(platform, { now: () => at });
+  const firstService = createRecruitmentService(platform, { teamService: teams, activityService: activity, now: () => at });
+  const secondService = createRecruitmentService(platform, { teamService: teams, activityService: activity, now: () => at });
+  const team = await teams.createTeam(principal("recruit-concurrent-owner"), { name: "Concurrent Project", description: "build together", kind: "project", visibility: "public", capacity: 4 });
+  const post = await firstService.createPost(principal("recruit-concurrent-owner"), { teamId: team.id, kind: "project", title: "Concurrent application", description: "accept one application record", roles: ["frontend"], tags: [] });
+
+  const results = await Promise.all([
+    firstService.apply(principal("recruit-concurrent-applicant"), post.id, "same application"),
+    secondService.apply(principal("recruit-concurrent-applicant"), post.id, "same application"),
+  ]);
+
+  assert.deepEqual(results.map((result) => result.created).sort(), [false, true]);
+  assert.equal((await firstService.getPost(principal("recruit-concurrent-owner"), post.id))?.applications.length, 1);
+});
