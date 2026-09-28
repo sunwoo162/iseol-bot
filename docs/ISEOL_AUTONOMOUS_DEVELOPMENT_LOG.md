@@ -2315,6 +2315,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root integration delivery enqueue/dispatch coordination only; no external provider or connector was called, and this does not claim distributed locking, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Team Chat membership mutation synchronization
+
+- Status: **B — Team Chat send now shares the Team membership durable lock with join/leave/removal mutations; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. Member authorization is re-read inside the lock, and message persistence plus local activity/notification side effects remain inside the same bounded mutation boundary.
+- Evidence: `src/team-chat/service.ts`, `src/teams/membership-lock.ts`, `tests/team-chat.test.ts`, `tests/team-chat-api.test.ts`.
+- TDD: RED showed a Team Chat send completing while a competing Team membership lock was held; GREEN moved the member check, message write, activity projection, and notification fan-out behind the existing Team-scoped durable lock. The API and leave-access behavior remain unchanged.
+- Verification: focused Team Chat + API `4/4`; user-product `371/371`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `6a9c3be fix: serialize team chat membership mutations`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Team Chat and Team membership mutation coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Harness Run pause and resume synchronization
 
 - Status: **B — user-owned Harness Run pause/resume transitions now hold the Run mutation lock across read, compare-save, event, and checkpoint projection; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
