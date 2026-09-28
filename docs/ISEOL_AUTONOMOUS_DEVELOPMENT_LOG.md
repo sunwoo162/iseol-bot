@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service recruitment application creation
+
+- Status: **B — post/applicant-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Recruitment application creation now serializes the existing-application check, application record write, and activity receipt by exact post/applicant identity, so concurrent retries return one pending application.
+- Evidence: `src/recruitment/application-lock.ts`, `src/recruitment/service.ts`, `tests/recruitment-flow.test.ts`.
+- TDD: RED reproduced same-applicant concurrent support with both requests returning `created:true`; GREEN returned `[false,true]` and retained one application record.
+- Verification: focused recruitment suite `2/2`; user-product `341/341`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained recruitment review, team invite, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed recruitment coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service platform user creation
 
 - Status: **B — owner-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Platform user creation now serializes identity/profile/credential writes by explicit user ID and returns the existing record for concurrent retries.
