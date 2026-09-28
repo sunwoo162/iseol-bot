@@ -16,6 +16,7 @@ export interface PlaywrightBrowserBackend {
   sendPrompt(): Promise<void>;
   assistantMessageCount(): Promise<number>;
   latestAssistantText(): Promise<string | null>;
+  latestAssistantDomText?(): Promise<string | null>;
   latestAssistantRawText(): Promise<string | null>;
   generationControlCount(): Promise<number>;
   closeOwnedPage(): Promise<void>;
@@ -37,6 +38,7 @@ const USAGE_LIMIT_TEXT = /(?:you(?:\x27|’)ve reached (?:your )?.{0,40}(?:messa
 const TEMPORARY_DISMISS_TEXT = /^(?:알겠습니다|확인|got it|ok|okay)$/i;
 const ASSISTANT_SELECTOR = '[data-message-author-role="assistant"]';
 const COPY_SELECTOR = 'button[data-testid="copy-turn-action-button"]';
+const ASSISTANT_CONTROL_SELECTOR = 'button, [role="button"], [role="toolbar"], [data-testid*="action"], [aria-hidden="true"]';
 const COPY_CAPTURE_TIMEOUT_MS = 2_000;
 const INSTALL_CLIPBOARD_CAPTURE_SCRIPT = `(() => {
   const clipboard = navigator.clipboard;
@@ -87,6 +89,50 @@ const RESTORE_CLIPBOARD_CAPTURE_SCRIPT = `(() => {
 })()`;
 
 const GENERATING_SELECTOR = 'button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop"]';
+
+export type AssistantTextReadCallPoint =
+  | "assistant-locator-count"
+  | "latest-assistant-locator-count"
+  | "latest-assistant-text-evaluate";
+
+export type AssistantTextReadDiagnostic = {
+  callPoint: AssistantTextReadCallPoint;
+  retryable: boolean;
+};
+
+const assistantTextReadDiagnostics = new WeakMap<object, AssistantTextReadDiagnostic>();
+
+export function getAssistantTextReadDiagnostic(error: unknown): AssistantTextReadDiagnostic | undefined {
+  return error && typeof error === "object" ? assistantTextReadDiagnostics.get(error) : undefined;
+}
+
+function annotateAssistantTextReadFailure(error: unknown, callPoint: AssistantTextReadCallPoint, retryable: boolean): void {
+  if (error && typeof error === "object") assistantTextReadDiagnostics.set(error, { callPoint, retryable });
+}
+
+function isTransientAssistantDomDetachment(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /(?:element|node).*(?:not attached|detached)|detached from the DOM|stale element/i.test(message);
+}
+
+/**
+ * Extract only the visible text owned by one assistant message.
+ *
+ * The caller passes the assistant message element itself, so user turns and
+ * earlier assistant messages cannot enter the result. Interactive controls
+ * are removed from a detached clone before reading innerText; the original
+ * page is never mutated and the response payload is not copied through the
+ * OS clipboard.
+ */
+export function extractAssistantDomText(
+  root: Element,
+  controlSelector = 'button, [role="button"], [role="toolbar"], [data-testid*="action"], [aria-hidden="true"]',
+): string {
+  const clone = root.cloneNode(true) as Element;
+  clone.querySelectorAll(controlSelector).forEach((node) => node.remove());
+  const rendered = (clone as HTMLElement).innerText ?? clone.textContent ?? "";
+  return rendered.replaceAll("\u00a0", " ");
+}
 
 export async function createPlaywrightBrowserBackend(
   config: Extract<PlaywrightBrowserDriverConfig, { enabled: true }>,
@@ -165,7 +211,71 @@ export async function createPlaywrightBrowserBackend(
     async assistantMessageCount() { return (await ownedPage()).locator(ASSISTANT_SELECTOR).count(); },
     async latestAssistantText() {
       const assistant = (await ownedPage()).locator(ASSISTANT_SELECTOR);
-      return await assistant.count() > 0 ? assistant.last().innerText() : null;
+      let count: number;
+      try {
+        count = await assistant.count();
+      } catch (error) {
+        const retryable = isTransientAssistantDomDetachment(error);
+        annotateAssistantTextReadFailure(error, "assistant-locator-count", retryable);
+        if (retryable) return null;
+        throw error;
+      }
+      if (count === 0) return null;
+      const latest = assistant.last();
+      let latestCount: number;
+      try {
+        latestCount = await latest.count();
+      } catch (error) {
+        const retryable = isTransientAssistantDomDetachment(error);
+        annotateAssistantTextReadFailure(error, "latest-assistant-locator-count", retryable);
+        if (retryable) return null;
+        throw error;
+      }
+      if (latestCount === 0) return null;
+      if (latestCount !== 1) throw new Error("assistant message DOM scope unavailable or ambiguous");
+      let text: string;
+      try {
+        text = await latest.evaluate(extractAssistantDomText, ASSISTANT_CONTROL_SELECTOR);
+      } catch (error) {
+        if (isTransientAssistantDomDetachment(error)) return null;
+        annotateAssistantTextReadFailure(error, "latest-assistant-text-evaluate", false);
+        throw error;
+      }
+      return typeof text === "string" && text.trim() ? text : null;
+    },
+    async latestAssistantDomText() {
+      const assistant = (await ownedPage()).locator(ASSISTANT_SELECTOR);
+      let count: number;
+      try {
+        count = await assistant.count();
+      } catch (error) {
+        const retryable = isTransientAssistantDomDetachment(error);
+        annotateAssistantTextReadFailure(error, "assistant-locator-count", retryable);
+        if (retryable) return null;
+        throw error;
+      }
+      if (count === 0) return null;
+      const latest = assistant.last();
+      let latestCount: number;
+      try {
+        latestCount = await latest.count();
+      } catch (error) {
+        const retryable = isTransientAssistantDomDetachment(error);
+        annotateAssistantTextReadFailure(error, "latest-assistant-locator-count", retryable);
+        if (retryable) return null;
+        throw error;
+      }
+      if (latestCount === 0) return null;
+      if (latestCount !== 1) throw new Error("assistant message DOM scope unavailable or ambiguous");
+      let text: string;
+      try {
+        text = await latest.evaluate(extractAssistantDomText, ASSISTANT_CONTROL_SELECTOR);
+      } catch (error) {
+        if (isTransientAssistantDomDetachment(error)) return null;
+        annotateAssistantTextReadFailure(error, "latest-assistant-text-evaluate", false);
+        throw error;
+      }
+      return typeof text === "string" && text.trim() ? text : null;
     },
     async latestAssistantRawText() {
       const owned = await ownedPage();
@@ -176,12 +286,24 @@ export async function createPlaywrightBrowserBackend(
       const copy = turn.locator(COPY_SELECTOR);
       if (await copy.count() !== 1) throw new Error("assistant copy control unavailable or ambiguous");
       await owned.evaluate(INSTALL_CLIPBOARD_CAPTURE_SCRIPT);
+      let primaryError: unknown;
       try {
         await copy.dispatchEvent("click");
-        await owned.waitForFunction(WAIT_CLIPBOARD_CAPTURE_SCRIPT, undefined, { timeout: COPY_CAPTURE_TIMEOUT_MS });
+        try {
+          await owned.waitForFunction(WAIT_CLIPBOARD_CAPTURE_SCRIPT, undefined, { timeout: COPY_CAPTURE_TIMEOUT_MS });
+        } catch {
+          throw new Error("ChatGPT clipboard capture failed");
+        }
         return await owned.evaluate(READ_CLIPBOARD_CAPTURE_SCRIPT);
+      } catch (error) {
+        primaryError = error;
+        throw error;
       } finally {
-        await owned.evaluate(RESTORE_CLIPBOARD_CAPTURE_SCRIPT);
+        try {
+          await owned.evaluate(RESTORE_CLIPBOARD_CAPTURE_SCRIPT);
+        } catch {
+          if (primaryError === undefined) throw new Error("ChatGPT clipboard capture cleanup failed");
+        }
       }
     },
     async generationControlCount() { return (await ownedPage()).locator(GENERATING_SELECTOR).count(); },

@@ -162,6 +162,27 @@ test("Run waiting and final failure statuses map without inventing completion", 
   assert.equal(failed?.execution, "terminal");
 });
 
+test("an explicit retry lets the authoritative terminal Run reproject a failed request", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-retry-projection-"));
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Retry", objective: "Retry", idempotencyKey: "retry", id: "retry", at });
+  await updateProjectWorkRequest(root, "project-1", "retry", {
+    status: "failed",
+    requestedRunId: "run-retry",
+    runId: "run-retry",
+    blocker: "previous Runtime failure",
+  }, at);
+  const recovered = await reconcileProjectWorkRequest({
+    root,
+    projectId: "project-1",
+    workId: "retry",
+    at: "2026-09-20T12:02:00.000Z",
+    findRun: async () => ({ runId: "run-retry", state: { stage: "DONE", status: "DONE" }, updatedAt: at }),
+  });
+  assert.equal(recovered?.request.status, "completed");
+  assert.equal(recovered?.transition, "updated");
+  assert.equal(recovered?.request.blocker, undefined);
+});
+
 test("late or mismatched Run observations cannot overwrite a terminal request", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-work-late-run-"));
   await createProjectWorkRequest({ root, projectId: "project-1", title: "Late", objective: "Late", idempotencyKey: "late", id: "late", at });

@@ -190,6 +190,23 @@ export async function superviseHarnessRun(
     const result = await input.executor.execute(run);
     steps += 1;
 
+    // A user/operator may pause while an executor is in flight. Preserve that
+    // durable checkpoint and do not apply a stale stage result over it. The
+    // in-flight process is not forcibly terminated; the pause takes effect at
+    // this supervisor checkpoint.
+    const latestAfterExecution = await loadHarnessRun(input.storeRoot, input.runId);
+    if (!latestAfterExecution) throw new Error(`Harness Run disappeared after ${stage}`);
+    if (latestAfterExecution.state.status === "PAUSED") return latestAfterExecution;
+    if (latestAfterExecution.state.status === "READY") {
+      // A pause may be resumed before the in-flight executor returns. The
+      // executor result belongs to the pre-pause attempt, so discard it and
+      // let the next loop start the same durable checkpoint cleanly.
+      run = latestAfterExecution;
+      continue;
+    }
+    if (latestAfterExecution.state.status !== "RUNNING") return latestAfterExecution;
+    run = latestAfterExecution;
+
     if (result.type === "completed") {
       const at = now();
       const combinedEvidence = mergeEvidence(run, result.evidence);

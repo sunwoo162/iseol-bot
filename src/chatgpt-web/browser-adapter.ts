@@ -11,6 +11,9 @@ export type ChatGptBrowserOperationFailureClass =
   | "page-missing" | "owned-page-missing" | "navigation-failed" | "locator-missing"
   | "execution-context-destroyed" | "timeout" | "session-not-found"
   | "conversation-not-found" | "auth-or-login-page" | "operation-aborted"
+  | "conversation-identity-changed" | "pending-submission-missing"
+  | "assistant-response-extraction-failed" | "clipboard-capture-failed"
+  | "response-timeout" | "structured-result-parser-rejection"
   | "driver-error" | "unknown";
 
 export class ChatGptWebSessionLostError extends Error {

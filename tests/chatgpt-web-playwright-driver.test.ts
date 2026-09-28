@@ -37,6 +37,20 @@ function fakeBackend(overrides: Partial<PlaywrightBrowserBackend> = {}) {
   return { backend, urls, closed: () => closed, sends: () => sends, filled: () => filled, setAssistant: (text: string | null, count = 1) => { assistantText = text; assistantCount = count; }, setGenerating: (count: number) => { generatingCount = count; }, setUrl: (url: string) => { currentUrl = url; } };
 }
 
+async function readResponseReadDiagnostics(root: string, ready: (events: Array<Record<string, unknown>>) => boolean): Promise<Array<Record<string, unknown>>> {
+  const path = join(root, "web-workers", "response-read-diagnostics.jsonl");
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      const content = await readFile(path, "utf8");
+      const events = content.split("\n").filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
+      if (ready(events)) return events;
+    } catch {
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("response-read diagnostics were not persisted");
+}
+
 const config = { enabled: true as const, profileRoot: "C:\\temp\\chatgpt-profile", headless: true };
 
 test("PATCH_FRAME_V1 extracts the raw EOF payload without interpreting patch content", () => {
@@ -137,9 +151,40 @@ test("structured JSON rejection records bounded extraction and parser evidence",
       assert.equal(diagnostic.diagnosticCategory, "response-envelope-malformed");
       assert.equal(diagnostic.rejectionClass, "json-syntax-error");
       assert.equal(diagnostic.parserInputReceived, true);
+      assert.equal(diagnostic.parserInputLengthBucket, "short");
+      assert.equal(diagnostic.candidateLengthBucket, "short");
+      assert.equal(diagnostic.trimChanged, "no");
+      assert.equal(diagnostic.codeFenceUnwrapped, "no");
       assert.match(String(diagnostic.responseSha256), /^[a-f0-9]{64}$/);
       assert.equal(diagnostic.responseSha256, expectedHash);
       assert.equal(JSON.stringify(diagnostic).includes(malformed), false);
+      return true;
+    },
+  );
+});
+
+test("structured JSON parser diagnostics distinguish fenced candidate transformation", async () => {
+  let now = 0;
+  const item = fakeBackend();
+  item.setUrl("https://chatgpt.com/c/conv-fenced-diagnostic");
+  const driver = await createPlaywrightChatGptBrowserDriver(config, {
+    backend: item.backend,
+    now: () => now,
+    sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await driver.submitPrompt({ conversationRef: "conv-fenced-diagnostic", prompt: "payload", promptSha256: "fenced-diagnostic" });
+  item.setAssistant('```json\n[{"version":1}\n```', 1);
+
+  await assert.rejects(
+    () => driver.readStructuredResult({ conversationRef: "conv-fenced-diagnostic", timeoutMs: 2_000, contract: "structured-json" }),
+    (error: unknown) => {
+      assert.ok(error instanceof ChatGptWebStructuredResultError);
+      const diagnostic = error.diagnostic ?? {};
+      assert.equal(diagnostic.parserInputLengthBucket, "short");
+      assert.equal(diagnostic.candidateLengthBucket, "short");
+      assert.equal(diagnostic.trimChanged, "no");
+      assert.equal(diagnostic.codeFenceUnwrapped, "yes");
+      assert.equal(diagnostic.endsWithArrayToken, false);
       return true;
     },
   );
@@ -375,6 +420,31 @@ test("structured result waits for a stable completed assistant message and parse
   assert.deepEqual(await driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 2000, contract: "structured-json" }), { version: 2 });
 });
 
+test("structured result does not require the composer after prompt submission", async () => {
+  let now = 0;
+  let composerChecks = 0;
+  const item = fakeBackend({
+    composerCount: async () => {
+      composerChecks += 1;
+      return composerChecks === 1 ? 1 : 0;
+    },
+  });
+  item.setUrl("https://chatgpt.com/c/conv-composer-hydration");
+  const driver = await createPlaywrightChatGptBrowserDriver(config, {
+    backend: item.backend,
+    now: () => now,
+    sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await driver.submitPrompt({ conversationRef: "conv-composer-hydration", prompt: "payload", promptSha256: "composer-hydration-sha" });
+  item.setAssistant('{"ready":true}', 1);
+
+  assert.deepEqual(
+    await driver.readStructuredResult({ conversationRef: "conv-composer-hydration", timeoutMs: 2_000, contract: "structured-json" }),
+    { ready: true },
+  );
+  assert.equal(composerChecks, 1, "composer is required before submit, not during response polling");
+});
+
 test("structured result rejects prose multiple JSON malformed JSON and oversized output", async () => {
   for (const text of [
     'result: {"version":1}',
@@ -419,8 +489,190 @@ test("generation must settle for 750ms and timeout is session loss", async () =>
   timedItem.setGenerating(1);
   await assert.rejects(
     () => timed.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 500, contract: "structured-json" }),
-    ChatGptWebSessionLostError,
+    (error: unknown) => error instanceof ChatGptWebSessionLostError
+      && error.failureClass === "response-timeout",
   );
+});
+
+test("structured result prefers the message-scoped DOM text and preserves JSON characters", async () => {
+  let now = 0;
+  const payload = {
+    version: 1,
+    message: '한국어 "인용" \\ 경로',
+    nested: { json: "{\\\"ok\\\":true}" },
+  };
+  const domText = JSON.stringify(payload);
+  const item = fakeBackend({
+    latestAssistantDomText: async () => domText,
+    latestAssistantRawText: async () => { throw new Error("clipboard must not be used for structured JSON"); },
+  } as any);
+  item.setUrl("https://chatgpt.com/c/conv-dom");
+  const driver = await createPlaywrightChatGptBrowserDriver(config, {
+    backend: item.backend, now: () => now, sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await driver.submitPrompt({ conversationRef: "conv-dom", prompt: "payload", promptSha256: "dom-sha" });
+  item.setAssistant(domText, 1);
+
+  assert.deepEqual(
+    await driver.readStructuredResult({ conversationRef: "conv-dom", timeoutMs: 2_000, contract: "structured-json" }),
+    payload,
+  );
+});
+
+test("structured result fails closed when the assistant DOM identity changes during extraction", async () => {
+  let now = 0;
+  let domRead = false;
+  const item = fakeBackend({
+    latestAssistantDomText: async () => { domRead = true; return '{"value":1}'; },
+    latestAssistantText: async () => domRead ? '{"value":2}' : '{"value":1}',
+  } as any);
+  item.setUrl("https://chatgpt.com/c/conv-dom-identity");
+  const driver = await createPlaywrightChatGptBrowserDriver(config, {
+    backend: item.backend, now: () => now, sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await driver.submitPrompt({ conversationRef: "conv-dom-identity", prompt: "payload", promptSha256: "dom-identity-sha" });
+  item.setAssistant('{"value":1}', 1);
+
+  await assert.rejects(
+    () => driver.readStructuredResult({ conversationRef: "conv-dom-identity", timeoutMs: 2_000, contract: "structured-json" }),
+    (error: unknown) => error instanceof ChatGptWebSessionLostError
+      && error.failureClass === "conversation-identity-changed",
+  );
+});
+
+test("structured result records bounded read stages and DOM response source", async () => {
+  let now = 0;
+  const lifecycleRoot = await mkdtemp(join(tmpdir(), "iseol-response-read-diagnostics-success-"));
+  const item = fakeBackend({ latestAssistantDomText: async () => '{"ok":true}' });
+  item.setUrl("https://chatgpt.com/c/conv-read-diagnostics");
+  const driver = await createPlaywrightChatGptBrowserDriver({ ...config, lifecycleRoot } as any, {
+    backend: item.backend, now: () => now, sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await driver.submitPrompt({ conversationRef: "conv-read-diagnostics", prompt: "payload", promptSha256: "read-diagnostics-sha" });
+  item.setAssistant('{"ok":true}', 1);
+
+  assert.deepEqual(
+    await driver.readStructuredResult({ requestId: "proposal-read-diagnostics-1", conversationRef: "conv-read-diagnostics", timeoutMs: 2_000, contract: "structured-json" }),
+    { ok: true },
+  );
+  const events = await readResponseReadDiagnostics(lifecycleRoot, (events) => events.some((event) => event.stage === "response-parse" && event.phase === "complete"));
+  const stages = new Set(events.map((event) => event.stage));
+  for (const stage of ["pending-submission", "conversation-identity", "authentication-state", "assistant-locator", "generation-control", "assistant-text", "assistant-stability", "dom-extraction", "final-identity", "response-parse"]) {
+    assert.ok(stages.has(stage), `missing diagnostic stage ${stage}`);
+  }
+  assert.ok(events.some((event) => event.stage === "dom-extraction" && event.phase === "complete" && event.domExtractionSucceeded === true));
+  assert.ok(events.some((event) => event.stage === "dom-extraction" && event.phase === "complete" && event.responseLengthBucket === "short"));
+  assert.ok(events.some((event) => event.stage === "dom-extraction" && event.responseSource === "assistant-dom"));
+  assert.ok(events.some((event) => event.stage === "response-parse" && event.phase === "complete" && event.responseSource === "assistant-dom"));
+  assert.ok(events.every((event) => event.requestId === "proposal-read-diagnostics-1"));
+  assert.ok(!JSON.stringify(events).includes('{"ok":true}'));
+});
+
+test("structured result records the first locator stage failure without changing its class", async () => {
+  let now = 0;
+  const lifecycleRoot = await mkdtemp(join(tmpdir(), "iseol-response-read-diagnostics-failure-"));
+  const item = fakeBackend({ generationControlCount: async () => { throw new Error("generation locator unavailable"); } });
+  item.setUrl("https://chatgpt.com/c/conv-read-diagnostics-failure");
+  const driver = await createPlaywrightChatGptBrowserDriver({ ...config, lifecycleRoot } as any, {
+    backend: item.backend, now: () => now, sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await driver.submitPrompt({ conversationRef: "conv-read-diagnostics-failure", prompt: "payload", promptSha256: "read-diagnostics-failure-sha" });
+  item.setAssistant('{"ok":true}', 1);
+
+  await assert.rejects(
+    () => driver.readStructuredResult({ requestId: "proposal-read-diagnostics-failure-1", conversationRef: "conv-read-diagnostics-failure", timeoutMs: 2_000, contract: "structured-json" }),
+    (error: unknown) => error instanceof ChatGptWebSessionLostError && error.failureClass === "locator-missing",
+  );
+  const events = await readResponseReadDiagnostics(lifecycleRoot, (events) => events.some((event) => event.phase === "failure"));
+  const firstFailure = events.find((event) => event.phase === "failure");
+  assert.equal(firstFailure?.stage, "generation-control");
+  assert.equal(firstFailure?.failureClass, "locator-missing");
+  assert.ok(!events.some((event) => event.stage === "response-parse"));
+});
+
+test("structured result waits after an empty assistant locator and records when text becomes available", async () => {
+  let now = 0;
+  let assistantCountCalls = 0;
+  const item = fakeBackend({
+    assistantMessageCount: async () => {
+      assistantCountCalls += 1;
+      return assistantCountCalls <= 2 ? 0 : 1;
+    },
+    generationControlCount: async () => assistantCountCalls <= 2 ? 1 : 0,
+    latestAssistantText: async () => '{"ok":true}',
+    latestAssistantDomText: async () => '{"ok":true}',
+  });
+  const lifecycleRoot = await mkdtemp(join(tmpdir(), "iseol-response-read-diagnostics-wait-"));
+  item.setUrl("https://chatgpt.com/c/conv-read-wait");
+  const driver = await createPlaywrightChatGptBrowserDriver({ ...config, lifecycleRoot } as any, {
+    backend: item.backend, now: () => now, sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await driver.submitPrompt({ conversationRef: "conv-read-wait", prompt: "payload", promptSha256: "read-wait-sha" });
+
+  assert.deepEqual(
+    await driver.readStructuredResult({ requestId: "proposal-read-wait-1", conversationRef: "conv-read-wait", timeoutMs: 2_000, contract: "structured-json" }),
+    { ok: true },
+  );
+  const events = await readResponseReadDiagnostics(lifecycleRoot, (events) => events.some((event) => event.stage === "response-parse" && event.phase === "complete"));
+  const firstLocator = events.find((event) => event.stage === "assistant-locator" && event.phase === "complete");
+  assert.equal(firstLocator?.assistantCount, 0);
+  assert.equal(firstLocator?.awaitingAssistant, true);
+  const textStart = events.find((event) => event.stage === "assistant-text" && event.phase === "start");
+  assert.equal(textStart?.assistantCount, 1);
+});
+
+test("structured result retries a transient empty assistant text read within the same deadline", async () => {
+  let now = 0;
+  let assistantCountCalls = 0;
+  let textCalls = 0;
+  const item = fakeBackend({
+    assistantMessageCount: async () => {
+      assistantCountCalls += 1;
+      return assistantCountCalls === 1 ? 0 : 1;
+    },
+    generationControlCount: async () => 0,
+    latestAssistantText: async () => {
+      textCalls += 1;
+      return textCalls === 1 ? null : '{"ok":true}';
+    },
+    latestAssistantDomText: async () => '{"ok":true}',
+  });
+  item.setUrl("https://chatgpt.com/c/conv-text-race");
+  const driver = await createPlaywrightChatGptBrowserDriver(config, {
+    backend: item.backend,
+    now: () => now,
+    sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await driver.submitPrompt({ conversationRef: "conv-text-race", prompt: "payload", promptSha256: "text-race-sha" });
+
+  assert.deepEqual(
+    await driver.readStructuredResult({ conversationRef: "conv-text-race", timeoutMs: 2_000, contract: "structured-json" }),
+    { ok: true },
+  );
+  assert.ok(textCalls >= 2, `expected a retry after the transient empty read, got ${textCalls} reads`);
+});
+
+test("structured result times out without reading assistant text when no assistant appears", async () => {
+  let now = 0;
+  const lifecycleRoot = await mkdtemp(join(tmpdir(), "iseol-response-read-diagnostics-no-assistant-"));
+  const item = fakeBackend({
+    assistantMessageCount: async () => 0,
+    generationControlCount: async () => 1,
+    latestAssistantText: async () => { throw new Error("assistant text must not be read without a new assistant"); },
+  });
+  item.setUrl("https://chatgpt.com/c/conv-no-assistant");
+  const driver = await createPlaywrightChatGptBrowserDriver({ ...config, lifecycleRoot } as any, {
+    backend: item.backend, now: () => now, sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await driver.submitPrompt({ conversationRef: "conv-no-assistant", prompt: "payload", promptSha256: "no-assistant-sha" });
+
+  await assert.rejects(
+    () => driver.readStructuredResult({ requestId: "proposal-read-no-assistant-1", conversationRef: "conv-no-assistant", timeoutMs: 500, contract: "structured-json" }),
+    (error: unknown) => error instanceof ChatGptWebSessionLostError && error.failureClass === "response-timeout",
+  );
+  const events = await readResponseReadDiagnostics(lifecycleRoot, (events) => events.some((event) => event.phase === "failure"));
+  assert.ok(events.some((event) => event.stage === "assistant-locator" && event.phase === "complete" && event.assistantCount === 0 && event.awaitingAssistant === true));
+  assert.ok(!events.some((event) => event.stage === "assistant-text"));
 });
 
 test("probe classifies exact ready auth-required and lost states", async () => {
@@ -506,7 +758,37 @@ test("result reading fails closed when this driver has no pending submission bas
 
   await assert.rejects(
     () => driver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 1000, contract: "structured-json" }),
-    ChatGptWebSessionLostError,
+    (error: unknown) => error instanceof ChatGptWebSessionLostError
+      && error.failureClass === "pending-submission-missing",
+  );
+});
+
+test("result reading preserves bounded identity and extraction failure classes", async () => {
+  const identity = fakeBackend();
+  identity.setUrl("https://chatgpt.com/c/conv-1");
+  const identityDriver = await createPlaywrightChatGptBrowserDriver(config, { backend: identity.backend } as any);
+  await identityDriver.submitPrompt({ conversationRef: "conv-1", prompt: "payload", promptSha256: "identity-sha" });
+  identity.setUrl("https://chatgpt.com/c/other");
+  await assert.rejects(
+    () => identityDriver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 1000, contract: "structured-json" }),
+    (error: unknown) => error instanceof ChatGptWebSessionLostError
+      && error.failureClass === "conversation-identity-changed",
+  );
+
+  let now = 0;
+  const extraction = fakeBackend({
+    latestAssistantRawText: async () => { throw new Error("assistant turn copy control unavailable or ambiguous"); },
+  });
+  extraction.setUrl("https://chatgpt.com/c/conv-1");
+  const extractionDriver = await createPlaywrightChatGptBrowserDriver(config, {
+    backend: extraction.backend, now: () => now, sleep: async (ms: number) => { now += ms; },
+  } as any);
+  await extractionDriver.submitPrompt({ conversationRef: "conv-1", prompt: "payload", promptSha256: "extraction-sha" });
+  extraction.setAssistant('{"ok":true}', 1);
+  await assert.rejects(
+    () => extractionDriver.readStructuredResult({ conversationRef: "conv-1", timeoutMs: 2000, contract: "structured-json" }),
+    (error: unknown) => error instanceof ChatGptWebSessionLostError
+      && error.failureClass === "assistant-response-extraction-failed",
   );
 });
 

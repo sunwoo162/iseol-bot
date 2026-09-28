@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, writeFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import type {
   HarnessRunEnvelope,
@@ -8,6 +8,7 @@ import type {
 } from "./contracts.js";
 import { createInitialRunState } from "./state-machine.js";
 import { appendHarnessRunEvent } from "./event-store.js";
+import { renameWithTransientRetry } from "../desktop-agent/atomic-file.js";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
@@ -49,7 +50,14 @@ async function writeNormalizedRun(root: string, normalized: HarnessRuntimeRunEnv
   await mkdir(directory, { recursive: true });
   const temporary = `${destination}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   await writeFile(temporary, JSON.stringify(normalized, null, 2), "utf8");
-  await rename(temporary, destination);
+  try {
+    await renameWithTransientRetry(temporary, destination);
+  } catch (error) {
+    await unlink(temporary).catch((cleanupError) => {
+      if ((cleanupError as NodeJS.ErrnoException).code !== "ENOENT") throw cleanupError;
+    });
+    throw error;
+  }
 }
 
 export async function saveHarnessRun(root: string, envelope: HarnessRunEnvelope): Promise<void> {

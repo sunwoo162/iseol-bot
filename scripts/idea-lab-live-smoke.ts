@@ -344,6 +344,7 @@ export async function runIdeaLabLiveSmokeCli(
   const loadRun = deps.loadRun ?? loadHarnessRun;
   const loadCampaign = deps.loadCampaign ?? loadIdeaLabCampaign;
   let services: IseolRuntimeServices | undefined;
+  let servicesDisposeStarted = false;
   let ownedAgent: ChildProcess | undefined;
   let exitCode = 1;
   let activeStage = "start-services";
@@ -397,8 +398,10 @@ export async function runIdeaLabLiveSmokeCli(
     const verified = assertVerifiedOutcome(finalCampaign, productions, candidates, run);
 
     activeStage = "pre-restart-dispose";
+    servicesDisposeStarted = true;
     await within(services.dispose(), timeoutMs);
     services = undefined;
+    servicesDisposeStarted = false;
     activeStage = "restart-services";
     services = await within(startServices({ env, webConfig }), timeoutMs);
     if (services.ideaLabCapability.state !== "ready" || !services.ideaLabRuntime) {
@@ -452,7 +455,8 @@ export async function runIdeaLabLiveSmokeCli(
       exitCode = 1;
     }
   } finally {
-    if (services) {
+    if (services && !servicesDisposeStarted) {
+      servicesDisposeStarted = true;
       try {
         await within(services.dispose(), cleanupTimeoutMs);
       } catch {

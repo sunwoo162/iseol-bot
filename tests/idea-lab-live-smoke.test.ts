@@ -241,7 +241,9 @@ test("live smoke bounds final disposal after an external timeout", async () => {
       }),
       timeoutMs: 5,
     }),
-    new Promise<"did-not-settle">((resolve) => setTimeout(() => resolve("did-not-settle"), 100)),
+    // Keep the watchdog above the bounded cleanup budget under concurrent
+    // Windows test-worker load.
+    new Promise<"did-not-settle">((resolve) => setTimeout(() => resolve("did-not-settle"), 500)),
   ]);
   assert.equal(result, 2);
 });
@@ -378,7 +380,9 @@ test("live smoke uses a short cleanup timeout independent of the main budget", a
       timeoutMs: 1_000,
       cleanupTimeoutMs: 5,
     } as any),
-    new Promise<"did-not-settle">((resolve) => setTimeout(() => resolve("did-not-settle"), 100)),
+    // Keep the watchdog above the bounded cleanup budget under concurrent
+    // Windows test-worker load.
+    new Promise<"did-not-settle">((resolve) => setTimeout(() => resolve("did-not-settle"), 500)),
   ]);
   assert.equal(result, 2);
 });

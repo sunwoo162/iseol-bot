@@ -57,7 +57,9 @@ test("provider compiles bounded proposal context and uses the first assigned con
   assert.match(open.prompt, /mobile-first/);
   assert.match(open.prompt, /Already Accepted/);
   assert.match(open.prompt, /materially different/i);
-  assert.deepEqual(fake.calls[2]![1], { conversationRef: "proposal-conv", timeoutMs: 4321, contract: "structured-json" });
+  const read = fake.calls[2]![1] as { requestId: string; conversationRef: string; timeoutMs: number; contract: string };
+  assert.match(read.requestId, /^proposal-[a-f0-9]{48}-3$/);
+  assert.deepEqual({ conversationRef: read.conversationRef, timeoutMs: read.timeoutMs, contract: read.contract }, { conversationRef: "proposal-conv", timeoutMs: 4321, contract: "structured-json" });
   assert.equal(fake.calls[3]![1], "proposal-conv");
 });
 test("provider rejects invalid proposal payloads and still closes the owned conversation", async () => {
@@ -139,6 +141,31 @@ test("proposal submissions consume one common budget and UNKNOWN blocks resubmis
     assert.equal(record?.unknown, 1);
     await assert.rejects(() => provider.generate(input), ExternalRequestBudgetExhaustedError);
     assert.equal(submitCount, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("identical proposal prompts in different campaigns use distinct budget request identities", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-proposal-cross-campaign-"));
+  try {
+    const budget = createRequestBudgetStore(root, 2);
+    const input = { seed: "same seed", constraints: [], requestedCount: 1, accepted: [], attempt: 1 };
+    const first = driver();
+    const second = driver();
+    await createChatGptIdeaProposalProvider(first.value, { requestBudget: budget }).generate({
+      ...input,
+      budgetIdentity: "campaign-first",
+    });
+    await createChatGptIdeaProposalProvider(second.value, { requestBudget: budget }).generate({
+      ...input,
+      budgetIdentity: "campaign-second",
+    });
+
+    assert.equal(first.calls.filter(([name]) => name === "submit").length, 1);
+    assert.equal(second.calls.filter(([name]) => name === "submit").length, 1);
+    assert.equal((await budget.inspect("campaign-first"))?.consumed, 1);
+    assert.equal((await budget.inspect("campaign-second"))?.consumed, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -171,6 +171,43 @@ test("Project Workspace executor composes Web reasoning, Desktop feedback, and r
   assert.equal(final.evidence.some((item) => item.stage === "IMPLEMENT"), true);
   assert.equal(fake.submittedPrompts.filter((prompt) => prompt.stage === "IMPLEMENT").length, 2);
 });
+
+test("Project Workspace executor accepts an explicit local provider for Web-owned stages", async (t) => {
+  const f = await fixture();
+  const resources = await coreAndAgent(f);
+  t.after(() => closeAll(resources));
+  const executor = createProjectWorkspaceExecutor({
+    runRoot: f.runRoot,
+    workerRoot: f.workerRoot,
+    registryRoot: f.registryRoot,
+    desktopStateRoot: f.jobRoot,
+    desktopTransport: resources.transport,
+    browserAdapter: createFakeChatGptWebBrowserAdapter([]).adapter,
+    agentId: "agent-web-e2e",
+    desktopTaskCompiler: async () => null,
+    webExecutor: {
+      async execute(run) {
+        return {
+          type: "completed" as const,
+          evidence: [{
+            version: 1 as const,
+            id: `local-provider-${run.state.stage.toLowerCase()}`,
+            kind: "file-change" as const,
+            stage: run.state.stage,
+            recordedAt: "2026-09-08T05:00:00.000Z",
+            summary: "local provider stage",
+            provider: "isolated-local-provider",
+            runId: run.request.runId,
+          }],
+        };
+      },
+    },
+  });
+  const result = await executor.execute({ ...f.run, state: { ...f.run.state, status: "RUNNING" } });
+  assert.equal(result.type, "completed");
+  assert.equal((result.type === "completed" ? result.evidence[0]?.provider : undefined), "isolated-local-provider");
+});
+
 test("Project Workspace executor forwards bounded parser diagnostics from its adapter wrapper", async (t) => {
   const f = await fixture();
   const resources = await coreAndAgent(f);

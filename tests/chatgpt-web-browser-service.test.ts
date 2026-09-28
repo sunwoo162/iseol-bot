@@ -39,10 +39,11 @@ test("enabled bridge fails closed when no browser driver is installed", async ()
 test("production adapter exposes only bounded conversation operations", async () => {
   const calls: string[] = [];
   const contracts: string[] = [];
+  const requestIds: string[] = [];
   const driver: ChatGptBrowserDriver = {
     openOrResumeConversation: async () => { calls.push("open"); return { conversationRef: "conv-1" }; },
     submitPrompt: async () => { calls.push("submit"); },
-    readStructuredResult: async (input) => { calls.push("read"); contracts.push(input.contract); return { version: 1 }; },
+    readStructuredResult: async (input) => { calls.push("read"); contracts.push(input.contract); requestIds.push(input.requestId ?? ""); return { version: 1 }; },
     probeConversation: async () => { calls.push("probe"); return "ready"; },
     closeConversation: async () => { calls.push("close"); },
   };
@@ -56,6 +57,7 @@ test("production adapter exposes only bounded conversation operations", async ()
   await adapter.closeSession({ ...session, conversationRef: "conv-1" });
   assert.deepEqual(calls, ["open", "submit", "read", "probe", "close"]);
   assert.deepEqual(contracts, ["patch-frame-v1"]);
+  assert.deepEqual(requestIds, ["session-1"]);
 });
 test("auth and navigation failures are classified without leaking browser credentials", async () => {
   const authDriver: ChatGptBrowserDriver = {
@@ -85,6 +87,12 @@ test("browser operation failures map to bounded classes without exposing excepti
   assert.equal(classifyChatGptBrowserOperationFailure(new Error("Page has been closed")), "page-closed");
   assert.equal(classifyChatGptBrowserOperationFailure(new Error("Execution context was destroyed")), "execution-context-destroyed");
   assert.equal(classifyChatGptBrowserOperationFailure(new Error("Timeout 1000ms exceeded")), "timeout");
+  assert.equal(classifyChatGptBrowserOperationFailure(new Error("ChatGPT did not assign a canonical conversation identity after prompt submission")), "conversation-identity-changed");
+  assert.equal(classifyChatGptBrowserOperationFailure(new Error("ChatGPT new conversation navigation drifted from the canonical page")), "conversation-identity-changed");
+  assert.equal(classifyChatGptBrowserOperationFailure(new Error("No pending ChatGPT submission is available for structured result reading")), "pending-submission-missing");
+  assert.equal(classifyChatGptBrowserOperationFailure(new Error("ChatGPT clipboard capture failed")), "clipboard-capture-failed");
+  assert.equal(classifyChatGptBrowserOperationFailure(new Error("assistant turn copy control unavailable or ambiguous")), "assistant-response-extraction-failed");
+  assert.equal(classifyChatGptBrowserOperationFailure(new Error("ChatGPT structured result timed out")), "response-timeout");
   assert.equal(classifyChatGptBrowserOperationFailure(new Error("owned page missing")), "owned-page-missing");
   assert.equal(classifyChatGptBrowserOperationFailure(new Error("Browser disconnected")), "browser-disconnected");
   assert.equal(classifyChatGptBrowserOperationFailure(new Error(sentinel)), "unknown");

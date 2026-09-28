@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { HarnessEvidenceKind, HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import type { HarnessStageExecutor, HarnessStageExecutionResult } from "../harness/run-supervisor.js";
-import type { DesktopJobResult, DesktopOperationResult, DesktopTaskPack } from "./contracts.js";
+import type { DesktopJobResult, DesktopOperation, DesktopOperationResult, DesktopTaskPack } from "./contracts.js";
 import { desktopOperationCapability, desktopTaskPackMutates } from "./contracts.js";
 import { listOnlineDesktopAgents } from "./agent-registry.js";
 import {
@@ -56,9 +56,7 @@ async function resolveAgent(input: CreateDesktopStageExecutorInput, targetRoot: 
 }
 function evidenceKindForStage(
   stage: HarnessRuntimeRunEnvelope["state"]["stage"],
-  job?: DesktopJobRecord,
 ): HarnessEvidenceKind {
-  if (job?.pack.operations.some((operation) => operation.type === "RUN_PROCESS" && operation.purpose === "build")) return "build";
   if (stage === "TEST") return "test";
   if (stage === "SELF_REVIEW") return "review";
   if (stage === "COMMIT") return "commit";
@@ -67,6 +65,15 @@ function evidenceKindForStage(
   if (stage === "DEPLOY") return "deployment";
   if (stage === "PRODUCTION_VERIFY") return "production-verification";
   return "command";
+}
+
+function evidenceKindForOperation(
+  stage: HarnessRuntimeRunEnvelope["state"]["stage"],
+  operation?: DesktopOperation,
+): HarnessEvidenceKind {
+  if (operation?.type === "RUN_PROCESS" && operation.purpose === "build") return "build";
+  if (operation?.type === "RUN_PROCESS" && operation.purpose === "test" && stage === "TEST") return "test";
+  return evidenceKindForStage(stage);
 }
 
 export type DesktopFeedback = { kind: HarnessEvidenceKind; summary: string; reference?: string };
@@ -122,7 +129,7 @@ export function desktopJobFeedback(
   job?: DesktopJobRecord,
 ): DesktopFeedback[] {
   return result.operations.map((item) => ({
-    kind: evidenceKindForStage(run.state.stage, job),
+    kind: evidenceKindForOperation(run.state.stage, job?.pack.operations.find((operation) => operation.id === item.operationId)),
     summary: operationFeedback(item),
     reference: item.reference ?? `desktop-job:${result.jobId}:${item.operationId}`,
   }));
@@ -132,12 +139,14 @@ function completedResult(
   result: DesktopJobResult,
   job: DesktopJobRecord,
 ): DesktopCompletedExecutionResult {
-  const operationReference = result.operations.find((item) => item.reference)?.reference;
-  const kind = evidenceKindForStage(run.state.stage, job);
   const evidence = result.status === "completed"
-    ? [{
+    ? result.operations.map((item) => {
+      const kind = evidenceKindForOperation(run.state.stage, job.pack.operations.find((operation) => operation.id === item.operationId));
+      const operationReference = item.reference;
+      const suffix = result.operations.length === 1 ? kind : `${kind}:${item.operationId}`;
+      return {
         version: 1 as const,
-        id: `desktop-evidence:${run.request.runId}:${job.jobId}:${kind}`,
+        id: `desktop-evidence:${run.request.runId}:${job.jobId}:${suffix}`,
         kind,
         stage: run.state.stage,
         recordedAt: result.completedAt,
@@ -148,7 +157,8 @@ function completedResult(
         runId: run.request.runId,
         jobId: job.jobId,
         executionIdentity: job.idempotencyKey,
-      }]
+      };
+    })
     : [];
   return {
     type: "completed",

@@ -12,7 +12,7 @@ import type { CompiledWebPrompt } from "./prompt-compiler.js";
 export interface ChatGptBrowserDriver {
   openOrResumeConversation(input: { conversationRef?: string; prompt: string; promptSha256: string }): Promise<{ conversationRef?: string }>;
   submitPrompt(input: { conversationRef?: string; prompt: string; promptSha256: string }): Promise<{ conversationRef?: string } | void>;
-  readStructuredResult(input: { conversationRef: string; timeoutMs: number; contract: ChatGptWebResultContract }): Promise<unknown>;
+  readStructuredResult(input: { requestId?: string; conversationRef: string; timeoutMs: number; contract: ChatGptWebResultContract }): Promise<unknown>;
   probeConversation(conversationRef: string): Promise<ChatGptWebSessionProbe>;
   closeConversation(conversationRef: string): Promise<void>;
   recordParserDiagnostic?(input: {
@@ -37,6 +37,11 @@ export function classifyChatGptBrowserOperationFailure(error: unknown): ChatGptB
   if (/page.*closed|page has been closed/.test(text)) return "page-closed";
   if (/context.*closed|context has been closed/.test(text)) return "context-closed";
   if (/owned page.*missing|owned page.*unavailable/.test(text)) return "owned-page-missing";
+  if (/conversation identity .*?(?:changed|invalid|unavailable|drifted)|assistant message identity changed|did not assign .*conversation identity|new conversation (?:identity is unavailable|navigation drifted)/.test(text)) return "conversation-identity-changed";
+  if (/no pending .*submission|pending .*submission .*available/.test(text)) return "pending-submission-missing";
+  if (/structured result .*timed out|response .*timed out/.test(text)) return "response-timeout";
+  if (/clipboard|text\/plain|copy.*capture|capture.*clipboard/.test(text)) return "clipboard-capture-failed";
+  if (/assistant.*(?:source|turn|response|copy)|(?:assistant|response).*extraction/.test(text)) return "assistant-response-extraction-failed";
   if (/page.*missing|page.*not found/.test(text)) return "page-missing";
   if (/navigation|net::|goto/.test(text)) return "navigation-failed";
   if (/locator|selector|composer/.test(text)) return "locator-missing";
@@ -99,7 +104,7 @@ export function createProductionChatGptWebAdapter(driver: ChatGptBrowserDriver):
       } catch (error) { await recordFailure("submit-prompt", session, error); return classify(error); }
     },
     async awaitStructuredResult(session, timeoutMs, contract) {
-      try { return await driver.readStructuredResult({ conversationRef: requireRef(session.conversationRef), timeoutMs, contract }); }
+      try { return await driver.readStructuredResult({ requestId: session.sessionId, conversationRef: requireRef(session.conversationRef), timeoutMs, contract }); }
       catch (error) { await recordFailure("extract-structured-result", session, error); if (error instanceof ChatGptWebStructuredResultError) await driver.recordParserDiagnostic?.({ runId: session.runId, ...(session.projectId ? { projectId: session.projectId } : {}), stage: session.stage, sessionId: session.sessionId, generation: session.generation, resultContract: contract, ...(session.conversationRef ? { conversationRef: session.conversationRef } : {}), message: error.message, diagnostic: error.diagnostic }); return classify(error); }
     },
     async probeSession(session) {

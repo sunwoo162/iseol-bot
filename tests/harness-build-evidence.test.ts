@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { DesktopJobRecord, DesktopTaskPack } from "../src/desktop-agent/job-store.js";
+import type { DesktopJobResult } from "../src/desktop-agent/contracts.js";
 import { loadDesktopJob } from "../src/desktop-agent/job-store.js";
 import { createDesktopStageExecutor, desktopJobFeedback } from "../src/desktop-agent/desktop-executor.js";
 import { registerDesktopAgent } from "../src/desktop-agent/agent-registry.js";
@@ -120,6 +121,42 @@ test("successful RUN_BUILD records identity-bound build evidence from the real D
     runId: fixture.run.request.runId,
     projectId: fixture.run.request.projectId,
   });
+});
+
+test("combined Desktop test/build jobs preserve both evidence kinds", async () => {
+  const fixture = await buildFixture();
+  const pack = buildPack(fixture.run);
+  pack.operations = [
+    { id: "test", type: "RUN_PROCESS", purpose: "test", cwd: ".", executable: "node", args: ["--test"], timeoutMs: 10_000 },
+    pack.operations[0]!,
+  ];
+  const result: DesktopJobResult = {
+    version: 1,
+    jobId: pack.jobId,
+    runId: pack.runId,
+    agentId: pack.agentId,
+    status: "completed",
+    completedAt: NOW,
+    operations: [
+      { operationId: "test", ok: true, summary: "test completed" },
+      { operationId: "build", ok: true, summary: "build completed" },
+    ],
+  };
+  const job = {
+    version: 1,
+    jobId: pack.jobId,
+    runId: pack.runId,
+    stage: pack.stage,
+    idempotencyKey: pack.idempotencyKey,
+    pack,
+    status: "completed",
+    attempts: 1,
+    createdAt: NOW,
+    updatedAt: NOW,
+    result,
+  } satisfies DesktopJobRecord;
+  const testRun = { ...fixture.run, state: { ...fixture.run.state, stage: "TEST" as const } };
+  assert.deepEqual(desktopJobFeedback(testRun, result, job).map((item) => item.kind), ["test", "build"]);
 });
 
 test("BUILD is required when the profile requests it and identity mismatch cannot satisfy the gate", () => {

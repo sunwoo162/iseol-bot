@@ -13,8 +13,9 @@ import type { ChatGptWebResultContract, ChatGptWebSessionProbe } from "./browser
 import type { ChatGptBrowserDriver } from "./production-browser-adapter.js";
 import { classifyChatGptBrowserOperationFailure } from "./production-browser-adapter.js";
 import type { PlaywrightBrowserDriverConfig } from "./playwright-browser-config.js";
-import { createPlaywrightBrowserBackend, type PlaywrightBrowserBackend } from "./playwright-browser-backend.js";
+import { createPlaywrightBrowserBackend, getAssistantTextReadDiagnostic, type PlaywrightBrowserBackend } from "./playwright-browser-backend.js";
 import { patchRejectionDiagnostic } from "./patch-diagnostics.js";
+import { createResponseReadDiagnosticStore, type ResponseReadDiagnosticStage, type ResponseReadDiagnosticStore } from "./request-diagnostics.js";
 
 export type { PlaywrightBrowserBackend } from "./playwright-browser-backend.js";
 
@@ -50,10 +51,24 @@ function isCanonicalNewPage(url: string): boolean {
 function authUrl(url: string): boolean {
   return /\/((auth\/)?login|signup|sign-up)(\/|$)/i.test(url);
 }
-function lost(message: string): never { throw new ChatGptWebSessionLostError(message); }
+function lost(message: string): never {
+  throw new ChatGptWebSessionLostError(message, classifyChatGptBrowserOperationFailure(new Error(message)));
+}
 function structured(message: string, diagnostic?: Record<string, string | boolean>): never { throw new ChatGptWebStructuredResultError(message, diagnostic); }
 function responseSha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+function responseLengthBucket(value: string): "empty" | "short" | "medium" | "large" | "oversize" {
+  const bytes = Buffer.byteLength(value, "utf8");
+  return bytes === 0 ? "empty" : bytes < 256 ? "short" : bytes < 4096 ? "medium" : bytes <= MAX_STRUCTURED_RESULT_BYTES ? "large" : "oversize";
+}
+function parserTransformShape(source: string, candidate: string, codeFenceUnwrapped: boolean): Record<string, string> {
+  return {
+    parserInputLengthBucket: responseLengthBucket(source),
+    candidateLengthBucket: responseLengthBucket(candidate),
+    trimChanged: source === source.trim() ? "no" : "yes",
+    codeFenceUnwrapped: codeFenceUnwrapped ? "yes" : "no",
+  };
 }
 function jsonSyntaxShape(text: string, error: unknown): Record<string, string | boolean> {
   const message = error instanceof Error ? error.message : "";
@@ -108,7 +123,7 @@ function jsonShape(text: string, error: unknown, extraction: Record<string, stri
   const t = text.trim(); const opens = (t.match(/\{/g) ?? []).length; const closes = (t.match(/\}/g) ?? []).length;
   const brackets = (t.match(/\[/g) ?? []).length; const closeBrackets = (t.match(/\]/g) ?? []).length;
   const msg = error instanceof Error ? error.message : "";
-  return { diagnosticCategory: "response-envelope-malformed", rejectionClass: "json-syntax-error", parserInputReceived: true, responsePresent: true, responseSha256: responseSha256(t), responseLengthBucket: t.length < 256 ? "short" : t.length < 4096 ? "medium" : "large", startsWithObjectToken: t.startsWith("{"), endsWithObjectToken: t.endsWith("}"), startsWithArrayToken: t.startsWith("["), endsWithArrayToken: t.endsWith("]"), markdownFencePresent: /^```/.test(t), leadingWrapperPresent: !/^[\[{]/.test(t), trailingWrapperPresent: !/[\]}]$/.test(t), topLevelBraceBalance: opens === closes ? "balanced" : opens > closes ? "more-open" : "more-close", topLevelBracketBalance: brackets === closeBrackets ? "balanced" : brackets > closeBrackets ? "more-open" : "more-close", likelyTruncated: /end of json|unexpected end|unterminated/i.test(msg) ? "yes" : "unknown", ...jsonSyntaxShape(t, error), ...extraction };
+  return { diagnosticCategory: "response-envelope-malformed", rejectionClass: "json-syntax-error", parserInputReceived: true, responsePresent: true, responseSha256: responseSha256(t), responseLengthBucket: responseLengthBucket(t), startsWithObjectToken: t.startsWith("{"), endsWithObjectToken: t.endsWith("}"), startsWithArrayToken: t.startsWith("["), endsWithArrayToken: t.endsWith("]"), markdownFencePresent: /^```/.test(t), leadingWrapperPresent: !/^[\[{]/.test(t), trailingWrapperPresent: !/[\]}]$/.test(t), topLevelBraceBalance: opens === closes ? "balanced" : opens > closes ? "more-open" : "more-close", topLevelBracketBalance: brackets === closeBrackets ? "balanced" : brackets > closeBrackets ? "more-open" : "more-close", likelyTruncated: /end of json|unexpected end|unterminated/i.test(msg) ? "yes" : "unknown", ...jsonSyntaxShape(t, error), ...extraction };
 }
 
 function classifyBrowserFailure(error: unknown): never {
@@ -121,6 +136,16 @@ function classifyBrowserFailure(error: unknown): never {
     || error instanceof ChatGptWebStructuredResultError
   ) throw error;
   throw new ChatGptWebSessionLostError("ChatGPT browser operation failed", classifyChatGptBrowserOperationFailure(error));
+}
+
+function boundedFailureClass(error: unknown): string {
+  if (error instanceof ChatGptWebStructuredResultError) return "structured-result-parser-rejection";
+  if (error instanceof ChatGptWebSessionLostError) return error.failureClass ?? "unknown";
+  if (error instanceof ChatGptWebAuthenticationRequiredError) return "auth-or-login-page";
+  if (error instanceof ChatGptWebTemporarilyLimitedError) return "temporary-limit";
+  if (error instanceof ChatGptWebConversationLimitError) return "conversation-limit";
+  if (error instanceof ChatGptWebUsageLimitError) return "usage-limit";
+  return classifyChatGptBrowserOperationFailure(error);
 }
 
 function canonicalizeNewFilePatch(patch: string): string {
@@ -242,13 +267,14 @@ function parsePatchMultipart(candidate: string): unknown | null {
   return header;
 }
 function parseStructuredResult(text: string, legacyCompatibility = false, extraction: Record<string, string | boolean> = {}): unknown {
-  if (Buffer.byteLength(text, "utf8") > MAX_STRUCTURED_RESULT_BYTES) structured("ChatGPT structured result exceeds the allowed size", { diagnosticCategory: "response-envelope-malformed", rejectionClass: "response-too-large", parserInputReceived: true });
+  if (Buffer.byteLength(text, "utf8") > MAX_STRUCTURED_RESULT_BYTES) structured("ChatGPT structured result exceeds the allowed size", { diagnosticCategory: "response-envelope-malformed", rejectionClass: "response-too-large", parserInputReceived: true, ...parserTransformShape(text, text.trim(), false) });
   const trimmed = text.trim();
-  if (!trimmed) structured("ChatGPT structured result is empty", { diagnosticCategory: "response-envelope-missing", rejectionClass: "response-empty", parserInputReceived: true, responsePresent: false });
+  if (!trimmed) structured("ChatGPT structured result is empty", { diagnosticCategory: "response-envelope-missing", rejectionClass: "response-empty", parserInputReceived: true, responsePresent: false, ...parserTransformShape(text, trimmed, false) });
   let candidate = trimmed;
+  let codeFenceUnwrapped = false;
   const fenced = trimmed.match(/^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i);
-  if (fenced) candidate = fenced[1]?.trim() ?? "";
-  else if (trimmed.startsWith("```") || trimmed.endsWith("```")) structured("ChatGPT structured result fence is malformed", { diagnosticCategory: "response-envelope-malformed", rejectionClass: "markdown-fence-malformed", parserInputReceived: true, responsePresent: true });
+  if (fenced) { candidate = fenced[1]?.trim() ?? ""; codeFenceUnwrapped = true; }
+  else if (trimmed.startsWith("```") || trimmed.endsWith("```")) structured("ChatGPT structured result fence is malformed", { diagnosticCategory: "response-envelope-malformed", rejectionClass: "markdown-fence-malformed", parserInputReceived: true, responsePresent: true, ...parserTransformShape(text, trimmed, false) });
   if (legacyCompatibility) {
     const multipart = parsePatchMultipart(candidate);
     if (multipart !== null) return multipart;
@@ -273,7 +299,7 @@ function parseStructuredResult(text: string, legacyCompatibility = false, extrac
     return parsed;
   } catch (error) {
     if (error instanceof ChatGptWebStructuredResultError) throw error;
-    return structured("ChatGPT structured result is not exactly one JSON value", jsonShape(candidate, error, extraction));
+    return structured("ChatGPT structured result is not exactly one JSON value", jsonShape(candidate, error, { ...parserTransformShape(text, candidate, codeFenceUnwrapped), ...extraction }));
   }
 }
 
@@ -352,20 +378,68 @@ export async function createPlaywrightChatGptBrowserDriver(
   const inFlightByTurn = new Map<string, Promise<{ conversationRef?: string }>>();
   const pendingByConversation = new Map<string, { baselineAssistantCount: number }>();
   const turnKey = (conversationRef: string | undefined, sha: string) => JSON.stringify([conversationRef ?? null, sha]);
+  const responseReadDiagnosticStore = config.lifecycleRoot ? createResponseReadDiagnosticStore(config.lifecycleRoot) : undefined;
 
-  async function authenticatedComposerCount(url: string): Promise<number> {
+  function createReadDiagnostic(requestId: string | undefined, startedAt: number) {
+    if (!responseReadDiagnosticStore || !requestId || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(requestId)) return undefined;
+    const started = new Set<ResponseReadDiagnosticStage>();
+    const completed = new Set<ResponseReadDiagnosticStage>();
+    const failed = new Set<ResponseReadDiagnosticStage>();
+    let writes = Promise.resolve();
+    const emit = (stage: ResponseReadDiagnosticStage, phase: "start" | "complete" | "failure", details: Record<string, unknown> = {}) => {
+      const event = {
+        requestId,
+        stage,
+        phase,
+        at: new Date().toISOString(),
+        elapsedMs: Math.max(0, now() - startedAt),
+        ok: phase !== "failure",
+        ...details,
+      } as const;
+      writes = writes.then(() => responseReadDiagnosticStore.record(event as any)).catch(() => undefined);
+    };
+    return {
+      start(stage: ResponseReadDiagnosticStage, details: Record<string, unknown> = {}) {
+        if (started.has(stage)) return;
+        started.add(stage);
+        emit(stage, "start", details);
+      },
+      complete(stage: ResponseReadDiagnosticStage, details: Record<string, unknown> = {}) {
+        if (completed.has(stage)) return;
+        completed.add(stage);
+        emit(stage, "complete", details);
+      },
+      failure(stage: ResponseReadDiagnosticStage, error: unknown) {
+        if (failed.has(stage)) return;
+        failed.add(stage);
+        const assistantTextDiagnostic = stage === "assistant-text" ? getAssistantTextReadDiagnostic(error) : undefined;
+        emit(stage, "failure", {
+          failureClass: boundedFailureClass(error),
+          ...(assistantTextDiagnostic ? {
+            assistantTextCallPoint: assistantTextDiagnostic.callPoint,
+            assistantTextRetryable: assistantTextDiagnostic.retryable,
+          } : {}),
+        });
+      },
+    };
+  }
+
+  async function ensureAuthenticatedPage(url: string): Promise<void> {
     if (await backend.temporaryRestrictionCount() > 0) {
       try { await backend.dismissTemporaryRestriction?.(); } catch { /* restriction still wins */ }
       throw new ChatGptWebTemporarilyLimitedError("ChatGPT Web is temporarily rate limited");
     }
     if ((await backend.conversationLimitCount?.() ?? 0) > 0) throw new ChatGptWebConversationLimitError("ChatGPT conversation limit reached");
     if ((await backend.usageLimitCount?.() ?? 0) > 0) throw new ChatGptWebUsageLimitError("ChatGPT Web usage limit reached");
-    const composerCount = await backend.composerCount();
     const authCount = await backend.authenticationRequiredCount();
     if (authUrl(url) || authCount > 0) {
       throw new ChatGptWebAuthenticationRequiredError("ChatGPT authentication is required");
     }
-    return composerCount;
+  }
+
+  async function authenticatedComposerCount(url: string): Promise<number> {
+    await ensureAuthenticatedPage(url);
+    return backend.composerCount();
   }
 
   async function waitForAuthenticatedComposer(): Promise<string> {
@@ -463,42 +537,191 @@ export async function createPlaywrightChatGptBrowserDriver(
     return operation;
   }
 
-  async function readStructuredResult(input: { conversationRef: string; timeoutMs: number; contract: ChatGptWebResultContract }): Promise<unknown> {
+  async function readStructuredResult(input: { requestId?: string; conversationRef: string; timeoutMs: number; contract: ChatGptWebResultContract }): Promise<unknown> {
+    const startedAt = now();
+    const diagnostic = createReadDiagnostic(input.requestId, startedAt);
+    const diagnosticFailure = (stage: ResponseReadDiagnosticStage, error: unknown) => diagnostic?.failure(stage, error);
     try {
-      if (!REF.test(input.conversationRef)) lost("Conversation identity is invalid");
-      if (!Number.isFinite(input.timeoutMs) || input.timeoutMs <= 0) lost("Structured result timeout is invalid");
-      const startedAt = now();
+      if (!REF.test(input.conversationRef)) {
+        const error = new ChatGptWebSessionLostError("Conversation identity is invalid", "conversation-identity-changed");
+        diagnosticFailure("conversation-identity", error);
+        throw error;
+      }
+      if (!Number.isFinite(input.timeoutMs) || input.timeoutMs <= 0) {
+        const error = new ChatGptWebSessionLostError("Structured result timeout is invalid", "response-timeout");
+        diagnosticFailure("assistant-stability", error);
+        throw error;
+      }
+      diagnostic?.start("pending-submission");
       const pending = pendingByConversation.get(input.conversationRef);
-      if (!pending) lost("No pending ChatGPT submission is available for structured result reading");
+      if (!pending) {
+        const error = new ChatGptWebSessionLostError("No pending ChatGPT submission is available for structured result reading", "pending-submission-missing");
+        diagnosticFailure("pending-submission", error);
+        throw error;
+      }
+      diagnostic?.complete("pending-submission");
       const baseline = pending.baselineAssistantCount;
       let stableText: string | null = null;
       let stableSince = startedAt;
 
       while (true) {
-        const url = await backend.currentUrl();
-        if (conversationFrom(url) !== input.conversationRef) lost("ChatGPT conversation identity changed while reading result");
-        if (await authenticatedComposerCount(url) !== 1) lost("Authenticated ChatGPT composer is missing or ambiguous");
-        const assistantCount = await backend.assistantMessageCount();
-        const generatingCount = await backend.generationControlCount();
-        const latestText = assistantCount > baseline ? await backend.latestAssistantText() : null;
+        diagnostic?.start("conversation-identity");
+        let url: string;
+        try {
+          url = await backend.currentUrl();
+          if (conversationFrom(url) !== input.conversationRef) {
+            const error = new ChatGptWebSessionLostError("ChatGPT conversation identity changed while reading result", "conversation-identity-changed");
+            diagnosticFailure("conversation-identity", error);
+            throw error;
+          }
+          diagnostic?.complete("conversation-identity");
+        } catch (error) {
+          diagnosticFailure("conversation-identity", error);
+          throw error;
+        }
+
+        diagnostic?.start("authentication-state");
+        try {
+          await ensureAuthenticatedPage(url);
+          diagnostic?.complete("authentication-state");
+        } catch (error) {
+          diagnosticFailure("authentication-state", error);
+          throw error;
+        }
+
+        diagnostic?.start("assistant-locator");
+        let assistantCount: number;
+        try {
+          assistantCount = await backend.assistantMessageCount();
+          diagnostic?.complete("assistant-locator", {
+            assistantCount,
+            baselineAssistantCount: baseline,
+            awaitingAssistant: assistantCount <= baseline,
+          });
+        } catch (error) {
+          diagnosticFailure("assistant-locator", error);
+          throw error;
+        }
+
+        diagnostic?.start("generation-control");
+        let generatingCount: number;
+        try {
+          generatingCount = await backend.generationControlCount();
+          diagnostic?.complete("generation-control", { generationControlCount: generatingCount });
+        } catch (error) {
+          diagnosticFailure("generation-control", error);
+          throw error;
+        }
+
+        let latestText: string | null = null;
+        if (assistantCount > baseline) {
+          diagnostic?.start("assistant-text", { assistantCount, baselineAssistantCount: baseline });
+          try {
+            latestText = await backend.latestAssistantText();
+            diagnostic?.complete("assistant-text", { assistantCount });
+          } catch (error) {
+            diagnosticFailure("assistant-text", error);
+            throw error;
+          }
+        }
 
         if (generatingCount === 0 && latestText?.trim()) {
+          diagnostic?.start("assistant-stability");
           if (latestText === stableText) {
             if (now() - stableSince >= RESULT_SETTLE_MS) {
-              const rawText = await backend.latestAssistantRawText();
-              if (!rawText?.trim()) lost("ChatGPT assistant source is unavailable");
-              pendingByConversation.delete(input.conversationRef);
+              diagnostic?.complete("assistant-stability", { generationControlCount: generatingCount });
+              let domText: string | null = null;
+              diagnostic?.start("dom-extraction");
+              try {
+                domText = await backend.latestAssistantDomText?.() ?? null;
+                diagnostic?.complete("dom-extraction", {
+                  domExtractionAttempted: true,
+                  domExtractionSucceeded: Boolean(domText?.trim()),
+                  responseLengthBucket: responseLengthBucket(domText?.trim() ?? ""),
+                  responseSource: domText?.trim() ? "assistant-dom" : "assistant-copy",
+                });
+              } catch (error) {
+                diagnosticFailure("dom-extraction", error);
+                throw error;
+              }
+
+              diagnostic?.start("final-identity");
+              try {
+                const finalAssistantCount = await backend.assistantMessageCount();
+                const finalLatestText = await backend.latestAssistantText();
+                if (finalAssistantCount !== assistantCount || finalLatestText !== latestText) {
+                  const error = new ChatGptWebSessionLostError("ChatGPT assistant message identity changed while reading result", "conversation-identity-changed");
+                  diagnosticFailure("final-identity", error);
+                  throw error;
+                }
+                diagnostic?.complete("final-identity", { assistantCount: finalAssistantCount });
+              } catch (error) {
+                diagnosticFailure("final-identity", error);
+                throw error;
+              }
+
               const extraction = {
                 completionDetected: true,
                 assistantSelection: "latest-after-baseline",
-                responseSource: "assistant-copy",
-                renderedRawMatch: responseSha256(latestText) === responseSha256(rawText) ? "yes" : "no",
+                responseSource: domText?.trim() ? "assistant-dom" : "assistant-copy",
+                renderedRawMatch: domText?.trim() && responseSha256(latestText) === responseSha256(domText) ? "yes" : "no",
                 renderedResponseSha256: responseSha256(latestText),
               } as const;
-              if (input.contract === "structured-json") return parseStructuredResult(rawText, false, extraction);
-              if (input.contract === "patch-frame-v1") return parsePatchFrameV1(rawText);
-              if (input.contract === "legacy-structured-json") return parseStructuredResult(rawText, true, extraction);
-              structured("ChatGPT result contract is unsupported");
+
+              if (domText?.trim()) {
+                diagnostic?.start("response-parse");
+                try {
+                  pendingByConversation.delete(input.conversationRef);
+                  let result: unknown;
+                  if (input.contract === "structured-json") result = parseStructuredResult(domText, false, extraction);
+                  else if (input.contract === "patch-frame-v1") result = parsePatchFrameV1(domText);
+                  else if (input.contract === "legacy-structured-json") result = parseStructuredResult(domText, true, extraction);
+                  else structured("ChatGPT result contract is unsupported");
+                  diagnostic?.complete("response-parse", { responseSource: "assistant-dom", domExtractionAttempted: true, domExtractionSucceeded: true, responseLengthBucket: responseLengthBucket(domText) });
+                  return result;
+                } catch (error) {
+                  diagnosticFailure("response-parse", error);
+                  // Rendered markdown can consume unified-diff prefixes. Keep
+                  // the lossless clipboard route as an explicit fallback for
+                  // patch-bearing contracts only; structured JSON must fail
+                  // closed rather than silently switch sources.
+                  if (input.contract === "structured-json") throw error;
+                }
+              }
+
+              diagnostic?.start("clipboard-fallback");
+              let rawText: string | null;
+              try {
+                rawText = await backend.latestAssistantRawText();
+                if (!rawText?.trim()) {
+                  const error = new ChatGptWebSessionLostError("ChatGPT assistant source is unavailable", "assistant-response-extraction-failed");
+                  diagnosticFailure("clipboard-fallback", error);
+                  throw error;
+                }
+                diagnostic?.complete("clipboard-fallback", { responseSource: domText?.trim() ? "assistant-copy-fallback" : "assistant-copy", domExtractionAttempted: true, domExtractionSucceeded: Boolean(domText?.trim()), responseLengthBucket: responseLengthBucket(rawText) });
+              } catch (error) {
+                diagnosticFailure("clipboard-fallback", error);
+                throw error;
+              }
+              pendingByConversation.delete(input.conversationRef);
+              const copyExtraction = {
+                ...extraction,
+                responseSource: domText?.trim() ? "assistant-copy-fallback" : "assistant-copy",
+                renderedRawMatch: responseSha256(latestText) === responseSha256(rawText) ? "yes" : "no",
+              } as const;
+              diagnostic?.start("response-parse");
+              try {
+                let result: unknown;
+                if (input.contract === "structured-json") result = parseStructuredResult(rawText, false, copyExtraction);
+                else if (input.contract === "patch-frame-v1") result = parsePatchFrameV1(rawText);
+                else if (input.contract === "legacy-structured-json") result = parseStructuredResult(rawText, true, copyExtraction);
+                else structured("ChatGPT result contract is unsupported");
+                diagnostic?.complete("response-parse", { responseSource: copyExtraction.responseSource, domExtractionAttempted: true, domExtractionSucceeded: Boolean(domText?.trim()), responseLengthBucket: responseLengthBucket(rawText) });
+                return result;
+              } catch (error) {
+                diagnosticFailure("response-parse", error);
+                throw error;
+              }
             }
           } else {
             stableText = latestText;
@@ -510,7 +733,11 @@ export async function createPlaywrightChatGptBrowserDriver(
         }
 
         const elapsed = now() - startedAt;
-        if (elapsed >= input.timeoutMs) lost("ChatGPT structured result timed out");
+        if (elapsed >= input.timeoutMs) {
+          const error = new ChatGptWebSessionLostError("ChatGPT structured result timed out", "response-timeout");
+          diagnosticFailure("assistant-stability", error);
+          throw error;
+        }
         await sleep(Math.min(POLL_MS, Math.max(1, input.timeoutMs - elapsed)));
       }
     } catch (error) { return classifyBrowserFailure(error); }

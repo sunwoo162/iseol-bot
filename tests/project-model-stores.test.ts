@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { ProjectHistoryEvent, ProjectWorkspace, PrototypeCandidate } from "../src/project-model/contracts.js";
 import {
   loadPrototypeCandidate,
@@ -105,4 +105,9 @@ test("project model stores reject unsafe ids", async () => {
   await assert.rejects(loadPrototypeCandidate(root, "../escape"), /Invalid Iseol Project Model id/);
   await assert.rejects(loadProjectWorkspace(root, "../escape"), /Invalid Iseol Project Model id/);
   await assert.rejects(loadProjectHistory(root, "../escape"), /Invalid Iseol Project Model id/);
+});
+
+test("project work request persistence uses the Windows transient rename retry boundary", async () => {
+  const source = await readFile(resolve(process.cwd(), "src/project-model/work-request.ts"), "utf8");
+  assert.match(source, /renameWithTransientRetry\(temp, path\)/);
 });
