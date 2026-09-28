@@ -9,6 +9,7 @@ import {
   completeDesktopJob,
   createDesktopJob,
   findDesktopJobByIdempotencyKey,
+  listDesktopJobs,
   listRecoverableDesktopJobs,
   loadDesktopJob,
   containDesktopJob,
@@ -63,6 +64,24 @@ test("idempotency key rejects a conflicting payload", async () => {
     ),
     /idempotency.*conflict/i,
   );
+});
+
+test("concurrent Job creation converges on one idempotent record across instances", async () => {
+  const store = await root();
+  const instances = await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      import(`../src/desktop-agent/job-store.ts?create-instance=${index}-${Date.now()}`),
+    ),
+  );
+  const outcomes = await Promise.allSettled(instances.map((instance, index) => instance.createDesktopJob(
+    store,
+    pack({ jobId: `job-${String(index + 1).padStart(3, "0")}` }),
+    "2026-09-08T01:00:00.000Z",
+  )));
+
+  assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 8);
+  assert.equal(new Set(outcomes.flatMap((outcome) => outcome.status === "fulfilled" ? [outcome.value.jobId] : [])).size, 1);
+  assert.equal((await listDesktopJobs(store)).length, 1);
 });
 
 test("leases are exclusive, renewable by owner, and transferable only after expiry", async () => {

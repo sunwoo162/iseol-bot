@@ -193,7 +193,7 @@ export async function findDesktopJobByIdempotencyKey(
   return jobs.find((job) => job.idempotencyKey === key) ?? null;
 }
 
-export async function createDesktopJob(
+async function createDesktopJobUnlocked(
   root: string,
   pack: DesktopTaskPack,
   at: string,
@@ -222,6 +222,19 @@ export async function createDesktopJob(
   };
   await saveJob(root, job);
   return job;
+}
+
+export async function createDesktopJob(
+  root: string,
+  pack: DesktopTaskPack,
+  at: string,
+): Promise<DesktopJobRecord> {
+  return withDurableDesktopJobLock(
+    root,
+    "__create__",
+    () => createDesktopJobUnlocked(root, pack, at),
+    { waitForMs: 2_000 },
+  );
 }
 
 function validateLeaseDuration(durationMs: number): void {
