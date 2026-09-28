@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import type { DesktopAgentHello, DesktopAgentPresence } from "./contracts.js";
 import { assertDesktopProtocolVersion } from "./contracts.js";
 import { renameWithTransientRetry } from "./atomic-file.js";
+import { withDurableDesktopAgentLock } from "./agent-lock.js";
 
 export type ResolvedDesktopAgentPresence = DesktopAgentPresence & {
   status: "online" | "offline";
@@ -63,7 +64,7 @@ export async function registerDesktopAgent(
   at: string,
   connectionId?: string,
 ): Promise<DesktopAgentPresence> {
-  return serializeAgentWrite(root, hello.agentId, async () => {
+  return withDurableDesktopAgentLock(root, hello.agentId, () => serializeAgentWrite(root, hello.agentId, async () => {
     assertDesktopProtocolVersion(hello.version);
     assertDesktopAgentId(hello.agentId);
     const existing = await loadRawPresence(root, hello.agentId);
@@ -75,7 +76,7 @@ export async function registerDesktopAgent(
     };
     await saveRawPresence(root, presence);
     return presence;
-  });
+  }), { waitForMs: 2_000 });
 }
 
 export async function heartbeatDesktopAgent(
@@ -84,14 +85,15 @@ export async function heartbeatDesktopAgent(
   at: string,
   connectionId?: string,
 ): Promise<DesktopAgentPresence> {
-  return serializeAgentWrite(root, agentId, async () => {
+  return withDurableDesktopAgentLock(root, agentId, () => serializeAgentWrite(root, agentId, async () => {
     const presence = await loadRawPresence(root, agentId);
     if (!presence) throw new Error(`Desktop Agent not registered: ${agentId}`);
     if (connectionId && presence.connectionId && presence.connectionId !== connectionId) return presence;
+    if (Date.parse(at) < Date.parse(presence.lastHeartbeatAt)) return presence;
     const next = { ...presence, lastHeartbeatAt: at };
     await saveRawPresence(root, next);
     return next;
-  });
+  }), { waitForMs: 2_000 });
 }
 
 export async function getDesktopAgentPresence(

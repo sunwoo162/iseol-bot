@@ -9,6 +9,7 @@ import {
   listOnlineDesktopAgents,
   registerDesktopAgent,
 } from "../src/desktop-agent/agent-registry.js";
+import { withDurableDesktopAgentLock } from "../src/desktop-agent/agent-lock.js";
 
 const hello = {
   version: 1 as const,
@@ -102,6 +103,28 @@ test("concurrent heartbeats serialize durable presence writes", async () => {
     120_000,
   );
   assert.equal(loaded?.lastHeartbeatAt, timestamps.at(-1));
+});
+
+test("heartbeat waits for the durable Agent presence lock across instances", async () => {
+  const store = await root();
+  await registerDesktopAgent(store, hello, "2026-09-08T01:00:00.000Z");
+  let settled = false;
+  let heartbeatPromise: Promise<unknown> | undefined;
+  const pending = withDurableDesktopAgentLock(
+    store,
+    "agent-001",
+    async () => {
+      const registry = await import("../src/desktop-agent/agent-registry.js?presence-lock");
+      heartbeatPromise = registry.heartbeatDesktopAgent(store, "agent-001", "2026-09-08T01:01:00.000Z");
+      heartbeatPromise.finally(() => { settled = true; }).catch(() => undefined);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+      assert.equal(settled, false);
+    },
+    { waitForMs: 2_000 },
+  );
+  await pending;
+  await heartbeatPromise;
+  assert.equal((await getDesktopAgentPresence(store, "agent-001", "2026-09-08T01:01:30.000Z", 60_000))?.lastHeartbeatAt, "2026-09-08T01:01:00.000Z");
 });
 
 test("stale connection heartbeat cannot overwrite the current capability snapshot", async () => {
