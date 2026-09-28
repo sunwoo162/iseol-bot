@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { AiTeamMemberInput, TeamApprovalScope, TeamCapability, TeamInput, TeamListItem, TeamMembership, TeamMemberRole, TeamRecord, TeamService, TeamServiceOptions } from "./contracts.js";
+import { withDurableTeamMembershipLock } from "./membership-lock.js";
 import { listMemberships, listTeams, loadMembership, loadTeam, saveMembership, saveTeam } from "./store.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -67,58 +68,68 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
     async addMember(teamId, userId, role, at = now()) {
       assertIdentityId(teamId); assertIdentityId(userId); assertTimestamp(at, "membership timestamp");
       if (!["owner", "admin", "member"].includes(role)) throw new Error("Invalid team member role");
-      const team = await loadTeam(root, teamId); if (!team || team.status !== "active") throw new Error("Team not found");
-      const existing = await getMembership(teamId, userId);
-      if (active(existing)) return existing;
-      const members = (await listMemberships(root, teamId)).filter((item) => item.status === "active");
-      if (members.length >= team.capacity) throw new Error("Team is full");
-      const previousJoinedAt = (existing as TeamMembership | null)?.joinedAt;
-      const membership: TeamMembership = { version: 1, id: `${teamId}:${userId}`, teamId, userId, memberType: "human", role, assignmentRole: role, capabilities: [], approvalScope: "suggestion-only", status: "active", joinedAt: previousJoinedAt ?? at, updatedAt: at };
-      await saveMembership(root, membership);
-      await saveTeam(root, { ...team, updatedAt: at });
-      return membership;
+      return withDurableTeamMembershipLock(root, teamId, async () => {
+        const team = await loadTeam(root, teamId); if (!team || team.status !== "active") throw new Error("Team not found");
+        const existing = await getMembership(teamId, userId);
+        if (active(existing)) return existing;
+        const members = (await listMemberships(root, teamId)).filter((item) => item.status === "active");
+        if (members.length >= team.capacity) throw new Error("Team is full");
+        const previousJoinedAt = (existing as TeamMembership | null)?.joinedAt;
+        const membership: TeamMembership = { version: 1, id: `${teamId}:${userId}`, teamId, userId, memberType: "human", role, assignmentRole: role, capabilities: [], approvalScope: "suggestion-only", status: "active", joinedAt: previousJoinedAt ?? at, updatedAt: at };
+        await saveMembership(root, membership);
+        await saveTeam(root, { ...team, updatedAt: at });
+        return membership;
+      }, { waitForMs: 2_000 });
     },
 
     async addAiMember(principal, teamId, input, at = now()) {
       ensurePrincipal(principal);
       if (!await isManagerByUser(teamId, principal.userId)) throw new Error("Team manager access required");
       assertIdentityId(teamId); assertTimestamp(at, "AI membership timestamp");
-      const team = await loadTeam(root, teamId); if (!team || team.status !== "active") throw new Error("Team not found");
-      const validated = validateAiInput(input);
-      const userId = `ai-${validated.agentId}`;
-      const existing = await getMembership(teamId, userId);
-      const previousJoinedAt = existing?.joinedAt;
-      if (active(existing)) return existing;
-      const members = (await listMemberships(root, teamId)).filter((item) => item.status === "active");
-      if (members.length >= team.capacity) throw new Error("Team is full");
-      const membership: TeamMembership = { version: 1, id: `${team.id}:ai:${validated.agentId}`, teamId, userId, aiMemberId: validated.agentId, memberType: "ai", role: "member", assignmentRole: validated.assignmentRole, capabilities: [...validated.capabilities], approvalScope: validated.approvalScope, status: "active", joinedAt: previousJoinedAt ?? at, updatedAt: at };
-      await saveMembership(root, membership);
-      await saveTeam(root, { ...team, updatedAt: at });
-      return membership;
+      return withDurableTeamMembershipLock(root, teamId, async () => {
+        const team = await loadTeam(root, teamId); if (!team || team.status !== "active") throw new Error("Team not found");
+        const validated = validateAiInput(input);
+        const userId = `ai-${validated.agentId}`;
+        const existing = await getMembership(teamId, userId);
+        const previousJoinedAt = existing?.joinedAt;
+        if (active(existing)) return existing;
+        const members = (await listMemberships(root, teamId)).filter((item) => item.status === "active");
+        if (members.length >= team.capacity) throw new Error("Team is full");
+        const membership: TeamMembership = { version: 1, id: `${team.id}:ai:${validated.agentId}`, teamId, userId, aiMemberId: validated.agentId, memberType: "ai", role: "member", assignmentRole: validated.assignmentRole, capabilities: [...validated.capabilities], approvalScope: validated.approvalScope, status: "active", joinedAt: previousJoinedAt ?? at, updatedAt: at };
+        await saveMembership(root, membership);
+        await saveTeam(root, { ...team, updatedAt: at });
+        return membership;
+      }, { waitForMs: 2_000 });
     },
 
     async removeMember(principal, teamId, userId) {
       ensurePrincipal(principal);
       if (!await isManagerByUser(teamId, principal.userId)) throw new Error("Team manager access required");
-      const team = await loadTeam(root, teamId); if (!team) throw new Error("Team not found");
-      if (userId === team.ownerUserId) throw new Error("Team owner cannot be removed");
-      const current = await getMembership(teamId, userId); if (!current || current.status !== "active" || current.memberType !== "human") throw new Error("Team member not found");
-      const at = now(); const next = { ...current, status: "removed" as const, updatedAt: at }; await saveMembership(root, next); await options.activityService?.recordActivityEvent(principal, { sourceType: "team", sourceId: `${teamId}:${userId}`, eventType: "team.membership.removed", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { teamId, memberUserId: userId } }); return next;
+      return withDurableTeamMembershipLock(root, teamId, async () => {
+        const team = await loadTeam(root, teamId); if (!team) throw new Error("Team not found");
+        if (userId === team.ownerUserId) throw new Error("Team owner cannot be removed");
+        const current = await getMembership(teamId, userId); if (!current || current.status !== "active" || current.memberType !== "human") throw new Error("Team member not found");
+        const at = now(); const next = { ...current, status: "removed" as const, updatedAt: at }; await saveMembership(root, next); await options.activityService?.recordActivityEvent(principal, { sourceType: "team", sourceId: `${teamId}:${userId}`, eventType: "team.membership.removed", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { teamId, memberUserId: userId } }); return next;
+      }, { waitForMs: 2_000 });
     },
 
     async removeAiMember(principal, teamId, agentId) {
       ensurePrincipal(principal); if (!await isManagerByUser(teamId, principal.userId)) throw new Error("Team manager access required");
       assertIdentityId(teamId); assertIdentityId(agentId);
-      const current = await getMembership(teamId, `ai-${agentId}`); if (!current || current.status !== "active" || current.memberType !== "ai") throw new Error("AI team member not found");
-      const at = now(); const next = { ...current, status: "removed" as const, updatedAt: at }; await saveMembership(root, next); return next;
+      return withDurableTeamMembershipLock(root, teamId, async () => {
+        const current = await getMembership(teamId, `ai-${agentId}`); if (!current || current.status !== "active" || current.memberType !== "ai") throw new Error("AI team member not found");
+        const at = now(); const next = { ...current, status: "removed" as const, updatedAt: at }; await saveMembership(root, next); return next;
+      }, { waitForMs: 2_000 });
     },
 
     async leaveTeam(principal, teamId) {
       ensurePrincipal(principal);
       const team = await loadTeam(root, teamId); if (!team) throw new Error("Team not found");
       if (team.ownerUserId === principal.userId) throw new Error("Team owner cannot leave");
-      const current = await getMembership(teamId, principal.userId); if (!current || current.status !== "active") throw new Error("Team membership not found");
-      const at = now(); const next = { ...current, status: "left" as const, updatedAt: at }; await saveMembership(root, next); await options.activityService?.recordActivityEvent(principal, { sourceType: "team", sourceId: `${teamId}:${principal.userId}`, eventType: "team.membership.left", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { teamId } }); return next;
+      return withDurableTeamMembershipLock(root, teamId, async () => {
+        const current = await getMembership(teamId, principal.userId); if (!current || current.status !== "active") throw new Error("Team membership not found");
+        const at = now(); const next = { ...current, status: "left" as const, updatedAt: at }; await saveMembership(root, next); await options.activityService?.recordActivityEvent(principal, { sourceType: "team", sourceId: `${teamId}:${principal.userId}`, eventType: "team.membership.left", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { teamId } }); return next;
+      }, { waitForMs: 2_000 });
     },
 
     async isManager(principal, teamId) { ensurePrincipal(principal); return isManagerByUser(teamId, principal.userId); },

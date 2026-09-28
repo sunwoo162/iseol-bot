@@ -70,3 +70,21 @@ test("AI team membership stores bounded role capabilities and approval scope wit
   assert.equal(removed.status, "removed");
   assert.equal((await restarted.getTeam(principal("ai-owner"), team.id))?.members.some((member) => member.memberType === "ai"), false);
 });
+
+test("team membership mutations across service instances preserve capacity", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-team-membership-concurrent-"));
+  const teamsRoot = join(root, "teams");
+  const firstService = createTeamService(teamsRoot, { now: () => at });
+  const secondService = createTeamService(teamsRoot, { now: () => "2026-09-25T12:00:01.000Z" });
+  const owner = principal("capacity-owner");
+  const team = await firstService.createTeam(owner, { name: "Capacity team", description: "serialized membership", kind: "project", visibility: "private", capacity: 2 });
+
+  const results = await Promise.allSettled([
+    firstService.addMember(team.id, "capacity-a", "member"),
+    secondService.addMember(team.id, "capacity-b", "member"),
+  ]);
+
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected" && /Team is full/.test(String(result.reason))).length, 1);
+  assert.equal((await firstService.listMemberships(team.id)).filter((member) => member.status === "active").length, 2);
+});
