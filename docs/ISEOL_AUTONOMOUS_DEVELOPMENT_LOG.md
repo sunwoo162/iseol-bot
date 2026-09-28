@@ -2018,6 +2018,27 @@ This log records implementation and verification facts without secrets. It does 
 - The lock is process-local and does not claim cross-process distributed exactly-once behavior. Weekly digest production remains unspecified/deferred; AI Broadcast Room remains deferred.
 - No external AI/provider request, external connector mutation, operational Runtime/Agent restart/recovery, stale-lock repair, UNKNOWN replay, deployment, push, data deletion, or approved-design change occurred. Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, dataRoot, stale PID `55000`, UNKNOWN/durable records, and approved design sources remained untouched.
 
+## 2026-09-28 continuation: enforce Learning Session revision CAS
+
+### Completed in this unit
+
+- Added a durable numeric `LearningSession.revision` with owner-scoped, process-local mutation serialization. Session resume, content-state transitions, and completion increment the revision; callers can supply `expectedRevision` and stale writes fail closed with a bounded conflict.
+- Preserved terminal completion idempotency, owner isolation, durable restart behavior, activity/growth attribution, and the existing no-external-provider boundary.
+- Propagated the latest session revision through the authenticated Learning API and UI resume/completion actions. Stale API mutations map to HTTP `409` rather than overwriting the current session.
+
+### TDD and verification
+
+- RED coverage established stale completion and concurrent completion races before the CAS guard; focused Learning Session coverage passed `8/8` after implementation.
+- Full user-product regression passed `313/313`; serial root regression passed `678/678`.
+- Root and user UI TypeScript checks, `npm.cmd run build`, and `npm.cmd run user-ui:build` passed. User UI build retained only the existing Vite native-config and chunk-size warnings.
+- Full isolated browser E2E passed all journeys, Learning Runtime/session flows, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Commits: `49bbfff feat: add learning session revision guards`, `acd5560 feat: enforce learning session CAS at user boundary`.
+
+### Scope and safety boundary
+
+- The revision lock is process-local; cross-process CAS still depends on a shared durable coordination mechanism. Learning content correctness, evaluator quality, hidden-test execution, mastery, and XP projection remain bounded by their existing evidence contracts.
+- No external AI/provider request, operational Runtime/Agent restart/recovery, stale-lock repair, UNKNOWN replay, external connector mutation, deployment, push, data deletion, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred. Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, and approved design sources remained untouched.
+
 ## 2026-09-28 continuation: portfolio actor provenance labels
 
 ### Completed in this unit
