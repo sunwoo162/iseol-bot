@@ -1983,6 +1983,14 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Boundary: same-host/shared-root lifecycle coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Commit: `9d0ab4b feat: serialize project work request cancellation`.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable Prototype browser-acceptance guard
+
+- Prototype browser acceptance is **B — candidate-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/project-model/prototype-store.ts` applies promoted-state validation inside `src/project-model/prototype-lock.ts`, preventing stale acceptance writes across promotion.
+- Evidence: `tests/project-model-promotion.test.ts` proves acceptance waits for a competing durable candidate lock; existing promotion/API/browser journeys remain green.
+- Verification: focused promotion+stores `15/15`; user-product `364/364`; root `697/697`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `85c39e1 feat: serialize prototype acceptance guard`.
+- Boundary: same-host/shared-root Prototype acceptance/promotion coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: project-model durable lock cleanup ownership hardening
 
 - Project-model durable locks are **B — same-host durable and isolated-browser verified with owner-token cleanup**. History, promotion, schedule, work-request, and Workspace lock finalizers now remove only their own lock record, preventing Windows waiter/owner cleanup races.
