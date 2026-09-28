@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable ChatGPT Web Desktop intent identity synchronization
+
+- Status: **B — Desktop-intent-scoped, durable, same-host cross-service serialized, and isolated regression/browser verified; live Desktop/Runtime execution remains unverified**. `recordDesktopIntent` now protects the first-write and identity-conflict decision with a durable `(runId, intentId)` lock, so concurrent workers cannot both accept conflicting records or silently overwrite the canonical intent.
+- Evidence: `src/chatgpt-web/intent-lock.ts`, `src/chatgpt-web/intent-store.ts`, `tests/chatgpt-web-stores.test.ts`, and the existing Desktop/Idea Lab/Project Runtime coverage.
+- TDD: RED reproduced eight independent service instances producing six successful writes for one intent identity with conflicting statuses; GREEN added bounded waiting, active-owner protection, exact dead-owner reclaim, malformed-record fail-closed behavior, Windows-open-file probing, and token-owned cleanup around the atomic JSON write.
+- Verification: focused Web stores/reasoning/Idea Lab driver suites `72/72`; user-product `366/366`; serial root `701/701`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained Project Workspace/Idea Lab approval and Runtime journeys, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `65d7c67 fix: serialize Desktop intent identity`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Desktop intent identity coordination only; no distributed coordinator, live Desktop Agent/Runtime throughput or provider quality, external connector delivery, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable ChatGPT Web reasoning-turn append-once synchronization
 
 - Status: **B — reasoning-turn/run-scoped, durable, same-host cross-service serialized, and isolated regression/browser verified; live ChatGPT provider execution remains unverified**. `appendReasoningTurn` now protects its semantic identity read and JSONL append with a durable run lock, so separate Web worker service instances cannot append the same reasoning turn more than once.
