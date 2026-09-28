@@ -1700,6 +1700,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Verification: focused platform auth/isolation `11/11`; user-product `338/338`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
 - Boundary: same-host/shared-root coordination only; no distributed identity coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service password change compare-and-set
+
+- Password changes are **B — owner-scoped, durable, same-host cross-service compare-and-set serialized, and isolated-browser verified**. `src/platform-user/service.ts` now protects old-credential verification, credential replacement, and session revocation with the platform-user lock, allowing only one concurrent change from the same prior password to commit.
+- Evidence: `src/platform-user/user-lock.ts`, `src/platform-user/service.ts`, `tests/platform-user-auth.test.ts`.
+- Verification: focused platform auth/isolation `12/12`; user-product `339/339`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed auth coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service study space creation
 
 - Study space creation is **B — team-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/study/space-lock.ts` protects the one-active-space-per-team check/create path in `src/study/service.ts`.

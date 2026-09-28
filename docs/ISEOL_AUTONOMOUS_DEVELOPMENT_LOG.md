@@ -2304,6 +2304,15 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root coordination only; no distributed identity coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service password change compare-and-set
+
+- Status: **B — owner-scoped, durable, same-host cross-service compare-and-set serialization, and isolated-product verified; live model/provider execution remains unverified**. Password verification, credential replacement, and old-session revocation now execute inside the explicit platform-user lock, so concurrent changes from the same prior password produce one winner and one bounded rejection.
+- Evidence: `src/platform-user/user-lock.ts`, `src/platform-user/service.ts`, `tests/platform-user-auth.test.ts`.
+- TDD: RED reproduced two concurrent password changes both succeeding against the same old credential; GREEN produced exactly one successful change, one current-password rejection, and one valid final credential.
+- Verification: focused platform auth/isolation suite `12/12`; user-product `339/339`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed auth coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service study submission mutations
 
 - Status: **B — study-space/task/user-scoped, durable, same-host cross-service serialized, and isolated-product verified; live model/provider execution remains unverified**. Personal study submissions now re-read and save under an exact hashed identity lock, while shared task access remains membership-bound.
