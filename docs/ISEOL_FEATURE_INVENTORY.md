@@ -1693,6 +1693,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service private memory mutations
+
+- Private memory mutations are **B — owner/memory-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/memory/memory-lock.ts` adds an exact hashed lock below the platform root; `src/memory/service.ts` applies it to update, sharing, and delete read-modify-write paths.
+- Evidence: `src/memory/memory-lock.ts`, `src/memory/service.ts`, `tests/personal-memory-isolation.test.ts`, `tests/personal-memory-sharing.test.ts`, and `tests/user-ui-memory-contract.test.ts`.
+- Verification: focused memory/sharing/UI `8/8`; user-product `327/327`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed coordinator, live model/provider execution, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service AI agent profile mutations
 
 - AI agent profile writes are **B — owner-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/ai-agent/profile-lock.ts` adds an exact hashed per-user lock below the platform root; `src/ai-agent/service.ts` re-reads and saves the profile within that lock so concurrent service instances preserve both disjoint patches.
