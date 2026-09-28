@@ -9,7 +9,8 @@ export type DurableSocialBlockLockOptions = { waitForMs?: number; pollIntervalMs
 
 function lockPath(root: string, blockerUserId: string, blockedUserId: string): string {
   assertIdentityId(blockerUserId); assertIdentityId(blockedUserId);
-  const digest = createHash("sha256").update(`${blockerUserId}:${blockedUserId}:social-block`).digest("hex");
+  const [firstUserId, secondUserId] = [blockerUserId, blockedUserId].sort();
+  const digest = createHash("sha256").update(`${firstUserId}:${secondUserId}:social-interaction`).digest("hex");
   return resolve(root, ".locks", "social-blocks", `${digest}.lock`);
 }
 

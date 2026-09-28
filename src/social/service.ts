@@ -116,14 +116,26 @@ export function createSocialService(root: string, options: SocialServiceOptions)
       }, { waitForMs: 2_000 });
     },
     async sendDirectMessage(principal, recipientUserId, body) {
-      ensurePrincipal(principal); assertIdentityId(recipientUserId); if (recipientUserId === principal.userId || !await options.platformUserService.getUser(recipientUserId)) throw new Error("Recipient not found"); if (await isBlocked(principal.userId, recipientUserId)) throw new Error("User is blocked"); const allowed = await isAccepted(principal.userId, recipientUserId) || await options.canCollaborate?.(principal.userId, recipientUserId) === true; if (!allowed) throw new Error("Direct messaging requires an accepted friendship or shared team"); const at = now(); assertTimestamp(at, "message timestamp"); const message = { version: 1 as const, id: `message-${randomUUID()}`, senderUserId: principal.userId, recipientUserId, body: required(body, "Message", 10_000), createdAt: at }; await saveDirectMessage(root, message); await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: message.id, eventType: "message.sent", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { recipientUserId } });
-      if (options.notificationService) {
-        const recipientSettings = options.settingsService
-          ? await options.settingsService.getSettings({ userId: recipientUserId, sessionId: "social-message-notification", roles: ["system"] })
-          : undefined;
-        if (recipientSettings?.notifications.newMessage !== false) await options.notificationService.createDirectMessageNotification({ userId: recipientUserId, messageId: message.id, actorUserId: principal.userId, conversationUserId: principal.userId, createdAt: at });
-      }
-      return message;
+      ensurePrincipal(principal);
+      assertIdentityId(recipientUserId);
+      if (recipientUserId === principal.userId || !await options.platformUserService.getUser(recipientUserId)) throw new Error("Recipient not found");
+      return withDurableSocialBlockLock(root, principal.userId, recipientUserId, async () => {
+        if (await isBlocked(principal.userId, recipientUserId)) throw new Error("User is blocked");
+        const allowed = await isAccepted(principal.userId, recipientUserId) || await options.canCollaborate?.(principal.userId, recipientUserId) === true;
+        if (!allowed) throw new Error("Direct messaging requires an accepted friendship or shared team");
+        const at = now();
+        assertTimestamp(at, "message timestamp");
+        const message = { version: 1 as const, id: `message-${randomUUID()}`, senderUserId: principal.userId, recipientUserId, body: required(body, "Message", 10_000), createdAt: at };
+        await saveDirectMessage(root, message);
+        await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: message.id, eventType: "message.sent", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { recipientUserId } });
+        if (options.notificationService) {
+          const recipientSettings = options.settingsService
+            ? await options.settingsService.getSettings({ userId: recipientUserId, sessionId: "social-message-notification", roles: ["system"] })
+            : undefined;
+          if (recipientSettings?.notifications.newMessage !== false) await options.notificationService.createDirectMessageNotification({ userId: recipientUserId, messageId: message.id, actorUserId: principal.userId, conversationUserId: principal.userId, createdAt: at });
+        }
+        return message;
+      }, { waitForMs: 2_000 });
     },
     async listDirectMessages(principal, otherUserId) {
       ensurePrincipal(principal); assertIdentityId(otherUserId); if (await isBlocked(principal.userId, otherUserId)) throw new Error("User is blocked"); const allowed = await isAccepted(principal.userId, otherUserId) || await options.canCollaborate?.(principal.userId, otherUserId) === true; if (!allowed) throw new Error("Direct messaging requires an accepted friendship or shared team"); return (await listDirectMessages(root)).filter((message) => (message.senderUserId === principal.userId && message.recipientUserId === otherUserId) || (message.senderUserId === otherUserId && message.recipientUserId === principal.userId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));

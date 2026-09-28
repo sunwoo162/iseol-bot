@@ -7,6 +7,7 @@ import type { Principal } from "../src/identity/contracts.js";
 import { createActivityService } from "../src/activity/service.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createSocialService } from "../src/social/service.js";
+import { withDurableSocialBlockLock } from "../src/social/block-lock.js";
 
 const at = "2026-09-25T12:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -51,4 +52,32 @@ test("friend request creation across service instances is idempotent", async () 
   assert.equal([first.created, second.created].filter(Boolean).length, 1);
   assert.equal((await firstService.listIncomingFriendRequests(principal("friend-b"))).length, 1);
   assert.equal((await activity.listActivityEvents(principal("friend-a"))).filter((event) => event.eventType === "friend.request.created").length, 1);
+});
+
+test("direct messages wait for the shared social interaction lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-message-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  for (const id of ["message-lock-a", "message-lock-b"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const social = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+  await social.createFriendRequest(principal("message-lock-a"), "message-lock-b");
+  await social.respondToFriendRequest(principal("message-lock-b"), "friend-message-lock-a-message-lock-b", "accept");
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableSocialBlockLock(platformRoot, "message-lock-a", "message-lock-b", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const send = social.sendDirectMessage(principal("message-lock-a"), "message-lock-b", "잠긴 DM");
+  assert.equal(await Promise.race([
+    send.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]), false);
+  release();
+  await Promise.all([holder, send]);
+  assert.equal((await social.listDirectMessages(principal("message-lock-b"), "message-lock-a")).length, 1);
 });
