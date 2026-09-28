@@ -58,6 +58,56 @@ test("user projects persist with owner scope and create idempotent work requests
   assert.equal(await service.getProject(principal("user-b"), created.id), null);
 });
 
+test("project scheduling serializes across service instances sharing one project root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-cross-instance-schedule-"));
+  await mkdir(join(root, "docs"), { recursive: true });
+  await writeFile(join(root, "docs", "HARNESS_ENGINEERING.md"), "# Scheduler test harness\n", "utf8");
+  const options = {
+    platformRoot: join(root, "platform"),
+    projectModelRoot: join(root, "project-model"),
+    projectHarnessRoot: join(root, "runs"),
+    iseolRoot: root,
+    now: () => at,
+  };
+  const firstService = createUserProjectService(options);
+  const secondService = createUserProjectService(options);
+  const owner = principal("schedule-cross-instance-owner");
+  const project = await firstService.createProject(owner, {
+    name: "Cross-instance scheduler",
+    objective: "select one queued work request exactly once",
+    purpose: "rapid-prototype",
+    teamMode: "solo",
+  });
+  const task = await firstService.createWorkRequest(owner, project.id, {
+    title: "Single scheduled task",
+    objective: "create one durable Run",
+    idempotencyKey: "cross-instance-schedule-task",
+  });
+  let enqueueCalls = 0;
+  let releaseEnqueue!: () => void;
+  const enqueueHeld = new Promise<void>((resolve) => { releaseEnqueue = resolve; });
+  const enqueue = async () => {
+    enqueueCalls += 1;
+    if (enqueueCalls === 1) await enqueueHeld;
+    return "accepted" as const;
+  };
+
+  const first = firstService.scheduleProjectRuns(owner, project.id, { maxConcurrent: 1 }, enqueue);
+  for (let attempt = 0; attempt < 100 && enqueueCalls < 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  const second = secondService.scheduleProjectRuns(owner, project.id, { maxConcurrent: 1 }, enqueue);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const callsWhileFirstIsHeld = enqueueCalls;
+  releaseEnqueue();
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+
+  assert.equal(callsWhileFirstIsHeld, 1);
+  assert.equal(enqueueCalls, 1);
+  assert.deepEqual([firstResult.selected, secondResult.selected].sort((left, right) => left - right), [0, 1]);
+  const view = await firstService.getProject(owner, project.id);
+  assert.equal(view?.workRequests.find((request) => request.id === task.request.id)?.status, "running");
+  assert.equal(view?.workRequests.filter((request) => request.runId).length, 1);
+});
+
 test("user project view exposes durable project history only through the existing project ACL", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-user-project-history-"));
   const service = createUserProjectService({

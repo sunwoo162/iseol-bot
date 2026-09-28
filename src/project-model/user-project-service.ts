@@ -21,6 +21,7 @@ import { loadProjectHistory } from "./history-store.js";
 import { loadProjectWorkspace, saveProjectWorkspace } from "./workspace-store.js";
 import { missingProjectRunObservation, projectRunObservation, runtimeObservationStatus, type UserProjectRunObservation } from "./run-observability.js";
 import { listUserProjectWorkspaceFiles, readUserProjectWorkspaceFile, type UserProjectWorkspaceFilePreview, type UserProjectWorkspaceFiles } from "./workspace-files.js";
+import { withDurableProjectScheduleLock } from "./schedule-lock.js";
 import type { ActivityService } from "../activity/contracts.js";
 import type { GrowthService } from "../growth/contracts.js";
 import type { SettingsService } from "../settings/contracts.js";
@@ -399,7 +400,7 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
       return { status: started.status === "already-active" || execution === "already-active" ? "already-active" : "started", request: updated ?? workRequest, runId: started.run.request.runId };
     },
     async scheduleProjectRuns(principal, projectId, input, enqueueProjectRun) {
-      return withProjectScheduleLock(projectId, async () => {
+      return withProjectScheduleLock(projectId, () => withDurableProjectScheduleLock(options.projectModelRoot, projectId, async () => {
         const view = await this.getProject(principal, projectId);
         if (!view) throw new Error("Project not found");
         if (view.project.ownerUserId !== principal.userId) throw new Error("Only the project owner can schedule project Runs");
@@ -409,7 +410,7 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
         const ready = view.workRequests.filter((request) => request.status === "queued" && (request.dependencies ?? []).every((dependencyId) => view.workRequests.find((candidate) => candidate.id === dependencyId)?.status === "completed")).slice(0, available);
         const results = await Promise.all(ready.map((request, index) => this.startProjectRun(principal, projectId, { workRequestId: request.id, runId: `scheduled-${projectId}-${Date.now().toString(36)}-${index}-${randomUUID().slice(0, 8)}`, ...(input.approved === undefined ? {} : { approved: input.approved }) }, enqueueProjectRun)));
         return { selected: ready.length, maxConcurrent, results };
-      });
+      }, { waitForMs: 2_000 }));
     },
     async resumeProjectRun(principal, projectId, input, enqueueProjectRun) {
       const view = await this.getProject(principal, projectId);
