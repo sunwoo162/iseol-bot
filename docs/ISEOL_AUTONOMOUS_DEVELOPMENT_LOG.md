@@ -2122,3 +2122,23 @@ This log records implementation and verification facts without secrets. It does 
 
 - No live Calendar/GitHub/Discord authorization or external delivery was attempted. No external AI/provider request, operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, deployment, push, data deletion, approved-design change, or AI Broadcast Room implementation occurred.
 - Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, final approved art sources, and deferred broadcast artifacts remained untouched.
+
+## 2026-09-28 continuation: serialize owner-scoped integration deliveries
+
+### Completed in this unit
+
+- Closed a real concurrency gap in `IntegrationDeliveryService`: concurrent dispatches for the same owner/provider/source identity now share one in-process delivery tail, so one durable delivery identity cannot invoke an injected provider adapter twice.
+- The lock is scoped to the service instance, authenticated owner, and delivery identity. It preserves the existing fail-closed `queued`/`delivered`/`unknown`/`not-configured`/`blocked` states and does not retry an ambiguous provider outcome.
+
+### TDD and verification
+
+- RED: the new concurrent-delivery test reproduced two adapter calls (`2 !== 1`) before the fix.
+- GREEN: integration delivery checks passed `7/7`; combined integration/API/settings/UI checks passed `13/13`.
+- Full `npm.cmd run test:iseol-user-product` passed `309/309`; serial root regression `npm.cmd test -- --test-concurrency=1` passed `676/676`.
+- `npm.cmd run user-ui:build` passed with only the existing Vite configuration/chunk-size warnings. Full isolated browser E2E passed `integrationConsentPersistenceIsolation` and all existing journeys, with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Commit: `43cbec9 fix: serialize integration delivery attempts`.
+
+### Scope and safety boundary
+
+- No live Calendar/GitHub/Discord authorization or external delivery was attempted. No external AI/provider request, operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, deployment, push, data deletion, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred.
+- Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, final approved art sources, and deferred broadcast artifacts remained untouched.
