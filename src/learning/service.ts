@@ -3,6 +3,7 @@ import { assertIdentityId, assertTimestamp, type Principal } from "../identity/c
 import type { CodingAttempt, CodingAttemptInput, CodingExercise, CodingExerciseInput, CodingPracticeResult, GoalInterpretation, LearningAnswerReceipt, LearningContentRequest, LearningFeedback, LearningFeedbackDispute, LearningFeedbackDisputeResult, LearningFeedbackEvaluation, LearningFeedbackEvaluationInput, LearningGoal, LearningGoalInput, LearningGoalSessionInput, LearningLessonBlock, LearningLessonContent, LearningLessonInput, LearningPlanAdjustment, LearningPlanAdjustmentInput, LearningPlanAdjustmentResult, LearningPlanInput, LearningPlanPreview, LearningPlanProposal, LearningPlanVersion, LearningProgress, LearningProjectApplication, LearningProjectApplicationInput, LearningReport, LearningReportPeriod, LearningService, LearningServiceOptions, LearningSessionAction, LearningSessionActionInput, ReviewItemInput, CodeAnalysisInput, StudyAttemptInput, LearningPlan, LearningPlanDay, LearningSession, LearningToday, ReviewItem, CodeAnalysisResult } from "./contracts.js";
 import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoals, listLearningPlanAdjustments, listLearningPlanVersions, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningPlanAdjustment, loadLearningPlanVersion, loadPlan, loadReview, loadSession, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveLearningGoal, saveLearningPlanVersion, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession } from "./store.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
+import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -1387,15 +1388,17 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const ai = input.actorAssignments.ai === undefined ? undefined : requiredString(input.actorAssignments.ai, "AI actor assignment", 120);
       const normalized = { projectId: input.projectId, proposal: { title, objective, ...(proposal.nodeRef ? { nodeRef: requiredString(proposal.nodeRef, "Project proposal node", 160) } : {}), acceptanceCriteria, tests, estimatedEffort: proposal.estimatedEffort }, learningEvidenceRefs, requiredPermissions, actorAssignments: { human, ...(ai ? { ai } : {}) } };
       const inputHash = createHash("sha256").update(JSON.stringify({ goalId, normalized })).digest("hex");
-      const existing = (await listLearningProjectApplications(root, principal.userId)).find((item) => item.goalId === goalId && item.projectId === input.projectId);
-      if (existing) {
-        if (existing.inputHash !== inputHash) throw new Error("Learning project application idempotency conflict");
-        return { proposal: existing, created: false };
-      }
-      const at = now(); assertTimestamp(at, "Learning project application timestamp");
-      const created: LearningProjectApplication = { version: 1, id: "learning-project-application-" + randomUUID(), userId: principal.userId, goalId, ...normalized, inputHash, status: "proposed", createdAt: at, updatedAt: at };
-      await saveLearningProjectApplication(root, created);
-      return { proposal: created, created: true };
+      return withDurableLearningProjectApplicationLock(root, principal.userId, goalId, input.projectId, async () => {
+        const existing = (await listLearningProjectApplications(root, principal.userId)).find((item) => item.goalId === goalId && item.projectId === input.projectId);
+        if (existing) {
+          if (existing.inputHash !== inputHash) throw new Error("Learning project application idempotency conflict");
+          return { proposal: existing, created: false };
+        }
+        const at = now(); assertTimestamp(at, "Learning project application timestamp");
+        const created: LearningProjectApplication = { version: 1, id: "learning-project-application-" + randomUUID(), userId: principal.userId, goalId, ...normalized, inputHash, status: "proposed", createdAt: at, updatedAt: at };
+        await saveLearningProjectApplication(root, created);
+        return { proposal: created, created: true };
+      }, { waitForMs: 2_000 });
     },
 
     async listLearningProjectApplications(principal, goalId) {

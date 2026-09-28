@@ -64,3 +64,28 @@ test("learning project application fails closed for inaccessible projects and re
   const foreign = principal("foreign");
   await assert.rejects(() => service.createLearningProjectApplication(foreign, goal.id, { projectId: "project-1", proposal: { title: "연결", objective: "연결", acceptanceCriteria: ["확인"], tests: ["확인"], estimatedEffort: 10 }, learningEvidenceRefs: [], requiredPermissions: [], actorAssignments: { human: "owner" } }), /goal|not found/i);
 });
+
+test("concurrent learning project applications across service instances remain one proposal", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-project-application-concurrent-"));
+  const projects = projectStub("learning-concurrent-owner", "project-1", []);
+  const firstService = createLearningService(root, { now: () => at, userProjectService: projects });
+  const secondService = createLearningService(root, { now: () => at, userProjectService: projects });
+  const owner = principal("learning-concurrent-owner");
+  const goal = await firstService.createLearningGoal(owner, { subjectText: "TypeScript 동시 지원", duration: { days: 7 }, dailyMinutes: 30 });
+  const input = {
+    projectId: "project-1",
+    proposal: { title: "동시 지원", objective: "하나의 durable proposal", acceptanceCriteria: ["one record"], tests: ["no duplicate"], estimatedEffort: 30 },
+    learningEvidenceRefs: ["goal:" + goal.id],
+    requiredPermissions: ["project.read"],
+    actorAssignments: { human: "owner" },
+  };
+
+  const results = await Promise.all([
+    firstService.createLearningProjectApplication(owner, goal.id, input),
+    secondService.createLearningProjectApplication(owner, goal.id, input),
+  ]);
+
+  assert.deepEqual(results.map((result) => result.created).sort(), [false, true]);
+  assert.equal(new Set(results.map((result) => result.proposal.id)).size, 1);
+  assert.equal((await firstService.listLearningProjectApplications(owner, goal.id)).length, 1);
+});
