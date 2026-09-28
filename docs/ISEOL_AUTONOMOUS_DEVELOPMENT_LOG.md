@@ -2024,6 +2024,24 @@ This log records implementation and verification facts without secrets. It does 
 - The boundary is same-host/shared-root only. It does not claim cross-machine distributed locking, provider-side exactly-once delivery, lesson correctness, or mastery. No external AI/provider request, live connector request, operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, data deletion, deployment, push, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred.
 - Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, operational data, external providers, deployment/push state, approved design artifacts, and deferred broadcast artifacts remained untouched.
 
+## 2026-09-28 continuation: durable Project Work Request idempotency
+
+### Completed in this unit
+
+- Lower-level Project Work Request creation now serializes the list/validate/save sequence under an exact hashed `projectId + idempotencyKey` lock below the project model root. Concurrent service instances converge on one durable Work Request identity; a differing payload for the same key remains an explicit idempotency conflict.
+- Dependency existence checks, task node reconciliation, user attribution, activity evidence, and the existing per-file write queue remain unchanged. The lock metadata is bounded to version/PID/token/timestamp, preserves active or malformed owners, reclaims only dead owner PIDs at the exact lock path, and cleans up in `finally`.
+
+### TDD and verification
+
+- RED: the new creation-boundary test reproduced durable mutation while a competing idempotency lock was held.
+- GREEN: focused Project Work Request coverage passed `14/14`; full user-product regression passed `319/319`; serial root regression passed `680/680`; root and user UI TypeScript checks, backend build, `git diff --check`, and isolated browser E2E all passed. Browser E2E reported project Runtime execution, learning content/session completion, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Evidence: `src/project-model/work-request-lock.ts`, `src/project-model/work-request.ts`, `tests/project-work-request.test.ts`, and `docs/superpowers/plans/2026-09-28-project-work-request-idempotency-lock.md`.
+
+### Scope and safety boundary
+
+- This is same-host/shared-root Work Request creation serialization only. It does not claim database or cross-machine distributed semantics, provider-side exactly-once delivery, live operational Runtime throughput, or automatic execution. No external AI/provider request, operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, data deletion, deployment, push, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred.
+- Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, operational data, external providers, deployment/push state, approved design artifacts, and deferred broadcast artifacts remained untouched.
+
 ## 2026-09-28 continuation: durable project queue scheduling
 
 ### Completed in this unit
