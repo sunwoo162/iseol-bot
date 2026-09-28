@@ -10,7 +10,7 @@ import {
   updatePrototypeCandidate,
 } from "../src/project-model/prototype-store.js";
 import { loadProjectWorkspace, saveProjectWorkspace } from "../src/project-model/workspace-store.js";
-import { appendProjectHistoryEvent, loadProjectHistory } from "../src/project-model/history-store.js";
+import { appendProjectHistoryEvent, appendProjectHistoryEventOnce, loadProjectHistory } from "../src/project-model/history-store.js";
 
 function candidate(): PrototypeCandidate {
   return {
@@ -98,6 +98,25 @@ test("project history is append-only and reloads in order", async () => {
   await appendProjectHistoryEvent(root, first);
   await appendProjectHistoryEvent(root, second);
   assert.deepEqual(await loadProjectHistory(root, "project-prototype-001"), [first, second]);
+});
+
+test("concurrent identical project history append-once calls remain one event", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-history-lock-"));
+  const event: ProjectHistoryEvent = {
+    version: 1,
+    id: "event-once",
+    projectId: "project-prototype-001",
+    type: "purpose-selected",
+    at: "2026-09-07T01:00:00.000Z",
+    summary: "Purpose selected",
+    action: "purpose-selection",
+  };
+  const results = await Promise.all([
+    appendProjectHistoryEventOnce(root, event),
+    appendProjectHistoryEventOnce(root, event),
+  ]);
+  assert.deepEqual(results.sort(), [false, true]);
+  assert.deepEqual(await loadProjectHistory(root, event.projectId), [event]);
 });
 
 test("project model stores reject unsafe ids", async () => {

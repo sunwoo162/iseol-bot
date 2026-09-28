@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ProjectHistoryEvent } from "./contracts.js";
 import { assertProjectModelId } from "./contracts.js";
+import { withDurableProjectHistoryLock } from "./history-lock.js";
 
 function historyFile(root: string, projectId: string): string {
   assertProjectModelId(projectId);
@@ -39,24 +40,26 @@ export async function appendProjectHistoryEventOnce(
   root: string,
   event: ProjectHistoryEvent,
 ): Promise<boolean> {
-  const existing = (await loadProjectHistory(root, event.projectId))
-    .find((item) => item.id === event.id);
-  if (existing) {
-    const sameIdentity = existing.projectId === event.projectId
-      && existing.type === event.type
-      && existing.prototypeId === event.prototypeId
-      && existing.nodeId === event.nodeId
-      && existing.runId === event.runId
-      && existing.source === event.source
-      && existing.action === event.action
-      && existing.reference === event.reference
-      && existing.occurredAt === event.occurredAt
-      && existing.lifecycle === event.lifecycle;
-    if (!sameIdentity) {
-      throw new Error(`Project history event identity mismatch: ${event.id}`);
+  return withDurableProjectHistoryLock(root, event.projectId, async () => {
+    const existing = (await loadProjectHistory(root, event.projectId))
+      .find((item) => item.id === event.id);
+    if (existing) {
+      const sameIdentity = existing.projectId === event.projectId
+        && existing.type === event.type
+        && existing.prototypeId === event.prototypeId
+        && existing.nodeId === event.nodeId
+        && existing.runId === event.runId
+        && existing.source === event.source
+        && existing.action === event.action
+        && existing.reference === event.reference
+        && existing.occurredAt === event.occurredAt
+        && existing.lifecycle === event.lifecycle;
+      if (!sameIdentity) {
+        throw new Error(`Project history event identity mismatch: ${event.id}`);
+      }
+      return false;
     }
-    return false;
-  }
-  await appendProjectHistoryEvent(root, event);
-  return true;
+    await appendProjectHistoryEvent(root, event);
+    return true;
+  }, { waitForMs: 2_000 });
 }
