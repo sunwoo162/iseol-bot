@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Harness Run pause and resume synchronization
+
+- Status: **B — user-owned Harness Run pause/resume transitions now hold the Run mutation lock across read, compare-save, event, and checkpoint projection; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
+- Evidence: `src/harness/run-lock.ts`, `src/harness/run-store.ts`, `src/harness/run-service.ts`, `tests/harness-run-service.test.ts`.
+- TDD: RED coverage holds the Run mutation lock while pause/resume is requested and requires both transitions to wait; GREEN split the compare-save unlocked primitive from its public lock wrapper and wrapped the full user transition boundary without introducing nested Run locks.
+- Verification: focused Harness Run service `5/5`; user-product `366/366`; serial root `722/722`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `71eaa86 fix: serialize harness run pause and resume`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Harness Run user pause/resume coordination only; distributed locking, live Runtime/Agent throughput, external connector delivery, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Harness side-effect ledger synchronization
 
 - Status: **B — Harness side-effect reservation and completion now share the Run-scoped durable event boundary, preventing concurrent completion read/replace races; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
