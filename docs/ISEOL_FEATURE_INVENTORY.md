@@ -1983,6 +1983,14 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Boundary: same-host/shared-root lifecycle coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Commit: `9d0ab4b feat: serialize project work request cancellation`.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable Idea Lab production-driver synchronization
+
+- Idea Lab production driver mutations are **B — production-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/idea-lab/production-lock.ts` protects both `createProduction` and `advanceProduction`; owner-token cleanup prevents a releasing waiter from deleting a newer lock owner.
+- Evidence: `tests/idea-lab-production-runtime-driver.test.ts` proves both public driver entry points wait for a competing durable production lock; existing production recovery, provider-boundary, and browser journeys remain green.
+- Verification: focused production-runtime-driver `32/32`; user-product `364/364`; root `693/693`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `bcf628e feat: serialize Idea Lab production driver`.
+- Boundary: same-host/shared-root production-driver coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable Idea Lab campaign cancellation synchronization
 
 - Campaign cancellation is **B — campaign-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/web-control-plane/idea-lab-actions.ts` shares `src/idea-lab/campaign-lock.ts` with campaign supervision across re-read, status transition, persistence, and cancellation event append.
