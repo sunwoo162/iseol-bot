@@ -1693,6 +1693,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service Learning feedback disputes
+
+- Learning feedback dispute creation is **B — owner/feedback-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/learning/feedback-dispute-lock.ts` serializes feedback/answer re-read, existing-dispute check, dispute save, feedback/answer status changes, and optional injected re-evaluation boundary so concurrent same-reason disputes return one dispute identity.
+- Evidence: `src/learning/feedback-dispute-lock.ts`, `src/learning/service.ts`, `tests/learning-feedback-dispute.test.ts`.
+- Verification: focused Learning feedback dispute `2/2`; user-product `356/356`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with Learning feedback dispute, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `94d6ec3 feat: serialize learning feedback disputes`.
+- Boundary: same-host/shared-root coordination only; no distributed dispute coordinator, live evaluator/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: Windows-open-file project Run lock contention
 
 - Project Run lifecycle lock handling is **B — bounded same-host contention handling and isolated-browser verified**. `src/project-model/work-request-lock.ts` recognizes Windows `EPERM` caused by an already-open exact lock file as bounded contention, while unrelated permission failures still fail closed.

@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service Learning feedback disputes
+
+- Status: **B — owner/feedback-scoped, durable, same-host cross-service idempotent dispute creation, and isolated-product verified; live evaluator/provider execution remains unverified**. Feedback dispute creation now serializes feedback/answer re-read, existing-dispute check, dispute save, feedback/answer status changes, and optional explicitly injected re-evaluation boundary, so concurrent same-reason disputes return one durable dispute identity.
+- Evidence: `src/learning/feedback-dispute-lock.ts`, `src/learning/service.ts`, `tests/learning-feedback-dispute.test.ts`.
+- TDD: RED reproduced two concurrent disputes creating two dispute identities; GREEN converged to one dispute identity and retained the answer/feedback `disputed` state.
+- Verification: focused Learning feedback dispute suite `2/2`; user-product `356/356`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained Learning feedback dispute, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `94d6ec3 feat: serialize learning feedback disputes`.
+- Boundary: same-host/shared-root coordination only; no distributed dispute coordinator, live evaluator/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: Windows-open-file project Run lock contention
 
 - Status: **B — bounded same-host project Run lifecycle lock behavior is stabilized and isolated-product verified**. `src/project-model/work-request-lock.ts` now treats Windows `EPERM` from an already-open exact lock file as bounded contention, while preserving fail-closed behavior for unrelated permission errors and exact dead-owner cleanup.
