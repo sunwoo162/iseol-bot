@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, unlink, type FileHandle } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { assertIdentityId } from "../identity/contracts.js";
+import { removeOwnedLearningLock } from "./lock-utils.js";
 
 type LearningPlanPreviewLockRecord = { version: 1; pid: number; token: string; createdAt: string };
 export type DurableLearningPlanPreviewLockOptions = { waitForMs?: number; pollIntervalMs?: number };
@@ -18,7 +19,9 @@ export async function withDurableLearningPlanPreviewLock<T>(root: string, userId
       try { handle = await open(path, "wx"); break; }
       catch (error) { const code = (error as NodeJS.ErrnoException).code; if (code === "EPERM") { try { await readFile(path, "utf8"); } catch (probeError) { if ((probeError as NodeJS.ErrnoException).code === "ENOENT") { if (waitForMs <= 0 || Date.now() >= deadline) throw error; await new Promise((resolveWait) => setTimeout(resolveWait, Math.min(pollIntervalMs, Math.max(1, deadline - Date.now())))); continue; } throw probeError; } } else if (code !== "EEXIST") throw error; if (await removeDeadOwnerLock(path)) continue; if (waitForMs <= 0 || Date.now() >= deadline) throw new Error("Learning plan preview concurrency conflict"); await new Promise((resolveWait) => setTimeout(resolveWait, Math.min(pollIntervalMs, Math.max(1, deadline - Date.now())))); }
     }
-    try { await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token: randomUUID(), createdAt: new Date().toISOString() } satisfies LearningPlanPreviewLockRecord), "utf8"); return await task(); }
-    finally { await handle.close().catch(() => undefined); await unlink(path).catch(() => undefined); }
+    const token = randomUUID();
+    try {
+      await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token, createdAt: new Date().toISOString() } satisfies LearningPlanPreviewLockRecord), "utf8"); return await task(); }
+    finally { await handle.close().catch(() => undefined); await removeOwnedLearningLock(path, token); }
   });
 }
