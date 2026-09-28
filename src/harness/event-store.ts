@@ -62,7 +62,7 @@ export async function loadHarnessRunEvents(
   }
 }
 
-export async function saveHarnessCheckpoint(
+async function saveHarnessCheckpointUnlocked(
   root: string,
   checkpoint: HarnessCheckpoint,
 ): Promise<void> {
@@ -73,7 +73,21 @@ export async function saveHarnessCheckpoint(
   const temporary = `${destination}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   await writeFile(temporary, JSON.stringify(checkpoint, null, 2), "utf8");
   await rename(temporary, destination);
-}export async function loadLatestHarnessCheckpoint(
+}
+
+export async function saveHarnessCheckpoint(
+  root: string,
+  checkpoint: HarnessCheckpoint,
+): Promise<void> {
+  await withDurableHarnessRunEventLock(
+    root,
+    checkpoint.runId,
+    () => saveHarnessCheckpointUnlocked(root, checkpoint),
+    { waitForMs: 2_000 },
+  );
+}
+
+export async function loadLatestHarnessCheckpoint(
   root: string,
   runId: string,
 ): Promise<HarnessCheckpoint | null> {

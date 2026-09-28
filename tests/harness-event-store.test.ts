@@ -11,6 +11,7 @@ import {
   loadLatestHarnessCheckpoint,
   saveHarnessCheckpoint,
 } from "../src/harness/event-store.js";
+import { withDurableHarnessRunEventLock } from "../src/harness/event-lock.js";
 
 const state: HarnessRunState = {
   version: 1,
@@ -87,4 +88,33 @@ test("append-once keeps one event identity across independent event-store instan
   assert.equal(values.filter(Boolean).length, 1);
   assert.equal(values.filter((value) => !value).length, 7);
   assert.deepEqual((await loadHarnessRunEvents(root, "run-001")).map((item) => item.id), ["event-shared"]);
+});
+
+test("checkpoint persistence waits for the durable Run event lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-checkpoints-lock-"));
+  const checkpoint: HarnessCheckpoint = {
+    version: 1,
+    id: "checkpoint-lock",
+    runId: "run-001",
+    recordedAt: "2026-09-07T00:00:03.000Z",
+    state,
+    evidence: [],
+  };
+  let settled = false;
+  let savePromise: Promise<void> | undefined;
+  const pending = withDurableHarnessRunEventLock(
+    root,
+    "run-001",
+    async () => {
+      const store = await import("../src/harness/event-store.js?checkpoint-lock");
+      savePromise = store.saveHarnessCheckpoint(root, checkpoint);
+      savePromise.finally(() => { settled = true; }).catch(() => undefined);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+      assert.equal(settled, false);
+    },
+    { waitForMs: 2_000 },
+  );
+  await pending;
+  await savePromise;
+  assert.deepEqual(await loadLatestHarnessCheckpoint(root, "run-001"), checkpoint);
 });
