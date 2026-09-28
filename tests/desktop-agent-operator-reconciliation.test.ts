@@ -138,3 +138,29 @@ test("desktop operator containment converges on one record across service instan
   assert.equal(attempts.filter((attempt): attempt is PromiseFulfilledResult<{ status: "contained" }> => attempt.status === "fulfilled" && attempt.value.status === "contained").length, 1);
   assert.equal(attempts.filter((attempt): attempt is PromiseFulfilledResult<{ status: "already-contained" }> => attempt.status === "fulfilled" && attempt.value.status === "already-contained").length, 7);
 });
+
+test("verified Desktop result reconciliation is single-winner across service instances", async () => {
+  const f = await fixture({ id: "inspect", type: "GIT_INSPECT", cwd: "." });
+  const resultRoot = join(f.root, "results");
+  await persistCompletedDesktopResult(resultRoot, {
+    version: 1,
+    jobId: f.job.jobId,
+    runId: f.job.runId,
+    agentId: f.job.pack.agentId,
+    status: "completed",
+    completedAt: "2026-09-20T01:00:05.000Z",
+    operations: [{ operationId: "inspect", ok: true, summary: "verified" }],
+  });
+  const instances = await Promise.all(
+    Array.from({ length: 8 }, (_, index) => import(`../src/desktop-agent/operator-reconciliation.ts?desktop-result-instance=${index}`)),
+  );
+  const attempts = await Promise.allSettled(instances.map((service) => service.reconcileVerifiedDesktopJobResult({
+    jobRoot: f.root,
+    resultRoot,
+    jobId: f.job.jobId,
+    now: "2026-09-20T01:00:06.000Z",
+  })));
+  assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 8);
+  assert.equal(attempts.filter((attempt): attempt is PromiseFulfilledResult<{ status: "reconciled" }> => attempt.status === "fulfilled" && attempt.value.status === "reconciled").length, 1);
+  assert.equal(attempts.filter((attempt): attempt is PromiseFulfilledResult<{ status: "already-reconciled" }> => attempt.status === "fulfilled" && attempt.value.status === "already-reconciled").length, 7);
+});

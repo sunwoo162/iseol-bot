@@ -167,16 +167,18 @@ export async function containDesktopJobAsOperator(input: {
 export async function reconcileVerifiedDesktopJobResult(input: {
   jobRoot: string; resultRoot: string; jobId: string; now: string; owner?: string;
 }): Promise<{ status: "reconciled" | "already-reconciled" | "not-found" | "not-matching"; job?: DesktopJobRecord; reason?: string }> {
-  const job = await loadDesktopJob(input.jobRoot, input.jobId);
-  if (!job) return { status: "not-found" };
-  if (job.status === "completed") return { status: "already-reconciled", job };
-  const result = (await loadCompletedDesktopResults(input.resultRoot)).get(input.jobId);
-  if (!result) return { status: "not-matching", reason: "verified-result-not-found" };
-  if (result.runId !== job.runId || result.agentId !== job.pack.agentId || result.jobId !== job.jobId) {
-    return { status: "not-matching", reason: "result-identity-mismatch" };
-  }
-  const owner = input.owner ?? `operator-reconcile-${randomUUID()}`;
-  const leased = await acquireDesktopJobLease(input.jobRoot, input.jobId, owner, input.now, 60_000, { allowContained: true });
-  const completed = await completeDesktopJob(input.jobRoot, input.jobId, owner, result);
-  return { status: "reconciled", job: completed };
+  return withDurableDesktopOperatorLock(input.jobRoot, input.jobId, async () => {
+    const job = await loadDesktopJob(input.jobRoot, input.jobId);
+    if (!job) return { status: "not-found" as const };
+    if (job.status === "completed") return { status: "already-reconciled" as const, job };
+    const result = (await loadCompletedDesktopResults(input.resultRoot)).get(input.jobId);
+    if (!result) return { status: "not-matching" as const, reason: "verified-result-not-found" };
+    if (result.runId !== job.runId || result.agentId !== job.pack.agentId || result.jobId !== job.jobId) {
+      return { status: "not-matching" as const, reason: "result-identity-mismatch" };
+    }
+    const owner = input.owner ?? `operator-reconcile-${randomUUID()}`;
+    await acquireDesktopJobLease(input.jobRoot, input.jobId, owner, input.now, 60_000, { allowContained: true });
+    const completed = await completeDesktopJob(input.jobRoot, input.jobId, owner, result);
+    return { status: "reconciled" as const, job: completed };
+  }, { waitForMs: 2000 }, "job");
 }
