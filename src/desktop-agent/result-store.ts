@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { DesktopJobResult } from "./contracts.js";
+import { withDurableDesktopJobLock } from "./job-lock.js";
 
 const DEFAULT_RETENTION = 256;
 
@@ -51,7 +52,7 @@ export async function loadCompletedDesktopResults(root: string): Promise<Map<str
   return results;
 }
 
-export async function persistCompletedDesktopResult(
+async function persistCompletedDesktopResultUnlocked(
   root: string,
   result: DesktopJobResult,
   retention = DEFAULT_RETENTION,
@@ -69,4 +70,17 @@ export async function persistCompletedDesktopResult(
   for (const stale of ordered.slice(0, Math.max(0, ordered.length - retention))) {
     try { await unlink(resultPath(root, stale.jobId)); } catch { /* bounded cleanup is best effort */ }
   }
+}
+
+export async function persistCompletedDesktopResult(
+  root: string,
+  result: DesktopJobResult,
+  retention = DEFAULT_RETENTION,
+): Promise<void> {
+  return withDurableDesktopJobLock(
+    root,
+    result.jobId,
+    () => persistCompletedDesktopResultUnlocked(root, result, retention),
+    { waitForMs: 2_000 },
+  );
 }

@@ -11,6 +11,7 @@ import {
 import { startDesktopAgentWebSocketServer } from "../src/desktop-agent/ws-server.js";
 import { connectDesktopAgentWebSocketClient } from "../src/desktop-agent/ws-client.js";
 import { loadCompletedDesktopResults, persistCompletedDesktopResult } from "../src/desktop-agent/result-store.js";
+import { withDurableDesktopJobLock } from "../src/desktop-agent/job-lock.js";
 
 const hello: DesktopAgentHello = {
   version: 1,
@@ -287,6 +288,27 @@ test("durable Agent results are bounded and omit command output", async () => {
   const loaded = await loadCompletedDesktopResults(resultRoot);
   assert.deepEqual([...loaded.keys()], ["job-b", "job-c"]);
   assert.doesNotMatch(JSON.stringify([...loaded.values()]), /ISEOL_SECRET_SENTINEL/);
+});
+
+test("durable Agent result persistence waits for the Job lock", async () => {
+  const resultRoot = await root();
+  let settled = false;
+  let persistPromise: Promise<void> | undefined;
+  const pending = withDurableDesktopJobLock(
+    resultRoot,
+    "job-lock",
+    async () => {
+      const store = await import("../src/desktop-agent/result-store.js?result-lock");
+      persistPromise = store.persistCompletedDesktopResult(resultRoot, result("job-lock"));
+      persistPromise.finally(() => { settled = true; }).catch(() => undefined);
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+      assert.equal(settled, false);
+    },
+    { waitForMs: 2_000 },
+  );
+  await pending;
+  await persistPromise;
+  assert.equal((await loadCompletedDesktopResults(resultRoot)).get("job-lock")?.jobId, "job-lock");
 });
 
 test("transport frames require the supported protocol version", async () => {
