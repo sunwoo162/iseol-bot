@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Desktop Job creation idempotency synchronization
+
+- Status: **B — concurrent Desktop Job creation now converges on one durable idempotent record per root; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
+- Evidence: `src/desktop-agent/job-lock.ts`, `src/desktop-agent/job-store.ts`, `tests/desktop-agent-job-store.test.ts`.
+- TDD: RED reproduced eight durable Job records for one shared idempotency key across independent Job store instances; GREEN added a bounded root-scoped creation lock, preserving semantic conflict checks and existing record reuse.
+- Verification: focused Desktop Job store `14/14`; user-product `366/366`; serial root `716/716`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `a885fc0 fix: serialize desktop job creation`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Desktop Job creation idempotency coordination only; distributed locking, live Runtime/Agent throughput, external connector delivery, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Desktop Job lease renewal synchronization
 
 - Status: **B — Desktop Job lease renewal now shares the Job-scoped durable mutation boundary with acquisition, completion, requeue, and indeterminate marking; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
