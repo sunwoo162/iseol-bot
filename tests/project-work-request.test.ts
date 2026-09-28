@@ -71,6 +71,20 @@ test("only one worker can claim a queued request and cancellation is durable", a
   assert.equal((await listProjectWorkRequests(root, "project-1"))[0]?.attempts, 1);
 });
 
+test("concurrent Work Request patches preserve disjoint fields across service boundaries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-request-update-race-"));
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Patch race", objective: "Preserve concurrent fields", idempotencyKey: "patch-race", at, id: "patch-race" });
+  await Promise.all([
+    updateProjectWorkRequest(root, "project-1", "patch-race", { status: "running", runId: "run-a" }, at),
+    updateProjectWorkRequest(root, "project-1", "patch-race", { nodeId: "node-b", executionRequestId: "project-1:patch-race:run-b" }, at),
+  ]);
+  const updated = (await listProjectWorkRequests(root, "project-1"))[0];
+  assert.equal(updated?.status, "running");
+  assert.equal(updated?.runId, "run-a");
+  assert.equal(updated?.nodeId, "node-b");
+  assert.equal(updated?.executionRequestId, "project-1:patch-race:run-b");
+});
+
 test("execution waits for dependencies and connects exactly one durable Run", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-work-execute-"));
   await createProjectWorkRequest({ root, projectId: "project-1", title: "Base", objective: "Base work", idempotencyKey: "base", at, id: "base" });

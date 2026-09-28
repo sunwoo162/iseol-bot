@@ -343,9 +343,11 @@ export async function scheduleProjectWorkRequests(input: {
 }
 
 export async function updateProjectWorkRequest(root: string, projectId: string, id: string, patch: Partial<Pick<ProjectWorkRequest, "status" | "runId" | "nodeId" | "blocker" | "requestedRunId" | "executionRequestId">>, at: string): Promise<ProjectWorkRequest | null> {
-  const current = await loadProjectWorkRequest(root, projectId, id);
-  if (!current) return null;
-  const next = { ...current, ...patch, updatedAt: at };
-  await saveProjectWorkRequest(root, next);
-  return next;
+  return withDurableProjectWorkRequestLock(root, projectId, `update:${id}`, async () => {
+    const current = await loadProjectWorkRequest(root, projectId, id);
+    if (!current) return null;
+    const next = { ...current, ...patch, updatedAt: at };
+    await saveProjectWorkRequest(root, next);
+    return next;
+  }, { waitForMs: 2_000 });
 }
