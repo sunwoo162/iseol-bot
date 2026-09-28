@@ -113,6 +113,22 @@ test("session store rejects a replacement that changes the persisted result cont
     /result contract/i,
   );
 });
+
+test("one active Web worker session remains enforced across service instances", async () => {
+  const store = await root();
+  const instances = await Promise.all(
+    Array.from({ length: 6 }, (_, index) => import(`../src/chatgpt-web/session-store.ts?instance=cross-${index}`)),
+  );
+  const results = await Promise.allSettled(instances.map((instance, index) => instance.createWebWorkerSession(store, {
+    ...session1,
+    sessionId: `session-cross-${index}`,
+    createdAt: `2026-09-08T01:02:0${index}.000Z`,
+  })));
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected" && /active.*session/i.test(String(result.reason))).length, 5);
+  assert.ok(await instances[0]!.getActiveWebWorkerSession(store, "run-1", "IMPLEMENT"));
+});
+
 test("reasoning turns append once by semantic identity", async () => {
   const store = await root();
   const turn = {
