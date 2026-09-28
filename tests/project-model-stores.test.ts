@@ -67,6 +67,18 @@ test("prototype store round trips and updates atomically", async () => {
   assert.equal((await loadPrototypeCandidate(root, "prototype-001"))?.updatedAt, "2026-09-07T00:10:00.000Z");
 });
 
+test("concurrent prototype candidate patches preserve disjoint fields", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-prototype-lock-"));
+  await savePrototypeCandidate(root, candidate());
+  await Promise.all([
+    updatePrototypeCandidate(root, "prototype-001", { status: "verified", updatedAt: "2026-09-07T00:11:00.000Z" }),
+    updatePrototypeCandidate(root, "prototype-001", { promotedProjectId: "project-prototype-001" }),
+  ]);
+  const updated = await loadPrototypeCandidate(root, "prototype-001");
+  assert.equal(updated?.status, "verified");
+  assert.equal(updated?.promotedProjectId, "project-prototype-001");
+});
+
 test("workspace store round trips and missing ids return null", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-project-model-"));
   await saveProjectWorkspace(root, workspace());

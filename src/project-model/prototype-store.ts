@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { PrototypeBrowserAcceptanceCheck, PrototypeCandidate } from "./contracts.js";
 import { assertProjectModelId, PROTOTYPE_BROWSER_ACCEPTANCE_CHECKS } from "./contracts.js";
+import { withDurablePrototypeLock } from "./prototype-lock.js";
 
 function prototypeFile(root: string, id: string): string {
   assertProjectModelId(id);
@@ -42,11 +43,13 @@ export async function updatePrototypeCandidate(
   id: string,
   updates: Partial<Omit<PrototypeCandidate, "id" | "version">>,
 ): Promise<PrototypeCandidate | null> {
-  const current = await loadPrototypeCandidate(root, id);
-  if (!current) return null;
-  const updated: PrototypeCandidate = { ...current, ...updates, id, version: 1 };
-  await savePrototypeCandidate(root, updated);
-  return updated;
+  return withDurablePrototypeLock(root, id, async () => {
+    const current = await loadPrototypeCandidate(root, id);
+    if (!current) return null;
+    const updated: PrototypeCandidate = { ...current, ...updates, id, version: 1 };
+    await savePrototypeCandidate(root, updated);
+    return updated;
+  }, { waitForMs: 2_000 });
 }
 
 export async function recordPrototypeBrowserAcceptance(
