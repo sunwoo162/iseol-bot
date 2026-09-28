@@ -1982,3 +1982,11 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Verification: focused execution `24/24`; user-product `362/362`; root `682/682`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
 - Boundary: same-host/shared-root lifecycle coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Commit: `9d0ab4b feat: serialize project work request cancellation`.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
+## 2026-09-28 continuation: durable project Work Request patch serialization
+
+- Project Work Request patches are **B — record-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/project-model/work-request.ts` now applies an exact update lock around read-modify-save, so concurrent lifecycle, scheduler, reconciliation, and operator patches preserve disjoint fields.
+- Evidence: `tests/project-work-request.test.ts` proves concurrent status/run and node/execution patches retain all fields. Existing Project Workspace/API/runtime integration coverage remains green.
+- Verification: focused Work Request `15/15`; user-product `362/362`; root `683/683`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root record coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Commit: `e3b4236 feat: serialize project work request patches`.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
