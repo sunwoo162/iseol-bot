@@ -8,6 +8,7 @@ import { assertIdeaProposalProviderResult } from "./proposal-provider.js";
 import { evaluateProposalDistinctness } from "./distinctness.js";
 import { loadHarnessRun } from "../harness/run-store.js";
 import { ExternalRequestBudgetExhaustedError, ExternalRequestOutcomeUnknownError } from "../chatgpt-web/request-budget.js";
+import { withDurableIdeaLabCampaignLock } from "./campaign-lock.js";
 
 export class IdeaLabCampaignBlockedError extends Error {
   constructor(message: string) {
@@ -280,7 +281,7 @@ async function advanceOneProduction(
   }
 }
 
-export async function superviseIdeaLabCampaign(
+async function superviseIdeaLabCampaignUnlocked(
   input: SuperviseIdeaLabCampaignInput,
 ): Promise<IdeaLabCampaign> {
   const maxSteps = input.maxSteps ?? 64;
@@ -339,4 +340,10 @@ export async function superviseIdeaLabCampaign(
     if (campaign.status === "blocked") return campaign;
   }
   return campaign;
+}
+
+export async function superviseIdeaLabCampaign(
+  input: SuperviseIdeaLabCampaignInput,
+): Promise<IdeaLabCampaign> {
+  return withDurableIdeaLabCampaignLock(input.root, input.campaignId, () => superviseIdeaLabCampaignUnlocked(input), { waitForMs: 2_000 });
 }

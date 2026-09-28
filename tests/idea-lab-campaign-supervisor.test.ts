@@ -15,6 +15,7 @@ import {
   superviseIdeaLabCampaign,
 } from "../src/idea-lab/campaign-supervisor.js";
 import { ExternalRequestOutcomeUnknownError } from "../src/chatgpt-web/request-budget.js";
+import { withDurableIdeaLabCampaignLock } from "../src/idea-lab/campaign-lock.js";
 
 const NOW = "2026-09-08T05:00:00.000Z";
 const draft = (title: string, n: number) => ({
@@ -32,6 +33,32 @@ async function fixture(targetReadyCount = 3) {
   });
   return root;
 }
+
+test("campaign supervision waits for the durable cross-service campaign lock", async () => {
+  const root = await fixture();
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableIdeaLabCampaignLock(root, "camp-1", async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const supervision = superviseIdeaLabCampaign({
+    root,
+    campaignId: "camp-1",
+    proposalProvider: new FakeIdeaProposalProvider([[draft("Focus", 1)]]),
+    createProduction: async () => { throw new Error("not reached"); },
+    advanceProduction: async (production) => production,
+    maxSteps: 1,
+    now: () => NOW,
+  }).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  assert.equal((await supervision).id, "camp-1");
+});
 
 function productionFor(proposal: IdeaProposal, ordinal: number): PrototypeProduction {
   const id = `camp-1-prod-${ordinal}`;
