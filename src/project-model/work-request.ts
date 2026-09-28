@@ -1,6 +1,7 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { removeOwnedLock } from "../lock-utils.js";
 import { assertProjectModelId } from "./contracts.js";
 import { renameWithTransientRetry } from "../desktop-agent/atomic-file.js";
 import { withDurableProjectWorkRequestLock } from "./work-request-lock.js";
@@ -195,7 +196,9 @@ export async function claimProjectWorkRequest(root: string, projectId: string, i
     if ((error as NodeJS.ErrnoException).code === "EEXIST") return null;
     throw error;
   }
+  const token = randomUUID();
   try {
+    await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token, createdAt: new Date().toISOString() }), "utf8");
     const current = await loadProjectWorkRequest(root, projectId, id);
     if (!current || current.status !== "queued") return null;
     const next = { ...current, status: "running" as const, attempts: current.attempts + 1, claimOwner: `pid:${process.pid}`, claimAt: at, updatedAt: at };
@@ -203,8 +206,7 @@ export async function claimProjectWorkRequest(root: string, projectId: string, i
     return next;
   } finally {
     await handle.close();
-    const { unlink } = await import("node:fs/promises");
-    await unlink(lockPath).catch(() => undefined);
+    await removeOwnedLock(lockPath, token);
   }
 }
 

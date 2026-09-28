@@ -1,5 +1,7 @@
-import { appendFile, mkdir, open, readFile, unlink } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
+import { removeOwnedLock } from "../lock-utils.js";
 import { assertProjectModelId } from "../project-model/contracts.js";
 
 export type ProgressNotificationEvent = {
@@ -95,7 +97,9 @@ export async function dispatchProgressNotification(
     if ((error as NodeJS.ErrnoException).code === "EEXIST") return { status: "unknown", notification };
     throw error;
   }
+  const token = randomUUID();
   try {
+  await lock.writeFile(JSON.stringify({ version: 1, pid: process.pid, token, createdAt: new Date().toISOString() }), "utf8");
   let records: Array<{ eventId?: string; status?: string; messageId?: string }> = [];
   try {
     records = (await readFile(path, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { eventId?: string; status?: string; messageId?: string });
@@ -119,6 +123,6 @@ export async function dispatchProgressNotification(
   }
   } finally {
     await lock.close();
-    await unlink(lockPath).catch(() => undefined);
+    await removeOwnedLock(lockPath, token);
   }
 }
