@@ -1707,6 +1707,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Verification: focused platform auth/isolation `12/12`; user-product `339/339`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
 - Boundary: same-host/shared-root coordination only; no distributed auth coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service community like toggles
+
+- Community like toggles are **B — viewer/post-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/community/like-lock.ts` adds a local queue plus exact durable lock; `src/community/service.ts` now re-reads and applies each toggle inside that boundary.
+- Evidence: `src/community/like-lock.ts`, `src/community/service.ts`, `tests/community-flow.test.ts`.
+- Verification: focused community `6/6`; user-product `340/340`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with public community persistence, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed reaction coordinator, provider-side delivery, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service study space creation
 
 - Study space creation is **B — team-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/study/space-lock.ts` protects the one-active-space-per-team check/create path in `src/study/service.ts`.

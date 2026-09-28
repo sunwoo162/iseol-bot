@@ -2304,6 +2304,15 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root coordination only; no distributed identity coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service community like toggles
+
+- Status: **B — viewer/post-scoped, durable, same-host cross-service toggle serialization, and isolated-product verified; live model/provider execution remains unverified**. Community like toggles now re-read and mutate the exact viewer/post like record under a local queue plus durable filesystem lock, preventing lost toggles and Windows same-file rename collisions.
+- Evidence: `src/community/like-lock.ts`, `src/community/service.ts`, `tests/community-flow.test.ts`.
+- TDD: RED reproduced concurrent same-viewer toggles with a Windows `EPERM` rename race; GREEN serialized the two transitions as `[true,false]` and converged to `viewerLiked=false` with `likeCount=0`.
+- Verification: focused community suite `6/6`; user-product `340/340`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained public community persistence, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed reaction coordinator, provider-side delivery, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service password change compare-and-set
 
 - Status: **B — owner-scoped, durable, same-host cross-service compare-and-set serialization, and isolated-product verified; live model/provider execution remains unverified**. Password verification, credential replacement, and old-session revocation now execute inside the explicit platform-user lock, so concurrent changes from the same prior password produce one winner and one bounded rejection.
