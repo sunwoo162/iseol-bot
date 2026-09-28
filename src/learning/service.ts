@@ -161,6 +161,12 @@ function previewFor(goal: LearningGoal, at: string, interpretation: GoalInterpre
 function contentInputHash(session: LearningSession, plan: LearningPlanVersion, day: LearningPlanDay): string {
   return createHash("sha256").update(JSON.stringify({ sessionId: session.id, goalId: session.goalId, planVersionId: plan.id, dayId: day.id, dayIndex: day.dayIndex, localDate: day.localDate, minutes: day.minutes })).digest("hex");
 }
+function nextSessionRevision(session: LearningSession, patch: Partial<LearningSession>): LearningSession {
+  return { ...session, ...patch, revision: session.revision + 1 };
+}
+function assertExpectedSessionRevision(session: LearningSession, expectedRevision: number | undefined): void {
+  if (expectedRevision !== undefined && expectedRevision !== session.revision) throw new Error("Learning session revision conflict");
+}
 function validateLessonInput(input: LearningLessonInput, day: LearningPlanDay): void {
   const title = nonEmpty(input.title, "Learning lesson title", 200);
   void title;
@@ -308,6 +314,20 @@ function adjustedPlanFrom(basePlan: LearningPlanVersion, goal: LearningGoal, adj
 export function createLearningService(root: string, options: LearningServiceOptions = {}): LearningService {
   const now = options.now ?? (() => new Date().toISOString());
   const dispatchForUser = options.dispatchForUser ?? createUserRuntimeDispatchGate();
+  const sessionMutationTails = new Map<string, Promise<void>>();
+  const withSessionMutationLock = async <T>(key: string, task: () => Promise<T>): Promise<T> => {
+    const prior = sessionMutationTails.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    const queued = prior.then(() => current);
+    sessionMutationTails.set(key, queued);
+    await prior;
+    try { return await task(); }
+    finally {
+      release();
+      if (sessionMutationTails.get(key) === queued) sessionMutationTails.delete(key);
+    }
+  };
   const recordCodingAttemptActivity = async (principal: Principal, exercise: CodingExercise, attempt: CodingAttempt): Promise<void> => {
     await options.activityService?.recordActivityEvent(principal, {
       sourceType: "learning-coding-attempt",
@@ -689,7 +709,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const activatedGoal: LearningGoal = goal.status === "active" ? goal : { ...goal, status: "active", revision: goal.revision + 1, updatedAt: at };
       if (activatedGoal !== goal) await saveLearningGoal(root, activatedGoal);
       const session: LearningSession = {
-        version: 1, id: "learning-session-" + randomUUID(), userId: principal.userId, planId: plan.id,
+        version: 1, id: "learning-session-" + randomUUID(), userId: principal.userId, planId: plan.id, revision: 1,
         goalId: goal.id, planVersionId: plan.id, dayId: day.id, contentStatus: "not-requested",
         status: "active", startedAt: at, resumedAt: at,
       };
@@ -718,7 +738,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
         blocker: "local learning content Runtime is not configured", createdAt: at, updatedAt: at,
       };
       await saveLearningContentRequest(root, request);
-      await saveSession(root, { ...session, contentStatus: "pending", contentRequestId: request.id });
+      await saveSession(root, nextSessionRevision(session, { contentStatus: "pending", contentRequestId: request.id }));
       if (!options.contentDispatcher) return request;
       try {
         const result = await dispatchForUser(principal.userId, () => options.contentDispatcher!({
@@ -764,7 +784,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       };
       const completed: LearningContentRequest = { ...request, state: "validated", lesson, blocker: undefined, updatedAt: at };
       await saveLearningContentRequest(root, completed);
-      await saveSession(root, { ...session, contentStatus: "ready", contentRequestId: request.id, contentId: lesson.id });
+      await saveSession(root, nextSessionRevision(session, { contentStatus: "ready", contentRequestId: request.id, contentId: lesson.id }));
       return completed;
     },
 
@@ -1052,48 +1072,54 @@ export function createLearningService(root: string, options: LearningServiceOpti
       if (existing) return existing;
       const at = now(); assertTimestamp(at, "learning session timestamp");
       const session: LearningSession = {
-        version: 1, id: "learning-session-" + randomUUID(), userId: principal.userId, planId,
+        version: 1, id: "learning-session-" + randomUUID(), userId: principal.userId, planId, revision: 1,
         status: "active", startedAt: at, resumedAt: at,
       };
       await saveSession(root, session);
       return session;
     },
 
-    async resumeLearningSession(principal, sessionId): Promise<LearningSession | null> {
+    async resumeLearningSession(principal, sessionId, expectedRevision): Promise<LearningSession | null> {
       ensurePrincipal(principal);
       try { assertIdentityId(sessionId); } catch { return null; }
-      const session = await loadSession(root, principal.userId, sessionId);
-      if (!session || session.userId !== principal.userId) return null;
-      if (session.status === "completed") return session;
-      const at = now(); assertTimestamp(at, "learning resume timestamp");
-      const resumed = { ...session, resumedAt: at };
-      await saveSession(root, resumed);
-      return resumed;
+      return withSessionMutationLock(`${principal.userId}:${sessionId}`, async () => {
+        const session = await loadSession(root, principal.userId, sessionId);
+        if (!session || session.userId !== principal.userId) return null;
+        assertExpectedSessionRevision(session, expectedRevision);
+        if (session.status === "completed") return session;
+        const at = now(); assertTimestamp(at, "learning resume timestamp");
+        const resumed = nextSessionRevision(session, { resumedAt: at });
+        await saveSession(root, resumed);
+        return resumed;
+      });
     },
 
-    async completeLearningSession(principal, sessionId): Promise<LearningSession | null> {
+    async completeLearningSession(principal, sessionId, expectedRevision): Promise<LearningSession | null> {
       ensurePrincipal(principal);
       try { assertIdentityId(sessionId); } catch { return null; }
-      const session = await loadSession(root, principal.userId, sessionId);
-      if (!session || session.userId !== principal.userId) return null;
-      if (session.status === "completed") return session;
-      const at = now(); assertTimestamp(at, "learning completion timestamp");
-      const completed: LearningSession = { ...session, status: "completed", completedAt: at };
-      await saveSession(root, completed);
-      if (options.activityService) {
-        const activity = await options.activityService.recordActivityEvent(principal, {
-          sourceType: "learning-session",
-          sourceId: session.id,
-          eventType: "learning.session.completed",
-          eventVersion: 1,
-          actorType: "user",
-          verificationStatus: "verified",
-          payload: { planId: session.planId },
-          occurredAt: at,
-        });
-        await options.growthService?.applyGrowthProjection(activity);
-      }
-      return completed;
+      return withSessionMutationLock(`${principal.userId}:${sessionId}`, async () => {
+        const session = await loadSession(root, principal.userId, sessionId);
+        if (!session || session.userId !== principal.userId) return null;
+        assertExpectedSessionRevision(session, expectedRevision);
+        if (session.status === "completed") return session;
+        const at = now(); assertTimestamp(at, "learning completion timestamp");
+        const completed = nextSessionRevision(session, { status: "completed", completedAt: at });
+        await saveSession(root, completed);
+        if (options.activityService) {
+          const activity = await options.activityService.recordActivityEvent(principal, {
+            sourceType: "learning-session",
+            sourceId: session.id,
+            eventType: "learning.session.completed",
+            eventVersion: 1,
+            actorType: "user",
+            verificationStatus: "verified",
+            payload: { planId: session.planId },
+            occurredAt: at,
+          });
+          await options.growthService?.applyGrowthProjection(activity);
+        }
+        return completed;
+      });
     },
 
     async recordStudyAttempt(principal, input: StudyAttemptInput) {

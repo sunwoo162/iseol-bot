@@ -31,7 +31,10 @@ test("a local-template plan can be activated into an owner-bound day session wit
   const repeated = await service.startLearningGoalSession(owner, goal.id, { planVersionId: preview.plan.id, dayId: preview.plan.days[0]!.id, expectedRevision: preview.goal.revision + 1 });
   assert.equal(repeated.id, session.id);
   const restarted = createLearningService(root, { now: () => at });
-  assert.deepEqual(await restarted.resumeLearningSession(owner, session.id), session);
+  assert.deepEqual((await restarted.listLearningSessions(owner)).find((item) => item.id === session.id), session);
+  const resumed = await restarted.resumeLearningSession(owner, session.id, session.revision);
+  assert.equal(resumed?.status, "active");
+  assert.equal(resumed?.revision, session.revision + 1);
 });
 
 test("goal session start rejects stale revisions, foreign plan versions, and unknown days", async () => {

@@ -40,3 +40,41 @@ test("learning session completion is owner-bound, durable, and idempotently attr
   );
   assert.equal(await restarted.completeLearningSession(principal("other-user"), session.id), null);
 });
+
+test("stale learning session mutations are rejected without overwriting the current revision", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-session-cas-"));
+  const service = createLearningService(join(root, "learning"), { now: () => at });
+  const owner = principal("learning-cas-owner");
+  const plan = await service.createLearningPlan(owner, { title: "CAS", description: "Protect session writes", goals: ["Resume safely"] });
+  const session = await service.startLearningSession(owner, plan.id);
+  const resume = service.resumeLearningSession as unknown as (principal: Principal, sessionId: string, expectedRevision?: number) => Promise<typeof session | null>;
+  const complete = service.completeLearningSession as unknown as (principal: Principal, sessionId: string, expectedRevision?: number) => Promise<typeof session | null>;
+
+  const resumed = await resume(owner, session.id, session.revision);
+  assert.equal(resumed?.revision, session.revision + 1);
+  await assert.rejects(() => complete(owner, session.id, session.revision), /revision conflict/i);
+  assert.deepEqual((await service.listLearningSessions(owner)).find((item) => item.id === session.id), resumed);
+
+  const completed = await complete(owner, session.id, resumed!.revision);
+  assert.equal(completed?.status, "completed");
+  assert.equal(completed?.revision, resumed!.revision + 1);
+});
+
+test("concurrent learning session completions serialize the expected revision", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-session-cas-concurrent-"));
+  const activity = createActivityService(join(root, "activity"), { now: () => at });
+  const service = createLearningService(join(root, "learning"), { now: () => at, activityService: activity });
+  const owner = principal("learning-cas-concurrent-owner");
+  const plan = await service.createLearningPlan(owner, { title: "Concurrent CAS", description: "Serialize completion", goals: ["One transition"] });
+  const session = await service.startLearningSession(owner, plan.id);
+  const complete = service.completeLearningSession as unknown as (principal: Principal, sessionId: string, expectedRevision?: number) => Promise<typeof session | null>;
+
+  const results = await Promise.allSettled([
+    complete(owner, session.id, session.revision),
+    complete(owner, session.id, session.revision),
+  ]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected" && /revision conflict/i.test(String(result.reason))).length, 1);
+  assert.equal((await activity.listActivityEvents(owner)).length, 1);
+  assert.equal((await service.listLearningSessions(owner)).find((item) => item.id === session.id)?.revision, session.revision + 1);
+});

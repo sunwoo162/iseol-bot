@@ -27,8 +27,11 @@ test("learning plans and sessions persist and can be resumed after restart", asy
 
   const restarted = createLearningService(root, { now: () => at });
   assert.deepEqual(await restarted.getLearningPlan(principal("user-a"), plan.id), plan);
-  assert.deepEqual(await restarted.listLearningSessions(principal("user-a")), [session]);
-  assert.deepEqual(await restarted.resumeLearningSession(principal("user-a"), session.id), session);
+  const persistedSession = (await restarted.listLearningSessions(principal("user-a"))).find((item) => item.id === session.id);
+  assert.equal(persistedSession?.revision, session.revision + 1);
+  const resumed = await restarted.resumeLearningSession(principal("user-a"), session.id, persistedSession!.revision);
+  assert.equal(resumed?.revision, persistedSession!.revision + 1);
+  assert.equal(resumed?.status, "active");
   assert.deepEqual(await restarted.listStudyAttempts(principal("user-a"), session.id), [attempt]);
   assert.deepEqual(await restarted.listLearningSessions(principal("user-b")), []);
   assert.equal(await restarted.getLearningPlan(principal("user-b"), plan.id), null);

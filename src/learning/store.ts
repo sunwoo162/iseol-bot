@@ -45,8 +45,17 @@ export const saveLearningPlanAdjustment = (root: string, value: LearningPlanAdju
 export const loadLearningPlanAdjustment = (root: string, userId: string, id: string) => loadJson<LearningPlanAdjustment>(pathFor(root, userId, "adjustments", id));
 export const listLearningPlanAdjustments = (root: string, userId: string) => listJson<LearningPlanAdjustment>(root, userId, "adjustments");
 export const saveSession = (root: string, value: LearningSession) => saveJson(pathFor(root, value.userId, "sessions", value.id), value);
-export const loadSession = (root: string, userId: string, id: string) => loadJson<LearningSession>(pathFor(root, userId, "sessions", id));
-export const listSessions = (root: string, userId: string) => listJson<LearningSession>(root, userId, "sessions");
+function normalizeSession(value: LearningSession): LearningSession {
+  const revision = Number.isInteger(value.revision) && value.revision >= 1 ? value.revision : 1;
+  return { ...value, revision };
+}
+export async function loadSession(root: string, userId: string, id: string): Promise<LearningSession | null> {
+  const value = await loadJson<LearningSession>(pathFor(root, userId, "sessions", id));
+  return value ? normalizeSession(value) : null;
+}
+export async function listSessions(root: string, userId: string): Promise<LearningSession[]> {
+  return (await listJson<LearningSession>(root, userId, "sessions")).map(normalizeSession);
+}
 export const saveLearningContentRequest = (root: string, value: LearningContentRequest) => saveJson(pathFor(root, value.userId, "content-requests", value.id), value);
 export const loadLearningContentRequest = (root: string, userId: string, id: string) => loadJson<LearningContentRequest>(pathFor(root, userId, "content-requests", id));
 export const listLearningContentRequests = (root: string, userId: string) => listJson<LearningContentRequest>(root, userId, "content-requests");

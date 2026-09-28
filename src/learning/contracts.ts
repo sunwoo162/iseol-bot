@@ -35,6 +35,7 @@ export type LearningSession = {
   id: string;
   userId: string;
   planId: string;
+  revision: number;
   status: "active" | "completed";
   startedAt: string;
   resumedAt: string;
@@ -534,8 +535,8 @@ export type LearningService = {
   getLearningPlan(principal: Principal, planId: string): Promise<LearningPlan | null>;
   listLearningSessions(principal: Principal): Promise<LearningSession[]>;
   startLearningSession(principal: Principal, planId: string): Promise<LearningSession>;
-  resumeLearningSession(principal: Principal, sessionId: string): Promise<LearningSession | null>;
-  completeLearningSession(principal: Principal, sessionId: string): Promise<LearningSession | null>;
+  resumeLearningSession(principal: Principal, sessionId: string, expectedRevision?: number): Promise<LearningSession | null>;
+  completeLearningSession(principal: Principal, sessionId: string, expectedRevision?: number): Promise<LearningSession | null>;
   recordStudyAttempt(principal: Principal, input: StudyAttemptInput): Promise<StudyAttempt>;
   listStudyAttempts(principal: Principal, sessionId: string): Promise<StudyAttempt[]>;
   createReviewItem(principal: Principal, input: ReviewItemInput): Promise<ReviewItem>;
