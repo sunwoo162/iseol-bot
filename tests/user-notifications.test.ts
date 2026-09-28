@@ -53,6 +53,24 @@ test("user notifications are durable, owner-scoped, ordered, and read idempotent
   assert.equal((await restarted.listStreamEvents("notification-other", streamEvents[0]!.id)).length, 0);
 });
 
+test("concurrent same-source notification creation converges on one durable record and stream event", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-notification-concurrency-"));
+  const notifications = createNotificationService(root, { now: () => at });
+  const input = { userId: "notification-concurrency-owner", messageId: "direct-message-concurrent", actorUserId: "notification-concurrency-sender", conversationUserId: "notification-concurrency-sender" };
+
+  const [first, second] = await Promise.all([
+    notifications.createDirectMessageNotification(input),
+    notifications.createDirectMessageNotification(input),
+  ]);
+
+  assert.equal(second.id, first.id);
+  assert.equal((await notifications.listNotifications(principal(input.userId))).notifications.length, 1);
+  const events = await notifications.listStreamEvents(input.userId);
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.change, "created");
+  assert.equal(events[0]?.notificationId, first.id);
+});
+
 test("community comment notifications are bounded and idempotent by comment identity", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-community-comment-notifications-"));
   const notifications = createNotificationService(root, { now: () => at });
