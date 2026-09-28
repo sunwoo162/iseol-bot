@@ -2367,6 +2367,15 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root coordination only; no distributed coding submission coordinator, live external execution/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service Learning answer submissions
+
+- Status: **B — owner/session/attempt-scoped, durable, same-host cross-service idempotent answer receipt creation, and isolated-product verified; live evaluator/provider execution remains unverified**. Learning answer submission now serializes source re-read, artifact merge, answer receipt save, pending feedback save, and optional explicitly injected evaluator boundary, so one session/attempt produces one answer receipt.
+- Evidence: `src/learning/answer-lock.ts`, `src/learning/service.ts`, `tests/learning-actions-answers.test.ts`, and `tests/learning-actions-answers-api.test.ts`.
+- TDD: RED reproduced two concurrent answer submissions creating two receipt identities; GREEN converged to one receipt and one pending feedback record.
+- Verification: focused Learning actions/answers suite `7/7`; user-product `355/355`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained answer evaluation-pending/artifact boundaries, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `aa0fad0 feat: serialize learning answer submissions`.
+- Boundary: same-host/shared-root coordination only; no distributed answer coordinator, live evaluator/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service Learning plan adjustments
 
 - Status: **B — owner/goal/input-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Learning plan adjustment drafts now serialize the idempotency lookup and draft persistence by exact user/goal/input identity, so concurrent retries return one proposed adjustment.
