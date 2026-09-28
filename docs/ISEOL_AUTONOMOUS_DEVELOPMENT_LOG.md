@@ -2276,3 +2276,11 @@ This log records implementation and verification facts without secrets. It does 
 ### Post-verification Runtime observation
 
 - A final read-only process/port check after the regression and browser runs found PID `1708` absent, PID `22416` reused by a Codex `cua_node` process created at `11:57:28`, and ports `18890`/`18891` not listening. No command in this unit targeted either PID, and no Runtime/Agent recovery or restart was attempted. The previously recorded operational Runtime state is therefore retained as **UNKNOWN**, not reclassified as healthy or replayed.
+
+## 2026-09-28 continuation: Project Run lifecycle lock boundary
+
+- Project Run `start`, `resume`, `pause`, and `retry` now share one exact owner/project/Work Request durable lock below the configured project-model root. Each lifecycle action re-reads the durable Work Request and Run state while holding the lock, preserving an existing Run identity and returning `already-active` instead of enqueueing a duplicate operation.
+- The lock records bounded version/PID/token/timestamp metadata, protects active owners, reclaims only the exact lock for a dead owner, and removes its exact record in `finally`. This is a same-host cross-service serialization boundary; it does not claim database, cross-machine, provider-side exactly-once, or live operational Runtime guarantees.
+- Evidence: `src/project-model/work-request-lock.ts`, `src/project-model/user-project-service.ts`, and `tests/user-project-execution.test.ts`.
+- Confirmed verification from the implementation unit: lifecycle-focused `3/3`, `tests/user-project-execution.test.ts` `23/23`, user-product regression `321/321`, backend/user UI TypeScript checks, and backend/user UI builds passed. The root serial regression and isolated browser E2E remain part of the continuation verification pass in this task.
+- Safety boundary: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, external connector delivery, deployment, push, data deletion, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred. Operational state remains **UNKNOWN** where not freshly verified.
