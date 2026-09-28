@@ -42,6 +42,8 @@ import { routeNotificationsRequest } from "../notifications/router.js";
 import type { NotificationService, NotificationStreamEvent } from "../notifications/contracts.js";
 import { routeAiAgentProfileRequest } from "../ai-agent/router.js";
 import type { AiAgentProfileService } from "../ai-agent/contracts.js";
+import { routeIntegrationsRequest } from "../integrations/router.js";
+import type { IntegrationProvider, IntegrationService } from "../integrations/contracts.js";
 
 const DEFAULT_PORT = 8790;
 const MAX_BODY_BYTES = 64 * 1024;
@@ -82,6 +84,8 @@ export type WebControlPlaneConfig = {
   notificationService?: NotificationService;
   aiChatService?: AiChatService;
   aiAgentProfileService?: AiAgentProfileService;
+  integrationService?: IntegrationService;
+  integrationConfiguredProviders?: IntegrationProvider[];
   iseolRoot?: string;
   policyRoot?: string;
   projectModelRoot?: string;
@@ -459,6 +463,13 @@ async function handleRequest(
         ? await routeSettingsRequest(userRequest, {
             platformUserService: options.userService,
             ...(options.settingsService ? { settingsService: options.settingsService } : {}),
+          })
+      : url.pathname === "/api/user/integrations" || url.pathname.startsWith("/api/user/integrations/")
+        ? await routeIntegrationsRequest(userRequest, {
+            platformUserService: options.userService,
+            ...(options.integrationService ? { integrationService: options.integrationService } : {}),
+            ...(options.settingsService ? { settingsService: options.settingsService } : {}),
+            ...(options.integrationConfiguredProviders ? { configuredProviders: options.integrationConfiguredProviders } : {}),
           })
       : url.pathname === "/api/user/notifications" || url.pathname.startsWith("/api/user/notifications/")
         ? await routeNotificationsRequest(userRequest, {

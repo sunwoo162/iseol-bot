@@ -29,6 +29,7 @@ export async function routeSettingsRequest(request: UserRequest, services: Setti
       ...(body.aiApproval === undefined ? {} : { aiApproval: partialBooleans(body.aiApproval) }),
       ...(body.notifications === undefined ? {} : { notifications: partialBooleans(body.notifications) }),
       ...(body.privacy === undefined ? {} : { privacy: partialBooleans(body.privacy) }),
+      ...(body.integrations === undefined ? {} : { integrations: partialBooleans(body.integrations) }),
     };
     return response(200, { settings: await services.settingsService.updateSettings(principal, patch) });
   } catch (error) {

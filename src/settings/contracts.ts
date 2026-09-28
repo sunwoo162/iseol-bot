@@ -28,6 +28,11 @@ export type UserSettings = {
     projectList: boolean;
     learningHistory: boolean;
   };
+  integrations: {
+    calendar: boolean;
+    github: boolean;
+    discord: boolean;
+  };
   createdAt: string;
   updatedAt: string;
 };
@@ -37,6 +42,7 @@ export type UserSettingsPatch = {
   aiApproval?: Partial<UserSettings["aiApproval"]>;
   notifications?: Partial<UserSettings["notifications"]>;
   privacy?: Partial<UserSettings["privacy"]>;
+  integrations?: Partial<UserSettings["integrations"]>;
 };
 
 export type SettingsService = {

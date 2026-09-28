@@ -7,6 +7,7 @@ const defaults: Omit<UserSettings, "version" | "userId" | "createdAt" | "updated
   aiApproval: { fileWrite: true, packageInstall: true, buildRun: false, externalApi: true },
   notifications: { aiDone: true, teamInvite: true, newMessage: true, achieve: true, weekly: false },
   privacy: { growthInfo: true, projectList: true, learningHistory: false },
+  integrations: { calendar: false, github: false, discord: false },
 };
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -39,8 +40,15 @@ export function createSettingsService(root: string, options: { now?: () => strin
       ensurePrincipal(principal);
       const existing = await loadSettings(root, principal.userId);
       if (existing && existing.userId === principal.userId) {
-        const normalized: UserSettings = { ...existing, aiAccess: { ...defaults.aiAccess, ...existing.aiAccess } };
-        if (normalized.aiAccess.memory !== existing.aiAccess.memory) await saveSettings(root, normalized);
+        const normalized: UserSettings = {
+          ...existing,
+          aiAccess: { ...defaults.aiAccess, ...existing.aiAccess },
+          aiApproval: { ...defaults.aiApproval, ...existing.aiApproval },
+          notifications: { ...defaults.notifications, ...existing.notifications },
+          privacy: { ...defaults.privacy, ...existing.privacy },
+          integrations: { ...defaults.integrations, ...existing.integrations },
+        };
+        if (JSON.stringify(normalized) !== JSON.stringify(existing)) await saveSettings(root, normalized);
         return normalized;
       }
       const at = now();
@@ -62,6 +70,7 @@ export function createSettingsService(root: string, options: { now?: () => strin
           aiApproval: booleanPatch(current.aiApproval, patch.aiApproval, "AI approval"),
           notifications: booleanPatch(current.notifications, patch.notifications, "notification"),
           privacy: booleanPatch(current.privacy, patch.privacy, "privacy"),
+          integrations: booleanPatch(current.integrations, patch.integrations, "integration"),
           updatedAt: at,
         };
         await saveSettings(root, next);

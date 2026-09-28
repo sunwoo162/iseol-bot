@@ -23,6 +23,7 @@ import { createPortfolioService } from "../src/portfolio/service.js";
 import { createCommunityService } from "../src/community/service.js";
 import { createSettingsService } from "../src/settings/service.js";
 import { createNotificationService } from "../src/notifications/service.js";
+import { createIntegrationService } from "../src/integrations/service.js";
 import { createAiChatService } from "../src/ai-chat/service.js";
 import { createAiAgentProfileService } from "../src/ai-agent/service.js";
 import { createUserRuntimeDispatchGate } from "../src/runtime/user-runtime-dispatch-gate.js";
@@ -270,6 +271,9 @@ const activityService = createActivityService(platformRoot);
 const userService = createPlatformUserService(platformRoot);
 const teamService = createTeamService(platformRoot, { activityService });
 const settingsService = createSettingsService(platformRoot);
+const integrationService = createIntegrationService(platformRoot, {
+  isOptedIn: async (userId, provider) => (await settingsService.getSettings({ userId, sessionId: "integration-settings", roles: [] })).integrations[provider],
+});
 const notificationService = createNotificationService(platformRoot);
 const growthService = createGrowthService(platformRoot, { settingsService, notificationService });
 const userProjectService = createUserProjectService({ platformRoot, projectModelRoot: join(root, "project-model"), projectHarnessRoot, iseolRoot: root, canAccessTeam: (principal, teamId) => teamService.canAccess(principal, teamId), activityService, growthService });
@@ -315,6 +319,7 @@ const server = await startWebControlPlaneServer({
   portfolioService,
   communityService: createCommunityService(platformRoot, { platformUserService: userService, notificationService, settingsService }),
   settingsService,
+  integrationService,
   notificationService,
   aiAgentProfileService,
   aiChatService: createAiChatService(platformRoot, {

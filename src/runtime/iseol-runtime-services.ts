@@ -105,6 +105,8 @@ import { createOllamaAiChatRuntimeDispatcher, resolveOllamaAiChatRuntimeConfig }
 import { createAiAgentProfileService } from "../ai-agent/service.js";
 import type { AiAgentProfileService } from "../ai-agent/contracts.js";
 import { createUserRuntimeDispatchGate } from "./user-runtime-dispatch-gate.js";
+import { createIntegrationService } from "../integrations/service.js";
+import type { IntegrationService } from "../integrations/contracts.js";
 
 export type IseolRuntimeCapability = {
   state: "disabled" | "ready" | "blocked";
@@ -172,6 +174,7 @@ export type IseolRuntimeInput = {
   notificationService?: NotificationService;
   aiChatService?: AiChatService;
   aiAgentProfileService?: AiAgentProfileService;
+  integrationService?: IntegrationService;
   aiChatRuntimeDispatcher?: AiChatRuntimeDispatcher;
   localAiRuntimeConfig?: ReturnType<typeof resolveOllamaAiChatRuntimeConfig>;
   desktopConfig?: DesktopAgentCoreConfig;
@@ -205,6 +208,7 @@ export type IseolRuntimeServices = {
   settingsService: SettingsService;
   notificationService: NotificationService;
   aiChatService: AiChatService;
+  integrationService: IntegrationService;
   desktopCore: DesktopCoreService | null;
   chatGptBridge?: ChatGptWebBridgeService;
   ideaLabRuntime?: IdeaLabRuntimeService;
@@ -411,6 +415,9 @@ export async function startIseolRuntimeServices(
   const personalWorldService = input.personalWorldService ?? createPersonalWorldService(platformRoot);
   const activityService = input.activityService ?? createActivityService(platformRoot);
   const settingsService = input.settingsService ?? createSettingsService(platformRoot);
+  const integrationService = input.integrationService ?? createIntegrationService(platformRoot, {
+    isOptedIn: async (userId, provider) => (await settingsService.getSettings({ userId, sessionId: "integration-settings", roles: [] })).integrations[provider],
+  });
   const notificationService = input.notificationService ?? createNotificationService(platformRoot);
   const growthService = input.growthService ?? createGrowthService(platformRoot, { settingsService, notificationService });
   const localLearningRuntimeConfig = input.localLearningRuntimeConfig ?? resolveOllamaLearningRuntimeConfig(env);
@@ -895,6 +902,7 @@ export async function startIseolRuntimeServices(
       notificationService,
       aiChatService,
       aiAgentProfileService,
+      integrationService,
       aiChatRuntimeReady: Boolean(aiChatRuntimeDispatcher),
       aiTeamRuntimeReady: Boolean(aiTeamProposalDispatcher && aiTeamDiscussionDispatcher),
       learningAiRuntimeReady: Boolean(learningPlanDispatcher && learningContentDispatcher && learningActionDispatcher && learningFeedbackDispatcher),
@@ -935,6 +943,7 @@ export async function startIseolRuntimeServices(
     settingsService,
     notificationService,
     aiChatService,
+    integrationService,
     desktopCore,
     ...(bridge ? { chatGptBridge: bridge } : {}),
     ...(runtime ? { ideaLabRuntime: runtime } : {}),
