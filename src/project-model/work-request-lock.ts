@@ -53,7 +53,24 @@ async function withLock<T>(path: string, task: () => Promise<T>, options: Projec
       handle = await open(path, "wx");
       break;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const code = (error as NodeJS.ErrnoException).code;
+      let contention = code === "EEXIST";
+      if (code === "EPERM") {
+        try {
+          await readFile(path, "utf8");
+          contention = true;
+        } catch (probeError) {
+          const probeCode = (probeError as NodeJS.ErrnoException).code;
+          if (probeCode === "ENOENT") {
+            if (waitForMs <= 0 || Date.now() >= deadline) throw error;
+            await new Promise((resolve) => setTimeout(resolve, Math.min(pollIntervalMs, Math.max(1, deadline - Date.now()))));
+            continue;
+          }
+          if (probeCode === "EPERM") contention = true;
+          else throw probeError;
+        }
+      }
+      if (!contention) throw error;
       if (await removeDeadOwnerLock(path)) continue;
       if (waitForMs <= 0 || Date.now() >= deadline) throw new Error("Work request idempotency conflict");
       await new Promise((resolve) => setTimeout(resolve, Math.min(pollIntervalMs, Math.max(1, deadline - Date.now()))));
