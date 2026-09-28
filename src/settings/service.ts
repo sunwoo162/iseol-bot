@@ -1,5 +1,6 @@
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { SettingsService, UserSettings, UserSettingsPatch } from "./contracts.js";
+import { withDurableSettingsLock } from "./settings-lock.js";
 import { loadSettings, saveSettings } from "./store.js";
 
 const defaults: Omit<UserSettings, "version" | "userId" | "createdAt" | "updatedAt"> = {
@@ -21,46 +22,35 @@ function booleanPatch<T extends Record<string, boolean>>(current: T, patch: Part
 
 export function createSettingsService(root: string, options: { now?: () => string } = {}): SettingsService {
   const now = options.now ?? (() => new Date().toISOString());
-  const updateTails = new Map<string, Promise<void>>();
-  async function withUserUpdateLock<T>(userId: string, task: () => Promise<T>): Promise<T> {
-    const prior = updateTails.get(userId) ?? Promise.resolve();
-    let release!: () => void;
-    const current = new Promise<void>((resolve) => { release = resolve; });
-    const queued = prior.then(() => current);
-    updateTails.set(userId, queued);
-    await prior;
-    try { return await task(); }
-    finally {
-      release();
-      if (updateTails.get(userId) === queued) updateTails.delete(userId);
+  async function readSettings(principal: Principal): Promise<UserSettings> {
+    const existing = await loadSettings(root, principal.userId);
+    if (existing && existing.userId === principal.userId) {
+      const normalized: UserSettings = {
+        ...existing,
+        aiAccess: { ...defaults.aiAccess, ...existing.aiAccess },
+        aiApproval: { ...defaults.aiApproval, ...existing.aiApproval },
+        notifications: { ...defaults.notifications, ...existing.notifications },
+        privacy: { ...defaults.privacy, ...existing.privacy },
+        integrations: { ...defaults.integrations, ...existing.integrations },
+      };
+      if (JSON.stringify(normalized) !== JSON.stringify(existing)) await saveSettings(root, normalized);
+      return normalized;
     }
+    const at = now();
+    assertTimestamp(at, "settings timestamp");
+    const created: UserSettings = { version: 1, userId: principal.userId, ...defaults, createdAt: at, updatedAt: at };
+    await saveSettings(root, created);
+    return created;
   }
   return {
     async getSettings(principal) {
       ensurePrincipal(principal);
-      const existing = await loadSettings(root, principal.userId);
-      if (existing && existing.userId === principal.userId) {
-        const normalized: UserSettings = {
-          ...existing,
-          aiAccess: { ...defaults.aiAccess, ...existing.aiAccess },
-          aiApproval: { ...defaults.aiApproval, ...existing.aiApproval },
-          notifications: { ...defaults.notifications, ...existing.notifications },
-          privacy: { ...defaults.privacy, ...existing.privacy },
-          integrations: { ...defaults.integrations, ...existing.integrations },
-        };
-        if (JSON.stringify(normalized) !== JSON.stringify(existing)) await saveSettings(root, normalized);
-        return normalized;
-      }
-      const at = now();
-      assertTimestamp(at, "settings timestamp");
-      const created: UserSettings = { version: 1, userId: principal.userId, ...defaults, createdAt: at, updatedAt: at };
-      await saveSettings(root, created);
-      return created;
+      return withDurableSettingsLock(root, principal.userId, () => readSettings(principal), { waitForMs: 2_000 });
     },
     async updateSettings(principal, patch: UserSettingsPatch) {
       ensurePrincipal(principal);
-      return withUserUpdateLock(principal.userId, async () => {
-        const current = await this.getSettings(principal);
+      return withDurableSettingsLock(root, principal.userId, async () => {
+        const current = await readSettings(principal);
         if (!patch || typeof patch !== "object") throw new Error("Settings patch is required");
         const at = now();
         assertTimestamp(at, "settings timestamp");
@@ -75,7 +65,7 @@ export function createSettingsService(root: string, options: { now?: () => strin
         };
         await saveSettings(root, next);
         return next;
-      });
+      }, { waitForMs: 2_000 });
     },
   };
 }

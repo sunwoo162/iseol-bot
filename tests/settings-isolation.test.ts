@@ -55,18 +55,19 @@ test("settings persist per user and reject invalid cross-group values", async ()
 
 test("concurrent settings patches for one user preserve every independent change", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-settings-concurrent-"));
-  const settings = createSettingsService(root, { now: () => at });
+  const firstService = createSettingsService(root, { now: () => at });
+  const secondService = createSettingsService(root, { now: () => at });
   const owner = principal("settings-concurrent-owner");
-  await settings.getSettings(owner);
+  await firstService.getSettings(owner);
 
   await Promise.all([
-    settings.updateSettings(owner, { aiAccess: { memory: false } }),
-    settings.updateSettings(owner, { aiAccess: { projectFiles: false } }),
-    settings.updateSettings(owner, { aiAccess: { activityTimeline: false } }),
-    settings.updateSettings(owner, { aiAccess: { teamDocs: true } }),
+    firstService.updateSettings(owner, { aiAccess: { memory: false } }),
+    secondService.updateSettings(owner, { aiAccess: { projectFiles: false } }),
+    firstService.updateSettings(owner, { aiAccess: { activityTimeline: false } }),
+    secondService.updateSettings(owner, { aiAccess: { teamDocs: true } }),
   ]);
 
-  const persisted = await settings.getSettings(owner);
+  const persisted = await firstService.getSettings(owner);
   assert.deepEqual(persisted.aiAccess, {
     memory: false,
     projectFiles: false,
