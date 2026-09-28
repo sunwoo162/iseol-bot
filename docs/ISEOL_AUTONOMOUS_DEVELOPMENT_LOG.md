@@ -2375,6 +2375,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root Study and Team membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable recruitment application authorization rechecks
+
+- Status: **B — recruitment application creation now shares the canonical Team membership lock and rechecks the open post plus applicant membership after waiting; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A membership added while an application request is waiting can no longer be bypassed by the stale pre-lock non-member check.
+- Evidence: `src/recruitment/service.ts`, `src/recruitment/application-lock.ts`, `src/teams/membership-lock.ts`, `tests/recruitment-flow.test.ts`.
+- TDD: RED held the Team membership lock, added the applicant as an active member, and showed `apply` creating an application after its stale pre-lock check; GREEN moved the application boundary behind the Team lock and re-read the post and team membership immediately before idempotent application persistence.
+- Verification: focused recruitment flow `4/4`; user-product `378/378`; serial root `726/726`; backend `tsc` build, user UI build, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes. `git diff --check` was clean apart from standard Windows LF/CRLF warnings.
+- Implementation commit: follows as `fix: recheck recruitment application authority under team lock`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root recruitment application and Team membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Harness Run pause and resume synchronization
 
 - Status: **B — user-owned Harness Run pause/resume transitions now hold the Run mutation lock across read, compare-save, event, and checkpoint projection; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
