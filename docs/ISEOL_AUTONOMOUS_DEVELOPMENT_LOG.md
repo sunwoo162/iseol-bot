@@ -2345,6 +2345,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root social friend-request and block interaction coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable social friend-request response safety
+
+- Status: **B — accepting or rejecting a pending friend request now shares the canonical two-user social interaction lock with block/unblock, direct messaging, and request creation; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A blocked pending request cannot be accepted through a check-then-save race.
+- Evidence: `src/social/service.ts`, `src/social/block-lock.ts`, `src/social/friend-request-lock.ts`, `tests/social-safety.test.ts`.
+- TDD: RED showed a pending request being accepted after the target had blocked the requester; GREEN re-read the request under the pair lock, rejects blocked interactions before the status transition, and retains the pending request for a later explicit unblock.
+- Verification: focused Social messaging/safety/API `9/9`; user-product `374/374`; serial root `726/726`; backend `tsc` build and user UI build passed. The first post-change browser E2E attempt hit a non-reproducible 30-second UI click timeout; the immediate complete rerun passed with two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes. `git diff --check` was clean apart from standard Windows LF/CRLF warnings.
+- Implementation commit: follows as `fix: serialize social friend-request responses`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root social friend-request response and block interaction coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Harness Run pause and resume synchronization
 
 - Status: **B — user-owned Harness Run pause/resume transitions now hold the Run mutation lock across read, compare-save, event, and checkpoint projection; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
