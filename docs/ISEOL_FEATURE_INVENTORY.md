@@ -1983,6 +1983,14 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Boundary: same-host/shared-root lifecycle coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Commit: `9d0ab4b feat: serialize project work request cancellation`.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable Idea Lab candidate materialization synchronization
+
+- Candidate materialization is **B — Prototype-candidate-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/idea-lab/production-service.ts` shares `src/project-model/prototype-lock.ts` across validation, identity re-read, and first save.
+- Evidence: `tests/idea-lab-production-service.test.ts` proves materialization waits for a competing durable prototype lock and preserves idempotent identity checks; existing Idea Lab promotion and browser journeys remain green.
+- Verification: focused production-service `5/5`; project-model stores `8/8`; user-product `364/364`; root `694/694`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `55f0c62 feat: serialize Idea Lab candidate materialization`.
+- Boundary: same-host/shared-root candidate materialization coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable Idea Lab production-driver synchronization
 
 - Idea Lab production driver mutations are **B — production-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/idea-lab/production-lock.ts` protects both `createProduction` and `advanceProduction`; owner-token cleanup prevents a releasing waiter from deleting a newer lock owner.
