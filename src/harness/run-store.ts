@@ -104,40 +104,42 @@ export async function requestHarnessRunRetry(
   runId: string,
   input: { retryReason: HarnessRetryReason; actor: "operator" | "user"; requestedAt: string },
 ): Promise<HarnessRunRetryResult> {
-  return serializeRunWrite(root, runId, async () => {
-    const current = await loadHarnessRun(root, runId);
-    if (!current) return { status: "not-allowed", reason: "Run not found" };
-    if (current.retry?.status === "active") return { status: "already-active", run: current };
-    if (current.state.status !== "FAILED_FINAL") return { status: "not-allowed", reason: "Run is not terminal FAILED_FINAL" };
-    const cycle = (current.retry?.cycle ?? 0) + 1;
-    const next: HarnessRuntimeRunEnvelope = {
-      ...current,
-      retry: {
+  return serializeRunWrite(root, runId, () =>
+    withDurableHarnessRunLock(root, runId, async () => {
+      const current = await loadHarnessRun(root, runId);
+      if (!current) return { status: "not-allowed", reason: "Run not found" };
+      if (current.retry?.status === "active") return { status: "already-active", run: current };
+      if (current.state.status !== "FAILED_FINAL") return { status: "not-allowed", reason: "Run is not terminal FAILED_FINAL" };
+      const cycle = (current.retry?.cycle ?? 0) + 1;
+      const next: HarnessRuntimeRunEnvelope = {
+        ...current,
+        retry: {
+          version: 1,
+          cycle,
+          requestedFromState: "FAILED_FINAL",
+          requestedStage: current.state.stage,
+          retryReason: input.retryReason,
+          requestedAt: input.requestedAt,
+          actor: input.actor,
+          status: "active",
+        },
+        state: { ...current.state, status: "READY", updatedAt: input.requestedAt },
+        updatedAt: input.requestedAt,
+      };
+      await writeNormalizedRun(root, next);
+      await appendHarnessRunEvent(root, {
         version: 1,
-        cycle,
-        requestedFromState: "FAILED_FINAL",
-        requestedStage: current.state.stage,
-        retryReason: input.retryReason,
-        requestedAt: input.requestedAt,
-        actor: input.actor,
-        status: "active",
-      },
-      state: { ...current.state, status: "READY", updatedAt: input.requestedAt },
-      updatedAt: input.requestedAt,
-    };
-    await writeNormalizedRun(root, next);
-    await appendHarnessRunEvent(root, {
-      version: 1,
-      id: `retry-requested-${runId}-${cycle}`,
-      runId,
-      type: "retry-requested",
-      at: input.requestedAt,
-      stage: current.state.stage,
-      status: "READY",
-      summary: `Retry cycle ${cycle} requested for ${current.state.stage}`,
-    });
-    return { status: "accepted", run: next };
-  });
+        id: `retry-requested-${runId}-${cycle}`,
+        runId,
+        type: "retry-requested",
+        at: input.requestedAt,
+        stage: current.state.stage,
+        status: "READY",
+        summary: `Retry cycle ${cycle} requested for ${current.state.stage}`,
+      });
+      return { status: "accepted", run: next };
+    }, { waitForMs: 2_000 }),
+  );
 }
 
 export async function saveHarnessRunIfUnchanged(

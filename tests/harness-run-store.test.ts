@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HarnessRunEnvelope } from "../src/harness/contracts.js";
+import { loadHarnessRunEvents } from "../src/harness/event-store.js";
 import { loadHarnessRun, requestHarnessRunRetry, saveHarnessRun, saveHarnessRunIfUnchanged } from "../src/harness/run-store.js";
 
 function envelope(targetRoot: string): HarnessRunEnvelope {
@@ -144,4 +145,39 @@ test("compare-and-save allows only one winner across independent run-store insta
   const loaded = await loadHarnessRun(storeRoot, "run-001");
   assert.equal(loaded?.state.status, "READY");
   assert.ok(values.includes(true));
+});
+
+test("same-run retry accepts only one request across independent run-store instances", async () => {
+  const storeRoot = await mkdtemp(join(tmpdir(), "iseol-runs-retry-cas-"));
+  const failed = envelope("C:/repo");
+  failed.state = {
+    ...failed.state!,
+    stage: "IMPLEMENT",
+    status: "FAILED_FINAL",
+    completedStages: ["PREFLIGHT", "CONTEXT", "ANALYZE", "PLAN"],
+    reason: "patch validation invalid",
+  };
+  await saveHarnessRun(storeRoot, failed);
+
+  const instances = await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      import(`../src/harness/run-store.ts?retry-cas-instance=${index}-${Date.now()}`),
+    ),
+  );
+  const outcomes = await Promise.allSettled(
+    instances.map((instance, index) => instance.requestHarnessRunRetry(storeRoot, "run-001", {
+      retryReason: "operator-request",
+      actor: "operator",
+      requestedAt: `2026-09-19T04:00:${String(index).padStart(2, "0")}.000Z`,
+    })),
+  );
+
+  assert.equal(outcomes.filter((outcome) => outcome.status === "rejected").length, 0);
+  const values = outcomes
+    .filter((outcome): outcome is PromiseFulfilledResult<Awaited<ReturnType<typeof requestHarnessRunRetry>>> => outcome.status === "fulfilled")
+    .map((outcome) => outcome.value);
+  assert.equal(values.filter((value) => value.status === "accepted").length, 1);
+  assert.equal(values.filter((value) => value.status === "already-active").length, 7);
+  assert.equal((await loadHarnessRun(storeRoot, "run-001"))?.retry?.cycle, 1);
+  assert.equal((await loadHarnessRunEvents(storeRoot, "run-001")).filter((event) => event.type === "retry-requested").length, 1);
 });
