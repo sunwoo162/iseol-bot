@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { AiChatAgentProfile, AiChatAttachment, AiChatContextLearning, AiChatContextSelection, AiChatContextSnapshot, AiChatContextTeamDoc, AiChatExecutionPlan, AiChatExecutionPlanInput, AiChatSendOptions, AiChatService, AiChatServiceOptions, AiChatConversation, AiChatMessage } from "./contracts.js";
 import { listConversations, loadConversation, saveConversation } from "./store.js";
+import { withDurableAiChatConversationLock } from "./conversation-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -278,18 +279,26 @@ export function createAiChatService(root: string, options: AiChatServiceOptions 
   const dispatchForUser = options.dispatchForUser ?? createUserRuntimeDispatchGate();
   async function completeMessage(principal: Principal, conversationId: string, messageId: string, assistantContent: string, executionPlanInput?: AiChatExecutionPlanInput): Promise<AiChatConversation> {
     ensurePrincipal(principal); assertIdentityId(conversationId); assertIdentityId(messageId);
-    const current = await loadConversation(root, principal.userId, conversationId);
-    if (!current || current.userId !== principal.userId) throw new Error("AI chat conversation not found");
-    const index = current.messages.findIndex((message) => message.id === messageId);
-    const pending = index >= 0 ? current.messages[index] : undefined;
-    if (!pending || pending.role !== "user") throw new Error("AI chat message not found");
-    if (pending.status === "persisted") return current;
-    const at = now(); assertTimestamp(at, "AI chat timestamp");
-    const completedMessage: AiChatMessage = { ...pending, status: "persisted" };
-    const executionPlan = normalizeExecutionPlan(executionPlanInput, at);
-    const assistantMessage: AiChatMessage = { id: `message-${randomUUID()}`, role: "assistant", content: text(assistantContent, "Assistant response", 20_000), status: "persisted", createdAt: at, ...(pending.projectId ? { projectId: pending.projectId } : {}), ...(executionPlan ? { executionPlan } : {}) };
-    const next: AiChatConversation = { ...current, messages: [...current.messages.slice(0, index), completedMessage, assistantMessage, ...current.messages.slice(index + 1)], updatedAt: at };
-    await saveConversation(root, next);
+    let completed = false;
+    let completedAt: string | undefined;
+    const next = await withDurableAiChatConversationLock(root, principal.userId, conversationId, async () => {
+      const current = await loadConversation(root, principal.userId, conversationId);
+      if (!current || current.userId !== principal.userId) throw new Error("AI chat conversation not found");
+      const index = current.messages.findIndex((message) => message.id === messageId);
+      const pending = index >= 0 ? current.messages[index] : undefined;
+      if (!pending || pending.role !== "user") throw new Error("AI chat message not found");
+      if (pending.status === "persisted") return current;
+      const at = now(); assertTimestamp(at, "AI chat timestamp");
+      const completedMessage: AiChatMessage = { ...pending, status: "persisted" };
+      const executionPlan = normalizeExecutionPlan(executionPlanInput, at);
+      const assistantMessage: AiChatMessage = { id: `message-${randomUUID()}`, role: "assistant", content: text(assistantContent, "Assistant response", 20_000), status: "persisted", createdAt: at, ...(pending.projectId ? { projectId: pending.projectId } : {}), ...(executionPlan ? { executionPlan } : {}) };
+      const updated: AiChatConversation = { ...current, messages: [...current.messages.slice(0, index), completedMessage, assistantMessage, ...current.messages.slice(index + 1)], updatedAt: at };
+      await saveConversation(root, updated);
+      completed = true;
+      completedAt = at;
+      return updated;
+    }, { waitForMs: 2_000 });
+    if (!completed) return next;
     if (options.notificationService) {
       let enabled = !options.settingsService;
       if (options.settingsService) {
@@ -300,47 +309,52 @@ export function createAiChatService(root: string, options: AiChatServiceOptions 
         }
       }
       if (enabled) {
-        await options.notificationService.createAiCompletionNotification({ userId: principal.userId, conversationId, messageId, createdAt: at });
+        await options.notificationService.createAiCompletionNotification({ userId: principal.userId, conversationId, messageId, createdAt: completedAt! });
       }
     }
     return next;
   }
   async function updateExecutionPlan(principal: Principal, conversationId: string, messageId: string, status: "approved" | "rejected"): Promise<AiChatConversation> {
     ensurePrincipal(principal); assertIdentityId(conversationId); assertIdentityId(messageId);
-    const current = await loadConversation(root, principal.userId, conversationId);
-    if (!current || current.userId !== principal.userId) throw new Error("AI chat conversation not found");
-    const index = current.messages.findIndex((message) => message.id === messageId);
-    const message = index >= 0 ? current.messages[index] : undefined;
-    if (!message?.executionPlan) throw new Error("Execution plan not found");
-    if (message.executionPlan.status === status) return current;
-    if (message.executionPlan.status !== "proposed") throw new Error("Execution plan is no longer pending");
-    const at = now(); assertTimestamp(at, "AI chat timestamp");
-    const executionPlan: AiChatExecutionPlan = { ...message.executionPlan, status, updatedAt: at, ...(status === "approved" ? { approvedAt: at } : { rejectedAt: at }) };
-    const nextMessage: AiChatMessage = { ...message, executionPlan };
-    const next: AiChatConversation = { ...current, messages: [...current.messages.slice(0, index), nextMessage, ...current.messages.slice(index + 1)], updatedAt: at };
-    await saveConversation(root, next);
-    return next;
+    return withDurableAiChatConversationLock(root, principal.userId, conversationId, async () => {
+      const current = await loadConversation(root, principal.userId, conversationId);
+      if (!current || current.userId !== principal.userId) throw new Error("AI chat conversation not found");
+      const index = current.messages.findIndex((message) => message.id === messageId);
+      const message = index >= 0 ? current.messages[index] : undefined;
+      if (!message?.executionPlan) throw new Error("Execution plan not found");
+      if (message.executionPlan.status === status) return current;
+      if (message.executionPlan.status !== "proposed") throw new Error("Execution plan is no longer pending");
+      const at = now(); assertTimestamp(at, "AI chat timestamp");
+      const executionPlan: AiChatExecutionPlan = { ...message.executionPlan, status, updatedAt: at, ...(status === "approved" ? { approvedAt: at } : { rejectedAt: at }) };
+      const nextMessage: AiChatMessage = { ...message, executionPlan };
+      const next: AiChatConversation = { ...current, messages: [...current.messages.slice(0, index), nextMessage, ...current.messages.slice(index + 1)], updatedAt: at };
+      await saveConversation(root, next);
+      return next;
+    }, { waitForMs: 2_000 });
   }
   async function createExecutionPlanWorkRequest(principal: Principal, conversationId: string, messageId: string): Promise<{ conversation: AiChatConversation; workRequest: Awaited<ReturnType<NonNullable<AiChatServiceOptions["userProjectService"]>["createWorkRequest"]>>["request"]; created: boolean }> {
     ensurePrincipal(principal); assertIdentityId(conversationId); assertIdentityId(messageId);
     if (!options.userProjectService) throw new Error("Project work request unavailable");
-    const current = await loadConversation(root, principal.userId, conversationId);
-    if (!current || current.userId !== principal.userId) throw new Error("AI chat conversation not found");
-    const index = current.messages.findIndex((message) => message.id === messageId);
-    const message = index >= 0 ? current.messages[index] : undefined;
-    if (!message?.executionPlan) throw new Error("Execution plan not found");
-    if (message.executionPlan.status !== "approved") throw new Error("Execution plan must be approved before creating a work request");
-    if (!message.projectId) throw new Error("Execution plan requires a project context");
-    const plan = message.executionPlan;
-    const title = text(`AI 계획 · ${plan.title}`, "Work title", 160);
-    const objective = text(`${plan.summary}\n\n실행 단계:\n${plan.steps.map((step, stepIndex) => `${stepIndex + 1}. [${step.operation}] ${step.title}: ${step.description}`).join("\n")}`, "Work objective", 4_000);
-    const result = await options.userProjectService.createWorkRequest(principal, message.projectId, { title, objective, idempotencyKey: `ai-chat-execution-plan:${plan.id}` });
-    const at = now(); assertTimestamp(at, "AI chat timestamp");
-    const updatedPlan: AiChatExecutionPlan = { ...plan, workRequestId: result.request.id, updatedAt: at };
-    const nextMessage: AiChatMessage = { ...message, executionPlan: updatedPlan };
-    const next: AiChatConversation = { ...current, messages: [...current.messages.slice(0, index), nextMessage, ...current.messages.slice(index + 1)], updatedAt: at };
-    await saveConversation(root, next);
-    return { conversation: next, workRequest: result.request, created: result.created };
+    const userProjectService = options.userProjectService;
+    return withDurableAiChatConversationLock(root, principal.userId, conversationId, async () => {
+      const current = await loadConversation(root, principal.userId, conversationId);
+      if (!current || current.userId !== principal.userId) throw new Error("AI chat conversation not found");
+      const index = current.messages.findIndex((message) => message.id === messageId);
+      const message = index >= 0 ? current.messages[index] : undefined;
+      if (!message?.executionPlan) throw new Error("Execution plan not found");
+      if (message.executionPlan.status !== "approved") throw new Error("Execution plan must be approved before creating a work request");
+      if (!message.projectId) throw new Error("Execution plan requires a project context");
+      const plan = message.executionPlan;
+      const title = text(`AI 계획 · ${plan.title}`, "Work title", 160);
+      const objective = text(`${plan.summary}\n\n실행 단계:\n${plan.steps.map((step, stepIndex) => `${stepIndex + 1}. [${step.operation}] ${step.title}: ${step.description}`).join("\n")}`, "Work objective", 4_000);
+      const result = await userProjectService.createWorkRequest(principal, message.projectId, { title, objective, idempotencyKey: `ai-chat-execution-plan:${plan.id}` });
+      const at = now(); assertTimestamp(at, "AI chat timestamp");
+      const updatedPlan: AiChatExecutionPlan = { ...plan, workRequestId: result.request.id, updatedAt: at };
+      const nextMessage: AiChatMessage = { ...message, executionPlan: updatedPlan };
+      const next: AiChatConversation = { ...current, messages: [...current.messages.slice(0, index), nextMessage, ...current.messages.slice(index + 1)], updatedAt: at };
+      await saveConversation(root, next);
+      return { conversation: next, workRequest: result.request, created: result.created };
+    }, { waitForMs: 2_000 });
   }
   return {
     async listConversations(principal) { ensurePrincipal(principal); return (await listConversations(root, principal.userId)).filter((item) => item.userId === principal.userId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); },
@@ -352,8 +366,7 @@ export function createAiChatService(root: string, options: AiChatServiceOptions 
     async createExecutionPlanWorkRequest(principal, conversationId, messageId) { return createExecutionPlanWorkRequest(principal, conversationId, messageId); },
     async sendMessage(principal, conversationId, content, sendOptions?: AiChatSendOptions) {
       ensurePrincipal(principal);
-      const current = await loadConversation(root, principal.userId, conversationId);
-      if (!current || current.userId !== principal.userId) throw new Error("AI chat conversation not found");
+      assertIdentityId(conversationId);
       const projectId = sendOptions?.projectId?.trim() || undefined;
       if (projectId) assertIdentityId(projectId);
       const contextSelection = normalizeContextSelection(sendOptions?.contextSelection);
@@ -362,9 +375,14 @@ export function createAiChatService(root: string, options: AiChatServiceOptions 
       const at = now(); assertTimestamp(at, "AI chat timestamp");
       const attachments = normalizeAttachments(sendOptions?.attachments, at);
       const message = { id: `message-${randomUUID()}`, role: "user" as const, content: text(content, "Message", 20_000), status: "waiting_runtime" as const, createdAt: at, contextSelection, ...(projectId ? { projectId } : {}), ...(attachments.length > 0 ? { attachments } : {}) };
-      let next: AiChatConversation = { ...current, messages: [...current.messages, message], updatedAt: at };
-      if (options.memoryService) await options.memoryService.appendPrivateMemory(principal, { kind: "ai-chat-context", content: message.content, source: `ai-chat:${conversationId}` });
-      await saveConversation(root, next);
+      const next = await withDurableAiChatConversationLock(root, principal.userId, conversationId, async () => {
+        const current = await loadConversation(root, principal.userId, conversationId);
+        if (!current || current.userId !== principal.userId) throw new Error("AI chat conversation not found");
+        const updated: AiChatConversation = { ...current, messages: [...current.messages, message], updatedAt: at };
+        if (options.memoryService) await options.memoryService.appendPrivateMemory(principal, { kind: "ai-chat-context", content: message.content, source: `ai-chat:${conversationId}` });
+        await saveConversation(root, updated);
+        return updated;
+      }, { waitForMs: 2_000 });
       if (!options.runtimeDispatcher) return { conversation: next, runtimeStatus: "waiting_runtime" as const };
       const context = await privateContext(principal, options, projectId, contextSelection);
 
