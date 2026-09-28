@@ -11,6 +11,8 @@ import {
 } from "../src/project-model/prototype-store.js";
 import { loadProjectWorkspace, saveProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { appendProjectHistoryEvent, appendProjectHistoryEventOnce, loadProjectHistory } from "../src/project-model/history-store.js";
+import { loadPortfolioDocument, savePortfolioDocument, updatePortfolioDocument } from "../src/project-model/portfolio-store.js";
+import { createPortfolioDocument } from "../src/project-model/portfolio-store.js";
 
 function candidate(): PrototypeCandidate {
   return {
@@ -77,6 +79,29 @@ test("concurrent prototype candidate patches preserve disjoint fields", async ()
   const updated = await loadPrototypeCandidate(root, "prototype-001");
   assert.equal(updated?.status, "verified");
   assert.equal(updated?.promotedProjectId, "project-prototype-001");
+});
+
+test("concurrent portfolio document patches preserve disjoint sections", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-portfolio-lock-"));
+  const document = createPortfolioDocument({
+    version: 1,
+    projectId: "project-prototype-001",
+    generatedAt: "2026-09-07T01:00:00.000Z",
+    overview: "Overview",
+    features: ["Feature"],
+    technology: ["TypeScript"],
+    troubleshooting: [],
+    claims: [{ id: "project-overview", text: "Overview", evidenceIds: ["e1"] }],
+    readme: "# Project",
+  });
+  await savePortfolioDocument(root, document);
+  await Promise.all([
+    updatePortfolioDocument(root, document.projectId, { sections: [{ id: "features", content: "Edited feature", included: true }] }, "2026-09-07T01:01:00.000Z"),
+    updatePortfolioDocument(root, document.projectId, { sections: [{ id: "technology", content: "Edited technology", included: true }] }, "2026-09-07T01:02:00.000Z"),
+  ]);
+  const updated = await loadPortfolioDocument(root, document.projectId);
+  assert.equal(updated?.sections.find((section) => section.id === "features")?.content, "Edited feature");
+  assert.equal(updated?.sections.find((section) => section.id === "technology")?.content, "Edited technology");
 });
 
 test("workspace store round trips and missing ids return null", async () => {

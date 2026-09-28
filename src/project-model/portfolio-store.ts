@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { assertProjectModelId } from "./contracts.js";
 import type { PortfolioDraft } from "./portfolio.js";
+import { withDurablePortfolioLock } from "./portfolio-lock.js";
 
 export type PortfolioSection = {
   id: "overview" | "features" | "technology" | "troubleshooting";
@@ -110,27 +111,29 @@ export async function updatePortfolioDocument(
   input: { sections?: Array<{ id: string; content: string; included: boolean }>; readme?: string },
   at = new Date().toISOString(),
 ): Promise<StoredPortfolioDocument> {
-  const current = await loadPortfolioDocument(root, projectId);
-  if (!current) throw new Error(`Portfolio document not found: ${projectId}`);
-  if (input.sections !== undefined && !Array.isArray(input.sections)) throw new Error("Invalid portfolio sections");
-  const requestedSections = input.sections ?? [];
-  if (requestedSections.some((section) => !section || typeof section !== "object" || typeof section.id !== "string" || typeof section.content !== "string" || typeof section.included !== "boolean")) {
-    throw new Error("Invalid portfolio sections");
-  }
-  if (new Set(requestedSections.map((section) => section.id)).size !== requestedSections.length) throw new Error("Invalid portfolio sections");
-  const updates = new Map(requestedSections.map((section) => [section.id, section]));
-  const sections = current.sections.map((section) => {
-    const update = updates.get(section.id);
-    if (!update) return section;
-    if (typeof update.included !== "boolean") throw new Error("Invalid portfolio section inclusion");
-    return { ...section, content: bounded(update.content, `section ${section.id}`, 20_000), included: update.included };
-  });
-  if (requestedSections.some((section) => !SECTION_IDS.includes(section.id as typeof SECTION_IDS[number]))) {
-    throw new Error("Invalid portfolio section id");
-  }
-  const next = { ...current, sections, readme: input.readme === undefined ? current.readme : bounded(input.readme, "readme", 50_000), updatedAt: at };
-  await savePortfolioDocument(root, next);
-  return next;
+  return withDurablePortfolioLock(root, projectId, async () => {
+    const current = await loadPortfolioDocument(root, projectId);
+    if (!current) throw new Error(`Portfolio document not found: ${projectId}`);
+    if (input.sections !== undefined && !Array.isArray(input.sections)) throw new Error("Invalid portfolio sections");
+    const requestedSections = input.sections ?? [];
+    if (requestedSections.some((section) => !section || typeof section !== "object" || typeof section.id !== "string" || typeof section.content !== "string" || typeof section.included !== "boolean")) {
+      throw new Error("Invalid portfolio sections");
+    }
+    if (new Set(requestedSections.map((section) => section.id)).size !== requestedSections.length) throw new Error("Invalid portfolio sections");
+    const updates = new Map(requestedSections.map((section) => [section.id, section]));
+    const sections = current.sections.map((section) => {
+      const update = updates.get(section.id);
+      if (!update) return section;
+      if (typeof update.included !== "boolean") throw new Error("Invalid portfolio section inclusion");
+      return { ...section, content: bounded(update.content, `section ${section.id}`, 20_000), included: update.included };
+    });
+    if (requestedSections.some((section) => !SECTION_IDS.includes(section.id as typeof SECTION_IDS[number]))) {
+      throw new Error("Invalid portfolio section id");
+    }
+    const next = { ...current, sections, readme: input.readme === undefined ? current.readme : bounded(input.readme, "readme", 50_000), updatedAt: at };
+    await savePortfolioDocument(root, next);
+    return next;
+  }, { waitForMs: 2_000 });
 }
 
 export function verifyStoredPortfolioGrounding(
