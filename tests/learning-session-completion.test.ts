@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createActivityService } from "../src/activity/service.js";
 import { createGrowthService } from "../src/growth/read-model.js";
+import { removeOwnedLearningLock } from "../src/learning/lock-utils.js";
 import { createLearningService } from "../src/learning/service.js";
 
 const at = "2026-09-26T12:00:00.000Z";
@@ -110,5 +111,17 @@ test("learning session mutation reclaims only a lock owned by a dead process", a
 
   const completed = await service.completeLearningSession(owner, session.id, session.revision);
   assert.equal(completed?.status, "completed");
+  await assert.rejects(() => access(lockPath), /ENOENT/);
+});
+
+test("learning lock cleanup leaves a replacement owner untouched", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-lock-owner-"));
+  const lockPath = join(root, "session.lock");
+  await writeFile(lockPath, JSON.stringify({ version: 1, pid: process.pid, token: "replacement-owner", createdAt: at }), "utf8");
+
+  await removeOwnedLearningLock(lockPath, "old-owner");
+  assert.equal(JSON.parse(await readFile(lockPath, "utf8")).token, "replacement-owner");
+
+  await removeOwnedLearningLock(lockPath, "replacement-owner");
   await assert.rejects(() => access(lockPath), /ENOENT/);
 });
