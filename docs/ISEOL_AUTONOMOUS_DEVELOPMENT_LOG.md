@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Desktop Agent result persistence synchronization
+
+- Status: **B — durable Desktop Agent result replay writes now serialize per Job before retention cleanup; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
+- Evidence: `src/desktop-agent/job-lock.ts`, `src/desktop-agent/result-store.ts`, `tests/desktop-agent-transport.test.ts`.
+- TDD: RED showed result persistence completing while the Job lock was held; GREEN added the bounded Job-scoped lock around durable result write and retention cleanup without changing redaction or replay semantics.
+- Verification: focused Desktop transport `14/14`; user-product `366/366`; serial root rerun `718/718` after one transient non-reproducible first-run failure; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `839fdc2 fix: serialize desktop result persistence`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Desktop Agent result persistence and retention coordination only; distributed locking, live Runtime/Agent throughput, external connector delivery, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Desktop Job operator containment synchronization
 
 - Status: **B — operator containment now serializes against all other Desktop Job mutations and accepts only one competing containment decision; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
