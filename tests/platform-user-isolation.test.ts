@@ -84,3 +84,17 @@ test("user router requires a platform session and returns the authenticated prof
   assert.equal(authenticated.status, 200);
   assert.deepEqual(authenticated.body, { user });
 });
+
+test("concurrent platform user creation across service instances remains idempotent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-platform-user-concurrent-"));
+  const firstService = createPlatformUserService(root, { now: () => at });
+  const secondService = createPlatformUserService(root, { now: () => at });
+  const ids = Array.from({ length: 48 }, () => "concurrent-user");
+  const results = await Promise.allSettled(ids.flatMap((id) => [
+    firstService.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" }),
+    secondService.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" }),
+  ]));
+
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, ids.length * 2);
+  assert.equal((await firstService.listUsers()).length, 1);
+});

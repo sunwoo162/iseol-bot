@@ -9,6 +9,7 @@ import {
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import { assertScopeAccess } from "../access/authorization.js";
 import type { PlatformUserInput, PlatformUserRecord, PlatformUserService } from "./contracts.js";
+import { withDurablePlatformUserLock } from "./user-lock.js";
 import { listPlatformUsers, loadPasswordCredential, loadPlatformUser, savePasswordCredential, savePlatformUser } from "./store.js";
 
 function validEmail(email: string): boolean {
@@ -38,31 +39,33 @@ export function createPlatformUserService(root: string, options: { now?: () => s
       if (!input.displayName.trim()) throw new Error("User display name is required");
       if (!input.timezone.trim()) throw new Error("User timezone is required");
       if (input.password !== undefined && !validPassword(input.password)) throw new Error("Password must be between 8 and 256 characters");
-      const at = now();
-      assertTimestamp(at, "user timestamp");
-      const existing = await loadPlatformUser(root, id);
-      if (existing) {
-        if (existing.email !== input.email || existing.displayName !== input.displayName || existing.timezone !== input.timezone) {
-          throw new Error("Platform user already exists with different data");
+      return withDurablePlatformUserLock(root, id, async () => {
+        const at = now();
+        assertTimestamp(at, "user timestamp");
+        const existing = await loadPlatformUser(root, id);
+        if (existing) {
+          if (existing.email !== input.email || existing.displayName !== input.displayName || existing.timezone !== input.timezone) {
+            throw new Error("Platform user already exists with different data");
+          }
+          return existing;
         }
-        return existing;
-      }
-      await createIdentityUser(root, { id, timezone: input.timezone, at });
-      const user: PlatformUserRecord = {
-        version: 1,
-        id,
-        email: input.email,
-        displayName: input.displayName,
-        timezone: input.timezone,
-        createdAt: at,
-        updatedAt: at,
-      };
-      await savePlatformUser(root, user);
-      if (input.password !== undefined) {
-        const salt = randomBytes(16);
-        await savePasswordCredential(root, id, { version: 1, salt: salt.toString("base64"), hash: passwordHash(input.password, salt).toString("base64"), createdAt: at });
-      }
-      return user;
+        await createIdentityUser(root, { id, timezone: input.timezone, at });
+        const user: PlatformUserRecord = {
+          version: 1,
+          id,
+          email: input.email,
+          displayName: input.displayName,
+          timezone: input.timezone,
+          createdAt: at,
+          updatedAt: at,
+        };
+        await savePlatformUser(root, user);
+        if (input.password !== undefined) {
+          const salt = randomBytes(16);
+          await savePasswordCredential(root, id, { version: 1, salt: salt.toString("base64"), hash: passwordHash(input.password, salt).toString("base64"), createdAt: at });
+        }
+        return user;
+      }, { waitForMs: 2_000 });
     },
 
     async getUser(userId: string): Promise<PlatformUserRecord | null> {
