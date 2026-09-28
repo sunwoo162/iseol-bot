@@ -1693,6 +1693,12 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service study submission mutations
+
+- Study submissions are **B — study-space/task/user-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/study/submission-lock.ts` protects the personal submission read-modify-save path in `src/study/service.ts`.
+- TDD/verification: concurrent submission batches moved from `8/24` complete to `24/24` with one valid durable answer; focused study `4/4`; user-product `336/336`; root `682/682`; types, both builds, and browser E2E passed with two-account isolation and responsive `[390,768,1024,1440]` across `13` routes.
+- Boundary: same-host/shared-root coordination only; distributed coordination, live model/provider execution, external connector delivery, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room remain unverified/deferred.
+
 ## 2026-09-28 continuation: durable cross-service growth projection mutations
 
 - Growth projections/retractions are **B — owner/event-scoped, durable, same-host cross-service idempotent, notification-safe, and isolated-browser verified**. `src/growth/projection-lock.ts` protects the ledger and achievement calculation path in `src/growth/read-model.ts`.
