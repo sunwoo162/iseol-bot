@@ -104,15 +104,17 @@ export async function issueDesktopJobContainmentApproval(input: {
 
 async function consumeApproval(input: { root: string; approvalId: string; jobId: string; runId: string; revision: string; at: string }): Promise<{ ok: true; approval: DesktopJobOperatorApproval } | { ok: false; reason: string }> {
   const path = approvalPath(input.root, input.approvalId);
-  const approval = await readApproval(path);
-  if (!approval) return { ok: false, reason: "approval-not-found" };
-  if (approval.state !== "issued") return { ok: false, reason: "approval-already-consumed" };
-  if (Date.parse(approval.expiresAt) <= Date.parse(input.at)) return { ok: false, reason: "approval-expired" };
-  if (approval.jobId !== input.jobId || approval.runId !== input.runId || approval.revision !== input.revision) return { ok: false, reason: "approval-target-or-revision-mismatch" };
-  const consumed = { ...approval, state: "consumed" as const, consumedAt: input.at };
-  await writeJson(path, consumed);
-  await writeJson(requestPath(input.root, approval.requestId), consumed);
-  return { ok: true, approval: consumed };
+  return withDurableDesktopOperatorLock(input.root, input.approvalId, async () => {
+    const approval = await readApproval(path);
+    if (!approval) return { ok: false, reason: "approval-not-found" };
+    if (approval.state !== "issued") return { ok: false, reason: "approval-already-consumed" };
+    if (Date.parse(approval.expiresAt) <= Date.parse(input.at)) return { ok: false, reason: "approval-expired" };
+    if (approval.jobId !== input.jobId || approval.runId !== input.runId || approval.revision !== input.revision) return { ok: false, reason: "approval-target-or-revision-mismatch" };
+    const consumed = { ...approval, state: "consumed" as const, consumedAt: input.at };
+    await writeJson(path, consumed);
+    await writeJson(requestPath(input.root, approval.requestId), consumed);
+    return { ok: true, approval: consumed };
+  }, { waitForMs: 2000 }, "approval");
 }
 
 function mutationRisk(job: DesktopJobRecord): DesktopJobReconciliationInspection["mutationRisk"] {

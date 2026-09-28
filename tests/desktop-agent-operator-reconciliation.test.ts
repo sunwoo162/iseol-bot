@@ -79,3 +79,33 @@ test("desktop operator containment approval issuance is serialized across servic
   assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
   assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 7);
 });
+
+test("desktop operator containment consumes one approval across service instances", async () => {
+  const f = await fixture({ id: "init", type: "GIT_INIT", cwd: "." });
+  const revision = desktopJobRevision(f.job);
+  const approval = await issueDesktopJobContainmentApproval({
+    root: f.root,
+    requestId: "cross-service-desktop-consume-request",
+    jobId: f.job.jobId,
+    runId: f.job.runId,
+    revision,
+    issuedAt: "2026-09-20T01:00:01.000Z",
+    expiresAt: "2026-09-20T02:00:00.000Z",
+    issuedBy: "operator",
+  });
+  const instances = await Promise.all(
+    Array.from({ length: 8 }, (_, index) => import(`../src/desktop-agent/operator-reconciliation.ts?desktop-consume-instance=${index}`)),
+  );
+  const attempts = await Promise.allSettled(instances.map((service) => service.containDesktopJobAsOperator({
+    root: f.root,
+    jobId: f.job.jobId,
+    expectedRevision: revision,
+    operationId: "cross-service-desktop-containment",
+    approvalId: approval.approvalId,
+    at: "2026-09-20T01:00:02.000Z",
+    actor: "operator",
+  })));
+  assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 8);
+  assert.equal(attempts.filter((attempt): attempt is PromiseFulfilledResult<{ status: "contained" }> => attempt.status === "fulfilled" && attempt.value.status === "contained").length, 1);
+  assert.equal(attempts.filter((attempt): attempt is PromiseFulfilledResult<{ status: "rejected"; reason: string }> => attempt.status === "fulfilled" && attempt.value.status === "rejected" && attempt.value.reason === "approval-already-consumed").length, 7);
+});
