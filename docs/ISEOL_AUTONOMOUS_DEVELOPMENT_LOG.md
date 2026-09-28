@@ -2006,6 +2006,24 @@ This log records implementation and verification facts without secrets. It does 
 - Verification: RED reproduced two concurrent completions across two service instances; GREEN learning coverage `69/69`, user-product regression `315/315`, serial root regression `678/678`, root and user UI TypeScript checks, both builds, `git diff --check`, and isolated browser E2E all passed. Browser coverage included `learningSessionCompletion: "passed"`, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` across `13` routes.
 - Remaining boundary: this is a same-host filesystem lock, not a distributed or cross-machine coordinator, and it does not claim provider-side exactly-once semantics. Content correctness, live Runtime throughput, external connectors, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room remain bounded/deferred. Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, operational data, external providers, deployment/push state, and approved design artifacts remained untouched.
 
+## 2026-09-28 continuation: durable learning content reservation
+
+### Completed in this unit
+
+- Learning session content request creation and completion now use the owner/session mutation tail plus the exact durable session lock. A bounded wait mode is available only for these idempotent content operations; ordinary session CAS mutations remain fail-fast on an active competing lock.
+- The lock is released before the explicitly injected local content Runtime dispatcher is called. A second service instance therefore observes the persisted request and returns the same identity without dispatching a duplicate request. Duplicate completion callbacks reload the validated request and do not create another lesson or session revision.
+
+### TDD and verification
+
+- RED: the new reservation-boundary test reproduced a content request being persisted while a competing session lock was held.
+- GREEN: focused learning content coverage passed `5/5`; full user-product regression passed `318/318`; serial root regression passed `678/678`; root and user UI TypeScript checks, both builds, `git diff --check`, and isolated browser E2E all passed. Browser E2E reported `learningGoalContent`, `learningSessionCompletion`, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Evidence: `src/learning/session-lock.ts`, `src/learning/service.ts`, `tests/learning-content-request.test.ts`, and `docs/superpowers/plans/2026-09-28-learning-content-reservation-lock.md`.
+
+### Scope and safety boundary
+
+- The boundary is same-host/shared-root only. It does not claim cross-machine distributed locking, provider-side exactly-once delivery, lesson correctness, or mastery. No external AI/provider request, live connector request, operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, data deletion, deployment, push, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred.
+- Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, operational data, external providers, deployment/push state, approved design artifacts, and deferred broadcast artifacts remained untouched.
+
 ## 2026-09-28 continuation: serialize user notification writes
 
 ### Completed in this unit
