@@ -51,3 +51,21 @@ test("public profile privacy settings gate bounded growth, project, and learning
   await social.updateProfile(principal("profile-owner"), { visibility: "private" });
   assert.equal(await social.getProfile(principal("profile-viewer"), "profile-owner"), null);
 });
+
+test("social profile mutations across service instances preserve both patches", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-profile-concurrent-"));
+  const users = createPlatformUserService(root, { now: () => at });
+  await users.createUser({ id: "social-concurrent", email: "social-concurrent@example.com", displayName: "Concurrent Profile", timezone: "Asia/Seoul" });
+  const firstService = createSocialService(root, { platformUserService: users, now: () => at });
+  const secondService = createSocialService(root, { platformUserService: users, now: () => "2026-09-27T16:00:01.000Z" });
+  const owner = principal("social-concurrent");
+
+  await Promise.all([
+    firstService.updateProfile(owner, { bio: "durable bio" }),
+    secondService.updateProfile(owner, { skills: ["TypeScript"] }),
+  ]);
+
+  const persisted = await createSocialService(root, { platformUserService: users }).getProfile(owner);
+  assert.equal(persisted?.bio, "durable bio");
+  assert.deepEqual(persisted?.skills, ["TypeScript"]);
+});

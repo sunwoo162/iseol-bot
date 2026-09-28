@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { FriendRequest, PublicProfile, SocialBlock, SocialProfile, SocialReport, SocialService, SocialServiceOptions } from "./contracts.js";
+import { withDurableSocialProfileLock } from "./profile-lock.js";
 import { listBlocks, listDirectMessages, listFriendRequests, listReports, loadBlock, loadFriendRequest, loadProfile, saveBlock, saveDirectMessage, saveFriendRequest, saveProfile, saveReport } from "./store.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -73,12 +74,14 @@ export function createSocialService(root: string, options: SocialServiceOptions)
   return {
     async updateProfile(principal, patch) {
       ensurePrincipal(principal); const user = await options.platformUserService.getUser(principal.userId); if (!user) throw new Error("User not found");
-      const current = await loadProfile(root, principal.userId); const at = now(); assertTimestamp(at, "social profile timestamp");
-      const handle = patch.handle === undefined ? current?.handle ?? user.id : required(patch.handle, "Profile handle", 80).replace(/[^A-Za-z0-9_.-]/g, "-");
-      const skills = patch.skills === undefined ? current?.skills ?? [] : patch.skills.map((skill) => required(skill, "Profile skill", 80)).slice(0, 32);
-      const visibility = patch.visibility ?? current?.visibility ?? "public"; if (!["public", "private"].includes(visibility)) throw new Error("Invalid profile visibility");
-      const profile: SocialProfile = { version: 1, userId: principal.userId, handle, bio: patch.bio === undefined ? current?.bio ?? "" : patch.bio.trim().slice(0, 2_000), skills, visibility, createdAt: current?.createdAt ?? at, updatedAt: at };
-      await saveProfile(root, profile); return { ...profile, displayName: user.displayName };
+      return withDurableSocialProfileLock(root, principal.userId, async () => {
+        const current = await loadProfile(root, principal.userId); const at = now(); assertTimestamp(at, "social profile timestamp");
+        const handle = patch.handle === undefined ? current?.handle ?? user.id : required(patch.handle, "Profile handle", 80).replace(/[^A-Za-z0-9_.-]/g, "-");
+        const skills = patch.skills === undefined ? current?.skills ?? [] : patch.skills.map((skill) => required(skill, "Profile skill", 80)).slice(0, 32);
+        const visibility = patch.visibility ?? current?.visibility ?? "public"; if (!["public", "private"].includes(visibility)) throw new Error("Invalid profile visibility");
+        const profile: SocialProfile = { version: 1, userId: principal.userId, handle, bio: patch.bio === undefined ? current?.bio ?? "" : patch.bio.trim().slice(0, 2_000), skills, visibility, createdAt: current?.createdAt ?? at, updatedAt: at };
+        await saveProfile(root, profile); return { ...profile, displayName: user.displayName };
+      }, { waitForMs: 2_000 });
     },
     async getProfile(principal, userId = principal.userId) { ensurePrincipal(principal); if (userId !== principal.userId && await isBlocked(principal.userId, userId)) return null; const profile = await profileFor(userId, true); return profile && (profile.visibility === "public" || userId === principal.userId) ? profile : null; },
     async listProfiles(principal, search = "") {
