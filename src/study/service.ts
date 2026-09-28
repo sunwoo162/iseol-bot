@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { dirname } from "node:path";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CurriculumLink, StudyService, StudyServiceOptions, StudySpace, StudyTask, StudyTaskSubmission } from "./contracts.js";
 import { withDurableStudySubmissionLock } from "./submission-lock.js";
 import { withDurableStudySpaceLock } from "./space-lock.js";
+import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
 import { listCurriculumLinks, listStudySpaces, listStudyTasks, loadStudySpace, loadStudyTask, loadTaskSubmission, saveCurriculumLink, saveStudySpace, saveStudyTask, saveTaskSubmission } from "./store.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -11,6 +13,8 @@ function isActiveHumanMember(members: Array<{ userId: string; memberType: string
 
 export function createStudyService(root: string, options: StudyServiceOptions): StudyService {
   const now = options.now ?? (() => new Date().toISOString());
+  const teamMembershipRoot = options.teamMembershipRoot ?? dirname(root);
+  const withTeamMembershipMutationLock = <T>(teamId: string, task: () => Promise<T>): Promise<T> => withDurableTeamMembershipLock(teamMembershipRoot, teamId, task, { waitForMs: 2_000 });
   const loadAccessibleSpace = async (principal: Principal, studySpaceId: string): Promise<StudySpace | null> => {
     ensurePrincipal(principal);
     try { assertIdentityId(studySpaceId); } catch { return null; }
@@ -29,17 +33,20 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
     async createStudySpace(principal, input) {
       ensurePrincipal(principal); assertIdentityId(input.teamId);
       if (!await options.teamService.isManager(principal, input.teamId)) throw new Error("Study manager access required");
-      const team = await options.teamService.getTeam(principal, input.teamId);
-      if (!team || team.team.kind !== "study") throw new Error("Study team required");
-      return withDurableStudySpaceLock(root, input.teamId, async () => {
-        const existing = (await listStudySpaces(root)).find((item) => item.teamId === input.teamId && item.status === "active");
-        if (existing) return existing;
-        const at = now(); assertTimestamp(at, "study space timestamp");
-        const space: StudySpace = { version: 1, id: `study-${randomUUID()}`, teamId: input.teamId, ownerUserId: principal.userId, title: required(input.title, "Study title", 200), description: required(input.description, "Study description", 5_000), status: "active", createdAt: at, updatedAt: at };
-        await saveStudySpace(root, space);
-        await options.activityService?.recordActivityEvent(principal, { sourceType: "study", sourceId: space.id, eventType: "study.space.created", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { teamId: space.teamId } });
-        return space;
-      }, { waitForMs: 2_000 });
+      return withTeamMembershipMutationLock(input.teamId, async () => {
+        if (!await options.teamService.isManager(principal, input.teamId)) throw new Error("Study manager access required");
+        const team = await options.teamService.getTeam(principal, input.teamId);
+        if (!team || team.team.kind !== "study") throw new Error("Study team required");
+        return withDurableStudySpaceLock(root, input.teamId, async () => {
+          const existing = (await listStudySpaces(root)).find((item) => item.teamId === input.teamId && item.status === "active");
+          if (existing) return existing;
+          const at = now(); assertTimestamp(at, "study space timestamp");
+          const space: StudySpace = { version: 1, id: `study-${randomUUID()}`, teamId: input.teamId, ownerUserId: principal.userId, title: required(input.title, "Study title", 200), description: required(input.description, "Study description", 5_000), status: "active", createdAt: at, updatedAt: at };
+          await saveStudySpace(root, space);
+          await options.activityService?.recordActivityEvent(principal, { sourceType: "study", sourceId: space.id, eventType: "study.space.created", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { teamId: space.teamId } });
+          return space;
+        }, { waitForMs: 2_000 });
+      });
     },
     async listStudySpaces(principal) {
       ensurePrincipal(principal); const spaces = await listStudySpaces(root); const visible: StudySpace[] = [];
@@ -54,21 +61,30 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
       return { space, curriculumLinks: curriculumLinks.sort((a, b) => a.createdAt.localeCompare(b.createdAt)), tasks: tasks.sort((a, b) => a.createdAt.localeCompare(b.createdAt)), mySubmissions: mySubmissions.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)) };
     },
     async addCurriculumLink(principal, studySpaceId, input) {
-      const space = await requireManager(principal, studySpaceId); if (!(input.kind === "learning-goal" || input.kind === "resource")) throw new Error("Invalid curriculum link kind");
-      const referenceId = required(input.referenceId, "Curriculum reference", 240); const label = required(input.label, "Curriculum label", 240);
-      if (input.kind === "learning-goal") { if (!options.learningService) throw new Error("Learning service unavailable"); if (!await options.learningService.getLearningGoal(principal, referenceId)) throw new Error("Learning goal not found"); }
-      const at = now(); assertTimestamp(at, "curriculum link timestamp"); const link: CurriculumLink = { version: 1, id: `curriculum-${randomUUID()}`, studySpaceId: space.id, kind: input.kind, referenceId, label, createdByUserId: principal.userId, createdAt: at }; await saveCurriculumLink(root, link); return link;
+      const initialSpace = await requireManager(principal, studySpaceId);
+      return withTeamMembershipMutationLock(initialSpace.teamId, async () => {
+        const space = await requireManager(principal, studySpaceId); if (!(input.kind === "learning-goal" || input.kind === "resource")) throw new Error("Invalid curriculum link kind");
+        const referenceId = required(input.referenceId, "Curriculum reference", 240); const label = required(input.label, "Curriculum label", 240);
+        if (input.kind === "learning-goal") { if (!options.learningService) throw new Error("Learning service unavailable"); if (!await options.learningService.getLearningGoal(principal, referenceId)) throw new Error("Learning goal not found"); }
+        const at = now(); assertTimestamp(at, "curriculum link timestamp"); const link: CurriculumLink = { version: 1, id: `curriculum-${randomUUID()}`, studySpaceId: space.id, kind: input.kind, referenceId, label, createdByUserId: principal.userId, createdAt: at }; await saveCurriculumLink(root, link); return link;
+      });
     },
     async createTask(principal, studySpaceId, input) {
-      const space = await requireManager(principal, studySpaceId); const title = required(input.title, "Study task title", 240); const instructions = required(input.instructions, "Study task instructions", 10_000);
-      if (input.dueLocalDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(input.dueLocalDate)) throw new Error("Invalid task due date");
-      const at = now(); assertTimestamp(at, "study task timestamp"); const task: StudyTask = { version: 1, id: `study-task-${randomUUID()}`, studySpaceId: space.id, createdByUserId: principal.userId, title, instructions, ...(input.dueLocalDate ? { dueLocalDate: input.dueLocalDate } : {}), status: "open", createdAt: at, updatedAt: at }; await saveStudyTask(root, task); return task;
+      const initialSpace = await requireManager(principal, studySpaceId);
+      return withTeamMembershipMutationLock(initialSpace.teamId, async () => {
+        const space = await requireManager(principal, studySpaceId); const title = required(input.title, "Study task title", 240); const instructions = required(input.instructions, "Study task instructions", 10_000);
+        if (input.dueLocalDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(input.dueLocalDate)) throw new Error("Invalid task due date");
+        const at = now(); assertTimestamp(at, "study task timestamp"); const task: StudyTask = { version: 1, id: `study-task-${randomUUID()}`, studySpaceId: space.id, createdByUserId: principal.userId, title, instructions, ...(input.dueLocalDate ? { dueLocalDate: input.dueLocalDate } : {}), status: "open", createdAt: at, updatedAt: at }; await saveStudyTask(root, task); return task;
+      });
     },
     async saveTaskSubmission(principal, studySpaceId, taskId, input) {
-      const space = await loadAccessibleSpace(principal, studySpaceId); if (!space) throw new Error("Study space not found"); assertIdentityId(taskId); if (!(input.status === "draft" || input.status === "submitted")) throw new Error("Invalid submission status"); const answer = required(input.answer, "Study answer", 20_000);
-      return withDurableStudySubmissionLock(root, space.id, taskId, principal.userId, async () => {
-        const task = await loadStudyTask(root, space.id, taskId); if (!task || task.status !== "open") throw new Error("Study task not found"); const previous = await loadTaskSubmission(root, space.id, task.id, principal.userId); const at = now(); assertTimestamp(at, "study submission timestamp"); const submission: StudyTaskSubmission = { version: 1, id: previous?.id ?? `submission-${randomUUID()}`, studySpaceId: space.id, taskId: task.id, userId: principal.userId, answer, status: input.status, createdAt: previous?.createdAt ?? at, updatedAt: at }; await saveTaskSubmission(root, submission); await options.activityService?.recordActivityEvent(principal, { sourceType: "study", sourceId: submission.id, eventType: "study.task.submission.saved", eventVersion: 1, actorType: "user", verificationStatus: "unverified", payload: { studySpaceId: space.id, taskId: task.id, submissionStatus: submission.status } }); return submission;
-      }, { waitForMs: 2_000 });
+      const initialSpace = await loadAccessibleSpace(principal, studySpaceId); if (!initialSpace) throw new Error("Study space not found"); assertIdentityId(taskId); if (!(input.status === "draft" || input.status === "submitted")) throw new Error("Invalid submission status"); const answer = required(input.answer, "Study answer", 20_000);
+      return withTeamMembershipMutationLock(initialSpace.teamId, async () => {
+        const space = await loadAccessibleSpace(principal, studySpaceId); if (!space) throw new Error("Study space not found");
+        return withDurableStudySubmissionLock(root, space.id, taskId, principal.userId, async () => {
+          const task = await loadStudyTask(root, space.id, taskId); if (!task || task.status !== "open") throw new Error("Study task not found"); const previous = await loadTaskSubmission(root, space.id, task.id, principal.userId); const at = now(); assertTimestamp(at, "study submission timestamp"); const submission: StudyTaskSubmission = { version: 1, id: previous?.id ?? `submission-${randomUUID()}`, studySpaceId: space.id, taskId: task.id, userId: principal.userId, answer, status: input.status, createdAt: previous?.createdAt ?? at, updatedAt: at }; await saveTaskSubmission(root, submission); await options.activityService?.recordActivityEvent(principal, { sourceType: "study", sourceId: submission.id, eventType: "study.task.submission.saved", eventVersion: 1, actorType: "user", verificationStatus: "unverified", payload: { studySpaceId: space.id, taskId: task.id, submissionStatus: submission.status } }); return submission;
+        }, { waitForMs: 2_000 });
+      });
     },
   };
 }

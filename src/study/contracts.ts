@@ -69,6 +69,7 @@ export type StudyService = {
 
 export type StudyServiceOptions = {
   teamService: TeamService;
+  teamMembershipRoot?: string;
   learningService?: LearningService;
   activityService?: ActivityService;
   now?: () => string;

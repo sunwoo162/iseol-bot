@@ -6,6 +6,8 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createTeamService } from "../src/teams/service.js";
+import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
+import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createStudyService } from "../src/study/service.js";
 
 const at = "2026-09-27T14:00:00.000Z";
@@ -98,4 +100,69 @@ test("concurrent study space creation across service instances remains one activ
 
   assert.equal(results[0].id, results[1].id);
   assert.equal((await firstService.listStudySpaces(principal("space-owner"))).length, 1);
+});
+
+test("study manager mutations re-check authority after waiting for the Team membership lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-study-manager-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  await users.createUser({ id: "study-lock-owner", email: "study-lock-owner@example.com", displayName: "Study lock owner", timezone: "Asia/Seoul" });
+  const teams = createTeamService(platformRoot, { now: () => at });
+  const team = await teams.createTeam(principal("study-lock-owner"), { name: "Study lock team", description: "manager recheck", kind: "study", visibility: "private", capacity: 3 });
+  const studies = createStudyService(join(platformRoot, "study"), { teamService: teams, now: () => at });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(platformRoot, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const createSpace = studies.createStudySpace(principal("study-lock-owner"), { teamId: team.id, title: "Should not persist", description: "manager is revoked while waiting" });
+  assert.equal(await Promise.race([
+    createSpace.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]), false);
+  const currentOwner = await loadMembership(platformRoot, team.id, "study-lock-owner");
+  assert.ok(currentOwner);
+  await saveMembership(platformRoot, { ...currentOwner, status: "removed", updatedAt: at });
+  release();
+  await Promise.all([holder, assert.rejects(() => createSpace, /manager/i)]);
+  assert.deepEqual(await studies.listStudySpaces(principal("study-lock-owner")), []);
+});
+
+test("study submissions re-check active membership after waiting for the Team membership lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-study-member-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  for (const id of ["study-submission-owner", "study-submission-member"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const teams = createTeamService(platformRoot, { now: () => at });
+  const team = await teams.createTeam(principal("study-submission-owner"), { name: "Submission lock team", description: "member recheck", kind: "study", visibility: "private", capacity: 3 });
+  await teams.addMember(team.id, "study-submission-member", "member", at);
+  const studies = createStudyService(join(platformRoot, "study"), { teamService: teams, now: () => at });
+  const space = await studies.createStudySpace(principal("study-submission-owner"), { teamId: team.id, title: "Submission lock room", description: "member is revoked while waiting" });
+  const task = await studies.createTask(principal("study-submission-owner"), space.id, { title: "Lock task", instructions: "Submit only while active" });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(platformRoot, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const submit = studies.saveTaskSubmission(principal("study-submission-member"), space.id, task.id, { answer: "This must not persist after removal.", status: "submitted" });
+  assert.equal(await Promise.race([
+    submit.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]), false);
+  const currentMember = await loadMembership(platformRoot, team.id, "study-submission-member");
+  assert.ok(currentMember);
+  await saveMembership(platformRoot, { ...currentMember, status: "removed", updatedAt: at });
+  release();
+  await Promise.all([holder, assert.rejects(() => submit, /study space/i)]);
+  assert.deepEqual((await studies.getStudySpace(principal("study-submission-owner"), space.id))?.mySubmissions, []);
 });
