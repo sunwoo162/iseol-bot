@@ -15,6 +15,7 @@ import { withDurableLearningReviewLock } from "./review-lock.js";
 import { withDurableLearningCodingAttemptLock } from "./coding-attempt-lock.js";
 import { withDurableLearningAnswerLock } from "./answer-lock.js";
 import { withDurableLearningFeedbackDisputeLock } from "./feedback-dispute-lock.js";
+import { withDurableLearningActionLock } from "./action-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -825,10 +826,11 @@ export function createLearningService(root: string, options: LearningServiceOpti
     async recordLearningSessionAction(principal, sessionId, input: LearningSessionActionInput): Promise<LearningSessionAction> {
       ensurePrincipal(principal);
       try { assertIdentityId(sessionId); } catch { throw new Error("Learning session not found"); }
+      const actionId = nonEmpty(input.actionId, "Learning action id", 160);
+      return withDurableLearningActionLock(root, principal.userId, sessionId, actionId, async () => {
       const session = await loadSession(root, principal.userId, sessionId);
       if (!session || session.userId !== principal.userId) throw new Error("Learning session not found");
       if (session.status === "completed") throw new Error("Learning session is completed");
-      const actionId = nonEmpty(input.actionId, "Learning action id", 160);
       if (!["explanation", "example", "hint", "self-report"].includes(input.type)) throw new Error("Learning action type is invalid");
       const contentRef = input.contentRef === undefined ? undefined : nonEmpty(input.contentRef, "Learning action content reference", 240);
       const question = input.question === undefined ? undefined : nonEmpty(input.question, "Learning action question", 2_000);
@@ -860,6 +862,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
         await saveLearningSessionAction(root, waiting);
         return waiting;
       }
+      }, { waitForMs: 2_000 });
     },
 
     async completeLearningSessionAction(principal, actionId, response): Promise<LearningSessionAction> {

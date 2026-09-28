@@ -28,6 +28,24 @@ test("learning session actions are owner-bound, idempotent, and distinguish self
   await assert.rejects(() => service.recordLearningSessionAction(other, session.id, { actionId: "other", type: "self-report" }), /not found|forbidden/i);
 });
 
+test("concurrent learning session actions across service instances remain one action", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-actions-concurrent-"));
+  const owner = principal("action-concurrent-owner");
+  const firstService = createLearningService(root, { now: () => at });
+  const secondService = createLearningService(root, { now: () => at });
+  const plan = await firstService.createLearningPlan(owner, { title: "Concurrent actions", description: "One action", goals: ["Practice"] });
+  const session = await firstService.startLearningSession(owner, plan.id);
+  const input = { actionId: "concurrent-action", type: "self-report" as const, contentRef: "concept-1", question: "이해했어요" };
+
+  const results = await Promise.all([
+    firstService.recordLearningSessionAction(owner, session.id, input),
+    secondService.recordLearningSessionAction(owner, session.id, input),
+  ]);
+
+  assert.equal(new Set(results.map((action) => action.id)).size, 1);
+  assert.equal((await firstService.listLearningSessionActions(owner, session.id)).length, 1);
+});
+
 test("learning answer receipts persist exactly once and keep feedback pending without an evaluator", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-learning-answers-"));
   const service = createLearningService(root, { now: () => at });
