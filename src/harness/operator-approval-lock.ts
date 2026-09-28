@@ -5,9 +5,10 @@ import { removeOwnedLock } from "../lock-utils.js";
 
 type OperatorApprovalLockRecord = { version: 1; pid: number; token: string; createdAt: string };
 export type DurableOperatorApprovalLockOptions = { waitForMs?: number; pollIntervalMs?: number };
+export type OperatorApprovalLockScope = "request" | "approval";
 
-function lockPath(root: string, requestId: string): string {
-  const digest = createHash("sha256").update(`operator-approval-request:${requestId}`).digest("hex");
+function lockPath(root: string, scope: OperatorApprovalLockScope, identity: string): string {
+  const digest = createHash("sha256").update(`operator-approval:${scope}:${identity}`).digest("hex");
   return resolve(root, ".locks", "harness-operator-approvals", `${digest}.lock`);
 }
 
@@ -31,11 +32,12 @@ async function removeDeadOwnerLock(path: string): Promise<boolean> {
 
 export async function withDurableOperatorApprovalLock<T>(
   root: string,
-  requestId: string,
+  identity: string,
   task: () => Promise<T>,
   options: DurableOperatorApprovalLockOptions = {},
+  scope: OperatorApprovalLockScope = "request",
 ): Promise<T> {
-  const path = lockPath(root, requestId);
+  const path = lockPath(root, scope, identity);
   await mkdir(dirname(path), { recursive: true });
   let handle: FileHandle;
   const waitForMs = options.waitForMs ?? 0;

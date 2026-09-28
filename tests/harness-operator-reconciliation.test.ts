@@ -124,3 +124,37 @@ test("operator approval issuance is serialized across independent service instan
   assert.match(approval.approvalId, /^approval-/);
   assert.match(approval.issuedBy, /^operator-\d+$/);
 });
+
+test("operator approval consumption is single-use across independent service instances", async () => {
+  const f = await fixture();
+  const revision = "2026-09-19T00:00:00.000Z:2026-09-19T00:00:00.000Z:ANALYZE:RUNNING";
+  const approval = await issueOperatorApproval({
+    root: f.root,
+    requestId: "cross-service-consume-request",
+    projectId: "project-a",
+    runId: "run-3",
+    stage: "ANALYZE",
+    status: "RUNNING",
+    revision,
+    reason: "operator-confirmed-no-active-work",
+    issuedAt: "2026-09-19T00:00:30.000Z",
+    expiresAt: "2026-09-19T01:00:00.000Z",
+    issuedBy: "operator",
+  });
+  const instances = await Promise.all(
+    Array.from({ length: 8 }, (_, index) => import(`../src/harness/operator-approval-store.ts?operator-approval-consume-instance=${index}`)),
+  );
+  const attempts = await Promise.allSettled(instances.map((store) => store.consumeOperatorApproval({
+    root: f.root,
+    approvalId: approval.approvalId,
+    projectId: "project-a",
+    runId: "run-3",
+    stage: "ANALYZE",
+    status: "RUNNING",
+    revision,
+    at: "2026-09-19T00:01:00.000Z",
+  })));
+  assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 8);
+  assert.equal(attempts.filter((attempt): attempt is PromiseFulfilledResult<{ ok: true }> => attempt.status === "fulfilled" && attempt.value.ok).length, 1);
+  assert.equal(attempts.filter((attempt): attempt is PromiseFulfilledResult<{ ok: false; reason: string }> => attempt.status === "fulfilled" && !attempt.value.ok && attempt.value.reason === "approval-already-consumed").length, 7);
+});

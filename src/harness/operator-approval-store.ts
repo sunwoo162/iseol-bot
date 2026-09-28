@@ -73,7 +73,7 @@ export async function loadOperatorApproval(root: string, approvalId: string): Pr
 export async function consumeOperatorApproval(input: {
   root: string; approvalId: string; projectId: string; runId: string; stage: string; status: string; revision: string; at: string;
 }): Promise<{ ok: true; approval: OperatorApproval } | { ok: false; reason: string }> {
-  return serialized(approvalPath(input.root, input.approvalId), async () => {
+  return serialized(approvalPath(input.root, input.approvalId), () => withDurableOperatorApprovalLock(input.root, input.approvalId, async () => {
     const approval = await readJson(approvalPath(input.root, input.approvalId));
     if (!approval) return { ok: false, reason: "approval-not-found" };
     if (approval.state !== "issued") return { ok: false, reason: "approval-already-consumed" };
@@ -83,5 +83,5 @@ export async function consumeOperatorApproval(input: {
     await writeJson(approvalPath(input.root, input.approvalId), consumed);
     await writeJson(requestPath(input.root, approval.requestId), consumed);
     return { ok: true, approval: consumed };
-  });
+  }, { waitForMs: 2000 }, "approval"));
 }
