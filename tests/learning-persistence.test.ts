@@ -46,6 +46,22 @@ test("study attempts reject sessions owned by another user", async () => {
   await assert.rejects(() => service.recordStudyAttempt(principal("user-b"), { sessionId: session.id, questionId: "q", answer: "no" }), /not found|forbidden/i);
 });
 
+test("concurrent legacy learning session starts across service instances remain one session", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-session-start-concurrent-"));
+  const owner = principal("legacy-session-concurrent-owner");
+  const firstService = createLearningService(root, { now: () => at });
+  const secondService = createLearningService(root, { now: () => at });
+  const plan = await firstService.createLearningPlan(owner, { title: "동시 세션", description: "one active session", goals: ["one"] });
+
+  const results = await Promise.all([
+    firstService.startLearningSession(owner, plan.id),
+    secondService.startLearningSession(owner, plan.id),
+  ]);
+
+  assert.equal(new Set(results.map((session) => session.id)).size, 1);
+  assert.equal((await firstService.listLearningSessions(owner)).filter((session) => session.planId === plan.id && session.status === "active").length, 1);
+});
+
 test("learning durable writes use the Windows transient rename retry boundary", async () => {
   const source = await readFile(resolve(process.cwd(), "src/learning/store.ts"), "utf8");
   assert.match(source, /renameWithTransientRetry\(temporary, path\)/);

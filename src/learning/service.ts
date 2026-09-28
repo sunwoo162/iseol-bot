@@ -10,6 +10,7 @@ import { withDurableLearningPlanAdjustmentLock } from "./plan-adjustment-lock.js
 import { withDurableLearningPlanAdjustmentAcceptanceLock } from "./plan-adjustment-acceptance-lock.js";
 import { withDurableLearningReportLock } from "./report-lock.js";
 import { withDurableLearningGoalSessionLock } from "./goal-session-lock.js";
+import { withDurableLearningSessionStartLock } from "./session-start-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -1097,15 +1098,17 @@ export function createLearningService(root: string, options: LearningServiceOpti
     async startLearningSession(principal, planId): Promise<LearningSession> {
       const plan = await this.getLearningPlan(principal, planId);
       if (!plan) throw new Error("Learning plan not found");
-      const existing = (await listSessions(root, principal.userId)).find((session) => session.planId === planId && session.status === "active");
-      if (existing) return existing;
-      const at = now(); assertTimestamp(at, "learning session timestamp");
-      const session: LearningSession = {
-        version: 1, id: "learning-session-" + randomUUID(), userId: principal.userId, planId, revision: 1,
-        status: "active", startedAt: at, resumedAt: at,
-      };
-      await saveSession(root, session);
-      return session;
+      return withDurableLearningSessionStartLock(root, principal.userId, planId, async () => {
+        const existing = (await listSessions(root, principal.userId)).find((session) => session.planId === planId && session.status === "active");
+        if (existing) return existing;
+        const at = now(); assertTimestamp(at, "learning session timestamp");
+        const session: LearningSession = {
+          version: 1, id: "learning-session-" + randomUUID(), userId: principal.userId, planId, revision: 1,
+          status: "active", startedAt: at, resumedAt: at,
+        };
+        await saveSession(root, session);
+        return session;
+      }, { waitForMs: 2_000 });
     },
 
     async resumeLearningSession(principal, sessionId, expectedRevision): Promise<LearningSession | null> {
