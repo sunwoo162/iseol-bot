@@ -1,17 +1,30 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createActivityService } from "../src/activity/service.js";
 import { createGrowthService } from "../src/growth/read-model.js";
+import { removeOwnedLock } from "../src/lock-utils.js";
 
 const at = "2026-09-25T12:00:00.000Z";
 
 function principal(userId: string): Principal {
   return { userId, sessionId: `${userId}-session`, roles: ["user"] };
 }
+
+test("shared lock cleanup leaves a replacement owner untouched", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-shared-lock-owner-"));
+  const lockPath = join(root, "replacement.lock");
+  await writeFile(lockPath, JSON.stringify({ token: "replacement-owner" }), "utf8");
+
+  await removeOwnedLock(lockPath, "old-owner");
+  assert.equal(JSON.parse(await readFile(lockPath, "utf8")).token, "replacement-owner");
+
+  await removeOwnedLock(lockPath, "replacement-owner");
+  await assert.rejects(() => access(lockPath), /ENOENT/);
+});
 
 test("verified activity produces one actor-attributed growth entry", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-growth-ledger-"));
