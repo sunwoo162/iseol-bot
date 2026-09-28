@@ -92,6 +92,28 @@ test("leases are exclusive, renewable by owner, and transferable only after expi
   assert.equal(takeover.attempts, 2);
 });
 
+test("lease acquisition is exclusive across independent job-store instances", async () => {
+  const store = await root();
+  await createDesktopJob(store, pack(), "2026-09-08T01:00:00.000Z");
+  const instances = await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      import(`../src/desktop-agent/job-store.ts?lease-instance=${index}-${Date.now()}`),
+    ),
+  );
+  const outcomes = await Promise.allSettled(instances.map((instance, index) => instance.acquireDesktopJobLease(
+    store,
+    "job-001",
+    `session-${index}`,
+    "2026-09-08T01:00:10.000Z",
+    60_000,
+  )));
+
+  assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
+  assert.equal(outcomes.filter((outcome) => outcome.status === "rejected").length, 7);
+  assert.equal((await loadDesktopJob(store, "job-001"))?.attempts, 1);
+  assert.equal((await loadDesktopJob(store, "job-001"))?.status, "leased");
+});
+
 test("completed jobs are immutable", async () => {
   const store = await root();
   await createDesktopJob(store, pack(), "2026-09-08T01:00:00.000Z");

@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { DesktopJobResult, DesktopTaskPack } from "./contracts.js";
 import { assertDesktopTaskPack } from "./contracts.js";
+import { withDurableDesktopJobLock } from "./job-lock.js";
 
 export type DesktopJobLease = {
   owner: string;
@@ -229,7 +230,7 @@ function validateLeaseDuration(durationMs: number): void {
   }
 }
 
-export async function acquireDesktopJobLease(
+async function acquireDesktopJobLeaseUnlocked(
   root: string,
   jobId: string,
   owner: string,
@@ -262,6 +263,22 @@ export async function acquireDesktopJobLease(
   };
   await saveJob(root, next);
   return next;
+}
+
+export async function acquireDesktopJobLease(
+  root: string,
+  jobId: string,
+  owner: string,
+  now: string,
+  durationMs: number,
+  options: { allowContained?: boolean } = {},
+): Promise<DesktopJobRecord> {
+  return withDurableDesktopJobLock(
+    root,
+    jobId,
+    () => acquireDesktopJobLeaseUnlocked(root, jobId, owner, now, durationMs, options),
+    { waitForMs: 2_000 },
+  );
 }
 
 export async function renewDesktopJobLease(
