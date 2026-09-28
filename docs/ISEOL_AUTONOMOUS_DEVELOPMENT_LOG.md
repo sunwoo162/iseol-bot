@@ -1998,6 +1998,25 @@ This log records implementation and verification facts without secrets. It does 
 - No operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, external AI/provider request, external connector mutation, deployment, push, data deletion, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred.
 - Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, final approved art sources, and deferred broadcast artifacts remained untouched.
 
+## 2026-09-28 continuation: portfolio actor provenance labels
+
+### Completed in this unit
+
+1. Added the shared `actorLabel` projection for durable provenance actors: `user` → `사용자 기여`, `ai` → `AI 기여`, and `system` → `시스템 기록`.
+2. Applied the projection to the authenticated Activity/Portfolio evidence view and the public Portfolio evidence view; raw actor codes are no longer the primary user-facing label.
+3. Added a RED/GREEN UI contract covering both screens and kept the existing evidence identity, verification state, visibility, export, and link behavior unchanged.
+
+### TDD, verification, and commit
+
+- The new contract first failed because the screens exposed raw actor values, then passed `6/6` after implementation.
+- `npm.cmd run test:iseol-user-product` passed `309/309`; `npm.cmd run user-ui:build` passed with only existing Vite warnings; full isolated browser E2E passed every journey, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- The previously untracked approved NPC user UI and isolated server/test surface were recorded as `6f3935f feat: add owner-scoped NPC user UI`.
+
+### Scope and safety boundary
+
+- No evidence was reclassified, no growth/XP/mastery value was changed, and no external AI/provider or connector request was made.
+- No operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, deployment, push, data deletion, approved-design source change, or AI Broadcast Room implementation occurred. Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, final approved art sources, and deferred broadcast artifacts remained untouched.
+
 ## 2026-09-28 continuation: Learning progress UI coding-practice count
 
 ### Completed in this unit
