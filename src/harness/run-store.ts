@@ -156,13 +156,19 @@ export async function saveHarnessRunIfUnchanged(
     withDurableHarnessRunLock(
       root,
       expectedRun.request.runId,
-      async () => {
-        const current = await loadHarnessRun(root, expectedRun.request.runId);
-        if (!current || JSON.stringify(current) !== JSON.stringify(expectedRun)) return false;
-        await writeNormalizedRun(root, nextRun);
-        return true;
-      },
+      () => saveHarnessRunIfUnchangedUnlocked(root, expectedRun, nextRun),
       { waitForMs: 2_000 },
     ),
   );
+}
+
+export async function saveHarnessRunIfUnchangedUnlocked(
+  root: string,
+  expectedRun: HarnessRuntimeRunEnvelope,
+  nextRun: HarnessRuntimeRunEnvelope,
+): Promise<boolean> {
+  const current = await loadHarnessRun(root, expectedRun.request.runId);
+  if (!current || JSON.stringify(current) !== JSON.stringify(expectedRun)) return false;
+  await writeNormalizedRun(root, nextRun);
+  return true;
 }

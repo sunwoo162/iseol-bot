@@ -6,7 +6,7 @@ import type {
 } from "./contracts.js";
 import { prepareDevelopmentRun } from "./preflight.js";
 import { appendHarnessRunEvent, saveHarnessCheckpoint } from "./event-store.js";
-import { loadHarnessRun, saveHarnessRun, saveHarnessRunIfUnchanged } from "./run-store.js";
+import { loadHarnessRun, saveHarnessRun, saveHarnessRunIfUnchangedUnlocked } from "./run-store.js";
 import { withDurableHarnessRunLock } from "./run-lock.js";
 import { createInitialRunState, transitionRunState } from "./state-machine.js";
 
@@ -96,7 +96,7 @@ export async function refreshDevelopmentRunPreflight(
  * identity or stage. The Runtime supervisor remains responsible for starting
  * the READY Run and completing the stage.
  */
-export async function resumeHarnessRun(
+async function resumeHarnessRunUnlocked(
   storeRoot: string,
   runId: string,
   at: string,
@@ -108,7 +108,7 @@ export async function resumeHarnessRun(
     state: transitionRunState(current.state, { type: "resume", at }),
     updatedAt: at,
   };
-  if (!await saveHarnessRunIfUnchanged(storeRoot, current, resumed)) {
+  if (!await saveHarnessRunIfUnchangedUnlocked(storeRoot, current, resumed)) {
     throw new Error(`Harness Run changed before resume: ${runId}`);
   }
   await appendHarnessRunEvent(storeRoot, {
@@ -133,12 +133,25 @@ export async function resumeHarnessRun(
   return resumed;
 }
 
+export async function resumeHarnessRun(
+  storeRoot: string,
+  runId: string,
+  at: string,
+): Promise<HarnessRuntimeRunEnvelope> {
+  return withDurableHarnessRunLock(
+    storeRoot,
+    runId,
+    () => resumeHarnessRunUnlocked(storeRoot, runId, at),
+    { waitForMs: 2_000 },
+  );
+}
+
 /**
  * Persists an owner/operator pause checkpoint without changing the durable Run
  * identity. A supervisor that is already inside an executor must re-read this
  * checkpoint before applying that executor's result.
  */
-export async function pauseHarnessRun(
+async function pauseHarnessRunUnlocked(
   storeRoot: string,
   runId: string,
   at: string,
@@ -151,7 +164,7 @@ export async function pauseHarnessRun(
     state: transitionRunState(current.state, { type: "pause", at, reason }),
     updatedAt: at,
   };
-  if (!await saveHarnessRunIfUnchanged(storeRoot, current, paused)) {
+  if (!await saveHarnessRunIfUnchangedUnlocked(storeRoot, current, paused)) {
     throw new Error(`Harness Run changed before pause: ${runId}`);
   }
   await appendHarnessRunEvent(storeRoot, {
@@ -174,4 +187,18 @@ export async function pauseHarnessRun(
     summary: reason,
   });
   return paused;
+}
+
+export async function pauseHarnessRun(
+  storeRoot: string,
+  runId: string,
+  at: string,
+  reason = "Run paused at the user checkpoint",
+): Promise<HarnessRuntimeRunEnvelope> {
+  return withDurableHarnessRunLock(
+    storeRoot,
+    runId,
+    () => pauseHarnessRunUnlocked(storeRoot, runId, at, reason),
+    { waitForMs: 2_000 },
+  );
 }
