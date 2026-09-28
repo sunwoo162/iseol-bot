@@ -12,6 +12,7 @@ import { promotePrototype } from "../src/project-model/promotion.js";
 import { loadPrototypeCandidate, recordPrototypeBrowserAcceptance, savePrototypeCandidate } from "../src/project-model/prototype-store.js";
 import { loadProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { withDurableProjectPromotionLock } from "../src/project-model/promotion-lock.js";
+import { withDurablePrototypeLock } from "../src/project-model/prototype-lock.js";
 
 function candidate(): PrototypeCandidate {
   return {
@@ -193,4 +194,24 @@ test("local-preview promotion requires verified browser acceptance", async () =>
   assert.equal(accepted.browserAcceptance?.status, "verified");
   const promoted = await promotePrototype({ modelRoot, harnessRoot, prototypeId: local.id, promotedAt: "2026-09-07T01:00:00.000Z" });
   assert.equal(promoted.id, "project-prototype-001");
+});
+
+test("prototype browser acceptance waits for the durable candidate lock", async () => {
+  const { modelRoot } = await fixture(true);
+  const checks = Object.fromEntries(PROTOTYPE_BROWSER_ACCEPTANCE_CHECKS.map((check) => [check, "pass"])) as any;
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurablePrototypeLock(modelRoot, "prototype-001", async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const acceptance = recordPrototypeBrowserAcceptance(modelRoot, "prototype-001", checks, "2026-09-08T06:00:00.000Z");
+  void acceptance.then(() => { settled = true; }, () => { settled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  assert.equal((await acceptance).browserAcceptance?.status, "verified");
 });

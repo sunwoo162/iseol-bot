@@ -42,10 +42,14 @@ export async function updatePrototypeCandidate(
   root: string,
   id: string,
   updates: Partial<Omit<PrototypeCandidate, "id" | "version">>,
+  options: { rejectPromoted?: boolean } = {},
 ): Promise<PrototypeCandidate | null> {
   return withDurablePrototypeLock(root, id, async () => {
     const current = await loadPrototypeCandidate(root, id);
     if (!current) return null;
+    if (options.rejectPromoted && current.status === "promoted") {
+      throw new Error(`Promoted prototype acceptance is immutable: ${id}`);
+    }
     const updated: PrototypeCandidate = { ...current, ...updates, id, version: 1 };
     await savePrototypeCandidate(root, updated);
     return updated;
@@ -58,9 +62,6 @@ export async function recordPrototypeBrowserAcceptance(
   checks: Record<PrototypeBrowserAcceptanceCheck, "pass" | "fail" | "unverified">,
   checkedAt: string,
 ): Promise<PrototypeCandidate> {
-  const candidate = await loadPrototypeCandidate(root, id);
-  if (!candidate) throw new Error(`Prototype not found: ${id}`);
-  if (candidate.status === "promoted") throw new Error(`Promoted prototype acceptance is immutable: ${id}`);
   for (const check of PROTOTYPE_BROWSER_ACCEPTANCE_CHECKS) {
     if (checks[check] !== "pass" && checks[check] !== "fail" && checks[check] !== "unverified") {
       throw new Error(`Invalid browser acceptance check: ${check}`);
@@ -70,7 +71,7 @@ export async function recordPrototypeBrowserAcceptance(
   const updated = await updatePrototypeCandidate(root, id, {
     browserAcceptance: { status, checkedAt, checks },
     updatedAt: checkedAt,
-  });
+  }, { rejectPromoted: true });
   if (!updated) throw new Error(`Prototype not found: ${id}`);
   return updated;
 }
