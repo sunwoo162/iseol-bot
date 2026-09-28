@@ -4,6 +4,7 @@ import type { CodingAttempt, CodingAttemptInput, CodingExercise, CodingExerciseI
 import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoals, listLearningPlanAdjustments, listLearningPlanVersions, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningPlanAdjustment, loadLearningPlanVersion, loadPlan, loadReview, loadSession, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveLearningGoal, saveLearningPlanVersion, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession } from "./store.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
+import { withDurableLearningPlanPreviewLock } from "./plan-preview-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -382,9 +383,12 @@ export function createLearningService(root: string, options: LearningServiceOpti
 
     async createLearningPlanPreview(principal, goalId, expectedRevision): Promise<LearningPlanPreview> {
       ensurePrincipal(principal);
+      const initialGoal = await loadOwnerGoal(root, principal, goalId);
+      if (!initialGoal) throw new Error("Learning goal not found");
+      if (expectedRevision !== undefined && expectedRevision !== initialGoal.revision) throw new Error("Learning goal revision conflict");
+      return withDurableLearningPlanPreviewLock(root, principal.userId, goalId, async () => {
       const goal = await loadOwnerGoal(root, principal, goalId);
       if (!goal) throw new Error("Learning goal not found");
-      if (expectedRevision !== undefined && expectedRevision !== goal.revision) throw new Error("Learning goal revision conflict");
       const existing = (await listLearningPlanVersions(root, principal.userId))
         .filter((plan) => plan.goalId === goal.id && plan.inputRevision === (goal.status === "preview-ready" ? goal.revision - 1 : goal.revision))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
@@ -394,6 +398,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
         if (!matched) throw new Error("Learning goal interpretation not found");
         return { goal, interpretation: matched, plan: existing, created: false };
       }
+      if (expectedRevision !== undefined && expectedRevision !== goal.revision) throw new Error("Learning goal revision conflict");
       const at = now(); assertTimestamp(at, "learning plan preview timestamp");
       const timezone = principalTimezone(principal);
       if (options.planDispatcher) {
@@ -429,6 +434,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const updatedGoal: LearningGoal = { ...goal, status: "preview-ready", revision: goal.revision + 1, updatedAt: at };
       await saveLearningGoal(root, updatedGoal);
       return { goal: updatedGoal, interpretation, plan, created: true };
+      }, { waitForMs: 2_000 });
     },
 
     async createLearningPlanAdjustment(principal, goalId, input: LearningPlanAdjustmentInput): Promise<LearningPlanAdjustment> {

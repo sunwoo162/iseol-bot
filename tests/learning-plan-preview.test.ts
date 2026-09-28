@@ -129,6 +129,24 @@ test("a waiting or invalid local plan Runtime proposal leaves the goal as a draf
   assert.deepEqual(await invalidService.listLearningPlanVersions(invalidOwner, invalidGoal.id), []);
 });
 
+test("concurrent learning plan previews across service instances remain one version", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-plan-preview-concurrent-"));
+  const firstService = createLearningService(root, { now: () => at });
+  const secondService = createLearningService(root, { now: () => at });
+  const owner = principal("preview-concurrent-owner");
+  const goal = await firstService.createLearningGoal(owner, { subjectText: "동시 미리보기", duration: { days: 3 }, dailyMinutes: 30 });
+
+  const results = await Promise.all([
+    firstService.createLearningPlanPreview(owner, goal.id, goal.revision),
+    secondService.createLearningPlanPreview(owner, goal.id, goal.revision),
+  ]);
+
+  assert.deepEqual(results.map((result) => result.created).sort(), [false, true]);
+  assert.equal(new Set(results.map((result) => result.plan.id)).size, 1);
+  assert.equal((await firstService.listLearningPlanVersions(owner, goal.id)).length, 1);
+  assert.equal((await firstService.getLearningGoal(owner, goal.id))?.revision, 2);
+});
+
 test("plan adjustment preserves completed days, requires acceptance, and creates a new version only after CAS approval", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-learning-plan-adjustment-"));
   const owner = principal("adjustment-owner");
