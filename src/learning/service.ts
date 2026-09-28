@@ -5,6 +5,7 @@ import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpre
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
 import { withDurableLearningPlanPreviewLock } from "./plan-preview-lock.js";
+import { withDurableLearningPlanAdjustmentLock } from "./plan-adjustment-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -460,6 +461,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       if (completedDayIndexes.some((dayIndex) => dayIndex > nextDurationDays)) throw new Error("Learning plan adjustment would remove a completed day");
       if (nextDurationDays === currentDurationDays && nextDailyMinutes === goal.input.dailyMinutes) throw new Error("Learning plan adjustment must change the schedule");
       const inputHash = createHash("sha256").update(JSON.stringify({ goalId: goal.id, basePlanVersionId: basePlan.id, baseGoalRevision: goal.revision, reason: input.reason, durationDays: nextDurationDays, dailyMinutes: nextDailyMinutes, note: note ?? null })).digest("hex");
+      return withDurableLearningPlanAdjustmentLock(root, principal.userId, goal.id, inputHash, async () => {
       const existing = (await listLearningPlanAdjustments(root, principal.userId)).find((candidate) => candidate.userId === principal.userId && candidate.goalId === goal.id && candidate.inputHash === inputHash && candidate.status !== "rejected");
       if (existing) return existing;
       const changes: LearningPlanAdjustment["changes"] = [];
@@ -485,6 +487,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       };
       await saveLearningPlanAdjustment(root, adjustment);
       return adjustment;
+      }, { waitForMs: 2_000 });
     },
 
     async listLearningPlanAdjustments(principal, goalId) {

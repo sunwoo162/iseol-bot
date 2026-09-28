@@ -199,3 +199,21 @@ test("plan adjustment rejects another user's plan, stale revisions, and no-op ch
   await assert.rejects(() => service.createLearningPlanAdjustment(owner, goal.id, { basePlanVersionId: preview.plan.id, expectedGoalRevision: 1, reason: "blocked", dailyMinutes: 15 }), /conflict/i);
   await assert.rejects(() => service.createLearningPlanAdjustment(owner, goal.id, { basePlanVersionId: preview.plan.id, reason: "blocked", dailyMinutes: 20 }), /change|same|adjust/i);
 });
+
+test("concurrent learning plan adjustments across service instances remain one draft", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-plan-adjustment-concurrent-"));
+  const firstService = createLearningService(root, { now: () => at });
+  const secondService = createLearningService(root, { now: () => at });
+  const owner = principal("adjustment-concurrent-owner");
+  const goal = await firstService.createLearningGoal(owner, { subjectText: "동시 조정", duration: { days: 3 }, dailyMinutes: 30 });
+  const preview = await firstService.createLearningPlanPreview(owner, goal.id, goal.revision);
+  const input = { basePlanVersionId: preview.plan.id, expectedGoalRevision: preview.goal.revision, reason: "changed-time" as const, dailyMinutes: 20, note: "같은 조정" };
+
+  const results = await Promise.all([
+    firstService.createLearningPlanAdjustment(owner, goal.id, input),
+    secondService.createLearningPlanAdjustment(owner, goal.id, input),
+  ]);
+
+  assert.equal(new Set(results.map((result) => result.id)).size, 1);
+  assert.equal((await firstService.listLearningPlanAdjustments(owner, goal.id)).length, 1);
+});
