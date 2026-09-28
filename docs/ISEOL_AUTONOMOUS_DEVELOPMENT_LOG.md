@@ -2024,6 +2024,24 @@ This log records implementation and verification facts without secrets. It does 
 - The boundary is same-host/shared-root only. It does not claim cross-machine distributed locking, provider-side exactly-once delivery, lesson correctness, or mastery. No external AI/provider request, live connector request, operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, data deletion, deployment, push, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred.
 - Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, operational data, external providers, deployment/push state, approved design artifacts, and deferred broadcast artifacts remained untouched.
 
+## 2026-09-28 continuation: durable project queue scheduling
+
+### Completed in this unit
+
+- Project queue scheduling now uses the existing per-service project promise tail plus an exact project-scoped durable lock below `projectModelRoot/.locks/project-schedules`. A second service instance waits for the first owner-triggered scheduler to finish, re-reads the durable project state, and no longer selects the same queued Work Request twice.
+- Lock metadata is bounded to version/PID/token/timestamp, active owner processes and malformed records are preserved, dead owner PIDs can reclaim only the exact project lock, and cleanup is performed in `finally`. The existing `1..8` concurrency limit, dependency gating, Build Run approval, explicit user trigger, Run identity, and Runtime waiting states remain unchanged.
+
+### TDD and verification
+
+- RED: the new cross-service scheduler test reproduced two enqueue calls while the first service was held before its Work Request transition.
+- GREEN: focused user-project execution coverage passed `19/19`; full user-product regression passed `319/319`; serial root regression passed `678/678`; root and user UI TypeScript checks, both builds, `git diff --check`, and isolated browser E2E all passed. Browser E2E reported project Runtime execution, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Evidence: `src/project-model/schedule-lock.ts`, `src/project-model/user-project-service.ts`, `tests/user-project-execution.test.ts`, and `docs/superpowers/plans/2026-09-28-project-scheduler-durable-lock.md`.
+
+### Scope and safety boundary
+
+- This is same-host/shared-root queue-selection serialization only. It does not claim live operational Runtime throughput, cross-machine distributed locking, provider-side exactly-once delivery, automatic startup/recovery scheduling, or successful execution when the Runtime is unavailable. No external AI/provider request, operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, data deletion, deployment, push, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred.
+- Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, operational data, external providers, deployment/push state, approved design artifacts, and deferred broadcast artifacts remained untouched.
+
 ## 2026-09-28 continuation: serialize user notification writes
 
 ### Completed in this unit
