@@ -1693,6 +1693,20 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: Windows-open-file project Run lock contention
+
+- Project Run lifecycle lock handling is **B — bounded same-host contention handling and isolated-browser verified**. `src/project-model/work-request-lock.ts` recognizes Windows `EPERM` caused by an already-open exact lock file as bounded contention, while unrelated permission failures still fail closed.
+- Evidence: `src/project-model/work-request-lock.ts`, `tests/user-project-execution.test.ts`.
+- Verification: focused retry lock `1/1`; user-product `348/348`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed. Commit: `d351ce9 fix: tolerate Windows project run lock contention`.
+- Boundary: local filesystem behavior only; distributed coordination, live Runtime/Agent throughput, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain unverified or untouched.
+
+## 2026-09-28 continuation: durable cross-service Learning plan adjustment acceptance
+
+- Learning plan adjustment acceptance is **B — owner/goal/adjustment-scoped, durable, same-host cross-service idempotent CAS acceptance, and isolated-browser verified**. `src/learning/plan-adjustment-acceptance-lock.ts` adds an exact hashed user/goal/adjustment lock; `src/learning/service.ts` now re-reads and commits one superseded base PlanVersion, one adjusted PlanVersion, one goal revision, and one accepted adjustment for concurrent accepts.
+- Evidence: `src/learning/plan-adjustment-acceptance-lock.ts`, `src/learning/service.ts`, `tests/learning-plan-preview.test.ts`.
+- Verification: focused Learning plan preview/adjustment `9/9`; user-product `348/348`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with Learning plan preview/adjustment, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `39e8877 feat: serialize learning plan adjustment acceptance`.
+- Boundary: same-host/shared-root coordination only; no distributed Learning acceptance coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service Learning plan adjustments
 
 - Learning plan adjustment drafts are **B — owner/goal/input-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/learning/plan-adjustment-lock.ts` adds an exact hashed user/goal/input lock; `src/learning/service.ts` now re-checks and persists one proposed adjustment inside it, preserving one acceptance target for later CAS approval.

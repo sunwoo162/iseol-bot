@@ -2295,6 +2295,24 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: Windows-open-file project Run lock contention
+
+- Status: **B — bounded same-host project Run lifecycle lock behavior is stabilized and isolated-product verified**. `src/project-model/work-request-lock.ts` now treats Windows `EPERM` from an already-open exact lock file as bounded contention, while preserving fail-closed behavior for unrelated permission errors and exact dead-owner cleanup.
+- Evidence: `src/project-model/work-request-lock.ts`, `tests/user-project-execution.test.ts`.
+- Root cause: Windows can report `EPERM` rather than `EEXIST` while another process/test still holds the lifecycle lock file open. The retry-wait test reproduced the behavior during the full serialized product suite even though its focused run could pass.
+- Verification: focused Project Run retry lock test `1/1`; user-product `348/348`; serial root `682/682`; backend/user UI TypeScript checks, backend/user UI builds, `git diff --check`, and isolated browser E2E passed. Commit: `d351ce9 fix: tolerate Windows project run lock contention`.
+- Boundary: this is a local filesystem contention-handling fix only; no distributed coordinator, live Runtime/Agent throughput, external provider/connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-28 continuation: durable cross-service Learning plan adjustment acceptance
+
+- Status: **B — owner/goal/adjustment-scoped, durable, same-host cross-service idempotent CAS acceptance, and isolated-product verified; live model/provider execution remains unverified**. Learning plan adjustment acceptance now serializes the proposed-adjustment re-read, base PlanVersion supersession, adjusted PlanVersion save, goal revision update, accepted adjustment save, and linked acceptance boundary, so concurrent accepts return one plan.
+- Evidence: `src/learning/plan-adjustment-acceptance-lock.ts`, `src/learning/service.ts`, `tests/learning-plan-preview.test.ts`.
+- TDD: RED reproduced two concurrent service instances creating two adjusted PlanVersion identities for one proposed adjustment; GREEN returned one plan identity and retained one non-base adjusted PlanVersion.
+- Verification: focused Learning plan preview/adjustment suite `9/9`; user-product `348/348`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained Learning plan preview/adjustment, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `39e8877 feat: serialize learning plan adjustment acceptance`.
+- Boundary: same-host/shared-root coordination only; no distributed Learning acceptance coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service Learning plan adjustments
 
 - Status: **B — owner/goal/input-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Learning plan adjustment drafts now serialize the idempotency lookup and draft persistence by exact user/goal/input identity, so concurrent retries return one proposed adjustment.
