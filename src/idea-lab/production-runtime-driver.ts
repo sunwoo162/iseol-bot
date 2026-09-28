@@ -20,6 +20,7 @@ import type { ProductionAdvanceResult } from "./campaign-supervisor.js";
 import type { PrototypeDeployAdapter, PrototypeDeploymentReceipt } from "./deploy-adapter.js";
 import { deployPrototypeProduction, materializePrototypeCandidate, verifyPrototypeProductionDeployment } from "./production-service.js";
 import { loadPrototypeProduction, savePrototypeProduction } from "./production-store.js";
+import { withDurableIdeaLabProductionLock } from "./production-lock.js";
 import { loadIdeaProposal } from "./proposal-store.js";
 import type { IdeaLabRuntimeConfig, IdeaLabRuntimeRoots } from "./runtime-config.js";
 import { prototypeSandboxBranch, type PrototypeSandboxAdapter, type PrototypeSandboxAllocation } from "./sandbox-adapter.js";
@@ -143,7 +144,7 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
     : undefined;
   const activeAdvances = new Map<string, Promise<ProductionAdvanceResult>>();
 
-  async function createProduction(proposal: IdeaProposal, ordinal: number): Promise<PrototypeProduction> {
+  async function createProductionUnlocked(proposal: IdeaProposal, ordinal: number): Promise<PrototypeProduction> {
     const id = `${proposal.campaignId}-prod-${ordinal}`;
     const runId = `run-${id}`;
     const targetRoot = resolve(input.sandboxRoot, proposal.campaignId, id);
@@ -209,6 +210,16 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
     };
     await savePrototypeProduction(input.roots.modelRoot, created);
     return created;
+  }
+
+  async function createProduction(proposal: IdeaProposal, ordinal: number): Promise<PrototypeProduction> {
+    const id = `${proposal.campaignId}-prod-${ordinal}`;
+    return withDurableIdeaLabProductionLock(
+      input.roots.modelRoot,
+      id,
+      () => createProductionUnlocked(proposal, ordinal),
+      { waitForMs: 2_000 },
+    );
   }
 
   function createProviderExecutor(productionId: string): HarnessStageExecutor {
@@ -597,7 +608,12 @@ export function createIdeaLabProductionRuntimeDriver(input: IdeaLabProductionRun
   async function advanceProduction(production: PrototypeProduction): Promise<ProductionAdvanceResult> {
     const existing = activeAdvances.get(production.id);
     if (existing) return existing;
-    const operation = advanceProductionOnce(production);
+    const operation = withDurableIdeaLabProductionLock(
+      input.roots.modelRoot,
+      production.id,
+      () => advanceProductionOnce(production),
+      { waitForMs: 2_000 },
+    );
     activeAdvances.set(production.id, operation);
     try { return await operation; }
     finally { if (activeAdvances.get(production.id) === operation) activeAdvances.delete(production.id); }

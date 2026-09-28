@@ -3,12 +3,12 @@ import { dirname, resolve } from "node:path";
 import { mkdir, open, readFile, unlink, type FileHandle } from "node:fs/promises";
 import { assertIdeaLabId } from "./contracts.js";
 
-type CampaignLockRecord = { version: 1; pid: number; token: string; createdAt: string };
-export type CampaignLockOptions = { waitForMs?: number; pollIntervalMs?: number };
+type ProductionLockRecord = { version: 1; pid: number; token: string; createdAt: string };
+export type ProductionLockOptions = { waitForMs?: number; pollIntervalMs?: number };
 
-function lockPath(root: string, campaignId: string): string {
-  assertIdeaLabId(campaignId);
-  return resolve(root, ".locks", "campaigns", `${campaignId}.lock`);
+function lockPath(root: string, productionId: string): string {
+  assertIdeaLabId(productionId);
+  return resolve(root, ".locks", "productions", `${productionId}.lock`);
 }
 
 function processIsAlive(pid: number): boolean {
@@ -18,7 +18,7 @@ function processIsAlive(pid: number): boolean {
 
 async function removeDeadOwnerLock(path: string): Promise<boolean> {
   try {
-    const value = JSON.parse(await readFile(path, "utf8")) as Partial<CampaignLockRecord>;
+    const value = JSON.parse(await readFile(path, "utf8")) as Partial<ProductionLockRecord>;
     const pid = value.pid;
     if (value.version !== 1 || typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0 || typeof value.token !== "string" || !value.token) return false;
     if (processIsAlive(pid)) return false;
@@ -32,20 +32,20 @@ async function removeDeadOwnerLock(path: string): Promise<boolean> {
 
 async function removeOwnedLock(path: string, token: string): Promise<void> {
   try {
-    const value = JSON.parse(await readFile(path, "utf8")) as Partial<CampaignLockRecord>;
+    const value = JSON.parse(await readFile(path, "utf8")) as Partial<ProductionLockRecord>;
     if (value.version === 1 && value.token === token) await unlink(path);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") return;
   }
 }
 
-export async function withDurableIdeaLabCampaignLock<T>(
+export async function withDurableIdeaLabProductionLock<T>(
   root: string,
-  campaignId: string,
+  productionId: string,
   task: () => Promise<T>,
-  options: CampaignLockOptions = {},
+  options: ProductionLockOptions = {},
 ): Promise<T> {
-  const path = lockPath(root, campaignId);
+  const path = lockPath(root, productionId);
   await mkdir(dirname(path), { recursive: true });
   let handle: FileHandle;
   const waitForMs = options.waitForMs ?? 0;
@@ -56,13 +56,13 @@ export async function withDurableIdeaLabCampaignLock<T>(
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       if (await removeDeadOwnerLock(path)) continue;
-      if (waitForMs <= 0 || Date.now() >= deadline) throw new Error("Idea Lab campaign mutation conflict");
+      if (waitForMs <= 0 || Date.now() >= deadline) throw new Error("Idea Lab production mutation conflict");
       await new Promise((resolve) => setTimeout(resolve, Math.min(pollIntervalMs, Math.max(1, deadline - Date.now()))));
     }
   }
   const token = randomUUID();
   try {
-    await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token, createdAt: new Date().toISOString() } satisfies CampaignLockRecord), "utf8");
+    await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token, createdAt: new Date().toISOString() } satisfies ProductionLockRecord), "utf8");
     return await task();
   } finally {
     await handle.close().catch(() => undefined);

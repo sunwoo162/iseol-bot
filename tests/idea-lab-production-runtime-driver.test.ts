@@ -13,6 +13,7 @@ import { saveIdeaProposal } from "../src/idea-lab/proposal-store.js";
 import { createFakePrototypeDeployAdapter } from "../src/idea-lab/test-support/fake-deploy-adapter.js";
 import { loadPrototypeCandidate } from "../src/project-model/prototype-store.js";
 import { loadPrototypeProduction, savePrototypeProduction } from "../src/idea-lab/production-store.js";
+import { withDurableIdeaLabProductionLock } from "../src/idea-lab/production-lock.js";
 import { createFakeChatGptWebBrowserAdapter } from "../src/chatgpt-web/test-support/fake-browser-adapter.js";
 import { loadDesktopIntent, recordDesktopIntent } from "../src/chatgpt-web/intent-store.js";
 import { saveIdeaLabCampaign } from "../src/idea-lab/campaign-store.js";
@@ -52,6 +53,50 @@ test("createProduction is durable and reconciles the same Run and sandbox", asyn
   assert.deepEqual(second, first);
   assert.equal(calls.length, 1);
   assert.equal(resolve(root, "camp-1", first.id), resolve(root, "camp-1", first.id));
+});
+
+test("advanceProduction waits for the durable cross-service production lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-lock-"));
+  const proposal = baseProposal("camp-driver-lock");
+  const driver = makeDriver(root, { proposal });
+  const production = await driver.createProduction(proposal, 1);
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableIdeaLabProductionLock(root, production.id, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const advancement = driver.advanceProduction(production);
+  void advancement.then(() => { settled = true; }, () => { settled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  await assert.rejects(advancement, /production dependency is missing/);
+});
+
+test("createProduction waits for the durable cross-service production lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-driver-create-lock-"));
+  const proposal = baseProposal("camp-driver-create-lock");
+  const driver = makeDriver(root, { proposal });
+  const productionId = `${proposal.campaignId}-prod-1`;
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableIdeaLabProductionLock(root, productionId, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const creation = driver.createProduction(proposal, 1);
+  void creation.then(() => { settled = true; }, () => { settled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  assert.equal((await creation).id, productionId);
 });
 
 test("uses configured target identity and desktop state root", async () => {
