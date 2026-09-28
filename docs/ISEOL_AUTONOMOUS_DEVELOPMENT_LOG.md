@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service AI Team proposal requests
+
+- Status: **B — project/request-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. AI Team proposal requests now serialize the existing-request check, injected local Runtime dispatch, and proposal persistence by exact project/request identity, so concurrent retries do not dispatch twice or create duplicate proposals.
+- Evidence: `src/ai-team/proposal-lock.ts`, `src/ai-team/service.ts`, `tests/ai-team-proposals.test.ts`.
+- TDD: RED reproduced the same request ID dispatching twice and creating two proposal identities across service instances; GREEN dispatched once and returned one durable proposal to both callers.
+- Verification: focused AI Team proposal suite `3/3`; user-product `343/343`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained AI proposal execution approval, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed AI Team proposal coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service settings mutations
 
 - Status: **B — owner-scoped, durable, same-host cross-service settings serialization, and isolated-product verified; live model/provider execution remains unverified**. User settings initialization and patch writes now share an exact hashed per-user filesystem lock, preserving independent permission and notification changes across service instances.
