@@ -1693,6 +1693,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service friend request mutations
+
+- Friend request mutations are **B — friendship-record-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/social/friend-request-lock.ts` provides an exact hashed friendship-record lock; `src/social/service.ts` uses it for request creation and accept/reject transitions.
+- Evidence: `src/social/friend-request-lock.ts`, `src/social/service.ts`, `tests/social-messaging.test.ts`, and the existing collaboration/social API/UI coverage.
+- Verification: focused social/friend/API/UI `13/13`; user-product `329/329`; root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed coordinator, external provider delivery, live model/provider execution, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service social profile mutations
 
 - Social profile writes are **B — owner-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/social/profile-lock.ts` adds an exact hashed per-user lock below the platform root; `src/social/service.ts` applies it to profile read-modify-save updates.
