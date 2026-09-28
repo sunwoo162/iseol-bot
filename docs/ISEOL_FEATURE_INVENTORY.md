@@ -1693,6 +1693,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service Learning plan previews
+
+- Learning plan preview creation is **B — owner/goal-scoped, durable, same-host cross-service idempotent with CAS preservation, and isolated-browser verified**. `src/learning/plan-preview-lock.ts` adds an exact hashed user/goal lock; `src/learning/service.ts` now serializes interpretation, PlanVersion, and goal revision writes while preserving stale expected-revision rejection for sequential requests.
+- Evidence: `src/learning/plan-preview-lock.ts`, `src/learning/service.ts`, `tests/learning-plan-preview.test.ts`.
+- Verification: focused Learning plan preview/API `8/8`; user-product `346/346`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with Learning plan preview/adjustment, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed Learning plan coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service Learning project applications
 
 - Learning project application creation is **B — owner/goal/project-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/learning/project-application-lock.ts` adds an exact hashed user/goal/project lock; `src/learning/service.ts` now re-checks and persists one proposed application inside it, preserving one approval path and one linked Work Request identity on later acceptance.
