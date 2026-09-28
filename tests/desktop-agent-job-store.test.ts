@@ -214,6 +214,30 @@ test("indeterminate marking waits for the durable Job mutation lock", async () =
   assert.equal((await loadDesktopJob(store, "job-001"))?.status, "indeterminate");
 });
 
+test("lease renewal waits for the durable Job mutation lock", async () => {
+  const store = await root();
+  await createDesktopJob(store, pack(), "2026-09-08T01:00:00.000Z");
+  await acquireDesktopJobLease(store, "job-001", "session-a", "2026-09-08T01:00:10.000Z", 60_000);
+  let settled = false;
+  let mutationPromise: Promise<unknown> | undefined;
+  const pending = withDurableDesktopJobLock(
+    store,
+    "job-001",
+    async () => {
+      const result = await import("../src/desktop-agent/job-store.js?renew-lock");
+      const mutation = result.renewDesktopJobLease(store, "job-001", "session-a", "2026-09-08T01:00:20.000Z", 60_000);
+      mutationPromise = mutation;
+      mutation.finally(() => { settled = true; }).catch(() => undefined);
+      await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+      assert.equal(settled, false);
+    },
+    { waitForMs: 2_000 },
+  );
+  await pending;
+  await mutationPromise;
+  assert.equal((await loadDesktopJob(store, "job-001"))?.lease?.expiresAt, "2026-09-08T01:01:20.000Z");
+});
+
 test("only unfinished jobs without a live lease are recoverable", async () => {
   const store = await root();
   await createDesktopJob(store, pack(), "2026-09-08T01:00:00.000Z");

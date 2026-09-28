@@ -281,7 +281,7 @@ export async function acquireDesktopJobLease(
   );
 }
 
-export async function renewDesktopJobLease(
+async function renewDesktopJobLeaseUnlocked(
   root: string,
   jobId: string,
   owner: string,
@@ -304,6 +304,21 @@ export async function renewDesktopJobLease(
   };
   await saveJob(root, next);
   return next;
+}
+
+export async function renewDesktopJobLease(
+  root: string,
+  jobId: string,
+  owner: string,
+  now: string,
+  durationMs: number,
+): Promise<DesktopJobRecord> {
+  return withDurableDesktopJobLock(
+    root,
+    jobId,
+    () => renewDesktopJobLeaseUnlocked(root, jobId, owner, now, durationMs),
+    { waitForMs: 2_000 },
+  );
 }
 
 async function completeDesktopJobUnlocked(
