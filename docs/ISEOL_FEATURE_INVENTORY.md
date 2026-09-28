@@ -1742,6 +1742,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Verification: focused Learning review/code-analysis `5/5`; user-product `353/353`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with Learning review scheduling, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `111ca56 feat: serialize learning review completions`.
 - Boundary: same-host/shared-root coordination only; no distributed review coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service Learning coding attempt submissions
+
+- Learning coding attempt submission is **B — owner/exercise/client-request-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/learning/coding-attempt-lock.ts` serializes idempotency re-read, durable attempt save, optional injected verifier boundary, and activity receipt so one client request ID creates one attempt.
+- Evidence: `src/learning/coding-attempt-lock.ts`, `src/learning/service.ts`, `tests/learning-coding-test.test.ts`.
+- Verification: focused Learning coding `4/4`; user-product `354/354`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with coding exercise persistence/local verifier boundaries, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `6740986 feat: serialize learning coding attempt submissions`.
+- Boundary: same-host/shared-root coordination only; no distributed coding submission coordinator, live external execution/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service Learning plan adjustments
 
 - Learning plan adjustment drafts are **B — owner/goal/input-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/learning/plan-adjustment-lock.ts` adds an exact hashed user/goal/input lock; `src/learning/service.ts` now re-checks and persists one proposed adjustment inside it, preserving one acceptance target for later CAS approval.

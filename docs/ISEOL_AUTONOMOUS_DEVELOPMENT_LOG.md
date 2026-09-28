@@ -2358,6 +2358,15 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root coordination only; no distributed review coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service Learning coding attempt submissions
+
+- Status: **B — owner/exercise/client-request-scoped, durable, same-host cross-service idempotent coding submission, and isolated-product verified; live verifier/provider execution remains unverified**. Coding attempt submission now serializes idempotency re-read, durable attempt save, optional explicitly injected verifier boundary, and activity receipt, so one client request ID creates one attempt.
+- Evidence: `src/learning/coding-attempt-lock.ts`, `src/learning/service.ts`, `tests/learning-coding-test.test.ts`.
+- TDD: RED reproduced two concurrent submissions with the same client request ID creating two attempt identities; GREEN returned one `created: true`, one `created: false`, and one stored attempt.
+- Verification: focused Learning coding suite `4/4`; user-product `354/354`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained coding exercise persistence/local verifier boundaries, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `6740986 feat: serialize learning coding attempt submissions`.
+- Boundary: same-host/shared-root coordination only; no distributed coding submission coordinator, live external execution/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service Learning plan adjustments
 
 - Status: **B — owner/goal/input-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Learning plan adjustment drafts now serialize the idempotency lookup and draft persistence by exact user/goal/input identity, so concurrent retries return one proposed adjustment.
