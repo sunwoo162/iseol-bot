@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service AI Team proposal decisions
+
+- Status: **B — project/proposal-scoped, durable, same-host cross-service terminal decision serialization, and isolated-product verified; live AI Team Runtime execution remains unverified**. AI Team proposal acceptance and rejection now share a durable decision lock and re-read the proposal inside it, so concurrent accept/reject calls produce one terminal decision and one explicit status conflict.
+- Evidence: `src/ai-team/proposal-decision-lock.ts`, `src/ai-team/service.ts`, `tests/ai-team-proposals.test.ts`.
+- TDD: RED reproduced concurrent acceptance and rejection both succeeding for one proposed record; GREEN persisted exactly one terminal status and rejected the losing decision after re-read.
+- Verification: focused AI Team proposals suite `4/4`; user-product `360/360`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and sequential isolated browser E2E passed. Browser coverage retained AI Team proposal approval, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. The first browser run was invalidated by running `user-ui:build` concurrently with the browser server; a clean browser-only rerun passed. Commit: `90a8037 feat: serialize AI team proposal decisions`.
+- Boundary: same-host/shared-root coordination only; no distributed proposal decision coordinator, live AI Team/provider quality or throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service Learning feedback completions
 
 - Status: **B — owner/feedback-scoped, durable, same-host cross-service compare-and-set evaluation completion, and isolated-product verified; live evaluator/provider execution remains unverified**. Learning feedback completion now re-reads feedback inside a durable lock, so competing evaluations preserve the first persisted evaluation and later calls return the durable completed feedback instead of overwriting it.
