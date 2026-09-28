@@ -6,7 +6,8 @@ import { join } from "node:path";
 import type { DevelopmentRunRequest } from "../src/harness/contracts.js";
 import { assertPreflightReady } from "../src/harness/preflight.js";
 import { loadHarnessRun } from "../src/harness/run-store.js";
-import { createDevelopmentRun } from "../src/harness/run-service.js";
+import { withDurableHarnessRunLock } from "../src/harness/run-lock.js";
+import { createDevelopmentRun, refreshDevelopmentRunPreflight } from "../src/harness/run-service.js";
 
 async function fixture(withGlobal = true) {
   const root = await mkdtemp(join(tmpdir(), "iseol-run-service-"));
@@ -54,4 +55,38 @@ test("createDevelopmentRun persists blocked preflight for diagnosis", async () =
   assert.equal(run.preflight.status, "blocked");
   assert.throws(() => assertPreflightReady(run.preflight), /Development Run preflight is not ready/);
   assert.deepEqual(await loadHarnessRun(storeRoot, "run-001"), run);
+});
+
+test("preflight refresh waits for the durable Run mutation lock", async () => {
+  const { iseolRoot, targetRoot, storeRoot } = await fixture();
+  await createDevelopmentRun(request(targetRoot), {
+    iseolRoot,
+    storeRoot,
+    loadedAt: "2026-09-07T00:00:00.000Z",
+  });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableHarnessRunLock(storeRoot, "run-001", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const refresh = refreshDevelopmentRunPreflight({
+    iseolRoot,
+    storeRoot,
+    runId: "run-001",
+    loadedAt: "2026-09-07T00:00:02.000Z",
+  });
+  const completedBeforeRelease = await Promise.race([
+    refresh.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]);
+  assert.equal(completedBeforeRelease, false);
+
+  release();
+  await Promise.all([holder, refresh]);
+  assert.equal((await loadHarnessRun(storeRoot, "run-001"))?.updatedAt, "2026-09-07T00:00:02.000Z");
 });

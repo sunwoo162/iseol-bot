@@ -7,6 +7,7 @@ import type {
 import { prepareDevelopmentRun } from "./preflight.js";
 import { appendHarnessRunEvent, saveHarnessCheckpoint } from "./event-store.js";
 import { loadHarnessRun, saveHarnessRun, saveHarnessRunIfUnchanged } from "./run-store.js";
+import { withDurableHarnessRunLock } from "./run-lock.js";
 import { createInitialRunState, transitionRunState } from "./state-machine.js";
 
 export type CreateDevelopmentRunOptions = {
@@ -47,7 +48,7 @@ export type RefreshDevelopmentRunPreflightOptions = {
   loadedAt?: string;
 };
 
-export async function refreshDevelopmentRunPreflight(
+async function refreshDevelopmentRunPreflightUnlocked(
   options: RefreshDevelopmentRunPreflightOptions,
 ): Promise<HarnessRuntimeRunEnvelope> {
   const run = await loadHarnessRun(options.storeRoot, options.runId);
@@ -65,6 +66,17 @@ export async function refreshDevelopmentRunPreflight(
   const refreshed: HarnessRuntimeRunEnvelope = { ...run, preflight, state, updatedAt: at };
   await saveHarnessRun(options.storeRoot, refreshed);
   return refreshed;
+}
+
+export async function refreshDevelopmentRunPreflight(
+  options: RefreshDevelopmentRunPreflightOptions,
+): Promise<HarnessRuntimeRunEnvelope> {
+  return withDurableHarnessRunLock(
+    options.storeRoot,
+    options.runId,
+    () => refreshDevelopmentRunPreflightUnlocked(options),
+    { waitForMs: 2_000 },
+  );
 }
 
 /**
