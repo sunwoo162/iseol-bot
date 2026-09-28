@@ -4,6 +4,7 @@ import type { CodingAttempt, CodingAttemptInput, CodingExercise, CodingExerciseI
 import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoals, listLearningPlanAdjustments, listLearningPlanVersions, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningPlanAdjustment, loadLearningPlanVersion, loadPlan, loadReview, loadSession, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveLearningGoal, saveLearningPlanVersion, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession } from "./store.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
+import { withDurableLearningProjectApplicationAcceptanceLock } from "./project-application-acceptance-lock.js";
 import { withDurableLearningPlanPreviewLock } from "./plan-preview-lock.js";
 import { withDurableLearningPlanAdjustmentLock } from "./plan-adjustment-lock.js";
 import { withDurableLearningPlanAdjustmentAcceptanceLock } from "./plan-adjustment-acceptance-lock.js";
@@ -1421,34 +1422,37 @@ export function createLearningService(root: string, options: LearningServiceOpti
 
     async acceptLearningProjectApplication(principal, goalId, proposalId) {
       ensurePrincipal(principal);
-      const goal = await loadOwnerGoal(root, principal, goalId);
-      if (!goal) throw new Error("Learning goal not found");
-      if (!options.userProjectService) throw new Error("Project application service unavailable");
-      try { assertIdentityId(proposalId); } catch { throw new Error("Learning project application not found"); }
-      const proposal = await loadLearningProjectApplication(root, principal.userId, proposalId);
-      if (!proposal || proposal.userId !== principal.userId || proposal.goalId !== goalId) throw new Error("Learning project application not found");
-      const project = await options.userProjectService.getProject(principal, proposal.projectId);
-      if (!project) throw new Error("Project not found");
-      const at = now(); assertTimestamp(at, "Learning project acceptance timestamp");
-      const linkedRequest = proposal.status === "accepted" && proposal.workRequestId ? project.workRequests.find((item) => item.id === proposal.workRequestId) : undefined;
-      if (proposal.status === "accepted" && !linkedRequest) throw new Error("Linked learning work request not found");
-      const work = linkedRequest ? { request: linkedRequest, created: false } : await options.userProjectService.createWorkRequest(principal, proposal.projectId, { title: proposal.proposal.title, objective: `${proposal.proposal.objective}${proposal.proposal.nodeRef ? ` (node: ${proposal.proposal.nodeRef})` : ""}`, idempotencyKey: `learning-application-${proposal.id}` });
-      const accepted: LearningProjectApplication = { ...proposal, status: "accepted", workRequestId: work.request.id, updatedAt: at };
-      await saveLearningProjectApplication(root, accepted);
-      const existingLink = (await listLearningLinks(root, principal.userId)).find((item) => item.proposalId === accepted.id);
-      const link = existingLink ?? { version: 1 as const, id: `learning-link-${accepted.id}`, userId: principal.userId, goalId, projectId: accepted.projectId, proposalId: accepted.id, workRequestId: work.request.id, sharingGrant: "owner-approved" as const, createdAt: at };
-      if (!existingLink) await saveLearningLink(root, link);
-      await options.activityService?.recordActivityEvent(principal, {
-        sourceType: "learning-project-application",
-        sourceId: accepted.id,
-        eventType: "learning.project.application.accepted",
-        eventVersion: 1,
-        actorType: "user",
-        verificationStatus: "unverified",
-        payload: { goalId, projectId: accepted.projectId, proposalId: accepted.id, workRequestId: work.request.id },
-        occurredAt: at,
-      });
-      return { proposal: accepted, link, workRequest: work.request };
+      return withDurableLearningProjectApplicationAcceptanceLock(root, principal.userId, goalId, proposalId, async () => {
+        const goal = await loadOwnerGoal(root, principal, goalId);
+        if (!goal) throw new Error("Learning goal not found");
+        if (!options.userProjectService) throw new Error("Project application service unavailable");
+        try { assertIdentityId(proposalId); } catch { throw new Error("Learning project application not found"); }
+        const proposal = await loadLearningProjectApplication(root, principal.userId, proposalId);
+        if (!proposal || proposal.userId !== principal.userId || proposal.goalId !== goalId) throw new Error("Learning project application not found");
+        const project = await options.userProjectService.getProject(principal, proposal.projectId);
+        if (!project) throw new Error("Project not found");
+        const at = now(); assertTimestamp(at, "Learning project acceptance timestamp");
+        const wasAccepted = proposal.status === "accepted";
+        const linkedRequest = proposal.status === "accepted" && proposal.workRequestId ? project.workRequests.find((item) => item.id === proposal.workRequestId) : undefined;
+        if (proposal.status === "accepted" && !linkedRequest) throw new Error("Linked learning work request not found");
+        const work = linkedRequest ? { request: linkedRequest, created: false } : await options.userProjectService.createWorkRequest(principal, proposal.projectId, { title: proposal.proposal.title, objective: `${proposal.proposal.objective}${proposal.proposal.nodeRef ? ` (node: ${proposal.proposal.nodeRef})` : ""}`, idempotencyKey: `learning-application-${proposal.id}` });
+        const accepted: LearningProjectApplication = wasAccepted ? proposal : { ...proposal, status: "accepted", workRequestId: work.request.id, updatedAt: at };
+        if (!wasAccepted) await saveLearningProjectApplication(root, accepted);
+        const existingLink = (await listLearningLinks(root, principal.userId)).find((item) => item.proposalId === accepted.id);
+        const link = existingLink ?? { version: 1 as const, id: `learning-link-${accepted.id}`, userId: principal.userId, goalId, projectId: accepted.projectId, proposalId: accepted.id, workRequestId: work.request.id, sharingGrant: "owner-approved" as const, createdAt: at };
+        if (!existingLink) await saveLearningLink(root, link);
+        if (!wasAccepted) await options.activityService?.recordActivityEvent(principal, {
+          sourceType: "learning-project-application",
+          sourceId: accepted.id,
+          eventType: "learning.project.application.accepted",
+          eventVersion: 1,
+          actorType: "user",
+          verificationStatus: "unverified",
+          payload: { goalId, projectId: accepted.projectId, proposalId: accepted.id, workRequestId: work.request.id },
+          occurredAt: at,
+        });
+        return { proposal: accepted, link, workRequest: work.request };
+      }, { waitForMs: 2_000 });
     },
   };
 }

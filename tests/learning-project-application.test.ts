@@ -89,3 +89,41 @@ test("concurrent learning project applications across service instances remain o
   assert.equal(new Set(results.map((result) => result.proposal.id)).size, 1);
   assert.equal((await firstService.listLearningProjectApplications(owner, goal.id)).length, 1);
 });
+
+test("concurrent learning project application acceptance across service instances creates one linked request", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-project-application-accept-concurrent-"));
+  const owner = principal("learning-accept-concurrent-owner");
+  const baseProjects = projectStub(owner.userId, "project-1", []);
+  let workRequestCalls = 0;
+  const projects: UserProjectService = {
+    ...baseProjects,
+    createWorkRequest: async (requester, projectId, input) => {
+      workRequestCalls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return baseProjects.createWorkRequest(requester, projectId, input);
+    },
+  };
+  const activityCalls: unknown[] = [];
+  const activityService = { recordActivityEvent: async (_requester: Principal, input: unknown) => { activityCalls.push(input); return {} as any; } } as any;
+  const firstService = createLearningService(root, { now: () => at, userProjectService: projects, activityService });
+  const secondService = createLearningService(root, { now: () => at, userProjectService: projects, activityService });
+  const goal = await firstService.createLearningGoal(owner, { subjectText: "동시 프로젝트 승인", duration: { days: 3 }, dailyMinutes: 20 });
+  const proposed = await firstService.createLearningProjectApplication(owner, goal.id, {
+    projectId: "project-1",
+    proposal: { title: "동시 승인", objective: "하나의 연결 요청", acceptanceCriteria: ["one request"], tests: ["no duplicate"], estimatedEffort: 20 },
+    learningEvidenceRefs: ["goal:" + goal.id],
+    requiredPermissions: ["project.work-request.create"],
+    actorAssignments: { human: "owner" },
+  });
+
+  const results = await Promise.all([
+    firstService.acceptLearningProjectApplication(owner, goal.id, proposed.proposal.id),
+    secondService.acceptLearningProjectApplication(owner, goal.id, proposed.proposal.id),
+  ]);
+
+  assert.equal(workRequestCalls, 1);
+  assert.equal(activityCalls.length, 1);
+  assert.equal(new Set(results.map((result) => result.workRequest.id)).size, 1);
+  assert.equal(new Set(results.map((result) => result.link.id)).size, 1);
+  assert.equal((await firstService.listLearningProjectApplications(owner, goal.id))[0]?.status, "accepted");
+});
