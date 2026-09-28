@@ -59,6 +59,35 @@ test("user projects persist with owner scope and create idempotent work requests
   assert.equal(await service.getProject(principal("user-b"), created.id), null);
 });
 
+test("concurrent Work Request creation preserves both Workspace task nodes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-workspace-tree-race-"));
+  const options = {
+    platformRoot: join(root, "platform"),
+    projectModelRoot: join(root, "project-model"),
+    projectHarnessRoot: join(root, "runs"),
+    iseolRoot: root,
+    now: () => at,
+  };
+  const firstService = createUserProjectService(options);
+  const secondService = createUserProjectService(options);
+  const owner = principal("workspace-tree-race-owner");
+  const project = await firstService.createProject(owner, {
+    name: "Workspace tree race",
+    objective: "preserve concurrent task nodes",
+    purpose: "rapid-prototype",
+    teamMode: "solo",
+  });
+  const [first, second] = await Promise.all([
+    firstService.createWorkRequest(owner, project.id, { title: "First task", objective: "First concurrent task", idempotencyKey: "workspace-tree-first" }),
+    secondService.createWorkRequest(owner, project.id, { title: "Second task", objective: "Second concurrent task", idempotencyKey: "workspace-tree-second" }),
+  ]);
+  const view = await firstService.getProject(owner, project.id);
+  const taskIds = new Set(view?.workspace.tree.filter((node) => node.kind === "task").map((node) => node.id));
+  assert.equal(view?.workRequests.length, 2);
+  assert.equal(taskIds.has(first.request.nodeId ?? `task-${first.request.id}`), true);
+  assert.equal(taskIds.has(second.request.nodeId ?? `task-${second.request.id}`), true);
+});
+
 test("project scheduling serializes across service instances sharing one project root", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-project-cross-instance-schedule-"));
   await mkdir(join(root, "docs"), { recursive: true });

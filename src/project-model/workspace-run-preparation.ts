@@ -6,6 +6,7 @@ import { appendProjectHistoryEventOnce } from "./history-store.js";
 import { attachRunToProjectTreeNode } from "./project-tree.js";
 import { findProjectTreeNode } from "./project-tree.js";
 import { loadProjectWorkspace, saveProjectWorkspace } from "./workspace-store.js";
+import { withDurableProjectWorkspaceLock } from "./workspace-lock.js";
 
 export type ProjectExecutionPreparation = {
   projectId: string;
@@ -44,7 +45,7 @@ const activeStarts = new Map<string, Promise<StartProjectWorkspaceRunResult>>();
  * validated against the project identity, the tree attachment is idempotent,
  * and the history event has a stable identity.
  */
-export async function reconcileProjectWorkspaceRun(
+async function reconcileProjectWorkspaceRunUnlocked(
   root: string,
   harnessRoot: string,
   projectId: string,
@@ -80,6 +81,17 @@ export async function reconcileProjectWorkspaceRun(
     action: "run-start",
   });
   return { run, attached };
+}
+
+export function reconcileProjectWorkspaceRun(
+  root: string,
+  harnessRoot: string,
+  projectId: string,
+  runId: string,
+  at = new Date().toISOString(),
+  nodeId?: string,
+) {
+  return withDurableProjectWorkspaceLock(root, projectId, () => reconcileProjectWorkspaceRunUnlocked(root, harnessRoot, projectId, runId, at, nodeId), { waitForMs: 2_000 });
 }
 
 export async function prepareProjectWorkspaceRun(

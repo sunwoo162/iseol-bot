@@ -23,6 +23,7 @@ import { missingProjectRunObservation, projectRunObservation, runtimeObservation
 import { listUserProjectWorkspaceFiles, readUserProjectWorkspaceFile, type UserProjectWorkspaceFilePreview, type UserProjectWorkspaceFiles } from "./workspace-files.js";
 import { withDurableProjectScheduleLock } from "./schedule-lock.js";
 import { withDurableProjectWorkRequestRunLock } from "./work-request-lock.js";
+import { withDurableProjectWorkspaceLock } from "./workspace-lock.js";
 import type { ActivityService } from "../activity/contracts.js";
 import type { GrowthService } from "../growth/contracts.js";
 import type { SettingsService } from "../settings/contracts.js";
@@ -299,35 +300,37 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
     async createWorkRequest(principal, projectId, input) {
       const view = await this.getProject(principal, projectId);
       if (!view) throw new Error("Project not found");
-      const at = now(); assertTimestamp(at, "work request timestamp");
-      const title = required(input.title, "Work title", 160);
-      const objective = required(input.objective, "Work objective", 4_000);
-      const idempotencyKey = required(input.idempotencyKey, "Work idempotency key", 160);
-      const result = await createProjectWorkRequest({ root: options.projectModelRoot, projectId, title, objective, idempotencyKey, ...(input.dependencies ? { dependencies: input.dependencies } : {}), at });
-      const nodeId = result.request.nodeId ?? `task-${result.request.id}`;
-      const request = result.request.nodeId
-        ? result.request
-        : await updateProjectWorkRequest(options.projectModelRoot, projectId, result.request.id, { nodeId }, at) ?? result.request;
-      const workspace = await loadProjectWorkspace(options.projectModelRoot, projectId);
-      if (!workspace || workspace.ownerUserId !== view.project.ownerUserId) throw new Error("Project workspace not found");
-      if (!workspace.tree.some((node) => node.id === nodeId)) {
-        const rootNode = workspace.tree.find((node) => node.kind === "root");
-        if (!rootNode) throw new Error("Project workspace root node is required before creating a task");
-        await saveProjectWorkspace(options.projectModelRoot, addProjectTreeNode(workspace, { id: nodeId, parentId: rootNode.id, kind: "task", title, status: "planned", at }));
-      }
-      if (result.created && options.activityService) {
-        await options.activityService.recordActivityEvent(principal, {
-          sourceType: "project-work-request",
-          sourceId: request.id,
-          eventType: "project.work.created",
-          eventVersion: 1,
-          actorType: "user",
-          verificationStatus: "unverified",
-          payload: { projectId, workRequestId: request.id },
-          occurredAt: at,
-        });
-      }
-      return { request, created: result.created };
+      return withDurableProjectWorkspaceLock(options.projectModelRoot, projectId, async () => {
+        const at = now(); assertTimestamp(at, "work request timestamp");
+        const title = required(input.title, "Work title", 160);
+        const objective = required(input.objective, "Work objective", 4_000);
+        const idempotencyKey = required(input.idempotencyKey, "Work idempotency key", 160);
+        const result = await createProjectWorkRequest({ root: options.projectModelRoot, projectId, title, objective, idempotencyKey, ...(input.dependencies ? { dependencies: input.dependencies } : {}), at });
+        const nodeId = result.request.nodeId ?? `task-${result.request.id}`;
+        const request = result.request.nodeId
+          ? result.request
+          : await updateProjectWorkRequest(options.projectModelRoot, projectId, result.request.id, { nodeId }, at) ?? result.request;
+        const workspace = await loadProjectWorkspace(options.projectModelRoot, projectId);
+        if (!workspace || workspace.ownerUserId !== view.project.ownerUserId) throw new Error("Project workspace not found");
+        if (!workspace.tree.some((node) => node.id === nodeId)) {
+          const rootNode = workspace.tree.find((node) => node.kind === "root");
+          if (!rootNode) throw new Error("Project workspace root node is required before creating a task");
+          await saveProjectWorkspace(options.projectModelRoot, addProjectTreeNode(workspace, { id: nodeId, parentId: rootNode.id, kind: "task", title, status: "planned", at }));
+        }
+        if (result.created && options.activityService) {
+          await options.activityService.recordActivityEvent(principal, {
+            sourceType: "project-work-request",
+            sourceId: request.id,
+            eventType: "project.work.created",
+            eventVersion: 1,
+            actorType: "user",
+            verificationStatus: "unverified",
+            payload: { projectId, workRequestId: request.id },
+            occurredAt: at,
+          });
+        }
+        return { request, created: result.created };
+      }, { waitForMs: 2_000 });
     },
     async cancelWorkRequest(principal, projectId, workRequestId) {
       return withDurableProjectWorkRequestRunLock(options.projectModelRoot, projectId, workRequestId, async () => {
