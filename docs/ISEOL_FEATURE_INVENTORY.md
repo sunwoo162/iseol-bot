@@ -1705,6 +1705,12 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Verification: five sequential focused notification runs passed `9/9` each; product `330/330`; root `682/682`; types, both builds, `git diff --check`, and browser E2E passed.
 - Boundary: provider-side exactly-once delivery and external connector delivery remain unverified; operational Runtime/Agent state and UNKNOWN records remain untouched.
 
+## 2026-09-28 continuation: durable cross-service social block mutations
+
+- Social block/unblock mutations are **B — blocker/target-scoped, durable, same-host cross-service serialized, idempotent, and isolated-browser verified**. `src/social/block-lock.ts` protects the read-modify-write record in `src/social/service.ts` and suppresses duplicate active-block activity events.
+- TDD/verification: concurrent 24-target stress moved from `45/48` successful calls to `48/48` with exactly 24 active blocks; focused social safety/messaging/profile/API/UI `7/7`; user-product `331/331`; root `682/682`; types, both builds, and browser E2E passed with two-account isolation and responsive `[390,768,1024,1440]` across `13` routes.
+- Boundary: same-host/shared-root coordination only; distributed coordination, live model/provider execution, provider-side exactly-once delivery, external connector delivery, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room remain unverified/deferred.
+
 ## 2026-09-28 continuation: durable cross-service friend request mutations
 
 - Friend request mutations are **B — friendship-record-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/social/friend-request-lock.ts` provides an exact hashed friendship-record lock; `src/social/service.ts` uses it for request creation and accept/reject transitions.

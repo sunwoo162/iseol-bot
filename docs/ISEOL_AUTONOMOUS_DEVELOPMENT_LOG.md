@@ -2312,6 +2312,15 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: no change to notification ownership, idempotency, event, or external delivery semantics; same-host/shared-root coordination remains the boundary, and provider-side exactly-once delivery is not claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred.
 
+## 2026-09-28 continuation: durable cross-service social block mutations
+
+- Status: **B — blocker/target-scoped, durable, same-host cross-service serialized, idempotent, and isolated-product verified; live model/provider execution remains unverified**. Block and unblock mutations now use an exact hashed lock for the blocker/target pair, re-read inside the lock, and return an existing active block without emitting a duplicate activity event.
+- Evidence: `src/social/block-lock.ts`, `src/social/service.ts`, `tests/social-safety.test.ts`.
+- TDD: RED reproduced concurrent writes across 24 block records with `45/48` calls succeeding because of Windows file replacement contention; GREEN completed all `48/48` calls and retained exactly `24` active blocks.
+- Verification: focused social safety/messaging/profile/API/UI suite `7/7`; user-product `331/331`; serial root `682/682`; backend/user UI TypeScript checks, backend/user UI builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed coordinator, provider-side delivery guarantee, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service friend request mutations
 
 - Status: **B — friendship-record-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Friend request creation now re-reads the deterministic friendship record under an exact hashed lock, so concurrent callers produce one pending request and one creation activity event. Accept/reject mutations use the same lock.
