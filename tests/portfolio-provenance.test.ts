@@ -109,3 +109,27 @@ test("project provenance is available to the owner but is not exposed by public 
   assert.equal(publicView?.evidence.length, 1);
   assert.equal("projectId" in (publicView?.evidence[0] ?? {}), false);
 });
+
+test("portfolio entry mutations across service instances preserve both patches", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-portfolio-concurrent-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  const owner = principal("portfolio-concurrent-owner");
+  await users.createUser({ id: owner.userId, email: "portfolio-concurrent@example.com", displayName: "Concurrent Portfolio", timezone: "Asia/Seoul" });
+  const activity = createActivityService(platformRoot, { now: () => at });
+  const projects = createUserProjectService({ platformRoot, projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root });
+  const firstService = createPortfolioService(platformRoot, { activityService: activity, userProjectService: projects, now: () => at });
+  const secondService = createPortfolioService(platformRoot, { activityService: activity, userProjectService: projects, now: () => "2026-09-25T12:00:01.000Z" });
+  const evidence = await activity.recordActivityEvent(owner, { sourceType: "learning", sourceId: "portfolio-concurrent", eventType: "study.completed", eventVersion: 1, actorType: "user", verificationStatus: "verified" });
+  const entry = await firstService.createEntry(owner, { title: "초기 포트폴리오", summary: "동시 수정 테스트를 위한 초기 항목입니다.", visibility: "private", evidenceIds: [`activity:${evidence.id}`] });
+
+  const results = await Promise.all([
+    firstService.updateEntry(owner, entry.id, { title: "제목 수정 포트폴리오" }),
+    secondService.updateEntry(owner, entry.id, { visibility: "public" }),
+  ]);
+
+  assert.equal(results.length, 2);
+  const stored = (await firstService.listPortfolio(owner)).entries.find((item) => item.id === entry.id);
+  assert.equal(stored?.title, "제목 수정 포트폴리오");
+  assert.equal(stored?.visibility, "public");
+});
