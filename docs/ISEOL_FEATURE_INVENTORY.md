@@ -1693,6 +1693,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service AI agent profile mutations
+
+- AI agent profile writes are **B — owner-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/ai-agent/profile-lock.ts` adds an exact hashed per-user lock below the platform root; `src/ai-agent/service.ts` re-reads and saves the profile within that lock so concurrent service instances preserve both disjoint patches.
+- Evidence: `src/ai-agent/profile-lock.ts`, `src/ai-agent/service.ts`, `tests/ai-agent-profile.test.ts`, and `tests/ai-agent-profile-api.test.ts`.
+- Verification: focused AI agent profile/API `6/6`; user-product `326/326`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed coordinator, live model/provider execution, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service user notification idempotency
 
 - User notifications are **B — owner-scoped, durable, idempotent, same-host cross-service serialized, and isolated-browser verified**. `src/notifications/notification-lock.ts` provides an exact hashed lock below the notification root; `src/notifications/service.ts` applies it to all producer mutations and authenticated read transitions. Same-source concurrent calls converge on one durable record and one SSE refresh event across service instances.
