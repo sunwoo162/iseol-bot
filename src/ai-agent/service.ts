@@ -1,5 +1,6 @@
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { AiAgentProfile, AiAgentProfilePatch, AiAgentProfileService } from "./contracts.js";
+import { withDurableAiAgentProfileLock } from "./profile-lock.js";
 import { loadAiAgentProfile, saveAiAgentProfile } from "./store.js";
 
 const DEFAULT_NAME = "이설";
@@ -73,12 +74,14 @@ export function createAiAgentProfileService(root: string, options: { now?: () =>
     },
     async updateProfile(principal: Principal, patch: AiAgentProfilePatch): Promise<AiAgentProfile> {
       assertIdentityId(principal.userId);
-      const current = (await loadAiAgentProfile(root, principal.userId)) ?? defaultProfile(principal.userId, now());
-      const validated = validatePatch(patch);
-      const updated: AiAgentProfile = { ...current, ...validated, updatedAt: now() };
-      assertTimestamp(updated.updatedAt, "agent profile timestamp");
-      await saveAiAgentProfile(root, updated);
-      return updated;
+      return withDurableAiAgentProfileLock(root, principal.userId, async () => {
+        const current = (await loadAiAgentProfile(root, principal.userId)) ?? defaultProfile(principal.userId, now());
+        const validated = validatePatch(patch);
+        const updated: AiAgentProfile = { ...current, ...validated, updatedAt: now() };
+        assertTimestamp(updated.updatedAt, "agent profile timestamp");
+        await saveAiAgentProfile(root, updated);
+        return updated;
+      }, { waitForMs: 2_000 });
     },
   };
 }

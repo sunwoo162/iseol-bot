@@ -40,6 +40,22 @@ test("agent profile updates persist and remain isolated by authenticated user", 
   assert.equal(foreign.personality, "사용자와 함께 배우고 만드는 개인 AI");
 });
 
+test("agent profile mutations across service instances preserve both patches", async () => {
+  const root = await mkdtemp(join(tmpdir(), "npc-agent-profile-"));
+  const firstService = createAiAgentProfileService(root, { now: () => "2026-09-27T12:00:00.000Z" });
+  const secondService = createAiAgentProfileService(root, { now: () => "2026-09-27T12:00:01.000Z" });
+  const owner = principal("profile-concurrent");
+
+  await Promise.all([
+    firstService.updateProfile(owner, { name: "첫 번째 이름" }),
+    secondService.updateProfile(owner, { tone: "짧고 명확하게" }),
+  ]);
+
+  const persisted = await createAiAgentProfileService(root).getProfile(owner);
+  assert.equal(persisted.name, "첫 번째 이름");
+  assert.equal(persisted.tone, "짧고 명확하게");
+});
+
 test("agent profile rejects invalid names, oversized text, and unsafe avatar URLs", async () => {
   const root = await mkdtemp(join(tmpdir(), "npc-agent-profile-"));
   const service = createAiAgentProfileService(root);
