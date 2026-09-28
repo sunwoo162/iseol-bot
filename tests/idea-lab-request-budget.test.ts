@@ -35,6 +35,23 @@ test("concurrent reservations cannot exceed the durable limit", async () => {
   }
 });
 
+test("request budget limit remains atomic across service instances", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-request-budget-cross-service-"));
+  try {
+    const instances = await Promise.all(
+      Array.from({ length: 8 }, (_, index) => import(`../src/chatgpt-web/request-budget.ts?instance=${index}`)),
+    );
+    const results = await Promise.all(instances.map((instance, index) => {
+      const store = instance.createRequestBudgetStore(root, 1);
+      return store.reserve(`run-${index}`, `req-${index}`, { stage: "PLAN" });
+    }));
+    assert.equal(results.filter((result) => result === "reserved").length, 1);
+    assert.equal(results.filter((result) => result === "exhausted").length, 7);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("budget records remain bound to the execution identity", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-request-budget-identity-"));
   try {

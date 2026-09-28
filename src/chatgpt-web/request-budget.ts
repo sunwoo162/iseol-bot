@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { withDurableRequestBudgetLock } from "./request-budget-lock.js";
 
 export type ExternalRequestState = "reserved" | "consumed" | "unknown";
 export type ExternalRequestBudgetRecord = {
@@ -122,48 +123,54 @@ export function createRequestBudgetStore(root: string, limit: number, now: () =>
       safe(runId, "runId"); safe(requestId, "requestId");
       if (!metadata.stage.trim()) throw new Error("request stage is required");
       return serialized(path, async () => {
-        const record = await ensure();
-        const existing = record.requests[requestId];
-        if (existing) {
-          if (existing.runId !== runId) throw new Error("external request identity belongs to another Run");
-          return "already-reserved";
-        }
-        if (record.reserved + record.consumed + record.unknown >= record.limit) return "exhausted";
-        record.requests[requestId] = { runId, state: "reserved", stage: metadata.stage, reservedAt: now() };
-        record.reserved += 1;
-        await atomicWrite(path, record);
-        return "reserved";
+        return withDurableRequestBudgetLock(root, async () => {
+          const record = await ensure();
+          const existing = record.requests[requestId];
+          if (existing) {
+            if (existing.runId !== runId) throw new Error("external request identity belongs to another Run");
+            return "already-reserved";
+          }
+          if (record.reserved + record.consumed + record.unknown >= record.limit) return "exhausted";
+          record.requests[requestId] = { runId, state: "reserved", stage: metadata.stage, reservedAt: now() };
+          record.reserved += 1;
+          await atomicWrite(path, record);
+          return "reserved";
+        }, { waitForMs: 2_000 });
       });
     },
     complete(runId, requestId, state) {
       safe(runId, "runId"); safe(requestId, "requestId");
       return serialized(path, async () => {
-        const record = await ensure();
-        const request = record.requests[requestId];
-        if (!request) throw new Error(`external request reservation not found: ${requestId}`);
-        if (request.runId !== runId) throw new Error("external request identity belongs to another Run");
-        if (request.state === "reserved") {
-          request.state = state;
-          request.completedAt = now();
-          record.reserved -= 1;
-          record[state] += 1;
-          await atomicWrite(path, record);
-        }
-        return scoped(record, runId);
+        return withDurableRequestBudgetLock(root, async () => {
+          const record = await ensure();
+          const request = record.requests[requestId];
+          if (!request) throw new Error(`external request reservation not found: ${requestId}`);
+          if (request.runId !== runId) throw new Error("external request identity belongs to another Run");
+          if (request.state === "reserved") {
+            request.state = state;
+            request.completedAt = now();
+            record.reserved -= 1;
+            record[state] += 1;
+            await atomicWrite(path, record);
+          }
+          return scoped(record, runId);
+        }, { waitForMs: 2_000 });
       });
     },
     release(runId, requestId) {
       safe(runId, "runId"); safe(requestId, "requestId");
       return serialized(path, async () => {
-        const record = await ensure();
-        const request = record.requests[requestId];
-        if (!request) return;
-        if (request.runId !== runId) throw new Error("external request identity belongs to another Run");
-        if (request.state === "reserved") {
-          record.reserved -= 1;
-          delete record.requests[requestId];
-          await atomicWrite(path, record);
-        }
+        return withDurableRequestBudgetLock(root, async () => {
+          const record = await ensure();
+          const request = record.requests[requestId];
+          if (!request) return;
+          if (request.runId !== runId) throw new Error("external request identity belongs to another Run");
+          if (request.state === "reserved") {
+            record.reserved -= 1;
+            delete record.requests[requestId];
+            await atomicWrite(path, record);
+          }
+        }, { waitForMs: 2_000 });
       });
     },
     inspect(runId) {
