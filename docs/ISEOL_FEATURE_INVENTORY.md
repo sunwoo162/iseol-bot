@@ -1983,6 +1983,14 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Boundary: same-host/shared-root lifecycle coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Commit: `9d0ab4b feat: serialize project work request cancellation`.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable Idea Lab campaign creation synchronization
+
+- Campaign creation is **B — campaign-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/web-control-plane/idea-lab-actions.ts` now shares `src/idea-lab/campaign-lock.ts` across duplicate detection, persistence, and the creation event append.
+- Evidence: `tests/idea-lab-web-control-plane.test.ts` proves creation waits for a competing durable campaign lock and preserves bounded validation/idempotent event behavior; existing Idea Lab/browser journeys remain green.
+- Verification: focused web-control-plane `11/11`; user-product `364/364`; root `695/695`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `c5d6017 feat: serialize Idea Lab campaign creation`.
+- Boundary: same-host/shared-root campaign creation coordination only; runtime enqueue remains capability-bound and live worker throughput is unverified. No distributed coordinator, live provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable Idea Lab candidate materialization synchronization
 
 - Candidate materialization is **B — Prototype-candidate-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/idea-lab/production-service.ts` shares `src/project-model/prototype-lock.ts` across validation, identity re-read, and first save.
