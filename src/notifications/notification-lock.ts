@@ -34,6 +34,15 @@ async function removeDeadOwnerLock(path: string): Promise<boolean> {
   }
 }
 
+async function removeOwnedLock(path: string, token: string): Promise<void> {
+  try {
+    const value = JSON.parse(await readFile(path, "utf8")) as Partial<NotificationLockRecord>;
+    if (value.version === 1 && value.token === token) await unlink(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") return;
+  }
+}
+
 export async function withDurableNotificationLock<T>(
   root: string,
   key: string,
@@ -77,11 +86,12 @@ export async function withDurableNotificationLock<T>(
       await new Promise((resolveWait) => setTimeout(resolveWait, Math.min(pollIntervalMs, Math.max(1, deadline - Date.now()))));
     }
   }
+  const token = randomUUID();
   try {
-    await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token: randomUUID(), createdAt: new Date().toISOString() } satisfies NotificationLockRecord), "utf8");
+    await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token, createdAt: new Date().toISOString() } satisfies NotificationLockRecord), "utf8");
     return await task();
   } finally {
     await handle.close().catch(() => undefined);
-    await unlink(path).catch(() => undefined);
+    await removeOwnedLock(path, token);
   }
 }
