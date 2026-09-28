@@ -13,6 +13,7 @@ import { loadPrototypeCandidate, recordPrototypeBrowserAcceptance, savePrototype
 import { loadProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { withDurableProjectPromotionLock } from "../src/project-model/promotion-lock.js";
 import { withDurablePrototypeLock } from "../src/project-model/prototype-lock.js";
+import { archivePrototypeCandidate } from "../src/idea-lab/prototype-actions.js";
 
 function candidate(): PrototypeCandidate {
   return {
@@ -214,4 +215,23 @@ test("prototype browser acceptance waits for the durable candidate lock", async 
   assert.equal(settled, false);
   releaseHolder();
   assert.equal((await acceptance).browserAcceptance?.status, "verified");
+});
+
+test("prototype archive waits for the durable candidate lock", async () => {
+  const { modelRoot } = await fixture(true);
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurablePrototypeLock(modelRoot, "prototype-001", async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const archive = archivePrototypeCandidate(modelRoot, "prototype-001", "2026-09-08T06:00:00.000Z");
+  void archive.then(() => { settled = true; }, () => { settled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  assert.equal((await archive).status, "archived");
 });

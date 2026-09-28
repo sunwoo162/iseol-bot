@@ -42,14 +42,15 @@ export async function updatePrototypeCandidate(
   root: string,
   id: string,
   updates: Partial<Omit<PrototypeCandidate, "id" | "version">>,
-  options: { rejectPromoted?: boolean } = {},
+  options: { rejectPromoted?: boolean; promotedError?: string; returnIfStatus?: PrototypeCandidate["status"] } = {},
 ): Promise<PrototypeCandidate | null> {
   return withDurablePrototypeLock(root, id, async () => {
     const current = await loadPrototypeCandidate(root, id);
     if (!current) return null;
     if (options.rejectPromoted && current.status === "promoted") {
-      throw new Error(`Promoted prototype acceptance is immutable: ${id}`);
+      throw new Error(options.promotedError ?? `Promoted prototype acceptance is immutable: ${id}`);
     }
+    if (options.returnIfStatus && current.status === options.returnIfStatus) return current;
     const updated: PrototypeCandidate = { ...current, ...updates, id, version: 1 };
     await savePrototypeCandidate(root, updated);
     return updated;
