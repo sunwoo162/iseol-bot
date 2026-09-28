@@ -2322,6 +2322,15 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root coordination only; no distributed acceptance coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service Learning report creation
+
+- Status: **B — owner/goal/period-scoped, durable, same-host cross-service idempotent report creation, and isolated-product verified; live model/provider execution remains unverified**. Learning report generation now serializes source-revision read, evidence aggregation, report save, and same-input re-read so concurrent requests produce one durable report identity.
+- Evidence: `src/learning/report-lock.ts`, `src/learning/service.ts`, `tests/learning-report.test.ts`, and `tests/learning-report-api.test.ts`.
+- TDD: RED reproduced two concurrent report requests returning `created: true` with two report identities; GREEN converged to one `created: true`, one `created: false`, and one stored report.
+- Verification: focused Learning report suite `3/3`; user-product `350/350`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained Learning report UI, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `72478a5 feat: serialize learning report creation`.
+- Boundary: same-host/shared-root coordination only; no distributed report coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service Learning plan adjustments
 
 - Status: **B — owner/goal/input-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Learning plan adjustment drafts now serialize the idempotency lookup and draft persistence by exact user/goal/input identity, so concurrent retries return one proposed adjustment.
