@@ -8,7 +8,9 @@ import {
   createUser,
   resolvePrincipal,
   revokeSession,
+  revokeSessionsForUser,
 } from "../src/identity/store.js";
+import { withDurableIdentityLock } from "../src/identity/identity-lock.js";
 import type { Principal } from "../src/identity/contracts.js";
 import {
   authorizeResource,
@@ -31,6 +33,82 @@ test("active sessions resolve to their stored user and revoke fail closed", asyn
 
   await revokeSession(root, "session-a", "2026-09-25T12:01:00.000Z");
   assert.equal(await resolvePrincipal(root, "session-a", "2026-09-25T12:02:00.000Z"), null);
+});
+
+test("session revocation waits for the durable identity lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-identity-lock-"));
+  await createUser(root, { id: "user-lock", timezone: "Asia/Seoul", at });
+  await createSession(root, { id: "session-lock", userId: "user-lock", roles: ["user"], expiresAt: "2026-09-26T12:00:00.000Z", at });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableIdentityLock(root, "session", "session-lock", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const revoke = revokeSession(root, "session-lock", "2026-09-25T12:01:00.000Z");
+  assert.equal(await Promise.race([
+    revoke.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]), false);
+
+  release();
+  await Promise.all([holder, revoke]);
+  assert.equal(await resolvePrincipal(root, "session-lock", "2026-09-25T12:02:00.000Z"), null);
+});
+
+test("concurrent user identity creation has one winner and no overwrite", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-identity-user-race-"));
+  const modules = await Promise.all(Array.from({ length: 8 }, (_, index) => import(`../src/identity/store.js?user-race=${index}`)));
+  const results = await Promise.allSettled(modules.map((module, index) => module.createUser(root, {
+    id: "user-race",
+    timezone: index === 0 ? "Asia/Seoul" : "UTC",
+    at,
+  })));
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected" && /different data/i.test(String(result.reason))).length, 7);
+});
+
+test("concurrent session identity creation has one winner and no overwrite", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-identity-session-race-"));
+  await createUser(root, { id: "user-race", timezone: "Asia/Seoul", at });
+  const modules = await Promise.all(Array.from({ length: 8 }, (_, index) => import(`../src/identity/store.js?session-race=${index}`)));
+  const results = await Promise.allSettled(modules.map((module, index) => module.createSession(root, {
+    id: "session-race",
+    userId: "user-race",
+    roles: [index === 0 ? "user" : "admin"],
+    expiresAt: "2026-09-26T12:00:00.000Z",
+    at,
+  })));
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected" && /different data/i.test(String(result.reason))).length, 7);
+});
+
+test("bulk session revocation waits for each durable session lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-identity-bulk-lock-"));
+  await createUser(root, { id: "user-bulk", timezone: "Asia/Seoul", at });
+  await createSession(root, { id: "session-bulk", userId: "user-bulk", roles: ["user"], expiresAt: "2026-09-26T12:00:00.000Z", at });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableIdentityLock(root, "session", "session-bulk", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const revoke = revokeSessionsForUser(root, "user-bulk", "2026-09-25T12:03:00.000Z");
+  assert.equal(await Promise.race([
+    revoke.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]), false);
+  release();
+  await Promise.all([holder, revoke]);
+  assert.equal(await resolvePrincipal(root, "session-bulk", "2026-09-25T12:04:00.000Z"), null);
 });
 
 test("personal scope paths stay inside the platform root and do not trust path-like ids", async () => {

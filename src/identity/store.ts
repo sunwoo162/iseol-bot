@@ -8,6 +8,7 @@ import {
   type SessionRecord,
   type UserRecord,
 } from "./contracts.js";
+import { withDurableIdentityLock } from "./identity-lock.js";
 
 function userFile(root: string, userId: string): string {
   assertIdentityId(userId);
@@ -35,7 +36,7 @@ async function loadJson<T>(path: string): Promise<T | null> {
   }
 }
 
-export async function createUser(inputRoot: string, input: { id: string; timezone: string; at: string }): Promise<UserRecord> {
+async function createUserUnlocked(inputRoot: string, input: { id: string; timezone: string; at: string }): Promise<UserRecord> {
   assertIdentityId(input.id);
   if (!input.timezone.trim()) throw new Error("User timezone is required");
   assertTimestamp(input.at, "user timestamp");
@@ -56,7 +57,11 @@ export async function createUser(inputRoot: string, input: { id: string; timezon
   return user;
 }
 
-export async function createSession(inputRoot: string, input: { id: string; userId: string; roles: string[]; expiresAt: string; at: string }): Promise<SessionRecord> {
+export async function createUser(inputRoot: string, input: { id: string; timezone: string; at: string }): Promise<UserRecord> {
+  return withDurableIdentityLock(inputRoot, "user", input.id, () => createUserUnlocked(inputRoot, input), { waitForMs: 2_000 });
+}
+
+async function createSessionUnlocked(inputRoot: string, input: { id: string; userId: string; roles: string[]; expiresAt: string; at: string }): Promise<SessionRecord> {
   assertIdentityId(input.id);
   assertIdentityId(input.userId);
   assertTimestamp(input.at, "session timestamp");
@@ -81,7 +86,11 @@ export async function createSession(inputRoot: string, input: { id: string; user
   return session;
 }
 
-export async function revokeSession(inputRoot: string, sessionId: string, at: string): Promise<SessionRecord | null> {
+export async function createSession(inputRoot: string, input: { id: string; userId: string; roles: string[]; expiresAt: string; at: string }): Promise<SessionRecord> {
+  return withDurableIdentityLock(inputRoot, "session", input.id, () => createSessionUnlocked(inputRoot, input), { waitForMs: 2_000 });
+}
+
+async function revokeSessionUnlocked(inputRoot: string, sessionId: string, at: string): Promise<SessionRecord | null> {
   assertTimestamp(at, "session revocation timestamp");
   const current = await loadJson<SessionRecord>(sessionFile(inputRoot, sessionId));
   if (!current) return null;
@@ -89,6 +98,10 @@ export async function revokeSession(inputRoot: string, sessionId: string, at: st
   const next = { ...current, revokedAt: at };
   await saveJson(sessionFile(inputRoot, sessionId), next);
   return next;
+}
+
+export async function revokeSession(inputRoot: string, sessionId: string, at: string): Promise<SessionRecord | null> {
+  return withDurableIdentityLock(inputRoot, "session", sessionId, () => revokeSessionUnlocked(inputRoot, sessionId, at), { waitForMs: 2_000 });
 }
 
 export async function revokeSessionsForUser(inputRoot: string, userId: string, at: string): Promise<number> {
@@ -101,10 +114,14 @@ export async function revokeSessionsForUser(inputRoot: string, userId: string, a
   }
   let revoked = 0;
   for (const entry of entries.filter((candidate) => candidate.endsWith(".json"))) {
-    const current = await loadJson<SessionRecord>(resolve(inputRoot, "sessions", entry));
-    if (!current || current.version !== 1 || current.userId !== userId || current.revokedAt) continue;
-    await saveJson(resolve(inputRoot, "sessions", entry), { ...current, revokedAt: at });
-    revoked += 1;
+    const sessionId = entry.slice(0, -".json".length);
+    try { assertIdentityId(sessionId); } catch { continue; }
+    await withDurableIdentityLock(inputRoot, "session", sessionId, async () => {
+      const current = await loadJson<SessionRecord>(sessionFile(inputRoot, sessionId));
+      if (!current || current.version !== 1 || current.userId !== userId || current.revokedAt) return;
+      await saveJson(sessionFile(inputRoot, sessionId), { ...current, revokedAt: at });
+      revoked += 1;
+    }, { waitForMs: 2_000 });
   }
   return revoked;
 }
