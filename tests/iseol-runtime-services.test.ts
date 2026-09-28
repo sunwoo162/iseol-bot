@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -142,6 +142,202 @@ test("shares one browser across bridge and Idea Lab and disposes it exactly once
   assert.equal(browserDisposes, 1);
 });
 
+test("writes bounded shutdown diagnostics without exposing disposal errors", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-shutdown-diagnostics-"));
+  const value = fixture({ shutdownDiagnosticsRoot: root });
+  const services = await startIseolRuntimeServices(value);
+  await services.dispose();
+  const content = await readFile(join(root, "shutdown-diagnostics.jsonl"), "utf8");
+  const events = content.trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+  assert.ok(events.some((entry) => entry.event === "started" && entry.stage === "web-server"));
+  assert.ok(events.some((entry) => entry.event === "completed" && entry.stage === "browser"));
+  assert.ok(events.some((entry) => entry.event === "summary" && entry.ok === true));
+  assert.doesNotMatch(content, /unused|token|cookie|page/i);
+});
+
+test("composed Runtime learning service persists local JavaScript syntax receipts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-runtime-learning-coding-"));
+  const value = fixture();
+  value.roots = {
+    iseolRoot: root,
+    modelRoot: join(root, "model"),
+    runRoot: join(root, "runs"),
+    webRoot: join(root, "web"),
+    browserProfileRoot: join(root, "browser"),
+    projectModelRoot: join(root, "project-model"),
+    projectRunRoot: join(root, "project-runs"),
+    projectWebWorkerRoot: join(root, "project-workers"),
+    projectDesktopStateRoot: join(root, "desktop-state"),
+  };
+  value.webConfig = {
+    host: "127.0.0.1", port: 0, token: "",
+    modelRoot: value.roots.modelRoot, harnessRoot: value.roots.runRoot, webRoot: value.roots.webRoot,
+  };
+  const services = await startIseolRuntimeServices(value);
+  try {
+    const user = await services.platformUserService.createUser({ id: "coding-runtime-user", email: "coding-runtime@example.com", displayName: "Coding Runtime", timezone: "Asia/Seoul" });
+    const principal = { userId: user.id, sessionId: "coding-runtime-session", roles: ["user"] };
+    const exercise = await services.learningService.createCodingExercise(principal, { title: "Runtime syntax", prompt: "Write JavaScript", language: "javascript", estimatedMinutes: 5 });
+    const result = await services.learningService.submitCodingAttempt(principal, { exerciseId: exercise.id, clientRequestId: "coding-runtime-1", response: "const answer = 1;" });
+    assert.equal(result.attempt.practiceResult.status, "syntax-verified");
+    assert.equal(result.attempt.practiceResult.receipt.checkKind, "syntax-only");
+  } finally {
+    await services.dispose();
+  }
+});
+
+test("composed Runtime shares one per-user dispatch gate between learning and Personal AI", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-runtime-shared-user-gate-"));
+  const value = fixture();
+  value.roots = {
+    iseolRoot: root,
+    modelRoot: join(root, "model"),
+    runRoot: join(root, "runs"),
+    webRoot: join(root, "web"),
+    browserProfileRoot: join(root, "browser"),
+    projectModelRoot: join(root, "project-model"),
+    projectRunRoot: join(root, "project-runs"),
+    projectWebWorkerRoot: join(root, "project-workers"),
+    projectDesktopStateRoot: join(root, "desktop-state"),
+  };
+  value.webConfig = {
+    host: "127.0.0.1", port: 0, token: "",
+    modelRoot: value.roots.modelRoot, harnessRoot: value.roots.runRoot, webRoot: value.roots.webRoot,
+    platformRoot: join(root, "platform"),
+  };
+  let active = 0;
+  let maximumActive = 0;
+  let dispatchCount = 0;
+  let firstEntered: (() => void) | undefined;
+  const firstEnteredPromise = new Promise<void>((resolve) => { firstEntered = resolve; });
+  let releaseFirst: (() => void) | undefined;
+  const firstReleasePromise = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  value.learningActionDispatcher = async ({ action, complete }) => {
+    dispatchCount += 1;
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    if (dispatchCount === 1) firstEntered?.();
+    await firstReleasePromise;
+    active -= 1;
+    return { status: "completed" as const, action: await complete(`학습 Runtime 응답: ${action.actionId}`) };
+  };
+  value.aiChatRuntimeDispatcher = async () => {
+    dispatchCount += 1;
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    active -= 1;
+    return { status: "completed" as const, assistantContent: "개인 AI Runtime 응답" };
+  };
+  const services = await startIseolRuntimeServices(value);
+  try {
+    const user = await services.platformUserService.createUser({ id: "shared-gate-user", email: "shared-gate@example.com", displayName: "Shared Gate", timezone: "Asia/Seoul" });
+    const principal = { userId: user.id, sessionId: "shared-gate-session", roles: ["user"] };
+    const plan = await services.learningService.createLearningPlan(principal, { title: "공통 게이트", description: "학습과 개인 AI", goals: ["겹치지 않기"] });
+    const session = await services.learningService.startLearningSession(principal, plan.id);
+    const conversation = await services.aiChatService.createConversation(principal, "개인 AI");
+    const learningRequest = services.learningService.recordLearningSessionAction(principal, session.id, { actionId: "shared-gate-action", type: "explanation", question: "동시성" });
+    await firstEnteredPromise;
+    const chatRequest = services.aiChatService.sendMessage(principal, conversation.id, "개인 AI도 실행해줘");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(dispatchCount, 1);
+    assert.equal(maximumActive, 1);
+    releaseFirst?.();
+    await Promise.all([learningRequest, chatRequest]);
+    assert.equal(dispatchCount, 2);
+    assert.equal(maximumActive, 1);
+  } finally {
+    await services.dispose();
+  }
+});
+
+test("composed Runtime forwards explicit local AI team dispatchers without enabling a default one", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-runtime-ai-team-dispatchers-"));
+  const value = fixture();
+  value.roots = {
+    iseolRoot: root,
+    modelRoot: join(root, "model"),
+    runRoot: join(root, "runs"),
+    webRoot: join(root, "web"),
+    browserProfileRoot: join(root, "browser"),
+    projectModelRoot: join(root, "project-model"),
+    projectRunRoot: join(root, "project-runs"),
+    projectWebWorkerRoot: join(root, "project-workers"),
+    projectDesktopStateRoot: join(root, "desktop-state"),
+  };
+  value.webConfig = {
+    host: "127.0.0.1", port: 0, token: "",
+    modelRoot: value.roots.modelRoot, harnessRoot: value.roots.runRoot, webRoot: value.roots.webRoot,
+    platformRoot: join(root, "platform"),
+  };
+  value.aiTeamProposalDispatcher = async () => ({ status: "proposed" as const, draft: { title: "구성된 AI 제안", objective: "명시적으로 주입된 로컬 dispatcher를 사용합니다.", acceptanceCriteria: ["사람 승인"], rationale: "기본 자동 실행을 열지 않습니다." } });
+  value.aiTeamDiscussionDispatcher = async ({ question }: { question: string }) => ({ status: "completed" as const, answer: `구성된 토론: ${question}`, keyPoints: ["로컬 경계"], alternatives: [], risks: [] });
+  const services = await startIseolRuntimeServices(value);
+  try {
+    const user = await services.platformUserService.createUser({ id: "composed-ai-team-user", email: "composed-ai-team@example.com", displayName: "Composed AI Team", timezone: "Asia/Seoul" });
+    const principal = { userId: user.id, sessionId: "composed-ai-team-session", roles: ["user"] };
+    const team = await services.teamService.createTeam(principal, { name: "구성 AI 팀", description: "explicit dispatcher", kind: "project", visibility: "private", capacity: 3 });
+    await services.teamService.addAiMember(principal, team.id, { agentId: "architect", assignmentRole: "architecture", capabilities: ["context.read", "task.propose", "discussion.propose"], approvalScope: "suggestion-only" }, "2026-09-28T12:00:00.000Z");
+    const project = await services.userProjectService.createProject(principal, { name: "구성 AI 팀 프로젝트", objective: "dispatcher wiring", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
+    const proposal = await services.aiTeamProposalService.requestProposal(principal, project.id, { agentId: "architect", requestId: "composed-proposal" });
+    const discussion = await services.aiTeamDiscussionService.requestDiscussion(principal, project.id, { agentId: "architect", requestId: "composed-discussion", question: "구성이 전달되나요?" });
+    assert.equal(proposal.status, "proposed");
+    assert.equal(discussion.status, "completed");
+    assert.equal(discussion.answer, "구성된 토론: 구성이 전달되나요?");
+  } finally {
+    await services.dispose();
+  }
+});
+
+test("composed Runtime creates AI Team Ollama dispatchers only from explicit local configuration", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-runtime-ai-team-ollama-"));
+  const value = fixture();
+  value.roots = {
+    iseolRoot: root,
+    modelRoot: join(root, "model"),
+    runRoot: join(root, "runs"),
+    webRoot: join(root, "web"),
+    browserProfileRoot: join(root, "browser"),
+    projectModelRoot: join(root, "project-model"),
+    projectRunRoot: join(root, "project-runs"),
+    projectWebWorkerRoot: join(root, "project-workers"),
+    projectDesktopStateRoot: join(root, "desktop-state"),
+  };
+  value.webConfig = {
+    host: "127.0.0.1", port: 0, token: "",
+    modelRoot: value.roots.modelRoot, harnessRoot: value.roots.runRoot, webRoot: value.roots.webRoot,
+    platformRoot: join(root, "platform"),
+  };
+  value.localAiTeamRuntimeConfig = {
+    enabled: true,
+    baseUrl: "http://127.0.0.1:11434",
+    model: "qwen-local",
+    fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { messages?: Array<{ content?: string }> };
+      const prompt = body.messages?.[1]?.content ?? "";
+      const content = prompt.includes("ai-team-proposal")
+        ? JSON.stringify({ title: "Ollama 제안", objective: "구성된 로컬 모델 경계를 확인합니다.", acceptanceCriteria: ["사람 승인"], rationale: "명시적 local config" })
+        : JSON.stringify({ answer: "작업을 작은 단계로 나눕니다.", keyPoints: ["권한 확인"], alternatives: ["읽기 우선"], risks: ["검토 누락"] });
+      return new Response(JSON.stringify({ message: { content } }), { status: 200 });
+    },
+  };
+  const services = await startIseolRuntimeServices(value);
+  try {
+    const user = await services.platformUserService.createUser({ id: "composed-ai-team-ollama-user", email: "composed-ai-team-ollama@example.com", displayName: "Composed AI Team Ollama", timezone: "Asia/Seoul" });
+    const principal = { userId: user.id, sessionId: "composed-ai-team-ollama-session", roles: ["user"] };
+    const team = await services.teamService.createTeam(principal, { name: "Ollama AI 팀", description: "local config", kind: "project", visibility: "private", capacity: 3 });
+    await services.teamService.addAiMember(principal, team.id, { agentId: "architect", assignmentRole: "architecture", capabilities: ["context.read", "task.propose", "discussion.propose"], approvalScope: "suggestion-only" }, "2026-09-28T12:00:00.000Z");
+    const project = await services.userProjectService.createProject(principal, { name: "Ollama AI 팀 프로젝트", objective: "local adapter wiring", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
+    const proposal = await services.aiTeamProposalService.requestProposal(principal, project.id, { agentId: "architect", requestId: "ollama-proposal" });
+    const discussion = await services.aiTeamDiscussionService.requestDiscussion(principal, project.id, { agentId: "architect", requestId: "ollama-discussion", question: "로컬 모델이 연결되나요?" });
+    assert.equal(proposal.status, "proposed");
+    assert.equal(proposal.title, "Ollama 제안");
+    assert.equal(discussion.status, "completed");
+    assert.equal(discussion.answer, "작업을 작은 단계로 나눕니다.");
+  } finally {
+    await services.dispose();
+  }
+});
+
 test("Idea-Lab-only runtime resolves the browser once even when standalone bridge is disabled", async () => {
   let browserCreates = 0;
   const value = fixture({ env: { ISEOL_CHATGPT_WEB_ENABLED: "false" }, ideaLabConfig: liveConfig() });
@@ -210,8 +406,53 @@ test("Project Workspace runtime registers the shared AI/Desktop executor when ex
     return { close: (done?: (error?: Error) => void) => done?.() };
   };
   const services = await startIseolRuntimeServices(value);
+  assert.equal(services.ideaLabCapability.agent, "ready");
   assert.equal(typeof capability.enqueueProjectRun, "function");
+  assert.equal(typeof capability.retryProjectRun, "function");
   assert.equal(await capability.enqueueProjectRun("missing-project-run"), "not-configured");
+  assert.equal(await capability.retryProjectRun({ projectId: "missing-project", runId: "missing-project-run" }), "not-allowed");
+  await services.dispose();
+});
+
+test("Project Workspace Agent capability follows late disconnects and reconnects", async () => {
+  let connected = true;
+  let connectedListener: ((agentId: string) => void) | undefined;
+  let disconnectedListener: ((agentId: string) => void) | undefined;
+  const transport = {
+    isAgentConnected: (agentId: string) => {
+      assert.equal(agentId, "agent-project");
+      return connected;
+    },
+    onAgentConnected(listener: (agentId: string) => void) {
+      connectedListener = listener;
+      return () => { if (connectedListener === listener) connectedListener = undefined; };
+    },
+    onAgentDisconnected(listener: (agentId: string) => void) {
+      disconnectedListener = listener;
+      return () => { if (disconnectedListener === listener) disconnectedListener = undefined; };
+    },
+    sendTask() {},
+    awaitResult: async () => { throw new Error("unused"); },
+  };
+  const value = fixture({
+    env: { ISEOL_PROJECT_RUNTIME_ENABLED: "true", ISEOL_PROJECT_AGENT_ID: "agent-project" },
+  });
+  value.deps.startDesktop = async () => ({ transport, close: async () => undefined });
+  value.deps.createProjectExecutor = () => ({});
+  const services = await startIseolRuntimeServices(value);
+
+  assert.equal(services.ideaLabCapability.agent, "ready");
+  assert.equal(typeof connectedListener, "function");
+  assert.equal(typeof disconnectedListener, "function");
+
+  connected = false;
+  disconnectedListener!("agent-project");
+  assert.equal(services.ideaLabCapability.agent, "unavailable");
+
+  connected = true;
+  connectedListener!("agent-project");
+  assert.equal(services.ideaLabCapability.agent, "ready");
+
   await services.dispose();
 });
 
@@ -240,6 +481,38 @@ test("Project Workspace runtime exposes isolated roots to the web control plane"
   assert.equal(webOptions.projectModelRoot, resolve("C:/project-model"));
   assert.equal(webOptions.projectHarnessRoot, resolve("C:/project-runs"));
   await services.dispose();
+});
+
+test("runtime wires a durable platform user service into the web control plane", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-platform-runtime-"));
+  let webOptions: any;
+  const value = fixture({
+    webConfig: {
+      host: "127.0.0.1", port: 0, token: "",
+      modelRoot: join(root, "model"), harnessRoot: join(root, "runs"), webRoot: join(root, "web"),
+      platformRoot: join(root, "platform"),
+    },
+    deps: {
+      startWeb: async (options: any) => {
+        webOptions = options;
+        return { close: (done?: (error?: Error) => void) => done?.() };
+      },
+    },
+  });
+  const services = await startIseolRuntimeServices(value);
+  try {
+    assert.equal(typeof webOptions.userService?.createUser, "function");
+    const user = await webOptions.userService.createUser({
+      id: "runtime-user",
+      email: "runtime@example.com",
+      displayName: "Runtime User",
+      timezone: "Asia/Seoul",
+    });
+    assert.equal(user.id, "runtime-user");
+    assert.equal(typeof services.platformUserService?.resolveAuthenticatedPrincipal, "function");
+  } finally {
+    await services.dispose();
+  }
 });
 
 test("Project Workspace runtime stays unavailable when isolated roots are incomplete", async () => {
@@ -473,7 +746,7 @@ test("live Idea Lab waits boundedly for the configured Desktop agent to connect"
   assert.equal(services.ideaLabCapability.state, "ready");
   assert.equal(constructed, 1);
   assert.equal(sleeps, 1);
-  assert.equal(checks, 2);
+  assert.equal(checks, 3);
   await services.dispose();
 });
 
@@ -504,7 +777,7 @@ test("default live Idea Lab wait covers the persistent Agent max reconnect backo
   await services.dispose();
 });
 
-test("configured Desktop Agent reconnect does not auto-recover Idea Lab campaigns", async () => {
+test("configured Desktop Agent reconnect does not duplicate completed startup recovery", async () => {
   let reconnectListener:
     | ((agentId: string) => void)
     | undefined;
@@ -573,13 +846,13 @@ test("configured Desktop Agent reconnect does not auto-recover Idea Lab campaign
   assert.equal(
     recoverCalls,
     1,
-    "Agent reconnect must not automatically recover existing campaigns",
+    "a reconnect after completed startup recovery must not duplicate recovery",
   );
 
   await services.dispose();
 });
 
-test("late Agent connection changes Idea Lab readiness without automatic recovery", async () => {
+test("late Agent connection changes Idea Lab readiness and recovers once", async () => {
   let connected = false;
   let connectedListener: ((agentId: string) => void) | undefined;
   let disconnectedListener: ((agentId: string) => void) | undefined;
@@ -617,19 +890,135 @@ test("late Agent connection changes Idea Lab readiness without automatic recover
 
   const services = await startIseolRuntimeServices(value);
   assert.equal(capability.state, "blocked");
+  assert.equal(services.ideaLabCapability.agent, "unavailable");
   assert.equal(constructed, 0);
   assert.equal(recoverCalls, 0);
 
   connected = true;
   connectedListener!("agent-live");
+  connectedListener!("agent-live");
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(capability.state, "ready");
   assert.equal(services.ideaLabCapability.state, "ready");
+  assert.equal(services.ideaLabCapability.agent, "ready");
   assert.equal(constructed, 1);
-  assert.equal(recoverCalls, 0);
+  assert.equal(recoverCalls, 1);
 
   connected = false;
   disconnectedListener!("agent-live");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(capability.state, "blocked");
+  assert.equal(services.ideaLabCapability.agent, "unavailable");
+
+  connected = true;
+  connectedListener!("agent-live");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(capability.state, "ready");
+  assert.equal(services.ideaLabCapability.agent, "ready");
+  assert.equal(constructed, 1);
+  assert.equal(recoverCalls, 1);
+
+  await services.dispose();
+});
+
+test("late Agent recovery retries after a failed pass without marking readiness complete", async () => {
+  let connected = false;
+  let connectedListener: ((agentId: string) => void) | undefined;
+  let recoverCalls = 0;
+  let capability: any;
+  const transport = {
+    isAgentConnected: (agentId: string) => {
+      assert.equal(agentId, "agent-live");
+      return connected;
+    },
+    onAgentConnected(listener: (agentId: string) => void) {
+      connectedListener = listener;
+      return () => { if (connectedListener === listener) connectedListener = undefined; };
+    },
+    onAgentDisconnected() {
+      return () => undefined;
+    },
+    sendTask() {},
+    awaitResult: async () => { throw new Error("unused"); },
+  };
+  const value = fixture({ ideaLabConfig: liveConfig(), agentReadyTimeoutMs: 0 });
+  value.deps.startDesktop = async () => ({ transport, close: async () => undefined });
+  value.deps.resolveDeploy = async () => ({});
+  value.deps.createProductionDriver = () => ({});
+  value.deps.createRuntime = () => ({
+    recover: async () => {
+      recoverCalls += 1;
+      if (recoverCalls === 1) throw new Error("recovery failed");
+    },
+    dispose: async () => undefined,
+  });
+  value.deps.startWeb = async (options: any) => {
+    capability = options.ideaLabRuntime;
+    return { close: (done?: (error?: Error) => void) => done?.() };
+  };
+
+  const services = await startIseolRuntimeServices(value);
+  connected = true;
+  connectedListener!("agent-live");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(capability.state, "blocked");
+  assert.equal(recoverCalls, 1);
+
+  connectedListener!("agent-live");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(capability.state, "ready");
+  assert.equal(recoverCalls, 2);
+  await services.dispose();
+});
+
+test("Agent disconnect during recovery leaves readiness blocked until reconnect", async () => {
+  let connected = false;
+  let connectedListener: ((agentId: string) => void) | undefined;
+  let disconnectedListener: ((agentId: string) => void) | undefined;
+  let releaseRecovery: (() => void) | undefined;
+  let recoverCalls = 0;
+  let capability: any;
+  const transport = {
+    isAgentConnected: (agentId: string) => {
+      assert.equal(agentId, "agent-live");
+      return connected;
+    },
+    onAgentConnected(listener: (agentId: string) => void) {
+      connectedListener = listener;
+      return () => { if (connectedListener === listener) connectedListener = undefined; };
+    },
+    onAgentDisconnected(listener: (agentId: string) => void) {
+      disconnectedListener = listener;
+      return () => { if (disconnectedListener === listener) disconnectedListener = undefined; };
+    },
+    sendTask() {},
+    awaitResult: async () => { throw new Error("unused"); },
+  };
+  const value = fixture({ ideaLabConfig: liveConfig(), agentReadyTimeoutMs: 0 });
+  value.deps.startDesktop = async () => ({ transport, close: async () => undefined });
+  value.deps.resolveDeploy = async () => ({});
+  value.deps.createProductionDriver = () => ({});
+  value.deps.createRuntime = () => ({
+    recover: async () => {
+      recoverCalls += 1;
+      await new Promise<void>((resolve) => { releaseRecovery = resolve; });
+    },
+    dispose: async () => undefined,
+  });
+  value.deps.startWeb = async (options: any) => {
+    capability = options.ideaLabRuntime;
+    return { close: (done?: (error?: Error) => void) => done?.() };
+  };
+
+  const services = await startIseolRuntimeServices(value);
+  connected = true;
+  connectedListener!("agent-live");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(recoverCalls, 1);
+
+  connected = false;
+  disconnectedListener!("agent-live");
+  releaseRecovery!();
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(capability.state, "blocked");
 
@@ -637,9 +1026,7 @@ test("late Agent connection changes Idea Lab readiness without automatic recover
   connectedListener!("agent-live");
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(capability.state, "ready");
-  assert.equal(constructed, 1);
-  assert.equal(recoverCalls, 0);
-
+  assert.equal(recoverCalls, 1);
   await services.dispose();
 });
 

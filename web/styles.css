@@ -60,6 +60,7 @@ h1 { margin-bottom: 0; font-size: clamp(20px, 2.4vw, 34px); letter-spacing: -.04
 
 .token-control { min-width: min(390px, 42vw); }
 .token-control label, .workspace-picker label { display: block; margin-bottom: 7px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.token-control label + .token-row + label { margin-top: 10px; }
 .token-row { display: flex; gap: 8px; }
 input, select {
   min-width: 0;

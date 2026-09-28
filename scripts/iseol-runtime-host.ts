@@ -1101,7 +1101,7 @@ async function main(): Promise<void> {
       ...(config.projectRunRoot ? { projectRunRoot: config.projectRunRoot } : {}),
       ...(config.projectWebWorkerRoot ? { projectWebWorkerRoot: config.projectWebWorkerRoot } : {}),
       ...(config.projectDesktopStateRoot ? { projectDesktopStateRoot: config.projectDesktopStateRoot } : {}),
-    } });
+    }, shutdownDiagnosticsRoot: resolve(config.dataRoot, "runtime") });
     shutdownServer = await createRuntimeShutdownServer(runtimeShutdownEndpoint(config.lockPath), async (request) => {
       if (request.expectedPid !== process.pid) return { status: "rejected", reason: "Runtime PID mismatch" };
       if (!configuredOperatorId || request.operatorId !== configuredOperatorId) return { status: "rejected", reason: "operator identity mismatch" };

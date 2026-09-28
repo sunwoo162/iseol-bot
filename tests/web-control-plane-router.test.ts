@@ -8,7 +8,7 @@ import { savePrototypeCandidate } from "../src/project-model/prototype-store.js"
 import { loadProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { saveProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { routeWebControlPlaneRequest } from "../src/web-control-plane/router.js";
-import { saveHarnessRun } from "../src/harness/run-store.js";
+import { loadHarnessRun, requestHarnessRunRetry, saveHarnessRun } from "../src/harness/run-store.js";
 import { updateProjectWorkRequest } from "../src/project-model/work-request.js";
 
 function candidate(): PrototypeCandidate {
@@ -174,6 +174,71 @@ test("work reconciliation projects an authoritative terminal Run into the queue"
   assert.equal(reconciliation.status, 200);
   assert.equal((reconciliation.body as any).request.status, "completed");
   assert.equal((reconciliation.body as any).transition, "updated");
+});
+
+test("operator can retry a failed project Run through Control Plane without changing Run identity", async () => {
+  const base = await fixture("secret-token");
+  const deps = {
+    ...base,
+    operatorToken: "operator-token",
+    ideaLabRuntime: {
+      state: "ready" as const,
+      retryProjectRun: async ({ runId }: { projectId: string; runId: string }) => {
+        const retry = await requestHarnessRunRetry(base.harnessRoot, runId, {
+          retryReason: "operator-request",
+          actor: "operator",
+          requestedAt: "2026-09-07T00:03:00.000Z",
+        });
+        return retry.status === "accepted" ? "accepted" as const : retry.status === "already-active" ? "already-active" as const : "not-allowed" as const;
+      },
+    },
+  };
+  await saveProjectWorkspace(deps.modelRoot, {
+    version: 1, id: "project-operator-retry", name: "Operator retry", status: "active",
+    genesis: { prototypeId: "prototype-001", repository: candidate().repository, deployment: candidate().deployment, runs: [], promotedAt: "2026-09-07T00:00:00.000Z" },
+    tree: [{ id: "root", kind: "root", title: "Operator retry", status: "planned", runIds: [], createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z" }],
+    createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z",
+  });
+  const create = await routeWebControlPlaneRequest({
+    method: "POST", path: "/api/projects/project-operator-retry/work-requests",
+    headers: { authorization: "Bearer secret-token" },
+    body: { title: "Retry work", objective: "Recover the failed Run", idempotencyKey: "operator-retry-1" },
+  }, deps);
+  assert.equal(create.status, 201);
+  const workId = (create.body as any).id as string;
+  await updateProjectWorkRequest(deps.modelRoot, "project-operator-retry", workId, {
+    status: "failed", requestedRunId: "run-operator-retry", runId: "run-operator-retry", blocker: "previous failure",
+  }, "2026-09-07T00:02:00.000Z");
+  await saveHarnessRun(deps.harnessRoot, {
+    version: 1,
+    request: { version: 1, runId: "run-operator-retry", mode: "project-workspace", projectId: "project-operator-retry", objective: "Recover the failed Run", targetRoot: join(tmpdir(), "operator-retry-target") },
+    preflight: { version: 1, runId: "run-operator-retry", status: "ready" },
+    state: { version: 1, stage: "IMPLEMENT", status: "FAILED_FINAL", completedStages: ["PREFLIGHT", "CONTEXT", "TEST"], skippedStages: [], updatedAt: "2026-09-07T00:02:00.000Z", reason: "previous failure" },
+    updatedAt: "2026-09-07T00:02:00.000Z",
+  });
+  const expectedRevision = "2026-09-07T00:02:00.000Z:0";
+  const unauthorized = await routeWebControlPlaneRequest({
+    method: "POST", path: `/api/projects/project-operator-retry/work-requests/${workId}/retry`, headers: { authorization: "Bearer secret-token" },
+    body: { expectedRevision, runId: "run-operator-retry" },
+  }, deps);
+  assert.equal(unauthorized.status, 401);
+  const wrongRun = await routeWebControlPlaneRequest({
+    method: "POST", path: `/api/projects/project-operator-retry/work-requests/${workId}/retry`, headers: { authorization: "Bearer operator-token" },
+    body: { expectedRevision, runId: "different-run" },
+  }, deps);
+  assert.equal(wrongRun.status, 409);
+  assert.match((wrongRun.body as any).error, /identity/);
+  const retried = await routeWebControlPlaneRequest({
+    method: "POST", path: `/api/projects/project-operator-retry/work-requests/${workId}/retry`, headers: { authorization: "Bearer operator-token" },
+    body: { expectedRevision, runId: "run-operator-retry" },
+  }, deps);
+  assert.equal(retried.status, 202);
+  assert.equal((retried.body as any).runId, "run-operator-retry");
+  assert.equal((retried.body as any).request.status, "running");
+  assert.equal((retried.body as any).request.requestedRunId, "run-operator-retry");
+  const run = await loadHarnessRun(base.harnessRoot, "run-operator-retry");
+  assert.equal(run?.state.status, "READY");
+  assert.equal(run?.retry?.actor, "operator");
 });
 
 test("rejects unsupported methods and malformed project paths", async () => {

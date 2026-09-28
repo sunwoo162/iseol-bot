@@ -17,6 +17,8 @@ test("dashboard exposes the two Iseol Web modes and auth controls", async () => 
   assert.match(html, /data-mode="project-workspace"/);
   assert.match(html, /id="web-token"/);
   assert.match(html, /id="save-token"/);
+  assert.match(html, /id="operator-token"/);
+  assert.match(html, /id="save-operator-token"/);
 });
 
 test("dashboard declares prototype and Project Workspace rendering targets", async () => {
@@ -48,7 +50,13 @@ test("browser script supports deployment opening promotion and workspace renderi
   assert.match(script, /portfolio/);
   assert.match(script, /savePortfolioEdits/);
   assert.ok(script.includes("/resume"));
+  assert.ok(script.includes("/retry"));
+  assert.ok(script.includes("operatorAuthHeaders"));
+  assert.ok(script.includes("Retry Run"));
   assert.ok(script.includes("expectedRevision"));
+  assert.ok(script.includes("runId: request.requestedRunId"));
+  assert.match(script, /lastEventId/);
+  assert.match(script, /["']last-event-id["']/i);
 });
 
 test("static assets include responsive loading empty unauthorized and error states", async () => {

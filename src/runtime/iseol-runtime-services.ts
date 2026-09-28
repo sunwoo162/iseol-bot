@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import type { Server } from "node:http";
 import {
   resolveWebControlPlaneConfig,
@@ -31,6 +32,7 @@ import {
 } from "../chatgpt-web/production-browser-adapter.js";
 import { createChatGptIdeaProposalProvider } from "../idea-lab/chatgpt-proposal-provider.js";
 import { createRequestBudgetStore } from "../chatgpt-web/request-budget.js";
+import { createRequestDiagnosticStore } from "../chatgpt-web/request-diagnostics.js";
 import {
   resolveIdeaLabRuntimeConfig,
   type IdeaLabRuntimeConfig,
@@ -50,15 +52,67 @@ import {
 } from "../idea-lab/sandbox-adapter.js";
 import { resolveIdeaLabDeployAdapter } from "../idea-lab/local-preview-deploy-adapter.js";
 import type { PrototypeDeployAdapter } from "../idea-lab/deploy-adapter.js";
+import {
+  disposeWithShutdownDiagnostics,
+  type ShutdownDiagnostic,
+  type ShutdownStage,
+} from "./shutdown.js";
 import { createProjectWorkspaceExecutor } from "./project-workspace-executor.js";
 import { createProjectWorkspaceDesktopTaskCompiler } from "./project-workspace-desktop-compiler.js";
 import type { ProgressNotificationAdapter } from "../discord-project/progress-notifications.js";
+import { createPlatformUserService } from "../platform-user/service.js";
+import type { PlatformUserService } from "../platform-user/contracts.js";
+import { createPersonalWorldService } from "../personal-world/service.js";
+import type { PersonalWorldService } from "../personal-world/contracts.js";
+import { createMemoryService } from "../memory/service.js";
+import type { MemoryService } from "../memory/contracts.js";
+import { createActivityService } from "../activity/service.js";
+import type { ActivityService } from "../activity/contracts.js";
+import { createGrowthService } from "../growth/read-model.js";
+import type { GrowthService } from "../growth/contracts.js";
+import { createLearningService } from "../learning/service.js";
+import type { LearningActionDispatcher, LearningContentDispatcher, LearningFeedbackDispatcher, LearningPlanDispatcher, LearningService } from "../learning/contracts.js";
+import { createOllamaLearningActionDispatcher, createOllamaLearningContentDispatcher, createOllamaLearningFeedbackDispatcher, createOllamaLearningPlanDispatcher, resolveOllamaLearningRuntimeConfig, type OllamaLearningRuntimeConfig } from "../learning/local-runtime.js";
+import { createLocalCodingSyntaxVerifier } from "../learning/local-coding-verifier.js";
+import { createUserProjectService } from "../project-model/user-project-service.js";
+import type { UserProjectService } from "../project-model/user-project-service.js";
+import { createTeamService } from "../teams/service.js";
+import type { TeamService } from "../teams/contracts.js";
+import { createTeamChatService } from "../team-chat/service.js";
+import type { TeamChatService } from "../team-chat/contracts.js";
+import { createAiTeamProposalService } from "../ai-team/service.js";
+import type { AiTeamProposalDispatcher, AiTeamProposalService } from "../ai-team/contracts.js";
+import { createAiTeamDiscussionService } from "../ai-team/discussion-service.js";
+import type { AiTeamDiscussionDispatcher, AiTeamDiscussionService } from "../ai-team/contracts.js";
+import { createOllamaAiTeamDiscussionDispatcher, createOllamaAiTeamProposalDispatcher, resolveOllamaAiTeamRuntimeConfig, type OllamaAiTeamRuntimeConfig } from "../ai-team/local-runtime.js";
+import { createStudyService } from "../study/service.js";
+import type { StudyService } from "../study/contracts.js";
+import { createSocialService } from "../social/service.js";
+import type { SocialService } from "../social/contracts.js";
+import { createRecruitmentService } from "../recruitment/service.js";
+import type { RecruitmentService } from "../recruitment/contracts.js";
+import { createPortfolioService } from "../portfolio/service.js";
+import type { PortfolioService } from "../portfolio/contracts.js";
+import { createCommunityService } from "../community/service.js";
+import type { CommunityService } from "../community/contracts.js";
+import { createSettingsService } from "../settings/service.js";
+import { createNotificationService } from "../notifications/service.js";
+import type { NotificationService } from "../notifications/contracts.js";
+import type { SettingsService } from "../settings/contracts.js";
+import { createAiChatService } from "../ai-chat/service.js";
+import type { AiChatRuntimeDispatcher, AiChatService } from "../ai-chat/contracts.js";
+import { createOllamaAiChatRuntimeDispatcher, resolveOllamaAiChatRuntimeConfig } from "../ai-chat/local-runtime.js";
+import { createAiAgentProfileService } from "../ai-agent/service.js";
+import type { AiAgentProfileService } from "../ai-agent/contracts.js";
+import { createUserRuntimeDispatchGate } from "./user-runtime-dispatch-gate.js";
 
 export type IseolRuntimeCapability = {
   state: "disabled" | "ready" | "blocked";
+  agent?: "ready" | "unavailable";
   enqueue?: (campaignId: string) => void;
   retryRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-allowed">;
   enqueueProjectRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-configured">;
+  retryProjectRun?: (input: { projectId: string; runId: string }) => Promise<"accepted" | "already-active" | "not-allowed">;
   inspectProjectRunReconciliation?: (input: { projectId: string; runId: string; expectedRevision: string }) => Promise<Awaited<ReturnType<typeof inspectProjectRunReconciliation>>>;
   reconcileProjectRun?: (input: Omit<ProjectRunReconciliationInput, "storeRoot" | "observe">) => Promise<ProjectRunReconciliationResult>;
   issueProjectRunOperatorApproval?: (input: {
@@ -90,16 +144,67 @@ export type IseolRuntimeInput = {
   env?: Record<string, string | undefined>;
   roots?: IdeaLabRuntimeRoots;
   webConfig?: WebControlPlaneConfig;
+  platformUserService?: PlatformUserService;
+  personalWorldService?: PersonalWorldService;
+  memoryService?: MemoryService;
+  activityService?: ActivityService;
+  growthService?: GrowthService;
+  learningService?: LearningService;
+  learningActionDispatcher?: LearningActionDispatcher;
+  learningContentDispatcher?: LearningContentDispatcher;
+  learningFeedbackDispatcher?: LearningFeedbackDispatcher;
+  learningPlanDispatcher?: LearningPlanDispatcher;
+  localLearningRuntimeConfig?: OllamaLearningRuntimeConfig;
+  userProjectService?: UserProjectService;
+  teamService?: TeamService;
+  teamChatService?: TeamChatService;
+  aiTeamProposalService?: AiTeamProposalService;
+  aiTeamDiscussionService?: AiTeamDiscussionService;
+  aiTeamProposalDispatcher?: AiTeamProposalDispatcher;
+  aiTeamDiscussionDispatcher?: AiTeamDiscussionDispatcher;
+  localAiTeamRuntimeConfig?: OllamaAiTeamRuntimeConfig;
+  studyService?: StudyService;
+  socialService?: SocialService;
+  recruitmentService?: RecruitmentService;
+  portfolioService?: PortfolioService;
+  communityService?: CommunityService;
+  settingsService?: SettingsService;
+  notificationService?: NotificationService;
+  aiChatService?: AiChatService;
+  aiAgentProfileService?: AiAgentProfileService;
+  aiChatRuntimeDispatcher?: AiChatRuntimeDispatcher;
+  localAiRuntimeConfig?: ReturnType<typeof resolveOllamaAiChatRuntimeConfig>;
   desktopConfig?: DesktopAgentCoreConfig;
   ideaLabConfig?: IdeaLabRuntimeConfig;
   agentReadyTimeoutMs?: number;
   deps?: RuntimeDependencies;
   progressNotificationRoot?: string;
   progressNotificationAdapter?: ProgressNotificationAdapter;
+  shutdownDiagnosticsRoot?: string;
+  shutdownStageTimeoutMs?: number;
 };
 
 export type IseolRuntimeServices = {
   webServer: Server;
+  platformUserService: PlatformUserService;
+  personalWorldService: PersonalWorldService;
+  memoryService: MemoryService;
+  activityService: ActivityService;
+  growthService: GrowthService;
+  learningService: LearningService;
+  userProjectService: UserProjectService;
+  teamService: TeamService;
+  teamChatService: TeamChatService;
+  aiTeamProposalService: AiTeamProposalService;
+  aiTeamDiscussionService: AiTeamDiscussionService;
+  studyService: StudyService;
+  socialService: SocialService;
+  recruitmentService: RecruitmentService;
+  portfolioService: PortfolioService;
+  communityService: CommunityService;
+  settingsService: SettingsService;
+  notificationService: NotificationService;
+  aiChatService: AiChatService;
   desktopCore: DesktopCoreService | null;
   chatGptBridge?: ChatGptWebBridgeService;
   ideaLabRuntime?: IdeaLabRuntimeService;
@@ -155,7 +260,19 @@ function projectTestConfig(env: Record<string, string | undefined>) {
   }
   const timeoutMs = Number(env.ISEOL_PROJECT_TEST_TIMEOUT_MS?.trim() || "120000");
   if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) throw new Error("ISEOL_PROJECT_TEST_TIMEOUT_MS must be positive");
-  return { executable, args, timeoutMs };
+  const buildExecutable = env.ISEOL_PROJECT_BUILD_EXECUTABLE?.trim() || (process.platform === "win32" ? "npm.cmd" : "npm");
+  let buildArgs = ["run", "build"];
+  const encodedBuild = env.ISEOL_PROJECT_BUILD_ARGS_JSON?.trim();
+  if (encodedBuild) {
+    try {
+      const parsed = JSON.parse(encodedBuild);
+      if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string")) throw new Error("invalid");
+      buildArgs = parsed;
+    } catch { throw new Error("ISEOL_PROJECT_BUILD_ARGS_JSON must be a string array"); }
+  }
+  const buildTimeoutMs = Number(env.ISEOL_PROJECT_BUILD_TIMEOUT_MS?.trim() || "120000");
+  if (!Number.isInteger(buildTimeoutMs) || buildTimeoutMs <= 0) throw new Error("ISEOL_PROJECT_BUILD_TIMEOUT_MS must be positive");
+  return { executable, args, timeoutMs, buildExecutable, buildArgs, buildTimeoutMs };
 }
 function defaultRoots(
   env: Record<string, string | undefined>,
@@ -211,6 +328,12 @@ async function waitForDesktopAgentConnection(
 
 async function closeWebServer(server: Server | undefined): Promise<void> {
   if (!server) return;
+  const closeForShutdown = (server as Server & { closeForShutdown?: () => Promise<void> }).closeForShutdown;
+  if (closeForShutdown) {
+    await closeForShutdown();
+    return;
+  }
+  server.closeIdleConnections?.();
   await new Promise<void>((resolveClose, reject) => {
     server.close((error) => error ? reject(error) : resolveClose());
   });
@@ -225,24 +348,44 @@ type OwnedResources = {
   deployAdapter?: PrototypeDeployAdapter & { dispose?: () => Promise<void> };
 };
 
-async function disposeOwnedResources(resources: OwnedResources, suppressErrors = false): Promise<void> {
-  let firstError: unknown;
-  const actions: Array<() => Promise<void>> = [
-    async () => closeWebServer(resources.webServer),
-    async () => { if (resources.bridge?.enabled) await resources.bridge.dispose(); },
-    async () => { await resources.runtime?.dispose(); },
-    async () => { await resources.deployAdapter?.dispose?.(); },
-    async () => { await resources.desktopCore?.close(); },
-    async () => { await resources.browser?.dispose?.(); },
-  ];
-  for (const action of actions) {
+function createShutdownDiagnosticRecorder(root?: string): ((event: ShutdownDiagnostic) => void) | undefined {
+  if (!root) return undefined;
+  const path = resolve(root, "shutdown-diagnostics.jsonl");
+  return (event) => {
     try {
-      await action();
-    } catch (error) {
-      if (firstError === undefined) firstError = error;
+      mkdirSync(dirname(path), { recursive: true });
+      appendFileSync(path, `${JSON.stringify(event)}\n`, "utf8");
+    } catch {
+      // Diagnostics must never change the ownership or disposal outcome.
     }
+  };
+}
+
+async function disposeOwnedResources(
+  resources: OwnedResources,
+  options: { suppressErrors?: boolean; record?: (event: ShutdownDiagnostic) => void; stageTimeoutMs?: number } = {},
+): Promise<void> {
+  const stages: Array<{ name: ShutdownStage; dispose: () => Promise<void> }> = [
+    { name: "web-server", dispose: async () => closeWebServer(resources.webServer) },
+    { name: "chatgpt-bridge", dispose: async () => { if (resources.bridge?.enabled) await resources.bridge.dispose(); } },
+    { name: "idea-lab-runtime", dispose: async () => { await resources.runtime?.dispose(); } },
+    { name: "deploy-adapter", dispose: async () => { await resources.deployAdapter?.dispose?.(); } },
+    { name: "desktop-core", dispose: async () => { await resources.desktopCore?.close(); } },
+    { name: "browser", dispose: async () => { await resources.browser?.dispose?.(); } },
+  ];
+  if (options.suppressErrors) {
+    await disposeWithShutdownDiagnostics({
+      stages,
+      ...(options.record ? { record: options.record } : {}),
+      ...(options.stageTimeoutMs ? { stageTimeoutMs: options.stageTimeoutMs } : {}),
+    }).catch(() => undefined);
+    return;
   }
-  if (!suppressErrors && firstError !== undefined) throw firstError;
+  await disposeWithShutdownDiagnostics({
+    stages,
+    ...(options.record ? { record: options.record } : {}),
+    ...(options.stageTimeoutMs ? { stageTimeoutMs: options.stageTimeoutMs } : {}),
+  });
 }
 
 export async function startIseolRuntimeServices(
@@ -261,6 +404,56 @@ export async function startIseolRuntimeServices(
         webWorkerRoot: input.roots.webWorkerRoot ?? resolve(resolveChatGptWebBridgeConfig(env).workerRoot),
       }
     : defaultRoots(env, webConfig);
+  const platformUserService = input.platformUserService
+    ?? createPlatformUserService(resolve(webConfig.platformRoot ?? resolve(roots.iseolRoot, "data", "platform")));
+  const platformRoot = resolve(webConfig.platformRoot ?? resolve(roots.iseolRoot, "data", "platform"));
+  const userRuntimeDispatchGate = createUserRuntimeDispatchGate();
+  const personalWorldService = input.personalWorldService ?? createPersonalWorldService(platformRoot);
+  const activityService = input.activityService ?? createActivityService(platformRoot);
+  const settingsService = input.settingsService ?? createSettingsService(platformRoot);
+  const notificationService = input.notificationService ?? createNotificationService(platformRoot);
+  const growthService = input.growthService ?? createGrowthService(platformRoot, { settingsService, notificationService });
+  const localLearningRuntimeConfig = input.localLearningRuntimeConfig ?? resolveOllamaLearningRuntimeConfig(env);
+  const learningActionDispatcher = input.learningActionDispatcher
+    ?? (localLearningRuntimeConfig.enabled ? createOllamaLearningActionDispatcher(localLearningRuntimeConfig) : undefined);
+  const learningContentDispatcher = input.learningContentDispatcher
+    ?? (localLearningRuntimeConfig.enabled ? createOllamaLearningContentDispatcher(localLearningRuntimeConfig) : undefined);
+  const learningFeedbackDispatcher = input.learningFeedbackDispatcher
+    ?? (localLearningRuntimeConfig.enabled ? createOllamaLearningFeedbackDispatcher(localLearningRuntimeConfig) : undefined);
+  const learningPlanDispatcher = input.learningPlanDispatcher
+    ?? (localLearningRuntimeConfig.enabled ? createOllamaLearningPlanDispatcher(localLearningRuntimeConfig) : undefined);
+  const localAiTeamRuntimeConfig = input.localAiTeamRuntimeConfig ?? resolveOllamaAiTeamRuntimeConfig(env);
+  const aiTeamProposalDispatcher = input.aiTeamProposalDispatcher
+    ?? (localAiTeamRuntimeConfig.enabled ? createOllamaAiTeamProposalDispatcher(localAiTeamRuntimeConfig) : undefined);
+  const aiTeamDiscussionDispatcher = input.aiTeamDiscussionDispatcher
+    ?? (localAiTeamRuntimeConfig.enabled ? createOllamaAiTeamDiscussionDispatcher(localAiTeamRuntimeConfig) : undefined);
+  const teamService = input.teamService ?? createTeamService(platformRoot, { activityService });
+  const memoryService = input.memoryService ?? createMemoryService(platformRoot, { teamService });
+  const teamChatService = input.teamChatService ?? createTeamChatService(platformRoot, { teamService, activityService, notificationService, settingsService });
+  const userProjectService = input.userProjectService ?? createUserProjectService({
+    platformRoot,
+    projectModelRoot: roots.projectModelRoot ?? roots.modelRoot,
+    projectHarnessRoot: roots.projectRunRoot ?? roots.runRoot,
+    iseolRoot: roots.iseolRoot,
+    canAccessTeam: (principal, teamId) => teamService.canAccess(principal, teamId),
+    activityService,
+    growthService,
+    settingsService,
+  });
+  const learningService = input.learningService ?? createLearningService(platformRoot, { activityService, growthService, userProjectService, codingAttemptVerifier: createLocalCodingSyntaxVerifier(), dispatchForUser: userRuntimeDispatchGate, ...(learningPlanDispatcher ? { planDispatcher: learningPlanDispatcher } : {}), ...(learningActionDispatcher ? { actionDispatcher: learningActionDispatcher } : {}), ...(learningContentDispatcher ? { contentDispatcher: learningContentDispatcher } : {}), ...(learningFeedbackDispatcher ? { feedbackDispatcher: learningFeedbackDispatcher } : {}) });
+  const aiTeamProposalService = input.aiTeamProposalService ?? createAiTeamProposalService({ root: resolve(platformRoot, "ai-team"), teamService, userProjectService, activityService, dispatchForUser: userRuntimeDispatchGate, dispatcher: aiTeamProposalDispatcher });
+  const aiTeamDiscussionService = input.aiTeamDiscussionService ?? createAiTeamDiscussionService({ root: resolve(platformRoot, "ai-team"), teamService, userProjectService, activityService, dispatchForUser: userRuntimeDispatchGate, dispatcher: aiTeamDiscussionDispatcher });
+  const studyService = input.studyService ?? createStudyService(resolve(platformRoot, "study"), { teamService, learningService, activityService });
+  const portfolioService = input.portfolioService ?? createPortfolioService(platformRoot, { activityService, userProjectService, learningService });
+  const socialService = input.socialService ?? createSocialService(platformRoot, { platformUserService, canCollaborate: teamService.canCollaborate, activityService, notificationService, settingsService, growthService, userProjectService, learningService, portfolioService });
+  const recruitmentService = input.recruitmentService ?? createRecruitmentService(platformRoot, { teamService, activityService, notificationService, settingsService });
+  const communityService = input.communityService ?? createCommunityService(platformRoot, { platformUserService, notificationService, settingsService });
+  const localAiRuntimeConfig = input.localAiRuntimeConfig ?? resolveOllamaAiChatRuntimeConfig(env);
+  const aiChatRuntimeDispatcher = input.aiChatRuntimeDispatcher
+    ?? (localAiRuntimeConfig.enabled ? createOllamaAiChatRuntimeDispatcher(localAiRuntimeConfig) : undefined);
+  const aiAgentProfileService = input.aiAgentProfileService ?? createAiAgentProfileService(platformRoot);
+  const aiChatService = input.aiChatService ?? createAiChatService(platformRoot, { memoryService, learningService, activityService, userProjectService, teamService, studyService, settingsService, notificationService, aiAgentProfileService, dispatchForUser: userRuntimeDispatchGate, ...(aiChatRuntimeDispatcher ? { runtimeDispatcher: aiChatRuntimeDispatcher } : {}) });
+  const shutdownRecord = createShutdownDiagnosticRecorder(input.shutdownDiagnosticsRoot);
   const requestedFlag = env.ISEOL_IDEA_LAB_RUNTIME_ENABLED?.trim().toLowerCase() === "true";
   let ideaLabConfig: IdeaLabRuntimeConfig;
   let ideaLabConfigBlocked = false;
@@ -311,6 +504,7 @@ export async function startIseolRuntimeServices(
   let unsubscribeAgentDisconnected: (() => void) | undefined;
   const projectActiveRuns = new Map<string, Promise<void>>();
   let enqueueProjectRun: IseolRuntimeCapability["enqueueProjectRun"];
+  let retryProjectRun: IseolRuntimeCapability["retryProjectRun"];
   let inspectProjectRun: IseolRuntimeCapability["inspectProjectRunReconciliation"];
   let reconcileProjectRun: IseolRuntimeCapability["reconcileProjectRun"];
   let issueProjectRunOperatorApproval: IseolRuntimeCapability["issueProjectRunOperatorApproval"];
@@ -318,8 +512,8 @@ export async function startIseolRuntimeServices(
   let issueDesktopJobContainmentApprovalCapability: IseolRuntimeCapability["issueDesktopJobContainmentApproval"];
   let containDesktopJobCapability: IseolRuntimeCapability["containDesktopJob"];
   let capability: IseolRuntimeCapability = ideaLabRequested
-    ? { state: "blocked" }
-    : { state: "disabled" };
+    ? { state: "blocked", agent: "unavailable" }
+    : { state: "disabled", agent: "unavailable" };
 
   try {
     if (desktopConfig.enabled) {
@@ -354,10 +548,40 @@ export async function startIseolRuntimeServices(
 
     const configuredProjectAgentId = projectAgentId(env, ideaLabConfig);
     const runtimeAgentId = ideaLabConfig.enabled ? ideaLabConfig.agentId : configuredProjectAgentId;
+    const ideaLabAgentId = ideaLabConfig.enabled ? ideaLabConfig.agentId : undefined;
     const agentTransport = desktopCore?.transport;
+    const requiredAgentIds = [
+      runtimeAgentId,
+      projectRequested ? configuredProjectAgentId : null,
+    ].filter((agentId, index, agentIds): agentId is string => Boolean(agentId) && agentIds.indexOf(agentId) === index);
+    const refreshAgentCapability = (knownAgentId?: string, knownAgentReady?: boolean): void => {
+      capability.agent = agentTransport && requiredAgentIds.length > 0
+        && requiredAgentIds.every((agentId) => agentId === knownAgentId
+          ? Boolean(knownAgentReady)
+          : agentTransport.isAgentConnected(agentId))
+        ? "ready"
+        : "unavailable";
+    };
     let initialReadinessWindow = true;
     let readinessChange: Promise<void> | undefined;
     let ideaLabInitializationStarted = false;
+    let ideaLabRecoveryCompleted = false;
+    let ideaLabRecoveryPromise: Promise<void> | undefined;
+
+    const recoverIdeaLabOnce = (): Promise<void> => {
+      if (!runtime || ideaLabRecoveryCompleted) return Promise.resolve();
+      if (ideaLabRecoveryPromise) return ideaLabRecoveryPromise;
+      const recovery = Promise.resolve()
+        .then(() => runtime!.recover())
+        .then(() => {
+          ideaLabRecoveryCompleted = true;
+        })
+        .finally(() => {
+          ideaLabRecoveryPromise = undefined;
+        });
+      ideaLabRecoveryPromise = recovery;
+      return recovery;
+    };
 
     const initializeIdeaLab = async (recoverOnStartup: boolean, connectedOverride?: boolean): Promise<void> => {
       if (!ideaLabConfig.enabled) return;
@@ -368,6 +592,18 @@ export async function startIseolRuntimeServices(
         return;
       }
       if (runtime) {
+        if (recoverOnStartup) {
+          try {
+            await recoverIdeaLabOnce();
+          } catch (error) {
+            capability.state = "blocked";
+            throw error;
+          }
+        }
+        if (!agentTransport.isAgentConnected(activeIdeaLabConfig.agentId)) {
+          capability.state = "blocked";
+          return;
+        }
         capability.state = "ready";
         return;
       }
@@ -390,6 +626,7 @@ export async function startIseolRuntimeServices(
       const requestBudget = ideaLabConfig.externalRequestBudget
         ? createRequestBudgetStore(roots.webWorkerRoot ?? roots.webRoot, ideaLabConfig.externalRequestBudget)
         : undefined;
+      const requestDiagnostics = createRequestDiagnosticStore(roots.webWorkerRoot ?? roots.webRoot);
       const sandboxAdapter: PrototypeSandboxAdapter = createSandboxAdapter({
         dispatch: async (pack) => {
           agentTransport.sendTask(pack.agentId, pack, agentTransport.getAgentSessionId(pack.agentId) ?? undefined);
@@ -397,7 +634,10 @@ export async function startIseolRuntimeServices(
         },
         refreshPreflight: refreshDevelopmentRunPreflight,
       });
-      const proposalProvider = createProposalProvider(browser, requestBudget ? { requestBudget } : undefined);
+      const proposalProvider = createProposalProvider(browser, {
+        ...(requestBudget ? { requestBudget } : {}),
+        diagnostics: requestDiagnostics,
+      });
       const productionDriver: ProductionDriver = createProductionDriver({
         ...activeIdeaLabConfig,
         roots,
@@ -435,7 +675,11 @@ export async function startIseolRuntimeServices(
 
       capability.enqueue = (campaignId) => runtime!.enqueue(campaignId);
       capability.retryRun = (runId) => runtime!.retryRun(runId);
-      if (recoverOnStartup) await runtime.recover();
+      if (recoverOnStartup) await recoverIdeaLabOnce();
+      if (!agentTransport.isAgentConnected(activeIdeaLabConfig.agentId)) {
+        capability.state = "blocked";
+        return;
+      }
       capability.state = "ready";
     };
 
@@ -447,22 +691,27 @@ export async function startIseolRuntimeServices(
       return readinessChange;
     };
 
-    if (ideaLabConfig.enabled && agentTransport) {
+    if (agentTransport && requiredAgentIds.length > 0) {
       unsubscribeAgentConnected = agentTransport.onAgentConnected?.((agentId: string) => {
-        if (agentId !== ideaLabConfig.agentId || initialReadinessWindow) return;
-        void refreshIdeaLabReadiness(false).catch(() => {
-          capability.state = "blocked";
-        });
+        if (!requiredAgentIds.includes(agentId)) return;
+        refreshAgentCapability();
+        if (agentId === ideaLabAgentId && !initialReadinessWindow) {
+          void refreshIdeaLabReadiness(true).catch(() => {
+            capability.state = "blocked";
+          });
+        }
       });
       unsubscribeAgentDisconnected = agentTransport.onAgentDisconnected?.((agentId: string) => {
-        if (agentId !== ideaLabConfig.agentId || initialReadinessWindow) return;
-        capability.state = "blocked";
+        if (!requiredAgentIds.includes(agentId)) return;
+        refreshAgentCapability();
+        if (agentId === ideaLabAgentId && !initialReadinessWindow) capability.state = "blocked";
       });
     }
 
     const desktopAgentReady = runtimeAgentId && desktopCore?.transport && browser
       ? await waitForDesktopAgentConnection(desktopCore.transport, runtimeAgentId, agentReadyTimeoutMs, sleep)
       : false;
+    refreshAgentCapability(runtimeAgentId ?? undefined, desktopAgentReady);
     initialReadinessWindow = false;
     if (ideaLabConfig.enabled) {
       const connectedAtReadinessBoundary = Boolean(desktopAgentReady)
@@ -474,6 +723,7 @@ export async function startIseolRuntimeServices(
         const projectAgentReady = configuredProjectAgentId === runtimeAgentId
           ? true
           : await waitForDesktopAgentConnection(desktopCore.transport, configuredProjectAgentId, agentReadyTimeoutMs, sleep);
+        refreshAgentCapability(configuredProjectAgentId, projectAgentReady);
         if (!projectAgentReady) {
           // Keep the Web control plane available; the Project Run will be reported as not configured
           // until the explicitly configured Agent is connected.
@@ -494,6 +744,9 @@ export async function startIseolRuntimeServices(
             testExecutable: compilerConfig.executable,
             testArgs: compilerConfig.args,
             testTimeoutMs: compilerConfig.timeoutMs,
+            buildExecutable: compilerConfig.buildExecutable,
+            buildArgs: compilerConfig.buildArgs,
+            buildTimeoutMs: compilerConfig.buildTimeoutMs,
           }),
         });
         enqueueProjectRun = async (runId: string) => {
@@ -510,6 +763,19 @@ export async function startIseolRuntimeServices(
           projectActiveRuns.set(runId, tracked);
           void tracked.catch(() => undefined);
           return "accepted";
+        };
+        retryProjectRun = async ({ projectId, runId }) => {
+          const current = await loadHarnessRun(roots.projectRunRoot!, runId);
+          if (!current || current.request.mode !== "project-workspace" || current.request.projectId !== projectId) return "not-allowed";
+          const retry = await requestHarnessRunRetry(roots.projectRunRoot!, runId, {
+            retryReason: "operator-request",
+            actor: "operator",
+            requestedAt: new Date().toISOString(),
+          });
+          if (retry.status === "already-active") return "already-active";
+          if (retry.status === "not-allowed") return "not-allowed";
+          const execution = await enqueueProjectRun!(runId);
+          return execution === "accepted" ? "accepted" : execution === "already-active" ? "already-active" : "not-allowed";
         };
         const observeProjectRun = async (runId: string) => {
           const jobs = (await listDesktopJobs(roots.projectDesktopStateRoot!)).filter((job) => job.runId === runId);
@@ -590,6 +856,7 @@ export async function startIseolRuntimeServices(
     }
 
     if (enqueueProjectRun) capability.enqueueProjectRun = enqueueProjectRun;
+    if (retryProjectRun) capability.retryProjectRun = retryProjectRun;
     if (inspectProjectRun) capability.inspectProjectRunReconciliation = inspectProjectRun;
     if (reconcileProjectRun) capability.reconcileProjectRun = reconcileProjectRun;
     if (issueProjectRunOperatorApproval) capability.issueProjectRunOperatorApproval = issueProjectRunOperatorApproval;
@@ -608,6 +875,29 @@ export async function startIseolRuntimeServices(
       policyRoot: ideaLabConfig.enabled ? ideaLabConfig.repositoryRoot : roots.iseolRoot,
       ...(roots.projectModelRoot ? { projectModelRoot: roots.projectModelRoot } : {}),
       ...(roots.projectRunRoot ? { projectHarnessRoot: roots.projectRunRoot } : {}),
+      userService: platformUserService,
+      personalWorldService,
+      memoryService,
+      activityService,
+      growthService,
+      learningService,
+      userProjectService,
+      teamService,
+      teamChatService,
+      aiTeamProposalService,
+      aiTeamDiscussionService,
+      studyService,
+      socialService,
+      recruitmentService,
+      portfolioService,
+      communityService,
+      settingsService,
+      notificationService,
+      aiChatService,
+      aiAgentProfileService,
+      aiChatRuntimeReady: Boolean(aiChatRuntimeDispatcher),
+      aiTeamRuntimeReady: Boolean(aiTeamProposalDispatcher && aiTeamDiscussionDispatcher),
+      learningAiRuntimeReady: Boolean(learningPlanDispatcher && learningContentDispatcher && learningActionDispatcher && learningFeedbackDispatcher),
       ...(input.progressNotificationRoot && input.progressNotificationAdapter ? { progressNotificationRoot: input.progressNotificationRoot, progressNotificationAdapter: input.progressNotificationAdapter } : {}),
       ideaLabRuntime: capability,
     });
@@ -616,13 +906,35 @@ export async function startIseolRuntimeServices(
     unsubscribeAgentConnected = undefined;
     unsubscribeAgentDisconnected?.();
     unsubscribeAgentDisconnected = undefined;
-    await disposeOwnedResources({ webServer, bridge, runtime, deployAdapter: deployAdapterOwned, desktopCore, browser }, true);
+    await disposeOwnedResources(
+      { webServer, bridge, runtime, deployAdapter: deployAdapterOwned, desktopCore, browser },
+      { suppressErrors: true, ...(shutdownRecord ? { record: shutdownRecord } : {}), ...(input.shutdownStageTimeoutMs ? { stageTimeoutMs: input.shutdownStageTimeoutMs } : {}) },
+    );
     throw error;
   }
 
   let disposed = false;
   return {
     webServer,
+    platformUserService,
+    personalWorldService,
+    memoryService,
+    activityService,
+    growthService,
+    learningService,
+    userProjectService,
+    teamService,
+    teamChatService,
+    aiTeamProposalService,
+    aiTeamDiscussionService,
+    studyService,
+    socialService,
+    recruitmentService,
+    portfolioService,
+    communityService,
+    settingsService,
+    notificationService,
+    aiChatService,
     desktopCore,
     ...(bridge ? { chatGptBridge: bridge } : {}),
     ...(runtime ? { ideaLabRuntime: runtime } : {}),
@@ -635,7 +947,10 @@ export async function startIseolRuntimeServices(
       unsubscribeAgentDisconnected?.();
       unsubscribeAgentDisconnected = undefined;
       disposed = true;
-      await disposeOwnedResources({ webServer, bridge, runtime, deployAdapter: deployAdapterOwned, desktopCore, browser });
+      await disposeOwnedResources(
+        { webServer, bridge, runtime, deployAdapter: deployAdapterOwned, desktopCore, browser },
+        { ...(shutdownRecord ? { record: shutdownRecord } : {}), ...(input.shutdownStageTimeoutMs ? { stageTimeoutMs: input.shutdownStageTimeoutMs } : {}) },
+      );
     },
   };
 }

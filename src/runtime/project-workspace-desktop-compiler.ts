@@ -25,7 +25,10 @@ function pack(run: HarnessRuntimeRunEnvelope, agentId: string, config: ProjectWo
       ? [{ id: "git-init", type: "GIT_INIT" as const, cwd: ".", initialBranch: "main" }, { id: "context", type: "GIT_INSPECT" as const, cwd: "." }]
       : [{ id: "context", type: "GIT_INSPECT" as const, cwd: "." }])
     : stage === "TEST"
-      ? { id: "test", type: "RUN_PROCESS" as const, purpose: "test" as const, cwd: ".", executable: config.testExecutable, args: [...config.testArgs], timeoutMs: config.testTimeoutMs }
+      ? [
+        { id: "test", type: "RUN_PROCESS" as const, purpose: "test" as const, cwd: ".", executable: config.testExecutable, args: [...config.testArgs], timeoutMs: config.testTimeoutMs },
+        ...(config.buildExecutable ? [{ id: "build", type: "RUN_PROCESS" as const, purpose: "build" as const, cwd: ".", executable: config.buildExecutable, args: [...(config.buildArgs ?? ["run", "build"])], timeoutMs: config.buildTimeoutMs ?? config.testTimeoutMs }] : []),
+      ]
       : stage === "COMMIT"
         ? { id: "commit", type: "GIT_COMMIT" as const, cwd: ".", message: config.commitMessage ?? "feat: develop project workspace" }
         : null;

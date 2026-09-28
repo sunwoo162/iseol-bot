@@ -22,6 +22,8 @@ export type ProjectWorkspaceExecutorInput = {
   desktopTaskCompiler: DesktopTaskCompiler;
   agentId: string;
   now?: () => string;
+  /** Optional bounded owner for Web-owned stages, used by isolated local Runtime paths. */
+  webExecutor?: HarnessStageExecutor;
   providerExecutor?: HarnessStageExecutor;
 };
 
@@ -138,7 +140,7 @@ export function createProjectWorkspaceExecutor(input: ProjectWorkspaceExecutorIn
     now,
   });
   return createHybridStageExecutor({
-    webExecutor: web,
+    webExecutor: input.webExecutor ?? web,
     desktopExecutor: desktop,
     ...(input.providerExecutor ? { providerExecutor: input.providerExecutor } : {}),
   });

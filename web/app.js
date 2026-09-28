@@ -1,4 +1,5 @@
 const TOKEN_KEY = "iseol.web.token";
+const OPERATOR_TOKEN_KEY = "iseol.operator.token";
 const state = {
   mode: "idea-lab",
   ideaLab: { prototypes: [], campaigns: [], productions: [] },
@@ -9,6 +10,7 @@ const state = {
   portfolio: null,
   executionProfile: null,
   loading: false,
+  lastEventId: "",
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -37,8 +39,17 @@ function savedToken() {
   return localStorage.getItem(TOKEN_KEY)?.trim() ?? "";
 }
 
+function savedOperatorToken() {
+  return localStorage.getItem(OPERATOR_TOKEN_KEY)?.trim() ?? "";
+}
+
 function authHeaders() {
   const token = savedToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function operatorAuthHeaders() {
+  const token = savedOperatorToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -595,7 +606,9 @@ async function startEventStream() {
   const controller = new AbortController();
   state.eventAbort = controller;
   try {
-    const response = await fetch("/api/events", { headers: authHeaders(), signal: controller.signal });
+    const headers = authHeaders();
+    if (state.lastEventId) headers["Last-Event-ID"] = state.lastEventId;
+    const response = await fetch("/api/events", { headers, signal: controller.signal });
     if (!response.ok || !response.body) throw new Error(`event stream unavailable (${response.status})`);
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -611,6 +624,7 @@ async function startEventStream() {
         if (!line) continue;
         try {
           const event = JSON.parse(line.slice(6));
+          if (event.type !== "connected" && event.id) state.lastEventId = String(event.id);
           if (event.type !== "connected") {
             const scope = event.scope ?? {};
             const ideaLabEvent = Boolean(scope.campaignId || scope.prototypeId) || String(event.type).startsWith("campaign.") || String(event.type).startsWith("prototype.");
@@ -782,6 +796,12 @@ async function loadWorkRequests() {
         resume.addEventListener("click", () => resumeWorkRequest(request));
         row.append(resume);
       }
+      if (request.status === "failed" && request.requestedRunId) {
+        const retry = element("button", "secondary-button", "Retry Run");
+        retry.type = "button";
+        retry.addEventListener("click", () => retryWorkRequest(request));
+        row.append(retry);
+      }
       if (request.status === "running" || request.status === "failed" || request.status === "waiting") {
         const inspect = element("button", "ghost-button", "Inspect");
         inspect.type = "button";
@@ -823,6 +843,27 @@ async function resumeWorkRequest(request) {
   finally { setLoading(false); }
 }
 
+async function retryWorkRequest(request) {
+  if (!state.selectedProjectId || !request.requestedRunId) return;
+  if (!savedOperatorToken()) {
+    setStatus("unauthorized", "Enter and save an operator token before retrying a failed Run.");
+    return;
+  }
+  if (!window.confirm(`Retry failed Run ${request.requestedRunId} using the same durable Run identity?`)) return;
+  const expectedRevision = `${request.updatedAt}:${request.attempts}`;
+  setLoading(true, "Retrying the failed Project Workspace Run...");
+  try {
+    const result = await fetchJson(`/api/projects/${encodeURIComponent(state.selectedProjectId)}/work-requests/${encodeURIComponent(request.id)}/retry`, {
+      method: "POST",
+      headers: { ...operatorAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedRevision, runId: request.requestedRunId }),
+    });
+    await selectProject(state.selectedProjectId);
+    setStatus("success", result.status === "already-active" ? "The Project Workspace Run is already active." : "The failed Project Workspace Run was queued again.");
+  } catch (error) { setStatus(error.code === "unauthorized" ? "unauthorized" : "error", error.message); }
+  finally { setLoading(false); }
+}
+
 async function cancelWorkRequest(workRequestId) {
   if (!state.selectedProjectId) return;
   try {
@@ -857,11 +898,19 @@ function saveToken() {
   setStatus("success", value ? "Web token saved locally in this browser." : "Web token cleared.");
 }
 
+function saveOperatorToken() {
+  const value = $("#operator-token").value.trim();
+  if (value) localStorage.setItem(OPERATOR_TOKEN_KEY, value);
+  else localStorage.removeItem(OPERATOR_TOKEN_KEY);
+  setStatus("success", value ? "Operator token saved locally in this browser." : "Operator token cleared.");
+}
+
 function bindEvents() {
   $$(".mode-tab").forEach((button) =>
     button.addEventListener("click", () => switchMode(button.dataset.mode)),
   );
   $("#save-token").addEventListener("click", saveToken);
+  $("#save-operator-token").addEventListener("click", saveOperatorToken);
   $("#refresh-ideas").addEventListener("click", () => loadIdeaLab());
   $("#create-campaign").addEventListener("click", () => createCampaign(false));
   $("#make-more").addEventListener("click", () => createCampaign(true));
@@ -882,6 +931,7 @@ function bindEvents() {
 
 async function init() {
   $("#web-token").value = savedToken();
+  $("#operator-token").value = savedOperatorToken();
   bindEvents();
   switchMode("idea-lab");
   clearProjectView();

@@ -1,4 +1,4 @@
-import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
+import { createServer, type IncomingHttpHeaders, type Server, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, relative, resolve, sep } from "node:path";
 import {
@@ -6,15 +6,52 @@ import {
   type IdeaLabRuntimeCapability,
   type WebControlPlaneRequest,
 } from "./router.js";
-import { WebProductEventBus } from "./event-bus.js";
+import { WebProductEventBus, type WebProductEvent } from "./event-bus.js";
 import { connectProgressEventBridge } from "../discord-project/progress-event-bridge.js";
 import type { ProgressNotificationAdapter } from "../discord-project/progress-notifications.js";
+import { routeUserRequest } from "./user-router.js";
+import type { PlatformUserService } from "../platform-user/contracts.js";
+import { routePersonalWorldRequest } from "../personal-world/router.js";
+import type { PersonalWorldService } from "../personal-world/contracts.js";
+import type { MemoryService } from "../memory/contracts.js";
+import { routeGrowthRequest } from "../growth/router.js";
+import type { ActivityService } from "../activity/contracts.js";
+import type { GrowthService } from "../growth/contracts.js";
+import { routeLearningRequest } from "../learning/router.js";
+import type { LearningService } from "../learning/contracts.js";
+import { routeUserProjectRequest } from "../project-model/user-project-router.js";
+import type { UserProjectService } from "../project-model/user-project-service.js";
+import type { AiTeamProposalService } from "../ai-team/contracts.js";
+import type { AiTeamDiscussionService } from "../ai-team/contracts.js";
+import { routeCollaborationRequest } from "../collaboration-router.js";
+import type { RecruitmentService } from "../recruitment/contracts.js";
+import type { SocialService } from "../social/contracts.js";
+import type { TeamService } from "../teams/contracts.js";
+import type { TeamChatService } from "../team-chat/contracts.js";
+import { routePortfolioRequest, routePublicPortfolioRequest } from "../portfolio/router.js";
+import type { PortfolioService } from "../portfolio/contracts.js";
+import { routeCommunityRequest } from "../community/router.js";
+import type { CommunityService } from "../community/contracts.js";
+import { routeSettingsRequest } from "../settings/router.js";
+import type { SettingsService } from "../settings/contracts.js";
+import { routeAiChatRequest } from "../ai-chat/router.js";
+import type { AiChatService } from "../ai-chat/contracts.js";
+import { routeStudyRequest } from "../study/router.js";
+import type { StudyService } from "../study/contracts.js";
+import { routeNotificationsRequest } from "../notifications/router.js";
+import type { NotificationService, NotificationStreamEvent } from "../notifications/contracts.js";
+import { routeAiAgentProfileRequest } from "../ai-agent/router.js";
+import type { AiAgentProfileService } from "../ai-agent/contracts.js";
 
 const DEFAULT_PORT = 8790;
 const MAX_BODY_BYTES = 64 * 1024;
 const DEFAULT_SSE_CONNECTION_LIMIT = 64;
 
-type SseState = { active: number; limit: number };
+type SseState = { active: number; limit: number; responses: Set<ServerResponse> };
+
+export type WebControlPlaneServer = Server & {
+  closeForShutdown: () => Promise<void>;
+};
 
 export type WebControlPlaneConfig = {
   host: string;
@@ -25,15 +62,41 @@ export type WebControlPlaneConfig = {
   modelRoot: string;
   harnessRoot: string;
   webRoot: string;
+  userUiRoot?: string;
+  platformRoot?: string;
+  eventJournalRoot?: string;
+  userService?: PlatformUserService;
+  personalWorldService?: PersonalWorldService;
+  memoryService?: MemoryService;
+  activityService?: ActivityService;
+  growthService?: GrowthService;
+  learningService?: LearningService;
+  userProjectService?: UserProjectService;
+  teamService?: TeamService;
+  teamChatService?: TeamChatService;
+  socialService?: SocialService;
+  recruitmentService?: RecruitmentService;
+  portfolioService?: PortfolioService;
+  communityService?: CommunityService;
+  settingsService?: SettingsService;
+  notificationService?: NotificationService;
+  aiChatService?: AiChatService;
+  aiAgentProfileService?: AiAgentProfileService;
   iseolRoot?: string;
   policyRoot?: string;
   projectModelRoot?: string;
   projectHarnessRoot?: string;
+  aiTeamProposalService?: AiTeamProposalService;
+  aiTeamDiscussionService?: AiTeamDiscussionService;
+  studyService?: StudyService;
 };
 
 export type StartWebControlPlaneOptions = WebControlPlaneConfig & {
   port: number;
   ideaLabRuntime?: IdeaLabRuntimeCapability;
+  aiChatRuntimeReady?: boolean;
+  aiTeamRuntimeReady?: boolean;
+  learningAiRuntimeReady?: boolean;
   eventBus?: WebProductEventBus;
   sseConnectionLimit?: number;
   progressNotificationRoot?: string;
@@ -63,6 +126,7 @@ export function resolveWebControlPlaneConfig(
   if (!isLoopbackHost(host) && !token) {
     throw new Error("ISEOL_WEB_TOKEN is required for non-loopback ISEOL_WEB_HOST");
   }
+  const platformRoot = envValue(env, "ISEOL_PLATFORM_ROOT") || resolve(process.cwd(), "data", "platform");
   return {
     host,
     port,
@@ -72,6 +136,9 @@ export function resolveWebControlPlaneConfig(
     modelRoot: envValue(env, "ISEOL_MODEL_ROOT") || resolve(process.cwd(), "data", "iseol"),
     harnessRoot: envValue(env, "ISEOL_RUN_ROOT") || resolve(process.cwd(), "data", "runs"),
     webRoot: resolve(process.cwd(), "web"),
+    userUiRoot: envValue(env, "ISEOL_USER_UI_ROOT") || resolve(process.cwd(), "user-ui", "dist"),
+    platformRoot,
+    eventJournalRoot: envValue(env, "ISEOL_WEB_EVENT_JOURNAL_ROOT") || resolve(platformRoot, "web-events"),
   };
 }
 
@@ -155,6 +222,11 @@ function sendJson(
   headers: Record<string, string>,
   body: unknown,
 ): void {
+  if (status === 204) {
+    res.writeHead(status, headers);
+    res.end();
+    return;
+  }
   const content = Buffer.from(JSON.stringify(body), "utf8");
   res.writeHead(status, { ...headers, "content-length": content.length });
   res.end(content);
@@ -165,6 +237,7 @@ async function handleRequest(
   req: import("node:http").IncomingMessage,
   res: import("node:http").ServerResponse,
   sseState: SseState,
+  notificationSseState: SseState,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", `http://${options.host}`);
   if (url.pathname === "/api/events") {
@@ -181,28 +254,233 @@ async function handleRequest(
       return;
     }
     sseState.active += 1;
-    const bus = options.eventBus ?? new WebProductEventBus();
+    sseState.responses.add(res);
+    const bus = options.eventBus ?? new WebProductEventBus(options.eventJournalRoot ? { journalRoot: options.eventJournalRoot } : {});
     res.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",
       connection: "keep-alive",
     });
     const write = (event: { id: string; type: string; occurredAt: string; scope?: unknown; payload: unknown }) => {
+      if (res.destroyed) return;
       res.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
     };
-    write({ id: `connected-${Date.now().toString(36)}`, type: "connected", occurredAt: new Date().toISOString(), payload: { replay: false } });
-    const unsubscribe = bus.subscribe(write);
+    const lastEventId = headerRecord(req.headers)["last-event-id"]?.trim();
+    let replaying = Boolean(lastEventId);
+    const buffered: WebProductEvent[] = [];
+    const replayedIds = new Set<string>();
+    const liveWrite = (event: WebProductEvent): void => {
+      if (replaying) buffered.push(event);
+      else write(event);
+    };
+    const unsubscribe = bus.subscribe(liveWrite);
+    write({ id: `connected-${Date.now().toString(36)}`, type: "connected", occurredAt: new Date().toISOString(), payload: { replay: Boolean(lastEventId) } });
+    if (lastEventId) {
+      void (async () => {
+        try {
+          for (const event of await bus.replayAfter(lastEventId)) {
+            replayedIds.add(event.id);
+            write(event);
+          }
+          for (const event of buffered.splice(0)) {
+            if (!replayedIds.has(event.id)) write(event);
+          }
+        } catch {
+          // A stale/corrupt journal must not turn an authenticated live stream
+          // into an error response or fabricate a historical event.
+        } finally {
+          replaying = false;
+          for (const event of buffered.splice(0)) {
+            if (!replayedIds.has(event.id)) write(event);
+          }
+        }
+      })();
+    }
     const heartbeat = setInterval(() => { if (!res.destroyed) res.write(": heartbeat\n\n"); }, 25_000);
     let cleaned = false;
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
       sseState.active = Math.max(0, sseState.active - 1);
+      sseState.responses.delete(res);
       clearInterval(heartbeat);
       unsubscribe();
     };
     req.on("close", cleanup);
     res.on("close", cleanup);
+    return;
+  }
+  if (url.pathname === "/api/user/notifications/stream") {
+    if (req.method !== "GET") {
+      res.writeHead(405, { allow: "GET" }).end("method not allowed");
+      return;
+    }
+    if (!options.userService) {
+      sendJson(res, 503, { "content-type": "application/json; charset=utf-8" }, { error: "user platform unavailable" });
+      return;
+    }
+    const authorization = headerRecord(req.headers).authorization;
+    const token = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length).trim() : "";
+    const principal = token ? await options.userService.resolveAuthenticatedPrincipal(token) : null;
+    if (!principal) {
+      sendJson(res, 401, { "content-type": "application/json; charset=utf-8" }, { error: "authentication required" });
+      return;
+    }
+    if (!options.notificationService) {
+      sendJson(res, 503, { "content-type": "application/json; charset=utf-8" }, { error: "notifications unavailable" });
+      return;
+    }
+    if (notificationSseState.active >= notificationSseState.limit) {
+      sendJson(res, 429, { "content-type": "application/json; charset=utf-8", "retry-after": "5" }, { error: "user notification stream capacity reached" });
+      return;
+    }
+    const lastEventId = headerRecord(req.headers)["last-event-id"]?.trim();
+    notificationSseState.active += 1;
+    notificationSseState.responses.add(res);
+    res.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+    });
+    const write = (event: NotificationStreamEvent | { id: string; type: "connected"; occurredAt: string; payload: { replay: boolean } }): void => {
+      if (res.destroyed) return;
+      res.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    };
+    let replaying = Boolean(lastEventId);
+    const buffered: NotificationStreamEvent[] = [];
+    const liveWrite = (event: NotificationStreamEvent): void => {
+      if (replaying) buffered.push(event);
+      else write(event);
+    };
+    write({ id: `connected-${Date.now().toString(36)}`, type: "connected", occurredAt: new Date().toISOString(), payload: { replay: Boolean(lastEventId) } });
+    const unsubscribe = options.notificationService.subscribe(principal.userId, liveWrite);
+    void (async () => {
+      try {
+        const replayedIds = new Set<string>();
+        if (lastEventId) {
+          for (const event of await options.notificationService!.listStreamEvents(principal.userId, lastEventId)) {
+            replayedIds.add(event.id);
+            write(event);
+          }
+        }
+        for (const event of buffered.splice(0)) {
+          if (!replayedIds.has(event.id)) write(event);
+        }
+      } catch {
+        // A malformed/stale cursor never turns the authenticated stream into an error response.
+      } finally {
+        replaying = false;
+        for (const event of buffered.splice(0)) write(event);
+      }
+    })();
+    const heartbeat = setInterval(() => { if (!res.destroyed) res.write(": heartbeat\n\n"); }, 25_000);
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      notificationSseState.active = Math.max(0, notificationSseState.active - 1);
+      notificationSseState.responses.delete(res);
+      clearInterval(heartbeat);
+      unsubscribe();
+    };
+    req.on("close", cleanup);
+    res.on("close", cleanup);
+    return;
+  }
+  if (url.pathname.startsWith("/api/public/portfolio/")) {
+    const response = await routePublicPortfolioRequest({ method: req.method ?? "GET", path: url.pathname, headers: headerRecord(req.headers) }, {
+      ...(options.portfolioService ? { portfolioService: options.portfolioService } : {}),
+    });
+    sendJson(res, response.status, response.headers, response.body);
+    return;
+  }
+  if (url.pathname === "/api/user" || url.pathname.startsWith("/api/user/")) {
+    if (!options.userService) {
+      sendJson(res, 503, { "content-type": "application/json; charset=utf-8" }, { error: "user platform unavailable" });
+      return;
+    }
+    let body: unknown;
+    if (req.method === "POST" || req.method === "PUT" || req.method === "PATCH") {
+      body = await readRequestBody(req);
+    }
+    const userRequest = {
+      method: req.method ?? "GET",
+      path: `${url.pathname}${url.search}`,
+      headers: headerRecord(req.headers),
+      ...(body === undefined ? {} : { body }),
+    };
+    const response = ["/api/user/me", "/api/user/runtime-status", "/api/user/signup", "/api/user/login", "/api/user/logout", "/api/user/password"].includes(url.pathname)
+      ? await routeUserRequest(userRequest, options.userService, { runtimeCapability: options.ideaLabRuntime, aiChatRuntimeReady: options.aiChatRuntimeReady, aiTeamRuntimeReady: options.aiTeamRuntimeReady, learningAiRuntimeReady: options.learningAiRuntimeReady })
+      : (url.pathname === "/api/user/growth" || url.pathname === "/api/user/activity" || url.pathname.startsWith("/api/user/activity/"))
+        ? await routeGrowthRequest(userRequest, {
+            platformUserService: options.userService,
+            ...(options.activityService ? { activityService: options.activityService } : {}),
+            ...(options.growthService ? { growthService: options.growthService } : {}),
+          })
+      : url.pathname === "/api/user/learning" || url.pathname.startsWith("/api/user/learning/")
+        ? await routeLearningRequest(userRequest, {
+            platformUserService: options.userService,
+            ...(options.learningService ? { learningService: options.learningService } : {}),
+            ...(options.userProjectService ? { userProjectService: options.userProjectService } : {}),
+          })
+      : url.pathname === "/api/user/studies" || url.pathname.startsWith("/api/user/studies/")
+        ? await routeStudyRequest(userRequest, {
+            platformUserService: options.userService,
+            ...(options.studyService ? { studyService: options.studyService } : {}),
+          })
+      : url.pathname === "/api/user/teams" || url.pathname.startsWith("/api/user/teams/") || url.pathname === "/api/user/social" || url.pathname.startsWith("/api/user/social/") || url.pathname === "/api/user/recruitment" || url.pathname.startsWith("/api/user/recruitment/")
+        ? await routeCollaborationRequest(userRequest, {
+            platformUserService: options.userService,
+            ...(options.teamService ? { teamService: options.teamService } : {}),
+            ...(options.teamChatService ? { teamChatService: options.teamChatService } : {}),
+            ...(options.socialService ? { socialService: options.socialService } : {}),
+            ...(options.recruitmentService ? { recruitmentService: options.recruitmentService } : {}),
+          })
+      : url.pathname === "/api/user/projects" || url.pathname.startsWith("/api/user/projects/")
+        ? await routeUserProjectRequest(userRequest, {
+            platformUserService: options.userService,
+            ...(options.userProjectService ? { userProjectService: options.userProjectService } : {}),
+            ...(options.aiTeamProposalService ? { aiTeamProposalService: options.aiTeamProposalService } : {}),
+            ...(options.aiTeamDiscussionService ? { aiTeamDiscussionService: options.aiTeamDiscussionService } : {}),
+            ...(options.settingsService ? { settingsService: options.settingsService } : {}),
+            ...(options.ideaLabRuntime?.enqueueProjectRun ? { enqueueProjectRun: options.ideaLabRuntime.enqueueProjectRun } : {}),
+          })
+      : url.pathname === "/api/user/portfolio" || url.pathname.startsWith("/api/user/portfolio/")
+        ? await routePortfolioRequest(userRequest, {
+            platformUserService: options.userService,
+            ...(options.portfolioService ? { portfolioService: options.portfolioService } : {}),
+          })
+      : url.pathname === "/api/user/community" || url.pathname.startsWith("/api/user/community/")
+        ? await routeCommunityRequest(userRequest, {
+            platformUserService: options.userService,
+            ...(options.communityService ? { communityService: options.communityService } : {}),
+          })
+      : url.pathname === "/api/user/settings"
+        ? await routeSettingsRequest(userRequest, {
+            platformUserService: options.userService,
+            ...(options.settingsService ? { settingsService: options.settingsService } : {}),
+          })
+      : url.pathname === "/api/user/notifications" || url.pathname.startsWith("/api/user/notifications/")
+        ? await routeNotificationsRequest(userRequest, {
+            platformUserService: options.userService,
+            ...(options.notificationService ? { notificationService: options.notificationService } : {}),
+          })
+      : url.pathname === "/api/user/ai-chat" || url.pathname.startsWith("/api/user/ai-chat/")
+        ? await routeAiChatRequest(userRequest, {
+            platformUserService: options.userService,
+            ...(options.aiChatService ? { aiChatService: options.aiChatService } : {}),
+          })
+      : url.pathname === "/api/user/agent"
+        ? await routeAiAgentProfileRequest(userRequest, {
+            platformUserService: options.userService,
+            ...(options.aiAgentProfileService ? { aiAgentProfileService: options.aiAgentProfileService } : {}),
+          })
+      : await routePersonalWorldRequest(userRequest, {
+          platformUserService: options.userService,
+          ...(options.personalWorldService ? { personalWorldService: options.personalWorldService } : {}),
+          ...(options.memoryService ? { memoryService: options.memoryService } : {}),
+        });
+    sendJson(res, response.status, response.headers, response.body);
     return;
   }
   if (url.pathname.startsWith("/api/")) {
@@ -221,6 +499,18 @@ async function handleRequest(
     return;
   }
 
+  if (url.pathname === "/app" || url.pathname.startsWith("/app/")) {
+    const userPath = url.pathname === "/app" ? "/" : url.pathname.slice("/app".length);
+    const userUiRoot = options.userUiRoot ?? resolve(options.webRoot, "user-ui");
+    if (await sendStatic(userUiRoot, userPath, res)) return;
+    // The approved user UI is an SPA. Client-side routes such as
+    // /app/profile and /app/projects/:id must survive a browser refresh and
+    // direct share-link navigation, while missing assets must remain 404s.
+    if (!userPath.startsWith("/assets/") && extname(userPath) === "" && await sendStatic(userUiRoot, "/", res)) return;
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" }).end("not found");
+    return;
+  }
+
   if (req.method !== "GET" && req.method !== "HEAD") {
     res.writeHead(405, { allow: "GET, HEAD" }).end("method not allowed");
     return;
@@ -231,7 +521,7 @@ async function handleRequest(
 
 export async function startWebControlPlaneServer(
   options: StartWebControlPlaneOptions,
-): Promise<Server> {
+): Promise<WebControlPlaneServer> {
   if (!isLoopbackHost(options.host) && !options.token.trim()) {
     throw new Error("ISEOL_WEB_TOKEN is required for non-loopback ISEOL_WEB_HOST");
   }
@@ -239,13 +529,23 @@ export async function startWebControlPlaneServer(
     throw new Error(`Invalid Iseol web port: ${options.port}`);
   }
 
-  const eventBus = options.eventBus ?? new WebProductEventBus();
-  const sseState: SseState = { active: 0, limit: Math.max(1, Math.floor(options.sseConnectionLimit ?? DEFAULT_SSE_CONNECTION_LIMIT)) };
+  const eventJournalRoot = options.eventJournalRoot ?? (options.platformRoot ? resolve(options.platformRoot, "web-events") : undefined);
+  const eventBus = options.eventBus ?? new WebProductEventBus(eventJournalRoot ? { journalRoot: eventJournalRoot } : {});
+  const sseState: SseState = {
+    active: 0,
+    limit: Math.max(1, Math.floor(options.sseConnectionLimit ?? DEFAULT_SSE_CONNECTION_LIMIT)),
+    responses: new Set(),
+  };
+  const notificationSseState: SseState = {
+    active: 0,
+    limit: Math.max(1, Math.floor(options.sseConnectionLimit ?? DEFAULT_SSE_CONNECTION_LIMIT)),
+    responses: new Set(),
+  };
   const disconnectProgressBridge = options.progressNotificationRoot && options.progressNotificationAdapter
     ? connectProgressEventBridge({ eventBus, durableRoot: options.progressNotificationRoot, adapter: options.progressNotificationAdapter })
     : undefined;
   const server = createServer((req, res) => {
-    void handleRequest({ ...options, eventBus }, req, res, sseState).catch((error) => {
+    void handleRequest({ ...options, eventBus }, req, res, sseState, notificationSseState).catch((error) => {
       if (res.headersSent) {
         res.destroy(error instanceof Error ? error : undefined);
         return;
@@ -257,6 +557,24 @@ export async function startWebControlPlaneServer(
     });
   });
   server.once("close", () => disconnectProgressBridge?.());
+
+  const closeForShutdown = async (): Promise<void> => {
+    // SSE is a deliberate long-lived read-only connection.  End those
+    // responses first so server.close() can finish without force-closing an
+    // in-flight mutation request.  Ordinary requests retain Node's normal
+    // graceful close semantics.
+    for (const response of [...sseState.responses]) {
+      if (!response.destroyed) response.end();
+    }
+    for (const response of [...notificationSseState.responses]) {
+      if (!response.destroyed) response.end();
+    }
+    server.closeIdleConnections?.();
+    await new Promise<void>((resolveClose, rejectClose) => {
+      server.close((error) => error ? rejectClose(error) : resolveClose());
+    });
+  };
+  Object.defineProperty(server, "closeForShutdown", { value: closeForShutdown });
 
   await new Promise<void>((resolvePromise, reject) => {
     const onError = (error: Error) => {
@@ -271,5 +589,5 @@ export async function startWebControlPlaneServer(
     server.once("listening", onListening);
     server.listen(options.port, options.host);
   });
-  return server;
+  return server as WebControlPlaneServer;
 }

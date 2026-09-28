@@ -46,6 +46,7 @@ export type IdeaLabRuntimeCapability = {
   enqueue?: (campaignId: string) => void;
   retryRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-allowed">;
   enqueueProjectRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-configured">;
+  retryProjectRun?: (input: { projectId: string; runId: string }) => Promise<"accepted" | "already-active" | "not-allowed">;
   inspectProjectRunReconciliation?: (input: { projectId: string; runId: string; expectedRevision: string }) => Promise<unknown>;
   reconcileProjectRun?: (input: {
     projectId: string; runId: string; expectedRevision: string; operationId: string;
@@ -187,6 +188,39 @@ export async function routeWebControlPlaneRequest(
       return run ? { runId, projectId: run.request.projectId, state: run.state, updatedAt: run.updatedAt } : null;
     }});
     return inspection ? response(200, inspection) : response(404, { error: "not found" });
+  }
+
+  const workRetryMatch = /^\/api\/projects\/([^/]+)\/work-requests\/([^/]+)\/retry$/.exec(path);
+  if (workRetryMatch) {
+    if (request.method !== "POST") return methodNotAllowed();
+    if (!operatorAuthorized(request, deps.operatorToken)) return response(401, { error: "operator authorization required" });
+    const projectId = decodeId(workRetryMatch[1] ?? "");
+    const workId = decodeId(workRetryMatch[2] ?? "");
+    if (!projectId || !workId || !await loadProjectWorkspace(projectModelRoot, projectId)) return response(404, { error: "not found" });
+    if (!request.body || typeof request.body !== "object") return response(400, { error: "expectedRevision and runId are required" });
+    const body = request.body as Record<string, unknown>;
+    if (typeof body.expectedRevision !== "string" || typeof body.runId !== "string") return response(400, { error: "expectedRevision and runId are required" });
+    const current = await loadProjectWorkRequest(projectModelRoot, projectId, workId);
+    if (!current) return response(404, { error: "not found" });
+    if (projectWorkRequestRevision(current) !== body.expectedRevision) return response(409, { error: "work request revision is stale" });
+    if (current.status !== "failed" || !current.requestedRunId || !current.runId) return response(409, { error: `work request is ${current.status}; only a failed request with a durable Run can be retried` });
+    if (current.requestedRunId !== body.runId || current.runId !== body.runId) return response(409, { error: "retry Run identity does not match the durable work request" });
+    const run = await loadHarnessRun(projectHarnessRoot, body.runId);
+    if (!run || run.request.projectId !== projectId || run.request.mode !== "project-workspace") return response(409, { error: "retry Run is missing or belongs to another project" });
+    if (!deps.ideaLabRuntime?.retryProjectRun) return response(503, { error: "project Runtime retry is unavailable" });
+    const execution = await deps.ideaLabRuntime.retryProjectRun({ projectId, runId: body.runId });
+    if (execution === "not-allowed") return response(409, { error: "project Run is not eligible for operator retry" });
+    const at = (deps.now ?? (() => new Date().toISOString()))();
+    const updated = await updateProjectWorkRequest(projectModelRoot, projectId, workId, {
+      status: "running",
+      runId: body.runId,
+      requestedRunId: body.runId,
+      executionRequestId: `${projectId}:${workId}:${body.runId}`,
+      blocker: undefined,
+    }, at);
+    if (!updated) return response(404, { error: "work request not found" });
+    deps.eventBus?.publish({ type: "work-request.updated", scope: { projectId, runId: body.runId }, payload: { projectId, workRequestId: workId, status: updated.status, runId: body.runId, actor: "operator" } });
+    return response(execution === "accepted" ? 202 : 200, { status: execution === "accepted" ? "started" : "already-active", request: updated, runId: body.runId });
   }
 
   const workResumeMatch = /^\/api\/projects\/([^/]+)\/work-requests\/([^/]+)\/resume$/.exec(path);
