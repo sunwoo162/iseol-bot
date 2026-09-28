@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable identity user and session mutation synchronization
+
+- Status: **B — identity user creation and session creation/revocation now serialize across same-host/shared-root service instances; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. User mutations use a user-scoped durable lock, session mutations use a session-scoped durable lock, and bulk session revocation locks each session before re-reading and replacing it.
+- Evidence: `src/identity/identity-lock.ts`, `src/identity/store.ts`, `tests/identity-scope.test.ts`.
+- TDD: RED showed session revocation completing while a competing identity lock was held; GREEN added bounded wait, active-owner protection, dead-owner reclaim, malformed-record fail-closed behavior, EPERM probing, token-owned cleanup, and identity-scoped wrappers. Eight independent user/session creators now converge to one winner with seven immutable identity conflicts, and bulk revocation waits for the per-session lock.
+- Verification: focused identity scope `8/8`; user-product `370/370`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `2a3c555 fix: serialize identity user and session mutations`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root identity user/session mutation coordination only; it does not claim distributed locking, external provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, or AI Broadcast Room implementation.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Harness Run pause and resume synchronization
 
 - Status: **B — user-owned Harness Run pause/resume transitions now hold the Run mutation lock across read, compare-save, event, and checkpoint projection; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
