@@ -349,7 +349,7 @@ export async function completeDesktopJob(
   );
 }
 
-export async function markDesktopJobIndeterminate(
+async function markDesktopJobIndeterminateUnlocked(
   root: string,
   jobId: string,
   owner: string,
@@ -366,6 +366,20 @@ export async function markDesktopJobIndeterminate(
   const next: DesktopJobRecord = { ...job, status: "indeterminate", updatedAt: at };
   await saveJob(root, next);
   return next;
+}
+
+export async function markDesktopJobIndeterminate(
+  root: string,
+  jobId: string,
+  owner: string,
+  at: string,
+): Promise<DesktopJobRecord> {
+  return withDurableDesktopJobLock(
+    root,
+    jobId,
+    () => markDesktopJobIndeterminateUnlocked(root, jobId, owner, at),
+    { waitForMs: 2_000 },
+  );
 }
 
 async function requeueDesktopJobUnlocked(

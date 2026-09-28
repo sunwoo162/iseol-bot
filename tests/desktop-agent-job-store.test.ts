@@ -17,6 +17,7 @@ import {
   requeueDesktopJob,
   renewDesktopJobLease,
 } from "../src/desktop-agent/job-store.js";
+import { withDurableDesktopJobLock } from "../src/desktop-agent/job-lock.js";
 
 function pack(overrides: Partial<DesktopTaskPack> = {}): DesktopTaskPack {
   return {
@@ -187,6 +188,30 @@ test("completion and requeue serialize one Job transition across independent ins
   assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
   assert.equal(outcomes.filter((outcome) => outcome.status === "rejected").length, 1);
   assert.ok(["completed", "pending"].includes((await loadDesktopJob(store, "job-001"))?.status ?? ""));
+});
+
+test("indeterminate marking waits for the durable Job mutation lock", async () => {
+  const store = await root();
+  await createDesktopJob(store, pack(), "2026-09-08T01:00:00.000Z");
+  await acquireDesktopJobLease(store, "job-001", "session-a", "2026-09-08T01:00:10.000Z", 60_000);
+  let settled = false;
+  let mutationPromise: Promise<unknown> | undefined;
+  const pending = withDurableDesktopJobLock(
+    store,
+    "job-001",
+    async () => {
+      const result = await import("../src/desktop-agent/job-store.js?indeterminate-lock");
+      const mutation = result.markDesktopJobIndeterminate(store, "job-001", "session-a", "2026-09-08T01:00:20.000Z");
+      mutationPromise = mutation;
+      mutation.finally(() => { settled = true; }).catch(() => undefined);
+      await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+      assert.equal(settled, false);
+    },
+    { waitForMs: 2_000 },
+  );
+  await pending;
+  await mutationPromise;
+  assert.equal((await loadDesktopJob(store, "job-001"))?.status, "indeterminate");
 });
 
 test("only unfinished jobs without a live lease are recoverable", async () => {
