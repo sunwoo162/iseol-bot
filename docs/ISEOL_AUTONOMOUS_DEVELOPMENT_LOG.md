@@ -1998,6 +1998,26 @@ This log records implementation and verification facts without secrets. It does 
 - No operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, external AI/provider request, external connector mutation, deployment, push, data deletion, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred.
 - Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, final approved art sources, and deferred broadcast artifacts remained untouched.
 
+## 2026-09-28 continuation: serialize user notification writes
+
+### Completed in this unit
+
+- Added a process-local per-user/source Promise tail around notification load → save → stream-publish sequences, including owner-scoped read transitions. Concurrent producers for the same durable source now converge on one notification and one bounded `created` event.
+- Kept notification source payloads, settings gates, owner isolation, SSE replay contracts, and approved UI unchanged. Weekly digest remains intentionally unimplemented because its scheduler/selection specification is still absent.
+
+### TDD and verification
+
+- RED: concurrent direct-message notification creation returned two different notification IDs before the keyed lock.
+- GREEN: focused notification/service/API/SSE/UI checks passed `15/15`; TypeScript, root build, and user UI build passed with only the existing Vite warnings.
+- Full user-product regression ran `312` tests: `309` passed and `3` existing Learning Session Revision expectation tests failed; notification-related tests passed. Root regression passed `678/678`.
+- Full isolated browser E2E passed all journeys, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes, including direct/team/achievement/live-stream notifications.
+- Feature commit: `fix: serialize user notification writes`.
+
+### Scope and safety boundary
+
+- The lock is process-local and does not claim cross-process distributed exactly-once behavior. Weekly digest production remains unspecified/deferred; AI Broadcast Room remains deferred.
+- No external AI/provider request, external connector mutation, operational Runtime/Agent restart/recovery, stale-lock repair, UNKNOWN replay, deployment, push, data deletion, or approved-design change occurred. Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, dataRoot, stale PID `55000`, UNKNOWN/durable records, and approved design sources remained untouched.
+
 ## 2026-09-28 continuation: portfolio actor provenance labels
 
 ### Completed in this unit
