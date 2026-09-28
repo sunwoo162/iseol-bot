@@ -84,3 +84,23 @@ test("concurrent identical community reports across service instances remain ide
   assert.equal(results[0].id, results[1].id);
   assert.equal((await firstService.listPosts(principal("concurrent-reporter"))).length, 1);
 });
+
+test("concurrent community like toggles across service instances serialize per viewer", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-community-like-concurrent-"));
+  const platform = join(root, "platform");
+  const users = createPlatformUserService(platform, { now: () => at });
+  for (const id of ["like-author", "like-viewer"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const firstService = createCommunityService(platform, { platformUserService: users, now: () => at });
+  const secondService = createCommunityService(platform, { platformUserService: users, now: () => at });
+  const post = await firstService.createPost(principal("like-author"), { category: "개발 이야기", title: "동시 좋아요 대상", content: "동시에 눌린 좋아요의 토글 순서를 확인합니다.", tags: [] });
+
+  const results = await Promise.all([
+    firstService.toggleLike(principal("like-viewer"), post.id),
+    secondService.toggleLike(principal("like-viewer"), post.id),
+  ]);
+
+  assert.deepEqual(results.map((result) => result.liked).sort(), [false, true]);
+  const finalPost = (await firstService.listPosts(principal("like-viewer")))[0];
+  assert.equal(finalPost?.viewerLiked, false);
+  assert.equal(finalPost?.likeCount, 0);
+});

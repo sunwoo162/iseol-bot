@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CommunityComment, CommunityCommentView, CommunityPost, CommunityPostInput, CommunityPostView, CommunityReport, CommunityReportInput, CommunityService, CommunityServiceOptions } from "./contracts.js";
+import { withDurableCommunityLikeLock } from "./like-lock.js";
 import { withDurableCommunityReportLock } from "./report-lock.js";
 import { countLikes, hasLike, listComments, listPosts, listReports, loadComment, loadPost, removeLike, saveComment, saveLike, savePost, saveReport } from "./store.js";
 
@@ -79,6 +80,16 @@ export function createCommunityService(root: string, options: CommunityServiceOp
         return report;
       }, { waitForMs: 2_000 });
     },
-    async toggleLike(principal, postId) { ensurePrincipal(principal); assertIdentityId(postId); const post = await loadPost(root, postId); if (!post || post.status !== "published") throw new Error("Community post not found"); const liked = await hasLike(root, postId, principal.userId); if (liked) await removeLike(root, postId, principal.userId); else await saveLike(root, postId, principal.userId); return { liked: !liked, likeCount: await countLikes(root, postId) }; },
+    async toggleLike(principal, postId) {
+      ensurePrincipal(principal);
+      assertIdentityId(postId);
+      const post = await loadPost(root, postId);
+      if (!post || post.status !== "published") throw new Error("Community post not found");
+      return withDurableCommunityLikeLock(root, postId, principal.userId, async () => {
+        const liked = await hasLike(root, postId, principal.userId);
+        if (liked) await removeLike(root, postId, principal.userId); else await saveLike(root, postId, principal.userId);
+        return { liked: !liked, likeCount: await countLikes(root, postId) };
+      }, { waitForMs: 2_000 });
+    },
   };
 }
