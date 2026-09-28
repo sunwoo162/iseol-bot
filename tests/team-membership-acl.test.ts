@@ -1,0 +1,72 @@
+import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import type { Principal } from "../src/identity/contracts.js";
+import { createActivityService } from "../src/activity/service.js";
+import { createPlatformUserService } from "../src/platform-user/service.js";
+import { createTeamService } from "../src/teams/service.js";
+import { createUserProjectService } from "../src/project-model/user-project-service.js";
+
+const at = "2026-09-25T12:00:00.000Z";
+const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
+
+test("team membership is durable and immediately changes private access and collaboration ACL", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-team-acl-"));
+  const users = createPlatformUserService(join(root, "platform"), { now: () => at });
+  for (const id of ["team-a", "team-b", "team-c"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const activity = createActivityService(join(root, "platform"), { now: () => at });
+  const teams = createTeamService(join(root, "platform"), { now: () => at, activityService: activity });
+  const team = await teams.createTeam(principal("team-a"), { name: "Private study", description: "shared learning", kind: "study", visibility: "private", capacity: 3 });
+  assert.equal((await activity.listActivityEvents(principal("team-a"))).some((event) => event.eventType === "team.created" && event.sourceId === team.id), true);
+
+  assert.equal(await teams.getTeam(principal("team-b"), team.id), null);
+  await teams.addMember(team.id, "team-b", "member");
+  assert.equal((await teams.getTeam(principal("team-b"), team.id))?.members.some((member) => member.userId === "team-b"), true);
+  assert.equal(await teams.canCollaborate("team-a", "team-b"), true);
+
+  await teams.removeMember(principal("team-a"), team.id, "team-b");
+  assert.equal(await teams.getTeam(principal("team-b"), team.id), null);
+  assert.equal(await teams.canCollaborate("team-a", "team-b"), false);
+
+  const projects = createUserProjectService({
+    platformRoot: join(root, "platform"), projectModelRoot: join(root, "project-model"), projectHarnessRoot: join(root, "runs"), iseolRoot: root,
+    canAccessTeam: (viewer, teamId) => teams.canAccess(viewer, teamId), now: () => at,
+  });
+  const teamProject = await projects.createProject(principal("team-a"), { name: "Shared project", objective: "team project access", purpose: "rapid-prototype", teamMode: "human", teamId: team.id });
+  assert.equal(await projects.getProject(principal("team-b"), teamProject.id), null);
+  await teams.addMember(team.id, "team-b", "member");
+  assert.equal((await projects.getProject(principal("team-b"), teamProject.id))?.project.teamId, team.id);
+  await teams.removeMember(principal("team-a"), team.id, "team-b");
+  assert.equal(await projects.getProject(principal("team-b"), teamProject.id), null);
+});
+
+test("AI team membership stores bounded role capabilities and approval scope without becoming a human ACL", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-member-"));
+  const users = createPlatformUserService(join(root, "platform"), { now: () => at });
+  for (const id of ["ai-owner", "ai-outsider"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const teams = createTeamService(join(root, "platform"), { now: () => at });
+  const team = await teams.createTeam(principal("ai-owner"), { name: "AI delivery team", description: "bounded AI collaboration", kind: "project", visibility: "private", capacity: 4 });
+
+  const aiMember = await teams.addAiMember(principal("ai-owner"), team.id, {
+    agentId: "frontend",
+    assignmentRole: "frontend",
+    capabilities: ["context.read", "task.propose"],
+    approvalScope: "suggestion-only",
+  });
+  assert.equal(aiMember.memberType, "ai");
+  assert.equal(aiMember.aiMemberId, "frontend");
+  assert.equal(aiMember.assignmentRole, "frontend");
+  assert.deepEqual(aiMember.capabilities, ["context.read", "task.propose"]);
+  assert.equal(aiMember.approvalScope, "suggestion-only");
+  assert.equal(await teams.canCollaborate("ai-owner", aiMember.userId), false);
+  await assert.rejects(() => teams.addAiMember(principal("ai-outsider"), team.id, { agentId: "qa", assignmentRole: "qa", capabilities: ["task.propose"], approvalScope: "suggestion-only" }), /manager/i);
+
+  const restarted = createTeamService(join(root, "platform"), { now: () => at });
+  const persisted = (await restarted.getTeam(principal("ai-owner"), team.id))?.members.find((member) => member.memberType === "ai");
+  assert.deepEqual(persisted, aiMember);
+  const removed = await restarted.removeAiMember(principal("ai-owner"), team.id, "frontend");
+  assert.equal(removed.status, "removed");
+  assert.equal((await restarted.getTeam(principal("ai-owner"), team.id))?.members.some((member) => member.memberType === "ai"), false);
+});

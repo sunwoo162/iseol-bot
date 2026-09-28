@@ -4,6 +4,7 @@ import { createDevelopmentRun } from "../harness/run-service.js";
 import { loadHarnessRun } from "../harness/run-store.js";
 import { appendProjectHistoryEventOnce } from "./history-store.js";
 import { attachRunToProjectTreeNode } from "./project-tree.js";
+import { findProjectTreeNode } from "./project-tree.js";
 import { loadProjectWorkspace, saveProjectWorkspace } from "./workspace-store.js";
 
 export type ProjectExecutionPreparation = {
@@ -49,6 +50,7 @@ export async function reconcileProjectWorkspaceRun(
   projectId: string,
   runId: string,
   at = new Date().toISOString(),
+  nodeId?: string,
 ): Promise<{ run: HarnessRuntimeRunEnvelope; attached: boolean }> {
   const run = await loadHarnessRun(harnessRoot, runId);
   if (!run) throw new Error(`Harness Run not found: ${runId}`);
@@ -59,10 +61,12 @@ export async function reconcileProjectWorkspaceRun(
   if (!workspace) throw new Error(`Project workspace not found: ${projectId}`);
   const rootNode = workspace.tree.find((node) => node.kind === "root");
   if (!rootNode) throw new Error("Project workspace root node is required before attaching a Run");
+  const targetNode = nodeId ? findProjectTreeNode(workspace, nodeId) : rootNode;
+  if (!targetNode) throw new Error(`Project tree node not found: ${nodeId}`);
 
-  const attached = rootNode.runIds.includes(runId);
+  const attached = targetNode.runIds.includes(runId);
   if (!attached) {
-    await saveProjectWorkspace(root, attachRunToProjectTreeNode(workspace, rootNode.id, runId, at));
+    await saveProjectWorkspace(root, attachRunToProjectTreeNode(workspace, targetNode.id, runId, at));
   }
   await appendProjectHistoryEventOnce(root, {
     version: 1,
@@ -72,7 +76,7 @@ export async function reconcileProjectWorkspaceRun(
     at,
     summary: `Harness Run attached: ${runId}`,
     runId,
-    nodeId: rootNode.id,
+    nodeId: targetNode.id,
     action: "run-start",
   });
   return { run, attached };
@@ -128,7 +132,7 @@ export async function prepareProjectWorkspaceRun(
 export async function startProjectWorkspaceRun(
   root: string,
   projectId: string,
-  input: Pick<DevelopmentRunRequest, "runId" | "objective" | "targetRoot">,
+  input: Pick<DevelopmentRunRequest, "runId" | "objective" | "targetRoot"> & { nodeId?: string },
   options: StartProjectWorkspaceRunOptions,
 ): Promise<StartProjectWorkspaceRunResult> {
   const key = `${options.storeRoot}:${input.runId}`;
@@ -167,6 +171,7 @@ export async function startProjectWorkspaceRun(
       projectId,
       input.runId,
       options.loadedAt ?? new Date().toISOString(),
+      input.nodeId,
     );
     return { status, run };
   })();

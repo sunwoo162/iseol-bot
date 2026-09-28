@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, open, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { assertProjectModelId } from "./contracts.js";
+import { renameWithTransientRetry } from "../desktop-agent/atomic-file.js";
 
 export type ProjectWorkRequestStatus = "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
 export type ProjectWorkRequest = {
@@ -27,6 +28,15 @@ export type ProjectWorkRequest = {
 
 const statuses = new Set<ProjectWorkRequestStatus>(["queued", "running", "waiting", "completed", "failed", "cancelled"]);
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const workRequestWriteQueues = new Map<string, Promise<unknown>>();
+
+async function serializeWorkRequestWrite<T>(path: string, action: () => Promise<T>): Promise<T> {
+  const previous = workRequestWriteQueues.get(path) ?? Promise.resolve();
+  const current = previous.catch(() => undefined).then(action);
+  workRequestWriteQueues.set(path, current);
+  try { return await current; }
+  finally { if (workRequestWriteQueues.get(path) === current) workRequestWriteQueues.delete(path); }
+}
 
 function requestFile(root: string, projectId: string, id: string): string {
   assertProjectModelId(projectId);
@@ -51,10 +61,19 @@ function validate(value: ProjectWorkRequest): void {
 export async function saveProjectWorkRequest(root: string, request: ProjectWorkRequest): Promise<void> {
   validate(request);
   const path = requestFile(root, request.projectId, request.id);
-  await mkdir(dirname(path), { recursive: true });
-  const temp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
-  await writeFile(temp, JSON.stringify(request, null, 2), "utf8");
-  await rename(temp, path);
+  await serializeWorkRequestWrite(path, async () => {
+    await mkdir(dirname(path), { recursive: true });
+    const temp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+    await writeFile(temp, JSON.stringify(request, null, 2), "utf8");
+    try {
+      await renameWithTransientRetry(temp, path);
+    } catch (error) {
+      await unlink(temp).catch((cleanupError) => {
+        if ((cleanupError as NodeJS.ErrnoException).code !== "ENOENT") throw cleanupError;
+      });
+      throw error;
+    }
+  });
 }
 
 export async function loadProjectWorkRequest(root: string, projectId: string, id: string): Promise<ProjectWorkRequest | null> {
@@ -95,7 +114,7 @@ export async function createProjectWorkRequest(input: {
   }
   const existing = (await listProjectWorkRequests(input.root, input.projectId)).find((item) => item.idempotencyKey === input.idempotencyKey);
   if (existing) {
-    if (existing.title !== input.title || existing.objective !== input.objective || existing.nodeId !== input.nodeId || JSON.stringify(existing.dependencies ?? []) !== JSON.stringify(input.dependencies ?? [])) throw new Error("work request idempotency conflict");
+    if (existing.title !== input.title || existing.objective !== input.objective || (input.nodeId !== undefined && existing.nodeId !== input.nodeId) || JSON.stringify(existing.dependencies ?? []) !== JSON.stringify(input.dependencies ?? [])) throw new Error("work request idempotency conflict");
     return { request: existing, created: false };
   }
   const request: ProjectWorkRequest = {
@@ -211,7 +230,7 @@ function workStatusForRun(status: string): ProjectWorkRequestStatus {
   if (status === "DONE") return "completed";
   if (status === "FAILED_FINAL") return "failed";
   if (status === "CANCELLED") return "cancelled";
-  if (status === "WAITING_EXTERNAL" || status === "WAITING_AGENT" || status === "BLOCKED_USER") return "waiting";
+  if (status === "WAITING_EXTERNAL" || status === "WAITING_AGENT" || status === "BLOCKED_USER" || status === "PAUSED") return "waiting";
   return "running";
 }
 
@@ -224,7 +243,7 @@ export async function reconcileProjectWorkRequest(input: {
   projectId: string;
   workId: string;
   at: string;
-  findRun: (runId: string) => Promise<{ runId: string; projectId?: string; state: { stage: string; status: string }; updatedAt: string } | null>;
+  findRun: (runId: string) => Promise<{ runId: string; projectId?: string; state: { stage: string; status: string; reason?: string }; updatedAt: string } | null>;
 }): Promise<ProjectWorkRequestProjection | null> {
   const request = await loadProjectWorkRequest(input.root, input.projectId, input.workId);
   if (!request) return null;
@@ -246,7 +265,10 @@ export async function reconcileProjectWorkRequest(input: {
   const nextStatus = workStatusForRun(run.state.status);
   const terminalRun = ["DONE", "FAILED_FINAL", "CANCELLED"].includes(run.state.status);
   const terminalRequest = ["completed", "failed", "cancelled"].includes(request.status);
-  if (terminalRequest && request.status !== nextStatus) {
+  // A failed request may be deliberately reopened by the owner retry path before
+  // the same durable Run reaches DONE. Preserve other terminal request states
+  // against late observations, especially completed -> failed.
+  if (terminalRequest && request.status !== nextStatus && !(request.status === "failed" && nextStatus === "completed")) {
     return { request, revision: projectWorkRequestRevision(request), run: runView, execution: terminalRun ? "terminal" : "run-found", transition: alreadyProjected(request.status) };
   }
   if (request.status === nextStatus) {
@@ -256,7 +278,11 @@ export async function reconcileProjectWorkRequest(input: {
   const updated = await updateProjectWorkRequest(input.root, input.projectId, input.workId, {
     status: nextStatus,
     runId: run.runId,
-    blocker: nextStatus === "waiting" ? `Harness Run is ${run.state.status}` : undefined,
+    blocker: nextStatus === "waiting"
+      ? `Harness Run is ${run.state.status}`
+      : nextStatus === "failed"
+        ? run.state.reason ?? `Harness Run is ${run.state.status}`
+        : undefined,
   }, input.at);
   return {
     request: updated ?? request,
@@ -264,7 +290,7 @@ export async function reconcileProjectWorkRequest(input: {
     run: runView,
     execution: terminalRun ? "terminal" : "run-found",
     transition: "updated",
-    ...(nextStatus === "waiting" ? { blocker: `Harness Run is ${run.state.status}` } : {}),
+    ...(nextStatus === "waiting" ? { blocker: `Harness Run is ${run.state.status}` } : nextStatus === "failed" ? { blocker: run.state.reason ?? `Harness Run is ${run.state.status}` } : {}),
   };
 }
 
@@ -313,7 +339,7 @@ export async function scheduleProjectWorkRequests(input: {
   })));
 }
 
-export async function updateProjectWorkRequest(root: string, projectId: string, id: string, patch: Partial<Pick<ProjectWorkRequest, "status" | "runId" | "blocker" | "requestedRunId" | "executionRequestId">>, at: string): Promise<ProjectWorkRequest | null> {
+export async function updateProjectWorkRequest(root: string, projectId: string, id: string, patch: Partial<Pick<ProjectWorkRequest, "status" | "runId" | "nodeId" | "blocker" | "requestedRunId" | "executionRequestId">>, at: string): Promise<ProjectWorkRequest | null> {
   const current = await loadProjectWorkRequest(root, projectId, id);
   if (!current) return null;
   const next = { ...current, ...patch, updatedAt: at };

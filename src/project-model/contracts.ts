@@ -84,6 +84,9 @@ export type ProjectTreeNode = {
 export type ProjectWorkspace = {
   version: 1;
   id: string;
+  /** Optional platform-user owner; legacy operator workspaces omit this field. */
+  ownerUserId?: string;
+  teamId?: string;
   name: string;
   status: "active" | "archived";
   genesis: ProjectGenesis;
