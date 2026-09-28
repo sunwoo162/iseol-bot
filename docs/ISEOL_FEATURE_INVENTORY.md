@@ -2038,3 +2038,11 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Verification: focused project-model stores `7/7`; user-product `364/364`; root `686/686`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `a87b29a feat: serialize prototype candidate patches`.
 - Boundary: same-host/shared-root Prototype candidate patch coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
+## 2026-09-28 continuation: durable Prototype-to-Project promotion synchronization
+
+- Prototype promotion is **B — promotion-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/project-model/promotion-lock.ts` and `src/project-model/promotion.ts` protect the full candidate-to-Workspace promotion boundary; process-local in-flight dedupe is no longer the only coordination mechanism.
+- Evidence: `tests/project-model-promotion.test.ts` proves promotion waits for a competing durable promotion lock and the existing idempotency, Genesis import, and browser-acceptance gates remain green.
+- Verification: focused promotion `5/5`; user-product `364/364`; root `687/687`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed after a clean rerun with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `d907b74 feat: serialize project promotion`.
+- Boundary: same-host/shared-root Prototype-to-Project promotion coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
