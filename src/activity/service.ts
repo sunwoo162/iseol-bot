@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { ActivityEvent, ActivityEventInput, ActivityService } from "./contracts.js";
+import { withDurableActivityEventLock } from "./event-lock.js";
 import { listActivityEvents, loadActivityEvent, saveActivityEvent } from "./store.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -36,39 +37,41 @@ export function createActivityService(root: string, options: { now?: () => strin
       const occurredAt = input.occurredAt ?? at;
       assertTimestamp(occurredAt, "activity occurrence timestamp");
       const id = eventId(principal.userId, input);
-      const existing = await loadActivityEvent(root, principal.userId, id);
-      if (existing) {
-        const sameIdentity = existing.userId === principal.userId
-          && existing.sourceType === input.sourceType
-          && existing.sourceId === input.sourceId
-          && existing.eventType === input.eventType
-          && existing.eventVersion === input.eventVersion;
-        const sameEvidence = sameIdentity
-          && existing.actorType === input.actorType
-          && existing.verificationStatus === input.verificationStatus
-          && JSON.stringify(existing.payload) === JSON.stringify(input.payload ?? {})
-          && existing.occurredAt === occurredAt;
-        if (!sameEvidence) throw new Error("Activity event identity conflict");
-        return existing;
-      }
-      const event: ActivityEvent = {
-        version: 1,
-        id,
-        userId: principal.userId,
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-        eventType: input.eventType,
-        eventVersion: input.eventVersion,
-        actorType: input.actorType,
-        verificationStatus: input.verificationStatus,
-        status: "active",
-        payload: { ...(input.payload ?? {}) },
-        occurredAt,
-        createdAt: at,
-        updatedAt: at,
-      };
-      await saveActivityEvent(root, event);
-      return event;
+      return withDurableActivityEventLock(root, principal.userId, id, async () => {
+        const existing = await loadActivityEvent(root, principal.userId, id);
+        if (existing) {
+          const sameIdentity = existing.userId === principal.userId
+            && existing.sourceType === input.sourceType
+            && existing.sourceId === input.sourceId
+            && existing.eventType === input.eventType
+            && existing.eventVersion === input.eventVersion;
+          const sameEvidence = sameIdentity
+            && existing.actorType === input.actorType
+            && existing.verificationStatus === input.verificationStatus
+            && JSON.stringify(existing.payload) === JSON.stringify(input.payload ?? {})
+            && existing.occurredAt === occurredAt;
+          if (!sameEvidence) throw new Error("Activity event identity conflict");
+          return existing;
+        }
+        const event: ActivityEvent = {
+          version: 1,
+          id,
+          userId: principal.userId,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          eventType: input.eventType,
+          eventVersion: input.eventVersion,
+          actorType: input.actorType,
+          verificationStatus: input.verificationStatus,
+          status: "active",
+          payload: { ...(input.payload ?? {}) },
+          occurredAt,
+          createdAt: at,
+          updatedAt: at,
+        };
+        await saveActivityEvent(root, event);
+        return event;
+      }, { waitForMs: 2_000 });
     },
 
     async listActivityEvents(principal): Promise<ActivityEvent[]> {
@@ -87,12 +90,14 @@ export function createActivityService(root: string, options: { now?: () => strin
       ensurePrincipal(principal);
       assertIdentityId(eventIdValue);
       assertTimestamp(at, "activity retraction timestamp");
-      const event = await loadActivityEvent(root, principal.userId, eventIdValue);
-      if (!event || event.userId !== principal.userId) throw new Error("Activity event not found");
-      if (event.status === "retracted") return event;
-      const retracted: ActivityEvent = { ...event, status: "retracted", retractedAt: at, updatedAt: at };
-      await saveActivityEvent(root, retracted);
-      return retracted;
+      return withDurableActivityEventLock(root, principal.userId, eventIdValue, async () => {
+        const event = await loadActivityEvent(root, principal.userId, eventIdValue);
+        if (!event || event.userId !== principal.userId) throw new Error("Activity event not found");
+        if (event.status === "retracted") return event;
+        const retracted: ActivityEvent = { ...event, status: "retracted", retractedAt: at, updatedAt: at };
+        await saveActivityEvent(root, retracted);
+        return retracted;
+      }, { waitForMs: 2_000 });
     },
   };
 }

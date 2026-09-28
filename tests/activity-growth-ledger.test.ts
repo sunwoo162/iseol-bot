@@ -96,3 +96,17 @@ test("retracting verified evidence creates one compensating ledger entry", async
   assert.deepEqual(snapshot.actorBreakdown, { user: 0, ai: 0, system: 0 });
   assert.deepEqual(snapshot.evidenceEventIds, [original.id]);
 });
+
+test("concurrent identical activity events across service instances remain idempotent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-activity-concurrent-"));
+  const firstService = createActivityService(root, { now: () => at });
+  const secondService = createActivityService(root, { now: () => at });
+  const sources = Array.from({ length: 24 }, (_, index) => `concurrent-${index}`);
+  const results = await Promise.allSettled(sources.flatMap((sourceId) => [
+    firstService.recordActivityEvent(principal("activity-owner"), { sourceType: "test", sourceId, eventType: "test.completed", eventVersion: 1, actorType: "user", verificationStatus: "verified" }),
+    secondService.recordActivityEvent(principal("activity-owner"), { sourceType: "test", sourceId, eventType: "test.completed", eventVersion: 1, actorType: "user", verificationStatus: "verified" }),
+  ]));
+
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, sources.length * 2);
+  assert.equal((await firstService.listActivityEvents(principal("activity-owner"))).length, sources.length);
+});
