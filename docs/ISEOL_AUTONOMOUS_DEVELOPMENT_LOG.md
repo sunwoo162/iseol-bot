@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable Idea Lab campaign supervision synchronization
+
+- Status: **B — Idea Lab campaign-scoped, durable, same-host cross-service serialized, and isolated-product verified; live Runtime/provider execution remains unverified**. The public campaign supervisor now holds a durable campaign lock across its full read/propose/produce/advance loop, preventing concurrent supervisor instances from interleaving campaign state transitions.
+- Evidence: `src/idea-lab/campaign-lock.ts`, `src/idea-lab/campaign-supervisor.ts`, `tests/idea-lab-campaign-supervisor.test.ts`, and the existing Idea Lab campaign/runtime/browser coverage.
+- Focused coverage: the lock-holder test confirms the public supervisor waits for a competing durable campaign lock; the wrapper preserves the existing supervisor behavior under the lock. This unit was verified as a focused lock-holder regression rather than a separate RED-first reproduction.
+- Verification: focused campaign-supervisor suite `10/10`; user-product `364/364`; serial root `690/690`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained Idea Lab campaign/runtime journeys, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `b47350a feat: serialize Idea Lab campaign supervision`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root campaign supervision coordination only; no distributed coordinator, operational Runtime/Agent throughput or live provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service recruitment application reviews
 
 - Status: **B — application-scoped, durable, same-host cross-service terminal review serialization, and isolated-product verified; external invitation delivery remains provider-bound/unverified**. Recruitment accept/reject now shares a durable application review lock and re-reads the application inside it, so concurrent manager decisions produce one terminal review and one explicit not-found/pending conflict.

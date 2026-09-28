@@ -1983,6 +1983,14 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Boundary: same-host/shared-root lifecycle coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Commit: `9d0ab4b feat: serialize project work request cancellation`.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable Idea Lab campaign supervision synchronization
+
+- Campaign supervision is **B — campaign-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/idea-lab/campaign-lock.ts` and `src/idea-lab/campaign-supervisor.ts` protect the full supervisor loop so competing campaign supervisors cannot interleave state transitions.
+- Evidence: `tests/idea-lab-campaign-supervisor.test.ts` proves supervision waits for a competing durable campaign lock; existing Idea Lab campaign/runtime/browser journeys remain green.
+- Verification: focused campaign-supervisor `10/10`; user-product `364/364`; root `690/690`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `b47350a feat: serialize Idea Lab campaign supervision`.
+- Boundary: same-host/shared-root campaign supervision coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable project Work Request patch serialization
 
 - Project Work Request patches are **B — record-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/project-model/work-request.ts` now applies an exact update lock around read-modify-save, so concurrent lifecycle, scheduler, reconciliation, and operator patches preserve disjoint fields.
