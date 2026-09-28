@@ -73,6 +73,16 @@ test("observations append once by semantic identity", async () => {
     await assert.rejects(() => appendEvaluationObservationOnce(root, observation("obs-1", "different")), /identity mismatch/i);
   });
 });
+test("concurrent observation append-once calls preserve one identity", async () => {
+  await withRoot(async (root) => {
+    const results = await Promise.all([
+      appendEvaluationObservationOnce(root, observation("obs-concurrent")),
+      appendEvaluationObservationOnce(root, observation("obs-concurrent")),
+    ]);
+    assert.equal(results.filter(Boolean).length, 1);
+    assert.equal((await listEvaluationObservations(root, "eval-1")).length, 1);
+  });
+});
 test("completed reports are immutable and idempotent", async () => {
   await withRoot(async (root) => {
     assert.equal(await saveEvaluationReport(root, report()), true);

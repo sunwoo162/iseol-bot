@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { EvaluationObservation } from "./contracts.js";
 import { assertEvaluationId, assertEvaluationObservation } from "./contracts.js";
+import { withDurableEvaluationObservationLock } from "./observation-lock.js";
 import { evaluationDirectory } from "./store-utils.js";
 
 function observationFile(root: string, evaluationId: string): string {
@@ -23,14 +24,16 @@ export async function listEvaluationObservations(root: string, evaluationId: str
 
 export async function appendEvaluationObservationOnce(root: string, observation: EvaluationObservation): Promise<boolean> {
   assertEvaluationObservation(observation);
-  const existing = (await listEvaluationObservations(root, observation.evaluationId)).find((item) => item.id === observation.id);
-  if (existing) {
-    const sameIdentity = existing.evaluationId === observation.evaluationId && existing.scenarioId === observation.scenarioId && existing.type === observation.type && existing.summary === observation.summary && existing.reference === observation.reference;
-    if (!sameIdentity) throw new Error(`Evaluation observation identity mismatch: ${observation.id}`);
-    return false;
-  }
-  const path = observationFile(root, observation.evaluationId);
-  await mkdir(dirname(path), { recursive: true });
-  await appendFile(path, `${JSON.stringify(observation)}\n`, "utf8");
-  return true;
+  return withDurableEvaluationObservationLock(root, observation.evaluationId, async () => {
+    const existing = (await listEvaluationObservations(root, observation.evaluationId)).find((item) => item.id === observation.id);
+    if (existing) {
+      const sameIdentity = existing.evaluationId === observation.evaluationId && existing.scenarioId === observation.scenarioId && existing.type === observation.type && existing.summary === observation.summary && existing.reference === observation.reference;
+      if (!sameIdentity) throw new Error(`Evaluation observation identity mismatch: ${observation.id}`);
+      return false;
+    }
+    const path = observationFile(root, observation.evaluationId);
+    await mkdir(dirname(path), { recursive: true });
+    await appendFile(path, `${JSON.stringify(observation)}\n`, "utf8");
+    return true;
+  }, { waitForMs: 2_000 });
 }
