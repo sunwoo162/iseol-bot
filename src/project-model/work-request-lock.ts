@@ -13,6 +13,12 @@ function lockPath(root: string, projectId: string, idempotencyKey: string): stri
   return resolve(root, ".locks", "work-requests", `${projectId}-${keyHash}.lock`);
 }
 
+function runStartLockPath(root: string, projectId: string, workRequestId: string): string {
+  assertProjectModelId(projectId);
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(workRequestId)) throw new Error("Invalid work request id");
+  return resolve(root, ".locks", "work-request-runs", `${projectId}-${workRequestId}.lock`);
+}
+
 function processIsAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -36,14 +42,7 @@ async function removeDeadOwnerLock(path: string): Promise<boolean> {
   }
 }
 
-export async function withDurableProjectWorkRequestLock<T>(
-  root: string,
-  projectId: string,
-  idempotencyKey: string,
-  task: () => Promise<T>,
-  options: ProjectWorkRequestLockOptions = {},
-): Promise<T> {
-  const path = lockPath(root, projectId, idempotencyKey);
+async function withLock<T>(path: string, task: () => Promise<T>, options: ProjectWorkRequestLockOptions): Promise<T> {
   await mkdir(dirname(path), { recursive: true });
   let handle: FileHandle;
   const waitForMs = options.waitForMs ?? 0;
@@ -67,4 +66,24 @@ export async function withDurableProjectWorkRequestLock<T>(
     await handle.close().catch(() => undefined);
     await unlink(path).catch(() => undefined);
   }
+}
+
+export function withDurableProjectWorkRequestLock<T>(
+  root: string,
+  projectId: string,
+  idempotencyKey: string,
+  task: () => Promise<T>,
+  options: ProjectWorkRequestLockOptions = {},
+): Promise<T> {
+  return withLock(lockPath(root, projectId, idempotencyKey), task, options);
+}
+
+export function withDurableProjectWorkRequestRunLock<T>(
+  root: string,
+  projectId: string,
+  workRequestId: string,
+  task: () => Promise<T>,
+  options: ProjectWorkRequestLockOptions = {},
+): Promise<T> {
+  return withLock(runStartLockPath(root, projectId, workRequestId), task, options);
 }

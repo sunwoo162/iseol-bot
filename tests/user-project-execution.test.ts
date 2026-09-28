@@ -108,6 +108,56 @@ test("project scheduling serializes across service instances sharing one project
   assert.equal(view?.workRequests.filter((request) => request.runId).length, 1);
 });
 
+test("direct project Run starts serialize across service instances for one Work Request", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-cross-instance-run-start-"));
+  const options = {
+    platformRoot: join(root, "platform"),
+    projectModelRoot: join(root, "project-model"),
+    projectHarnessRoot: join(root, "runs"),
+    iseolRoot: root,
+    now: () => at,
+  };
+  const firstService = createUserProjectService(options);
+  const secondService = createUserProjectService(options);
+  const owner = principal("run-start-cross-instance-owner");
+  const project = await firstService.createProject(owner, {
+    name: "Cross-instance Run start",
+    objective: "create one Run for one Work Request",
+    purpose: "rapid-prototype",
+    teamMode: "solo",
+  });
+  const task = await firstService.createWorkRequest(owner, project.id, {
+    title: "Single Run task",
+    objective: "avoid duplicate direct starts",
+    idempotencyKey: "cross-instance-run-start-task",
+  });
+  let enqueueCalls = 0;
+  let releaseEnqueue!: () => void;
+  const enqueueHeld = new Promise<void>((resolve) => { releaseEnqueue = resolve; });
+  const enqueue = async () => {
+    enqueueCalls += 1;
+    if (enqueueCalls === 1) await enqueueHeld;
+    return "accepted" as const;
+  };
+
+  const first = firstService.startProjectRun(owner, project.id, { workRequestId: task.request.id, runId: "run-cross-first" }, enqueue);
+  for (let attempt = 0; attempt < 100 && enqueueCalls < 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  const second = secondService.startProjectRun(owner, project.id, { workRequestId: task.request.id, runId: "run-cross-second" }, enqueue);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const callsWhileFirstIsHeld = enqueueCalls;
+  releaseEnqueue();
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+
+  assert.equal(callsWhileFirstIsHeld, 1);
+  assert.equal(enqueueCalls, 1);
+  assert.equal(firstResult.status, "started");
+  assert.equal(firstResult.runId, "run-cross-first");
+  assert.equal(secondResult.status, "already-active");
+  assert.equal(secondResult.runId, "run-cross-first");
+  assert.equal((await firstService.getProject(owner, project.id))?.workRequests.find((request) => request.id === task.request.id)?.runId, "run-cross-first");
+  assert.equal(await loadHarnessRun(join(root, "runs"), "run-cross-second"), null);
+});
+
 test("user project view exposes durable project history only through the existing project ACL", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-user-project-history-"));
   const service = createUserProjectService({

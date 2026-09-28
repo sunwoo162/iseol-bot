@@ -22,6 +22,7 @@ import { loadProjectWorkspace, saveProjectWorkspace } from "./workspace-store.js
 import { missingProjectRunObservation, projectRunObservation, runtimeObservationStatus, type UserProjectRunObservation } from "./run-observability.js";
 import { listUserProjectWorkspaceFiles, readUserProjectWorkspaceFile, type UserProjectWorkspaceFilePreview, type UserProjectWorkspaceFiles } from "./workspace-files.js";
 import { withDurableProjectScheduleLock } from "./schedule-lock.js";
+import { withDurableProjectWorkRequestRunLock } from "./work-request-lock.js";
 import type { ActivityService } from "../activity/contracts.js";
 import type { GrowthService } from "../growth/contracts.js";
 import type { SettingsService } from "../settings/contracts.js";
@@ -354,50 +355,52 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
       return cancelled;
     },
     async startProjectRun(principal, projectId, input, enqueueProjectRun) {
-      const view = await this.getProject(principal, projectId);
-      if (!view) throw new Error("Project not found");
-      const workRequest = view.workRequests.find((request) => request.id === input.workRequestId);
-      if (!workRequest) throw new Error("Work request not found");
-      if (workRequest.status === "running" && workRequest.runId) return { status: "already-active", request: workRequest, runId: workRequest.runId };
-      if (workRequest.status !== "queued" && workRequest.status !== "waiting") throw new Error(`Work request is ${workRequest.status}`);
-      const incompleteDependencies = (workRequest.dependencies ?? []).filter((dependencyId) => view.workRequests.find((candidate) => candidate.id === dependencyId)?.status !== "completed");
-      if (incompleteDependencies.length > 0) {
-        const at = now();
-        const blocker = `dependencies incomplete: ${incompleteDependencies.join(", ")}`;
-        const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, { status: "waiting", blocker }, at);
-        return { status: "waiting", request: updated ?? workRequest, blocker };
-      }
-      const settings = options.settingsService ? await options.settingsService.getSettings(principal) : null;
-      if (settings?.aiApproval.buildRun && input.approved !== true) throw new Error("Build run approval is required");
-      if (!enqueueProjectRun) {
-        const at = now();
-        const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, { status: "waiting", blocker: "Project Runtime is not configured" }, at);
-        return { status: "waiting", request: updated ?? workRequest, blocker: "Project Runtime is not configured" };
-      }
-      const at = now(); assertTimestamp(at, "project run timestamp");
-      const started = await startProjectWorkspaceRun(options.projectModelRoot, projectId, { runId: input.runId, objective: workRequest.objective, targetRoot: view.project.workspaceRoot, ...(workRequest.nodeId ? { nodeId: workRequest.nodeId } : {}) }, { iseolRoot: options.iseolRoot, storeRoot: options.projectHarnessRoot, loadedAt: at });
-      const execution = await enqueueProjectRun(started.run.request.runId);
-      const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, {
-        status: execution === "not-configured" ? "waiting" : "running",
-        runId: started.run.request.runId,
-        requestedRunId: started.run.request.runId,
-        executionRequestId: `${projectId}:${workRequest.id}:${started.run.request.runId}`,
-        ...(execution === "not-configured" ? { blocker: "Project Runtime is not configured" } : {}),
-      }, at);
-      if (updated && options.activityService) {
-        await options.activityService.recordActivityEvent(principal, {
-          sourceType: "project-run",
-          sourceId: started.run.request.runId,
-          eventType: "project.run.requested",
-          eventVersion: 1,
-          actorType: "user",
-          verificationStatus: "unverified",
-          payload: { projectId, workRequestId: workRequest.id, runId: started.run.request.runId },
-          occurredAt: at,
-        });
-      }
-      if (execution === "not-configured") return { status: "waiting", request: updated ?? workRequest, runId: started.run.request.runId, blocker: "Project Runtime is not configured" };
-      return { status: started.status === "already-active" || execution === "already-active" ? "already-active" : "started", request: updated ?? workRequest, runId: started.run.request.runId };
+      return withDurableProjectWorkRequestRunLock(options.projectModelRoot, projectId, input.workRequestId, async () => {
+        const view = await this.getProject(principal, projectId);
+        if (!view) throw new Error("Project not found");
+        const workRequest = view.workRequests.find((request) => request.id === input.workRequestId);
+        if (!workRequest) throw new Error("Work request not found");
+        if ((workRequest.status === "running" || (workRequest.status === "waiting" && workRequest.runId)) && workRequest.runId) return { status: "already-active", request: workRequest, runId: workRequest.runId };
+        if (workRequest.status !== "queued" && workRequest.status !== "waiting") throw new Error(`Work request is ${workRequest.status}`);
+        const incompleteDependencies = (workRequest.dependencies ?? []).filter((dependencyId) => view.workRequests.find((candidate) => candidate.id === dependencyId)?.status !== "completed");
+        if (incompleteDependencies.length > 0) {
+          const at = now();
+          const blocker = `dependencies incomplete: ${incompleteDependencies.join(", ")}`;
+          const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, { status: "waiting", blocker }, at);
+          return { status: "waiting", request: updated ?? workRequest, blocker };
+        }
+        const settings = options.settingsService ? await options.settingsService.getSettings(principal) : null;
+        if (settings?.aiApproval.buildRun && input.approved !== true) throw new Error("Build run approval is required");
+        if (!enqueueProjectRun) {
+          const at = now();
+          const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, { status: "waiting", blocker: "Project Runtime is not configured" }, at);
+          return { status: "waiting", request: updated ?? workRequest, blocker: "Project Runtime is not configured" };
+        }
+        const at = now(); assertTimestamp(at, "project run timestamp");
+        const started = await startProjectWorkspaceRun(options.projectModelRoot, projectId, { runId: input.runId, objective: workRequest.objective, targetRoot: view.project.workspaceRoot, ...(workRequest.nodeId ? { nodeId: workRequest.nodeId } : {}) }, { iseolRoot: options.iseolRoot, storeRoot: options.projectHarnessRoot, loadedAt: at });
+        const execution = await enqueueProjectRun(started.run.request.runId);
+        const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, {
+          status: execution === "not-configured" ? "waiting" : "running",
+          runId: started.run.request.runId,
+          requestedRunId: started.run.request.runId,
+          executionRequestId: `${projectId}:${workRequest.id}:${started.run.request.runId}`,
+          ...(execution === "not-configured" ? { blocker: "Project Runtime is not configured" } : {}),
+        }, at);
+        if (updated && options.activityService) {
+          await options.activityService.recordActivityEvent(principal, {
+            sourceType: "project-run",
+            sourceId: started.run.request.runId,
+            eventType: "project.run.requested",
+            eventVersion: 1,
+            actorType: "user",
+            verificationStatus: "unverified",
+            payload: { projectId, workRequestId: workRequest.id, runId: started.run.request.runId },
+            occurredAt: at,
+          });
+        }
+        if (execution === "not-configured") return { status: "waiting", request: updated ?? workRequest, runId: started.run.request.runId, blocker: "Project Runtime is not configured" };
+        return { status: started.status === "already-active" || execution === "already-active" ? "already-active" : "started", request: updated ?? workRequest, runId: started.run.request.runId };
+      }, { waitForMs: 2_000 });
     },
     async scheduleProjectRuns(principal, projectId, input, enqueueProjectRun) {
       return withProjectScheduleLock(projectId, () => withDurableProjectScheduleLock(options.projectModelRoot, projectId, async () => {
