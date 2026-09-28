@@ -114,8 +114,13 @@ export function createSocialService(root: string, options: SocialServiceOptions)
     },
     async respondToFriendRequest(principal, requestId, action) {
       ensurePrincipal(principal); assertIdentityId(requestId); if (!["accept", "reject"].includes(action)) throw new Error("Invalid friend request action");
-      return withDurableFriendRequestLock(root, requestId, async () => {
-        const current = await loadFriendRequest(root, requestId); if (!current || current.targetUserId !== principal.userId || current.status !== "pending") throw new Error("Friend request not found"); const next: FriendRequest = { ...current, status: action === "accept" ? "accepted" : "rejected", updatedAt: now() }; await saveFriendRequest(root, next); await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: next.id, eventType: `friend.request.${action === "accept" ? "accepted" : "rejected"}`, eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { requesterUserId: next.requesterUserId } }); return next;
+      const initial = await loadFriendRequest(root, requestId);
+      if (!initial || initial.targetUserId !== principal.userId) throw new Error("Friend request not found");
+      return withDurableSocialBlockLock(root, initial.requesterUserId, initial.targetUserId, async () => {
+        if (await isBlocked(initial.requesterUserId, initial.targetUserId)) throw new Error("User is blocked");
+        return withDurableFriendRequestLock(root, requestId, async () => {
+          const current = await loadFriendRequest(root, requestId); if (!current || current.targetUserId !== principal.userId || current.status !== "pending") throw new Error("Friend request not found"); const next: FriendRequest = { ...current, status: action === "accept" ? "accepted" : "rejected", updatedAt: now() }; await saveFriendRequest(root, next); await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: next.id, eventType: `friend.request.${action === "accept" ? "accepted" : "rejected"}`, eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { requesterUserId: next.requesterUserId } }); return next;
+        }, { waitForMs: 2_000 });
       }, { waitForMs: 2_000 });
     },
     async sendDirectMessage(principal, recipientUserId, body) {

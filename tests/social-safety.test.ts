@@ -45,6 +45,22 @@ test("social safety operations reject self-targets and unknown users", async () 
   await assert.rejects(() => social.reportUser(principal("safety-only"), "missing-user", "spam"), /not found/i);
 });
 
+test("blocking prevents a pending friend request from being accepted", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-safety-pending-friend-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  for (const id of ["pending-friend-a", "pending-friend-b"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const social = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+
+  const request = await social.createFriendRequest(principal("pending-friend-a"), "pending-friend-b");
+  await social.blockUser(principal("pending-friend-b"), "pending-friend-a");
+  await assert.rejects(() => social.respondToFriendRequest(principal("pending-friend-b"), request.request.id, "accept"), /blocked/i);
+
+  await social.unblockUser(principal("pending-friend-b"), "pending-friend-a");
+  assert.equal((await social.listIncomingFriendRequests(principal("pending-friend-b"))).length, 1);
+  assert.equal((await social.respondToFriendRequest(principal("pending-friend-b"), request.request.id, "accept")).status, "accepted");
+});
+
 test("concurrent block mutations across service instances preserve one active block", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-social-block-concurrent-"));
   const platformRoot = join(root, "platform");
