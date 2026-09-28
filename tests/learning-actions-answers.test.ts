@@ -123,6 +123,27 @@ test("an injected learning action Runtime completes through the owner-bound dura
   assert.equal((await reloaded.listLearningSessionActions(owner, session.id))[0]?.response, action.response);
 });
 
+test("concurrent learning action completions converge or reject by the first durable response", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-action-completion-concurrent-"));
+  const owner = principal("action-completion-concurrent-owner");
+  const firstService = createLearningService(root, { now: () => at });
+  const secondService = createLearningService(root, { now: () => at });
+  const plan = await firstService.createLearningPlan(owner, { title: "Concurrent completion", description: "One completion", goals: ["Practice"] });
+  const session = await firstService.startLearningSession(owner, plan.id);
+  const action = await firstService.recordLearningSessionAction(owner, session.id, { actionId: "completion-race", type: "hint" });
+
+  const results = await Promise.allSettled([
+    firstService.completeLearningSessionAction(owner, action.id, "첫 번째 응답"),
+    secondService.completeLearningSessionAction(owner, action.id, "두 번째 응답"),
+  ]);
+
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected" && /conflict/i.test(String(result.reason))).length, 1);
+  const stored = (await firstService.listLearningSessionActions(owner, session.id))[0];
+  assert.equal(stored?.status, "recorded");
+  assert.ok(stored?.response === "첫 번째 응답" || stored?.response === "두 번째 응답");
+});
+
 test("learning Runtime dispatches do not overlap for the same user", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-learning-dispatch-concurrency-"));
   let active = 0;

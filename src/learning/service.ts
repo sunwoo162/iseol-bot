@@ -868,20 +868,24 @@ export function createLearningService(root: string, options: LearningServiceOpti
     async completeLearningSessionAction(principal, actionId, response): Promise<LearningSessionAction> {
       ensurePrincipal(principal);
       try { assertIdentityId(actionId); } catch { throw new Error("Learning session action not found"); }
-      const action = (await listLearningSessionActions(root, principal.userId)).find((candidate) => candidate.id === actionId);
-      if (!action || action.userId !== principal.userId) throw new Error("Learning session action not found");
-      const value = validateLearningActionResponse(response);
-      if (action.status === "recorded") {
-        if (action.response === value) return action;
-        throw new Error("Learning session action completion conflict");
-      }
-      const session = await loadSession(root, principal.userId, action.sessionId);
-      if (!session || session.userId !== principal.userId) throw new Error("Learning session not found");
-      const completed: LearningSessionAction = {
-        ...action, status: "recorded", response: value, source: { kind: "local-runtime" }, blocker: undefined,
-      };
-      await saveLearningSessionAction(root, completed);
-      return completed;
+      const initialAction = (await listLearningSessionActions(root, principal.userId)).find((candidate) => candidate.id === actionId);
+      if (!initialAction || initialAction.userId !== principal.userId) throw new Error("Learning session action not found");
+      return withDurableLearningActionLock(root, principal.userId, initialAction.sessionId, actionId, async () => {
+        const action = (await listLearningSessionActions(root, principal.userId)).find((candidate) => candidate.id === actionId);
+        if (!action || action.userId !== principal.userId) throw new Error("Learning session action not found");
+        const value = validateLearningActionResponse(response);
+        if (action.status === "recorded") {
+          if (action.response === value) return action;
+          throw new Error("Learning session action completion conflict");
+        }
+        const session = await loadSession(root, principal.userId, action.sessionId);
+        if (!session || session.userId !== principal.userId) throw new Error("Learning session not found");
+        const completed: LearningSessionAction = {
+          ...action, status: "recorded", response: value, source: { kind: "local-runtime" }, blocker: undefined,
+        };
+        await saveLearningSessionAction(root, completed);
+        return completed;
+      }, { waitForMs: 2_000 });
     },
 
     async listLearningSessionActions(principal, sessionId) {
