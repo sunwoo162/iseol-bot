@@ -97,3 +97,30 @@ test("operator approvals are target-bound, expiring, and single-use", async () =
   const expired = await issueOperatorApproval({ root: f.root, requestId: "request-expired", projectId: "project-a", runId: "run-3", stage: "ANALYZE", status: "RUNNING", revision, reason: "stale-runtime-after-shutdown", issuedAt: "2026-09-19T00:00:00.000Z", expiresAt: "2026-09-19T00:01:00.000Z", issuedBy: "operator" });
   assert.deepEqual(await consumeOperatorApproval({ root: f.root, approvalId: expired.approvalId, projectId: "project-a", runId: "run-3", stage: "ANALYZE", status: "RUNNING", revision, at: "2026-09-19T00:02:00.000Z" }), { ok: false, reason: "approval-expired" });
 });
+
+test("operator approval issuance is serialized across independent service instances", async () => {
+  const f = await fixture();
+  const revision = "2026-09-19T00:00:00.000Z:2026-09-19T00:00:00.000Z:ANALYZE:RUNNING";
+  const instances = await Promise.all(
+    Array.from({ length: 8 }, (_, index) => import(`../src/harness/operator-approval-store.ts?operator-approval-instance=${index}`)),
+  );
+  const attempts = await Promise.allSettled(instances.map((store, index) => store.issueOperatorApproval({
+      root: f.root,
+      requestId: "cross-service-request",
+      projectId: "project-a",
+      runId: "run-3",
+      stage: "ANALYZE",
+      status: "RUNNING",
+      revision,
+      reason: "operator-confirmed-no-active-work",
+      issuedAt: "2026-09-19T00:00:30.000Z",
+      expiresAt: "2026-09-19T01:00:00.000Z",
+      issuedBy: `operator-${index}`,
+    })));
+  const fulfilled = attempts.filter((attempt): attempt is PromiseFulfilledResult<unknown> => attempt.status === "fulfilled");
+  assert.equal(fulfilled.length, 1);
+  assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 7);
+  const approval = fulfilled[0]?.value as { approvalId: string; issuedBy: string };
+  assert.match(approval.approvalId, /^approval-/);
+  assert.match(approval.issuedBy, /^operator-\d+$/);
+});

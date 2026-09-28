@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { withDurableOperatorApprovalLock } from "./operator-approval-lock.js";
 
 export type OperatorApproval = {
   version: 1;
@@ -50,7 +51,7 @@ export async function issueOperatorApproval(input: {
   root: string; requestId: string; projectId: string; runId: string; stage: string; status: string;
   revision: string; reason: OperatorApproval["reason"]; issuedAt: string; expiresAt: string; issuedBy: string;
 }): Promise<OperatorApproval> {
-  return serialized(requestPath(input.root, input.requestId), async () => {
+  return serialized(requestPath(input.root, input.requestId), () => withDurableOperatorApprovalLock(input.root, input.requestId, async () => {
     const existing = await readJson(requestPath(input.root, input.requestId));
     const identity = JSON.stringify({ projectId: input.projectId, runId: input.runId, stage: input.stage, status: input.status, revision: input.revision, reason: input.reason, issuedBy: input.issuedBy });
     if (existing) {
@@ -62,7 +63,7 @@ export async function issueOperatorApproval(input: {
     await writeJson(approvalPath(input.root, approval.approvalId), approval);
     await writeJson(requestPath(input.root, input.requestId), approval);
     return approval;
-  });
+  }, { waitForMs: 2000 }));
 }
 
 export async function loadOperatorApproval(root: string, approvalId: string): Promise<OperatorApproval | null> {
