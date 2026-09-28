@@ -1983,6 +1983,14 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Boundary: same-host/shared-root lifecycle coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Commit: `9d0ab4b feat: serialize project work request cancellation`.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable Prototype archive guard
+
+- Prototype archive is **B — candidate-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/idea-lab/prototype-actions.ts` uses the prototype lock's atomic update guard for promoted rejection and archived idempotence, preventing stale archive writes across promotion.
+- Evidence: `tests/project-model-promotion.test.ts` proves archive waits for a competing durable candidate lock; existing archive/promotion/API/browser journeys remain green.
+- Verification: focused Idea Lab/promotion/stores `20/20`; user-product `364/364`; root `698/698`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `f855be9 feat: serialize prototype archive guard`.
+- Boundary: same-host/shared-root Prototype archive/promotion coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable Prototype browser-acceptance guard
 
 - Prototype browser acceptance is **B — candidate-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/project-model/prototype-store.ts` applies promoted-state validation inside `src/project-model/prototype-lock.ts`, preventing stale acceptance writes across promotion.

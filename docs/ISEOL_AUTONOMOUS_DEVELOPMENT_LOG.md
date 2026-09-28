@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable Prototype archive guard
+
+- Status: **B — Prototype-candidate-scoped, durable, same-host cross-service serialized, and isolated-product verified; live Runtime/provider execution remains unverified**. Prototype archive now uses the locked candidate update path for both promoted-state rejection and archived idempotence, preventing a stale pre-lock read from overwriting a concurrent promotion.
+- Evidence: `src/idea-lab/prototype-actions.ts`, `src/project-model/prototype-store.ts`, `src/project-model/prototype-lock.ts`, `tests/project-model-promotion.test.ts`, and the existing archive/promotion/browser coverage.
+- TDD: RED lock-holder coverage confirmed the archive path must wait on the candidate lock; GREEN made archive use the same atomic update guard as browser acceptance, with a lock-internal promoted rejection and return-current archived path.
+- Verification: focused Idea Lab/promotion/stores suites `20/20`; user-product `364/364`; serial root `698/698`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained Prototype archive/promotion and Project Workspace journeys, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `f855be9 feat: serialize prototype archive guard`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Prototype archive/promotion coordination only; no distributed coordinator, operational Runtime/Agent throughput or live provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable Prototype browser-acceptance guard
 
 - Status: **B — Prototype-candidate-scoped, durable, same-host cross-service serialized, and isolated-product verified; live Runtime/provider execution remains unverified**. Browser acceptance now validates the candidate's promoted status inside the existing prototype lock, so promotion and acceptance cannot interleave around a stale pre-lock read.
