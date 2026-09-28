@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Desktop Agent presence synchronization
+
+- Status: **B — Desktop Agent registration and heartbeat writes now coordinate across independent processes with Agent-scoped durable locks, and stale heartbeat timestamps cannot overwrite newer presence; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
+- Evidence: `src/desktop-agent/agent-lock.ts`, `src/desktop-agent/agent-registry.ts`, `tests/desktop-agent-registry.test.ts`.
+- TDD: RED exposed the missing cross-instance heartbeat wait and a race where completion order could regress the heartbeat timestamp; GREEN added bounded Agent lock ownership/reclaim/cleanup and monotonic heartbeat protection while retaining the in-process queue.
+- Verification: focused Desktop Agent registry `7/7`; user-product `366/366`; serial root `719/719`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `6134bfb fix: serialize desktop agent presence writes`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Desktop Agent registration and heartbeat coordination only; distributed locking, live Runtime/Agent throughput, external connector delivery, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Desktop Agent result persistence synchronization
 
 - Status: **B — durable Desktop Agent result replay writes now serialize per Job before retention cleanup; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
