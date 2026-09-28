@@ -97,3 +97,30 @@ test("AI team proposal and discussion dispatches share one per-user Runtime gate
   assert.equal(dispatchCount, 2);
   assert.equal(maximumActive, 1);
 });
+
+test("concurrent AI team discussion requests across service instances remain one discussion", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-discussion-concurrent-"));
+  const owner = principal("discussion-concurrent-owner");
+  const teams = createTeamService(join(root, "platform"), { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Concurrent discussion team", description: "discussion idempotency", kind: "project", visibility: "public", capacity: 4 });
+  await teams.addAiMember(owner, team.id, { agentId: "architect", assignmentRole: "architecture", capabilities: ["context.read", "discussion.propose"], approvalScope: "suggestion-only" }, at);
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const project = await projects.createProject(owner, { name: "Concurrent discussion project", objective: "one durable discussion", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
+  let dispatchCount = 0;
+  const dispatcher = async ({ question }: { question: string }) => {
+    dispatchCount += 1;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+    return { status: "completed" as const, answer: `answer: ${question}`, keyPoints: ["bounded"], alternatives: [], risks: [] };
+  };
+  const firstService = createAiTeamDiscussionService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher });
+  const secondService = createAiTeamDiscussionService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher });
+
+  const results = await Promise.all([
+    firstService.requestDiscussion(owner, project.id, { agentId: "architect", requestId: "concurrent-discussion", question: "How should this boundary be checked?" }),
+    secondService.requestDiscussion(owner, project.id, { agentId: "architect", requestId: "concurrent-discussion", question: "How should this boundary be checked?" }),
+  ]);
+
+  assert.equal(dispatchCount, 1);
+  assert.equal(new Set(results.map((result) => result.id)).size, 1);
+  assert.equal((await firstService.listDiscussions(owner, project.id)).length, 1);
+});
