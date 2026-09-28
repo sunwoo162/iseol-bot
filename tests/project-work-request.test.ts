@@ -186,6 +186,40 @@ test("terminal Run projection completes the linked work request idempotently", a
   assert.equal(second.transition, "already-completed");
 });
 
+test("concurrent Run reconciliation cannot let a stale observation overwrite a terminal projection", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-reconcile-race-"));
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Reconcile race", objective: "Keep terminal projection authoritative", idempotencyKey: "reconcile-race", at, id: "reconcile-race" });
+  await updateProjectWorkRequest(root, "project-1", "reconcile-race", { status: "running", requestedRunId: "run-reconcile-race", runId: "run-reconcile-race" }, at);
+  let waitingFindStarted!: () => void;
+  const waitingFindStartedPromise = new Promise<void>((resolve) => { waitingFindStarted = resolve; });
+  let releaseWaitingFind!: () => void;
+  const waitingFindHeld = new Promise<void>((resolve) => { releaseWaitingFind = resolve; });
+
+  const waiting = reconcileProjectWorkRequest({
+    root,
+    projectId: "project-1",
+    workId: "reconcile-race",
+    at: "2026-09-20T12:01:00.000Z",
+    findRun: async () => {
+      waitingFindStarted();
+      await waitingFindHeld;
+      return { runId: "run-reconcile-race", state: { stage: "IMPLEMENT", status: "WAITING_EXTERNAL" }, updatedAt: at };
+    },
+  });
+  await waitingFindStartedPromise;
+  const completed = reconcileProjectWorkRequest({
+    root,
+    projectId: "project-1",
+    workId: "reconcile-race",
+    at: "2026-09-20T12:02:00.000Z",
+    findRun: async () => ({ runId: "run-reconcile-race", state: { stage: "DONE", status: "DONE" }, updatedAt: "2026-09-20T12:01:30.000Z" }),
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  releaseWaitingFind();
+  await Promise.all([waiting, completed]);
+  assert.equal((await listProjectWorkRequests(root, "project-1"))[0]?.status, "completed");
+});
+
 test("Run waiting and final failure statuses map without inventing completion", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-work-status-map-"));
   await createProjectWorkRequest({ root, projectId: "project-1", title: "Wait", objective: "Wait", idempotencyKey: "wait", id: "wait", at });

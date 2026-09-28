@@ -241,7 +241,7 @@ function alreadyProjected(status: ProjectWorkRequestStatus): ProjectWorkRequestP
   return `already-${status}` as ProjectWorkRequestProjection["transition"];
 }
 
-export async function reconcileProjectWorkRequest(input: {
+async function reconcileProjectWorkRequestUnlocked(input: {
   root: string;
   projectId: string;
   workId: string;
@@ -295,6 +295,10 @@ export async function reconcileProjectWorkRequest(input: {
     transition: "updated",
     ...(nextStatus === "waiting" ? { blocker: `Harness Run is ${run.state.status}` } : nextStatus === "failed" ? { blocker: run.state.reason ?? `Harness Run is ${run.state.status}` } : {}),
   };
+}
+
+export function reconcileProjectWorkRequest(input: Parameters<typeof reconcileProjectWorkRequestUnlocked>[0]) {
+  return withDurableProjectWorkRequestLock(input.root, input.projectId, `reconcile:${input.workId}`, () => reconcileProjectWorkRequestUnlocked(input), { waitForMs: 2_000 });
 }
 
 export async function inspectProjectWorkRequest(
