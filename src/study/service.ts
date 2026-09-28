@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CurriculumLink, StudyService, StudyServiceOptions, StudySpace, StudyTask, StudyTaskSubmission } from "./contracts.js";
 import { withDurableStudySubmissionLock } from "./submission-lock.js";
+import { withDurableStudySpaceLock } from "./space-lock.js";
 import { listCurriculumLinks, listStudySpaces, listStudyTasks, loadStudySpace, loadStudyTask, loadTaskSubmission, saveCurriculumLink, saveStudySpace, saveStudyTask, saveTaskSubmission } from "./store.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -30,13 +31,15 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
       if (!await options.teamService.isManager(principal, input.teamId)) throw new Error("Study manager access required");
       const team = await options.teamService.getTeam(principal, input.teamId);
       if (!team || team.team.kind !== "study") throw new Error("Study team required");
-      const existing = (await listStudySpaces(root)).find((item) => item.teamId === input.teamId && item.status === "active");
-      if (existing) return existing;
-      const at = now(); assertTimestamp(at, "study space timestamp");
-      const space: StudySpace = { version: 1, id: `study-${randomUUID()}`, teamId: input.teamId, ownerUserId: principal.userId, title: required(input.title, "Study title", 200), description: required(input.description, "Study description", 5_000), status: "active", createdAt: at, updatedAt: at };
-      await saveStudySpace(root, space);
-      await options.activityService?.recordActivityEvent(principal, { sourceType: "study", sourceId: space.id, eventType: "study.space.created", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { teamId: space.teamId } });
-      return space;
+      return withDurableStudySpaceLock(root, input.teamId, async () => {
+        const existing = (await listStudySpaces(root)).find((item) => item.teamId === input.teamId && item.status === "active");
+        if (existing) return existing;
+        const at = now(); assertTimestamp(at, "study space timestamp");
+        const space: StudySpace = { version: 1, id: `study-${randomUUID()}`, teamId: input.teamId, ownerUserId: principal.userId, title: required(input.title, "Study title", 200), description: required(input.description, "Study description", 5_000), status: "active", createdAt: at, updatedAt: at };
+        await saveStudySpace(root, space);
+        await options.activityService?.recordActivityEvent(principal, { sourceType: "study", sourceId: space.id, eventType: "study.space.created", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { teamId: space.teamId } });
+        return space;
+      }, { waitForMs: 2_000 });
     },
     async listStudySpaces(principal) {
       ensurePrincipal(principal); const spaces = await listStudySpaces(root); const visible: StudySpace[] = [];

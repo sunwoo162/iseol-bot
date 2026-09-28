@@ -80,3 +80,22 @@ test("concurrent study submissions across service instances remain durable", asy
   const submission = (await firstService.getStudySpace(principal("submission-member"), space.id))?.mySubmissions[0];
   assert.match(submission?.answer ?? "", /^answer-[ab]-\d+$/);
 });
+
+test("concurrent study space creation across service instances remains one active space", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-study-space-concurrent-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  await users.createUser({ id: "space-owner", email: "space-owner@example.com", displayName: "Space owner", timezone: "Asia/Seoul" });
+  const teams = createTeamService(platformRoot, { now: () => at });
+  const team = await teams.createTeam(principal("space-owner"), { name: "Single study space team", description: "one active space", kind: "study", visibility: "private", capacity: 3 });
+  const firstService = createStudyService(join(platformRoot, "study"), { teamService: teams, now: () => at });
+  const secondService = createStudyService(join(platformRoot, "study"), { teamService: teams, now: () => at });
+
+  const results = await Promise.all([
+    firstService.createStudySpace(principal("space-owner"), { teamId: team.id, title: "Concurrent room A", description: "same team invariant" }),
+    secondService.createStudySpace(principal("space-owner"), { teamId: team.id, title: "Concurrent room B", description: "same team invariant" }),
+  ]);
+
+  assert.equal(results[0].id, results[1].id);
+  assert.equal((await firstService.listStudySpaces(principal("space-owner"))).length, 1);
+});
