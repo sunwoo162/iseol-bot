@@ -1693,6 +1693,18 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service team membership mutations
+
+- Team membership mutations are **B — team-scoped, durable, same-host cross-service serialized, capacity-safe, and isolated-browser verified**. `src/teams/membership-lock.ts` protects human/AI add, remove, and leave paths in `src/teams/service.ts`.
+- TDD/verification: concurrent capacity test moved from two successful adds to one success plus `Team is full`; focused team membership/chat/API/collaboration `7/7`; user-product `330/330`; root `682/682`; types, both builds, and browser E2E passed with two-account isolation and responsive `[390,768,1024,1440]` across `13` routes.
+- Boundary: same-host/shared-root coordination only; distributed coordination, live model/provider execution, external connector delivery, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room remain unverified/deferred.
+
+## 2026-09-28 continuation: Windows notification lock contention hardening
+
+- Existing notification idempotency is **B — bounded Windows transient-contention handling added and repeatedly verified**. `src/notifications/notification-lock.ts` retries the narrow `EPERM` followed by `ENOENT` disappearance edge without changing ownership or idempotency semantics.
+- Verification: five sequential focused notification runs passed `9/9` each; product `330/330`; root `682/682`; types, both builds, `git diff --check`, and browser E2E passed.
+- Boundary: provider-side exactly-once delivery and external connector delivery remain unverified; operational Runtime/Agent state and UNKNOWN records remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service friend request mutations
 
 - Friend request mutations are **B — friendship-record-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/social/friend-request-lock.ts` provides an exact hashed friendship-record lock; `src/social/service.ts` uses it for request creation and accept/reject transitions.

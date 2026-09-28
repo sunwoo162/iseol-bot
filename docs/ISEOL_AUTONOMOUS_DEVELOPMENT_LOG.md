@@ -2295,6 +2295,23 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service team membership mutations
+
+- Status: **B — team-scoped, durable, same-host cross-service membership serialization, capacity-safe, and isolated-product verified; live model/provider execution remains unverified**. Human and AI team membership add/remove/leave mutations now re-read and write under an exact hashed team lock below the teams root.
+- Evidence: `src/teams/membership-lock.ts`, `src/teams/service.ts`, `tests/team-membership-acl.test.ts`.
+- TDD: RED reproduced two service instances both accepting members into a capacity-two team, producing three active members; GREEN allowed exactly one add and returned `Team is full` for the other, preserving two active members.
+- Verification: focused team membership/chat/API/collaboration suite `7/7`; user-product `330/330`; serial root `682/682`; backend/user UI TypeScript checks, backend/user UI builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-28 continuation: Windows notification lock contention hardening
+
+- Status: **B — existing user-notification idempotency boundary hardened for transient Windows file-handle timing and repeatedly verified**. When an `EPERM` open collision is immediately followed by `ENOENT` while the competing lock is disappearing, the notification lock now retries within its existing bounded wait instead of surfacing a false conflict.
+- Evidence: `src/notifications/notification-lock.ts`, `tests/user-notifications.test.ts`.
+- TDD/verification: the existing notification lock test intermittently reproduced the Windows `EPERM`/removed-record edge during full regression; after the bounded retry, five sequential focused runs passed `9/9` each, followed by product `330/330`, root `682/682`, both builds, both TypeScript checks, `git diff --check`, and isolated browser E2E.
+- Boundary: no change to notification ownership, idempotency, event, or external delivery semantics; same-host/shared-root coordination remains the boundary, and provider-side exactly-once delivery is not claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred.
+
 ## 2026-09-28 continuation: durable cross-service friend request mutations
 
 - Status: **B — friendship-record-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Friend request creation now re-reads the deterministic friendship record under an exact hashed lock, so concurrent callers produce one pending request and one creation activity event. Accept/reject mutations use the same lock.
