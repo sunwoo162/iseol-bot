@@ -13,6 +13,7 @@ import { createActivityService } from "../src/activity/service.js";
 import { appendProjectHistoryEvent } from "../src/project-model/history-store.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { projectRunObservation } from "../src/project-model/run-observability.js";
+import { withDurableProjectWorkRequestRunLock } from "../src/project-model/work-request-lock.js";
 import { createSettingsService } from "../src/settings/service.js";
 
 const at = "2026-09-25T12:00:00.000Z";
@@ -156,6 +157,138 @@ test("direct project Run starts serialize across service instances for one Work 
   assert.equal(secondResult.runId, "run-cross-first");
   assert.equal((await firstService.getProject(owner, project.id))?.workRequests.find((request) => request.id === task.request.id)?.runId, "run-cross-first");
   assert.equal(await loadHarnessRun(join(root, "runs"), "run-cross-second"), null);
+});
+
+test("project Run resumes serialize across service instances for one Work Request", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-cross-instance-run-resume-"));
+  const options = {
+    platformRoot: join(root, "platform"),
+    projectModelRoot: join(root, "project-model"),
+    projectHarnessRoot: join(root, "runs"),
+    iseolRoot: root,
+    now: () => at,
+  };
+  const firstService = createUserProjectService(options);
+  const secondService = createUserProjectService(options);
+  const owner = principal("run-resume-cross-instance-owner");
+  const project = await firstService.createProject(owner, {
+    name: "Cross-instance Run resume",
+    objective: "resume one Run once",
+    purpose: "rapid-prototype",
+    teamMode: "solo",
+  });
+  const task = await firstService.createWorkRequest(owner, project.id, {
+    title: "Single resume task",
+    objective: "avoid duplicate resume dispatch",
+    idempotencyKey: "cross-instance-run-resume-task",
+  });
+  await firstService.startProjectRun(owner, project.id, { workRequestId: task.request.id, runId: "run-resume-cross" }, async () => "accepted");
+  const run = await loadHarnessRun(join(root, "runs"), "run-resume-cross");
+  assert.ok(run);
+  await saveHarnessRun(join(root, "runs"), { ...run, state: transitionRunState(run.state, { type: "wait-agent", at, reason: "Agent reconnect required" }), updatedAt: at });
+
+  let enqueueCalls = 0;
+  let releaseEnqueue!: () => void;
+  const enqueueHeld = new Promise<void>((resolve) => { releaseEnqueue = resolve; });
+  const enqueue = async () => {
+    enqueueCalls += 1;
+    if (enqueueCalls === 1) await enqueueHeld;
+    return "accepted" as const;
+  };
+
+  const first = firstService.resumeProjectRun(owner, project.id, { workRequestId: task.request.id }, enqueue);
+  for (let attempt = 0; attempt < 100 && enqueueCalls < 1; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  const second = secondService.resumeProjectRun(owner, project.id, { workRequestId: task.request.id }, enqueue);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const callsWhileFirstIsHeld = enqueueCalls;
+  releaseEnqueue();
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+
+  assert.equal(callsWhileFirstIsHeld, 1);
+  assert.equal(enqueueCalls, 1);
+  assert.equal(firstResult.status, "started");
+  assert.equal(firstResult.runId, "run-resume-cross");
+  assert.equal(secondResult.status, "already-active");
+  assert.equal(secondResult.runId, "run-resume-cross");
+  assert.equal((await loadHarnessRun(join(root, "runs"), "run-resume-cross"))?.retry?.cycle, undefined);
+});
+
+test("project Run pause waits for the durable lifecycle lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-run-pause-lock-"));
+  const options = {
+    platformRoot: join(root, "platform"),
+    projectModelRoot: join(root, "project-model"),
+    projectHarnessRoot: join(root, "runs"),
+    iseolRoot: root,
+    now: () => at,
+  };
+  const service = createUserProjectService(options);
+  const owner = principal("run-pause-lock-owner");
+  const project = await service.createProject(owner, { name: "Pause lock", objective: "serialize pause", purpose: "rapid-prototype", teamMode: "solo" });
+  const work = await service.createWorkRequest(owner, project.id, { title: "Pause lock task", objective: "hold the lifecycle boundary", idempotencyKey: "pause-lock-task" });
+  await service.startProjectRun(owner, project.id, { workRequestId: work.request.id, runId: "run-pause-lock" }, async () => "accepted");
+  const run = await loadHarnessRun(join(root, "runs"), "run-pause-lock");
+  assert.ok(run);
+  await saveHarnessRun(join(root, "runs"), { ...run, state: transitionRunState({ ...run.state, status: "READY", reason: undefined }, { type: "start", at }), updatedAt: at });
+
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableProjectWorkRequestRunLock(options.projectModelRoot, project.id, work.request.id, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const pause = service.pauseProjectRun(owner, project.id, { workRequestId: work.request.id }).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  const paused = await pause;
+  assert.equal(paused.status, "paused");
+});
+
+test("project Run retry waits for the durable lifecycle lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-run-retry-lock-"));
+  const options = {
+    platformRoot: join(root, "platform"),
+    projectModelRoot: join(root, "project-model"),
+    projectHarnessRoot: join(root, "runs"),
+    iseolRoot: root,
+    now: () => at,
+  };
+  const service = createUserProjectService(options);
+  const owner = principal("run-retry-lock-owner");
+  const project = await service.createProject(owner, { name: "Retry lock", objective: "serialize retry", purpose: "rapid-prototype", teamMode: "solo" });
+  const work = await service.createWorkRequest(owner, project.id, { title: "Retry lock task", objective: "hold the lifecycle boundary", idempotencyKey: "retry-lock-task" });
+  await service.startProjectRun(owner, project.id, { workRequestId: work.request.id, runId: "run-retry-lock" }, async () => "accepted");
+  const run = await loadHarnessRun(join(root, "runs"), "run-retry-lock");
+  assert.ok(run);
+  await saveHarnessRun(join(root, "runs"), { ...run, state: transitionRunState(run.state, { type: "final-failure", at, reason: "isolated executor failed" }), updatedAt: at });
+  assert.equal((await service.getProject(owner, project.id))?.workRequests[0]?.status, "failed");
+
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableProjectWorkRequestRunLock(options.projectModelRoot, project.id, work.request.id, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const retry = service.retryProjectRun(owner, project.id, { workRequestId: work.request.id }, async () => "accepted").then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  const retried = await retry;
+  assert.equal(retried.status, "started");
+  assert.equal((await loadHarnessRun(join(root, "runs"), "run-retry-lock"))?.retry?.cycle, 1);
 });
 
 test("user project view exposes durable project history only through the existing project ACL", async () => {

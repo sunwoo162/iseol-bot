@@ -416,148 +416,176 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
       }, { waitForMs: 2_000 }));
     },
     async resumeProjectRun(principal, projectId, input, enqueueProjectRun) {
-      const view = await this.getProject(principal, projectId);
-      if (!view) throw new Error("Project not found");
-      if (view.project.ownerUserId !== principal.userId) throw new Error("Only the project owner can resume a Run");
-      const workRequest = view.workRequests.find((request) => request.id === input.workRequestId);
-      if (!workRequest) throw new Error("Work request not found");
-      if (workRequest.status !== "waiting" || !workRequest.runId) throw new Error("Only a waiting work request with a durable Run can be resumed");
-      const settings = options.settingsService ? await options.settingsService.getSettings(principal) : null;
-      if (settings?.aiApproval.buildRun && input.approved !== true) throw new Error("Build run approval is required");
-      if (!enqueueProjectRun) return { status: "waiting", request: workRequest, runId: workRequest.runId, blocker: "Project Runtime is not configured" };
-      const run = await loadHarnessRun(options.projectHarnessRoot, workRequest.runId);
-      if (!run) throw new Error("Requested Run identity has no durable Run record");
-      if (run.request.projectId !== projectId) throw new Error("Requested Run project identity mismatch");
-      const resumeCheckpointAt = run.state.updatedAt;
-      const at = now(); assertTimestamp(at, "project resume timestamp");
-      const resumed = await resumeHarnessRun(options.projectHarnessRoot, run.request.runId, at);
-      const execution = await enqueueProjectRun(resumed.request.runId);
-      if (execution === "not-configured") {
-        await saveHarnessRun(options.projectHarnessRoot, run);
-        const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, { status: "waiting", blocker: "Project Runtime is not configured" }, at);
-        return { status: "waiting", request: updated ?? workRequest, runId: workRequest.runId, blocker: "Project Runtime is not configured" };
-      }
-      const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, {
-        status: "running",
-        runId: resumed.request.runId,
-        requestedRunId: resumed.request.runId,
-        executionRequestId: `${projectId}:${workRequest.id}:${resumed.request.runId}`,
-        blocker: undefined,
-      }, at);
-      if (updated && options.activityService) {
-        await options.activityService.recordActivityEvent(principal, {
-          sourceType: "project-run",
-          sourceId: `${resumed.request.runId}:resume:${resumeCheckpointAt}`,
-          eventType: "project.run.resumed",
-          eventVersion: 1,
-          actorType: "user",
-          verificationStatus: "unverified",
-          payload: { projectId, workRequestId: workRequest.id, runId: resumed.request.runId, resumeCheckpointAt },
-          occurredAt: at,
-        });
-      }
-      return { status: execution === "already-active" ? "already-active" : "started", request: updated ?? workRequest, runId: resumed.request.runId };
+      return withDurableProjectWorkRequestRunLock(options.projectModelRoot, projectId, input.workRequestId, async () => {
+        const view = await this.getProject(principal, projectId);
+        if (!view) throw new Error("Project not found");
+        if (view.project.ownerUserId !== principal.userId) throw new Error("Only the project owner can resume a Run");
+        const workRequest = view.workRequests.find((request) => request.id === input.workRequestId);
+        if (!workRequest) throw new Error("Work request not found");
+        if (workRequest.status === "running" && workRequest.runId) return { status: "already-active", request: workRequest, runId: workRequest.runId };
+        if (workRequest.status !== "waiting" || !workRequest.runId) throw new Error("Only a waiting work request with a durable Run can be resumed");
+        const settings = options.settingsService ? await options.settingsService.getSettings(principal) : null;
+        if (settings?.aiApproval.buildRun && input.approved !== true) throw new Error("Build run approval is required");
+        if (!enqueueProjectRun) return { status: "waiting", request: workRequest, runId: workRequest.runId, blocker: "Project Runtime is not configured" };
+        const run = await loadHarnessRun(options.projectHarnessRoot, workRequest.runId);
+        if (!run) throw new Error("Requested Run identity has no durable Run record");
+        if (run.request.projectId !== projectId) throw new Error("Requested Run project identity mismatch");
+        const resumeCheckpointAt = run.state.updatedAt;
+        const at = now(); assertTimestamp(at, "project resume timestamp");
+        const resumed = await resumeHarnessRun(options.projectHarnessRoot, run.request.runId, at);
+        const execution = await enqueueProjectRun(resumed.request.runId);
+        if (execution === "not-configured") {
+          await saveHarnessRun(options.projectHarnessRoot, run);
+          const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, { status: "waiting", blocker: "Project Runtime is not configured" }, at);
+          return { status: "waiting", request: updated ?? workRequest, runId: workRequest.runId, blocker: "Project Runtime is not configured" };
+        }
+        const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, {
+          status: "running",
+          runId: resumed.request.runId,
+          requestedRunId: resumed.request.runId,
+          executionRequestId: `${projectId}:${workRequest.id}:${resumed.request.runId}`,
+          blocker: undefined,
+        }, at);
+        if (updated && options.activityService) {
+          await options.activityService.recordActivityEvent(principal, {
+            sourceType: "project-run",
+            sourceId: `${resumed.request.runId}:resume:${resumeCheckpointAt}`,
+            eventType: "project.run.resumed",
+            eventVersion: 1,
+            actorType: "user",
+            verificationStatus: "unverified",
+            payload: { projectId, workRequestId: workRequest.id, runId: resumed.request.runId, resumeCheckpointAt },
+            occurredAt: at,
+          });
+        }
+        return { status: execution === "already-active" ? "already-active" : "started", request: updated ?? workRequest, runId: resumed.request.runId };
+      }, { waitForMs: 2_000 });
     },
     async pauseProjectRun(principal, projectId, input) {
-      const view = await this.getProject(principal, projectId);
-      if (!view) throw new Error("Project not found");
-      if (view.project.ownerUserId !== principal.userId) throw new Error("Only the project owner can pause a Run");
-      const workRequest = view.workRequests.find((request) => request.id === input.workRequestId);
-      if (!workRequest) throw new Error("Work request not found");
-      if (!workRequest.runId) throw new Error("Only a work request with a durable Run can be paused");
-      const run = await loadHarnessRun(options.projectHarnessRoot, workRequest.runId);
-      if (!run) throw new Error("Requested Run identity has no durable Run record");
-      if (run.request.projectId !== projectId) throw new Error("Requested Run project identity mismatch");
-      if (run.state.status === "PAUSED") return { status: "already-paused", request: workRequest, runId: run.request.runId };
-      if (run.state.status !== "RUNNING" && run.state.status !== "READY") throw new Error(`Run cannot be paused from ${run.state.status}`);
+      return withDurableProjectWorkRequestRunLock(options.projectModelRoot, projectId, input.workRequestId, async () => {
+        const view = await this.getProject(principal, projectId);
+        if (!view) throw new Error("Project not found");
+        if (view.project.ownerUserId !== principal.userId) throw new Error("Only the project owner can pause a Run");
+        const workRequest = view.workRequests.find((request) => request.id === input.workRequestId);
+        if (!workRequest) throw new Error("Work request not found");
+        if (!workRequest.runId) throw new Error("Only a work request with a durable Run can be paused");
+        const run = await loadHarnessRun(options.projectHarnessRoot, workRequest.runId);
+        if (!run) throw new Error("Requested Run identity has no durable Run record");
+        if (run.request.projectId !== projectId) throw new Error("Requested Run project identity mismatch");
+        if (run.state.status === "PAUSED") return { status: "already-paused", request: workRequest, runId: run.request.runId };
+        if (run.state.status !== "RUNNING" && run.state.status !== "READY") throw new Error(`Run cannot be paused from ${run.state.status}`);
 
-      const checkpointAt = run.state.updatedAt;
-      const at = now();
-      assertTimestamp(at, "project pause timestamp");
-      const paused = await pauseHarnessRun(options.projectHarnessRoot, run.request.runId, at, "프로젝트 소유자가 다음 checkpoint에서 실행을 일시 중단했습니다.");
-      const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, {
-        status: "waiting",
-        runId: paused.request.runId,
-        requestedRunId: paused.request.runId,
-        executionRequestId: `${projectId}:${workRequest.id}:${paused.request.runId}`,
-        blocker: "프로젝트 소유자가 다음 checkpoint에서 실행을 일시 중단했습니다.",
-      }, at);
-      if (updated && options.activityService) {
-        await options.activityService.recordActivityEvent(principal, {
-          sourceType: "project-run",
-          sourceId: `${paused.request.runId}:pause:${checkpointAt}`,
-          eventType: "project.run.paused",
-          eventVersion: 1,
-          actorType: "user",
-          verificationStatus: "unverified",
-          payload: { projectId, workRequestId: workRequest.id, runId: paused.request.runId, pauseCheckpointAt: checkpointAt },
-          occurredAt: at,
-        });
-      }
-      return { status: "paused", request: updated ?? workRequest, runId: paused.request.runId, blocker: paused.state.reason };
-    },
-    async retryProjectRun(principal, projectId, input, enqueueProjectRun) {
-      const view = await this.getProject(principal, projectId);
-      if (!view) throw new Error("Project not found");
-      if (view.project.ownerUserId !== principal.userId) throw new Error("Only the project owner can retry a Run");
-      const workRequest = view.workRequests.find((request) => request.id === input.workRequestId);
-      if (!workRequest) throw new Error("Work request not found");
-      if (workRequest.status !== "failed" || !workRequest.runId) throw new Error("Only a failed work request with a durable Run can be retried");
-      const settings = options.settingsService ? await options.settingsService.getSettings(principal) : null;
-      if (settings?.aiApproval.buildRun && input.approved !== true) throw new Error("Build run approval is required");
-      if (!enqueueProjectRun) return { status: "waiting", request: workRequest, runId: workRequest.runId, blocker: "Project Runtime is not configured" };
-
-      const at = now(); assertTimestamp(at, "project retry timestamp");
-      const run = await loadHarnessRun(options.projectHarnessRoot, workRequest.runId);
-      if (!run) throw new Error("Requested Run identity has no durable Run record");
-      if (run.request.projectId !== projectId) throw new Error("Requested Run project identity mismatch");
-      const retry = await requestHarnessRunRetry(options.projectHarnessRoot, run.request.runId, {
-        retryReason: "user-request",
-        actor: "user",
-        requestedAt: at,
-      });
-      if (retry.status === "already-active") return { status: "already-active", request: workRequest, runId: run.request.runId };
-      if (retry.status === "not-allowed") throw new Error(retry.reason);
-      const retryRecord = retry.run.retry;
-      if (!retryRecord || !Number.isInteger(retryRecord.cycle) || retryRecord.cycle < 1) throw new Error("Retry cycle was not persisted");
-      const retryCycle = retryRecord.cycle;
-
-      const execution = await enqueueProjectRun(retry.run.request.runId);
-      if (execution === "not-configured") {
-        const reason = "Project Runtime is not configured; retry is waiting for reconnection";
-        const blockedState = transitionRunState(retry.run.state, { type: "block-user", at, reason });
-        const blockedRun = {
-          ...retry.run,
-          state: blockedState,
-          retry: { ...retryRecord, status: "completed" as const },
-          updatedAt: at,
-        };
-        await saveHarnessRun(options.projectHarnessRoot, blockedRun);
-        await appendHarnessRunEvent(options.projectHarnessRoot, {
-          version: 1,
-          id: `retry-blocked-${retry.run.request.runId}-${retryCycle}`,
-          runId: retry.run.request.runId,
-          type: "status-changed",
-          at,
-          stage: blockedState.stage,
-          status: blockedState.status,
-          summary: reason,
-        });
-        await saveHarnessCheckpoint(options.projectHarnessRoot, {
-          version: 1,
-          id: `retry-blocked-checkpoint-${retry.run.request.runId}-${retryCycle}`,
-          runId: retry.run.request.runId,
-          recordedAt: at,
-          state: blockedState,
-          evidence: blockedRun.evidence,
-          summary: reason,
-        });
+        const checkpointAt = run.state.updatedAt;
+        const at = now();
+        assertTimestamp(at, "project pause timestamp");
+        const paused = await pauseHarnessRun(options.projectHarnessRoot, run.request.runId, at, "프로젝트 소유자가 다음 checkpoint에서 실행을 일시 중단했습니다.");
         const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, {
           status: "waiting",
+          runId: paused.request.runId,
+          requestedRunId: paused.request.runId,
+          executionRequestId: `${projectId}:${workRequest.id}:${paused.request.runId}`,
+          blocker: "프로젝트 소유자가 다음 checkpoint에서 실행을 일시 중단했습니다.",
+        }, at);
+        if (updated && options.activityService) {
+          await options.activityService.recordActivityEvent(principal, {
+            sourceType: "project-run",
+            sourceId: `${paused.request.runId}:pause:${checkpointAt}`,
+            eventType: "project.run.paused",
+            eventVersion: 1,
+            actorType: "user",
+            verificationStatus: "unverified",
+            payload: { projectId, workRequestId: workRequest.id, runId: paused.request.runId, pauseCheckpointAt: checkpointAt },
+            occurredAt: at,
+          });
+        }
+        return { status: "paused", request: updated ?? workRequest, runId: paused.request.runId, blocker: paused.state.reason };
+      }, { waitForMs: 2_000 });
+    },
+    async retryProjectRun(principal, projectId, input, enqueueProjectRun) {
+      return withDurableProjectWorkRequestRunLock(options.projectModelRoot, projectId, input.workRequestId, async () => {
+        const view = await this.getProject(principal, projectId);
+        if (!view) throw new Error("Project not found");
+        if (view.project.ownerUserId !== principal.userId) throw new Error("Only the project owner can retry a Run");
+        const workRequest = view.workRequests.find((request) => request.id === input.workRequestId);
+        if (!workRequest) throw new Error("Work request not found");
+        if (workRequest.status === "running" && workRequest.runId) return { status: "already-active", request: workRequest, runId: workRequest.runId };
+        if (workRequest.status !== "failed" || !workRequest.runId) throw new Error("Only a failed work request with a durable Run can be retried");
+        const settings = options.settingsService ? await options.settingsService.getSettings(principal) : null;
+        if (settings?.aiApproval.buildRun && input.approved !== true) throw new Error("Build run approval is required");
+        if (!enqueueProjectRun) return { status: "waiting", request: workRequest, runId: workRequest.runId, blocker: "Project Runtime is not configured" };
+
+        const at = now(); assertTimestamp(at, "project retry timestamp");
+        const run = await loadHarnessRun(options.projectHarnessRoot, workRequest.runId);
+        if (!run) throw new Error("Requested Run identity has no durable Run record");
+        if (run.request.projectId !== projectId) throw new Error("Requested Run project identity mismatch");
+        const retry = await requestHarnessRunRetry(options.projectHarnessRoot, run.request.runId, {
+          retryReason: "user-request",
+          actor: "user",
+          requestedAt: at,
+        });
+        if (retry.status === "already-active") return { status: "already-active", request: workRequest, runId: run.request.runId };
+        if (retry.status === "not-allowed") throw new Error(retry.reason);
+        const retryRecord = retry.run.retry;
+        if (!retryRecord || !Number.isInteger(retryRecord.cycle) || retryRecord.cycle < 1) throw new Error("Retry cycle was not persisted");
+        const retryCycle = retryRecord.cycle;
+
+        const execution = await enqueueProjectRun(retry.run.request.runId);
+        if (execution === "not-configured") {
+          const reason = "Project Runtime is not configured; retry is waiting for reconnection";
+          const blockedState = transitionRunState(retry.run.state, { type: "block-user", at, reason });
+          const blockedRun = {
+            ...retry.run,
+            state: blockedState,
+            retry: { ...retryRecord, status: "completed" as const },
+            updatedAt: at,
+          };
+          await saveHarnessRun(options.projectHarnessRoot, blockedRun);
+          await appendHarnessRunEvent(options.projectHarnessRoot, {
+            version: 1,
+            id: `retry-blocked-${retry.run.request.runId}-${retryCycle}`,
+            runId: retry.run.request.runId,
+            type: "status-changed",
+            at,
+            stage: blockedState.stage,
+            status: blockedState.status,
+            summary: reason,
+          });
+          await saveHarnessCheckpoint(options.projectHarnessRoot, {
+            version: 1,
+            id: `retry-blocked-checkpoint-${retry.run.request.runId}-${retryCycle}`,
+            runId: retry.run.request.runId,
+            recordedAt: at,
+            state: blockedState,
+            evidence: blockedRun.evidence,
+            summary: reason,
+          });
+          const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, {
+            status: "waiting",
+            runId: retry.run.request.runId,
+            requestedRunId: retry.run.request.runId,
+            executionRequestId: `${projectId}:${workRequest.id}:${retry.run.request.runId}`,
+            blocker: reason,
+          }, at);
+          if (updated && options.activityService) {
+            await options.activityService.recordActivityEvent(principal, {
+              sourceType: "project-run",
+              sourceId: `${retry.run.request.runId}:retry:${retryCycle}`,
+              eventType: "project.run.retried",
+              eventVersion: 1,
+              actorType: "user",
+              verificationStatus: "unverified",
+              payload: { projectId, workRequestId: workRequest.id, runId: retry.run.request.runId, retryCycle },
+              occurredAt: at,
+            });
+          }
+          return { status: "waiting", request: updated ?? workRequest, runId: retry.run.request.runId, blocker: reason };
+        }
+        const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, {
+          status: "running",
           runId: retry.run.request.runId,
           requestedRunId: retry.run.request.runId,
           executionRequestId: `${projectId}:${workRequest.id}:${retry.run.request.runId}`,
-          blocker: reason,
+          blocker: undefined,
         }, at);
         if (updated && options.activityService) {
           await options.activityService.recordActivityEvent(principal, {
@@ -571,28 +599,8 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
             occurredAt: at,
           });
         }
-        return { status: "waiting", request: updated ?? workRequest, runId: retry.run.request.runId, blocker: reason };
-      }
-      const updated = await updateProjectWorkRequest(options.projectModelRoot, projectId, workRequest.id, {
-        status: "running",
-        runId: retry.run.request.runId,
-        requestedRunId: retry.run.request.runId,
-        executionRequestId: `${projectId}:${workRequest.id}:${retry.run.request.runId}`,
-        blocker: undefined,
-      }, at);
-      if (updated && options.activityService) {
-        await options.activityService.recordActivityEvent(principal, {
-          sourceType: "project-run",
-          sourceId: `${retry.run.request.runId}:retry:${retryCycle}`,
-          eventType: "project.run.retried",
-          eventVersion: 1,
-          actorType: "user",
-          verificationStatus: "unverified",
-          payload: { projectId, workRequestId: workRequest.id, runId: retry.run.request.runId, retryCycle },
-          occurredAt: at,
-        });
-      }
-      return { status: execution === "already-active" ? "already-active" : "started", request: updated ?? workRequest, runId: retry.run.request.runId };
+        return { status: execution === "already-active" ? "already-active" : "started", request: updated ?? workRequest, runId: retry.run.request.runId };
+      }, { waitForMs: 2_000 });
     },
   };
 }
