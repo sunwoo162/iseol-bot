@@ -1693,6 +1693,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service settings mutations
+
+- User settings mutations are **B — owner-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/settings/settings-lock.ts` adds an exact hashed per-user lock; `src/settings/service.ts` applies it to both initialization and patch read-modify-write paths so independent settings changes survive across service instances.
+- Evidence: `src/settings/settings-lock.ts`, `src/settings/service.ts`, `tests/settings-isolation.test.ts`.
+- Verification: focused settings/API `4/4`; user-product `342/342`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with settings permission persistence, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed settings coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service personal world mutations
 
 - Personal world and character mutations are **B — owner-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/personal-world/world-lock.ts` adds an exact hashed per-user lock; `src/personal-world/service.ts` applies it to world and character read-modify-write paths so disjoint patches survive and character/world synchronization remains one user mutation boundary.
