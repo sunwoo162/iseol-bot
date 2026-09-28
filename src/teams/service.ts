@@ -87,6 +87,7 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
       if (!await isManagerByUser(teamId, principal.userId)) throw new Error("Team manager access required");
       assertIdentityId(teamId); assertTimestamp(at, "AI membership timestamp");
       return withDurableTeamMembershipLock(root, teamId, async () => {
+        if (!await isManagerByUser(teamId, principal.userId)) throw new Error("Team manager access required");
         const team = await loadTeam(root, teamId); if (!team || team.status !== "active") throw new Error("Team not found");
         const validated = validateAiInput(input);
         const userId = `ai-${validated.agentId}`;
@@ -106,6 +107,7 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
       ensurePrincipal(principal);
       if (!await isManagerByUser(teamId, principal.userId)) throw new Error("Team manager access required");
       return withDurableTeamMembershipLock(root, teamId, async () => {
+        if (!await isManagerByUser(teamId, principal.userId)) throw new Error("Team manager access required");
         const team = await loadTeam(root, teamId); if (!team) throw new Error("Team not found");
         if (userId === team.ownerUserId) throw new Error("Team owner cannot be removed");
         const current = await getMembership(teamId, userId); if (!current || current.status !== "active" || current.memberType !== "human") throw new Error("Team member not found");
@@ -117,6 +119,7 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
       ensurePrincipal(principal); if (!await isManagerByUser(teamId, principal.userId)) throw new Error("Team manager access required");
       assertIdentityId(teamId); assertIdentityId(agentId);
       return withDurableTeamMembershipLock(root, teamId, async () => {
+        if (!await isManagerByUser(teamId, principal.userId)) throw new Error("Team manager access required");
         const current = await getMembership(teamId, `ai-${agentId}`); if (!current || current.status !== "active" || current.memberType !== "ai") throw new Error("AI team member not found");
         const at = now(); const next = { ...current, status: "removed" as const, updatedAt: at }; await saveMembership(root, next); return next;
       }, { waitForMs: 2_000 });

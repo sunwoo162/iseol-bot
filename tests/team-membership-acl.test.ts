@@ -7,6 +7,8 @@ import type { Principal } from "../src/identity/contracts.js";
 import { createActivityService } from "../src/activity/service.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createTeamService } from "../src/teams/service.js";
+import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
+import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 
 const at = "2026-09-25T12:00:00.000Z";
@@ -87,4 +89,32 @@ test("team membership mutations across service instances preserve capacity", asy
   assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal(results.filter((result) => result.status === "rejected" && /Team is full/.test(String(result.reason))).length, 1);
   assert.equal((await firstService.listMemberships(team.id)).filter((member) => member.status === "active").length, 2);
+});
+
+test("team membership mutations re-check manager authority after waiting for the lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-team-manager-lock-"));
+  const owner = principal("manager-lock-owner");
+  const teams = createTeamService(root, { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Manager lock team", description: "recheck manager authority", kind: "project", visibility: "private", capacity: 3 });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(root, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const addAi = teams.addAiMember(owner, team.id, { agentId: "manager-lock-agent", assignmentRole: "reviewer", capabilities: ["context.read"], approvalScope: "suggestion-only" });
+  assert.equal(await Promise.race([
+    addAi.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]), false);
+  const currentOwner = await loadMembership(root, team.id, owner.userId);
+  assert.ok(currentOwner);
+  await saveMembership(root, { ...currentOwner, status: "removed", updatedAt: at });
+  release();
+  await Promise.all([holder, assert.rejects(() => addAi, /manager/i)]);
+  assert.equal((await teams.listMemberships(team.id)).some((member) => member.aiMemberId === "manager-lock-agent"), false);
 });
