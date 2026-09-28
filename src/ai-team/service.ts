@@ -3,6 +3,7 @@ import { assertIdentityId, assertTimestamp, type Principal } from "../identity/c
 import type { TeamCapability, TeamMembership } from "../teams/contracts.js";
 import type { AiTeamProposal, AiTeamProposalDraft, AiTeamProposalService, AiTeamProposalServiceOptions } from "./contracts.js";
 import { withDurableAiTeamProposalLock } from "./proposal-lock.js";
+import { withDurableAiTeamProposalDecisionLock } from "./proposal-decision-lock.js";
 import { listAiTeamProposals, loadAiTeamProposal, saveAiTeamProposal } from "./store.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
@@ -50,7 +51,9 @@ export function createAiTeamProposalService(options: AiTeamProposalServiceOption
     },
     async listProposals(principal, projectId) { ensurePrincipal(principal); await projectAccess(options, principal, projectId); return listAiTeamProposals(options.root, projectId); },
     async acceptProposal(principal, projectId, proposalId) {
-      ensurePrincipal(principal); assertIdentityId(projectId); assertIdentityId(proposalId); await projectAccess(options, principal, projectId, true); const current = await loadAiTeamProposal(options.root, projectId, proposalId); if (!current) throw new Error("AI team proposal not found");
+      ensurePrincipal(principal); assertIdentityId(projectId); assertIdentityId(proposalId); await projectAccess(options, principal, projectId, true); const initial = await loadAiTeamProposal(options.root, projectId, proposalId); if (!initial) throw new Error("AI team proposal not found");
+      return withDurableAiTeamProposalDecisionLock(options.root, projectId, proposalId, async () => {
+      const current = await loadAiTeamProposal(options.root, projectId, proposalId); if (!current) throw new Error("AI team proposal not found");
       if (current.status === "accepted" && current.workRequestId) { const view = await options.userProjectService.getProject(principal, projectId); const workRequest = view?.workRequests.find((item) => item.id === current.workRequestId); if (workRequest) return { proposal: current, workRequest }; throw new Error("Accepted AI proposal work request not found"); }
       if (current.status !== "proposed") throw new Error("AI team proposal is " + current.status);
       const result = await options.userProjectService.createWorkRequest(principal, projectId, { title: current.title, objective: current.objective, idempotencyKey: "ai-proposal:" + current.id });
@@ -66,7 +69,11 @@ export function createAiTeamProposalService(options: AiTeamProposalServiceOption
         occurredAt: at,
       });
       return { proposal, workRequest: result.request };
+      }, { waitForMs: 2_000 });
     },
-    async rejectProposal(principal, projectId, proposalId) { ensurePrincipal(principal); assertIdentityId(projectId); assertIdentityId(proposalId); await projectAccess(options, principal, projectId, true); const current = await loadAiTeamProposal(options.root, projectId, proposalId); if (!current) throw new Error("AI team proposal not found"); if (current.status === "rejected") return current; if (current.status !== "proposed") throw new Error("AI team proposal is " + current.status); const at = now(); assertTimestamp(at, "AI proposal rejection timestamp"); const proposal = { ...current, status: "rejected" as const, updatedAt: at }; await saveAiTeamProposal(options.root, proposal); return proposal; },
+    async rejectProposal(principal, projectId, proposalId) {
+      ensurePrincipal(principal); assertIdentityId(projectId); assertIdentityId(proposalId); await projectAccess(options, principal, projectId, true); const initial = await loadAiTeamProposal(options.root, projectId, proposalId); if (!initial) throw new Error("AI team proposal not found");
+      return withDurableAiTeamProposalDecisionLock(options.root, projectId, proposalId, async () => { const current = await loadAiTeamProposal(options.root, projectId, proposalId); if (!current) throw new Error("AI team proposal not found"); if (current.status === "rejected") return current; if (current.status !== "proposed") throw new Error("AI team proposal is " + current.status); const at = now(); assertTimestamp(at, "AI proposal rejection timestamp"); const proposal = { ...current, status: "rejected" as const, updatedAt: at }; await saveAiTeamProposal(options.root, proposal); return proposal; }, { waitForMs: 2_000 });
+    },
   };
 }

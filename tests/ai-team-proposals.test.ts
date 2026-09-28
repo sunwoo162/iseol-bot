@@ -81,3 +81,26 @@ test("concurrent AI team proposal requests across service instances remain one p
   assert.equal(new Set(results.map((result) => result.id)).size, 1);
   assert.equal((await firstService.listProposals(owner, project.id)).length, 1);
 });
+
+test("concurrent AI team proposal decisions keep one terminal decision", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-proposal-decision-concurrent-"));
+  const owner = principal("proposal-decision-concurrent-owner");
+  const teams = createTeamService(join(root, "platform"), { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Decision AI team", description: "proposal decision serialization", kind: "project", visibility: "public", capacity: 5 });
+  await teams.addAiMember(owner, team.id, { agentId: "frontend", assignmentRole: "frontend", capabilities: ["context.read", "task.propose"], approvalScope: "owner-approved-execution" }, at);
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const project = await projects.createProject(owner, { name: "Decision proposal project", objective: "one decision", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
+  const firstService = createAiTeamProposalService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher: async () => ({ status: "proposed" as const, draft: { title: "One task", objective: "One bounded task", acceptanceCriteria: ["types compile"], rationale: "keep scope bounded" } }) });
+  const secondService = createAiTeamProposalService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at });
+  const proposal = await firstService.requestProposal(owner, project.id, { agentId: "frontend", requestId: "decision-race" });
+
+  const results = await Promise.allSettled([
+    firstService.acceptProposal(owner, project.id, proposal.id),
+    secondService.rejectProposal(owner, project.id, proposal.id),
+  ]);
+
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected" && /proposal|status|accepted|rejected/i.test(String(result.reason))).length, 1);
+  const stored = (await firstService.listProposals(owner, project.id))[0];
+  assert.ok(stored?.status === "accepted" || stored?.status === "rejected");
+});
