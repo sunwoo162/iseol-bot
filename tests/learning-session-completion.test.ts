@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -96,4 +96,19 @@ test("learning session completions serialize across service instances sharing on
   assert.equal(results.filter((result) => result.status === "rejected" && /revision conflict/i.test(String(result.reason))).length, 1);
   assert.equal((await activity.listActivityEvents(owner)).length, 1);
   assert.equal((await serviceA.listLearningSessions(owner)).find((item) => item.id === session.id)?.revision, session.revision + 1);
+});
+
+test("learning session mutation reclaims only a lock owned by a dead process", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-session-cas-stale-lock-"));
+  const service = createLearningService(join(root, "learning"), { now: () => at });
+  const owner = principal("learning-cas-stale-lock-owner");
+  const plan = await service.createLearningPlan(owner, { title: "Stale lock", description: "Reclaim one dead lock", goals: ["Complete safely"] });
+  const session = await service.startLearningSession(owner, plan.id);
+  const lockPath = join(root, "learning", "users", owner.userId, "learning", "session-locks", `${session.id}.lock`);
+  await mkdir(join(root, "learning", "users", owner.userId, "learning", "session-locks"), { recursive: true });
+  await writeFile(lockPath, JSON.stringify({ version: 1, pid: 99999999, token: "dead-owner", createdAt: at }), "utf8");
+
+  const completed = await service.completeLearningSession(owner, session.id, session.revision);
+  assert.equal(completed?.status, "completed");
+  await assert.rejects(() => access(lockPath), /ENOENT/);
 });
