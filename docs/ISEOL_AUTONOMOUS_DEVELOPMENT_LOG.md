@@ -2305,6 +2305,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root identity user/session mutation coordination only; it does not claim distributed locking, external provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable integration delivery synchronization
+
+- Status: **B — integration enqueue and dispatch now serialize across same-host/shared-root service instances; isolated product behavior remains verified, while live provider delivery remains unverified**. Each owner-bound delivery identity uses a durable lock in addition to the existing in-process queue, so provider invocation and terminal state persistence share one mutation boundary.
+- Evidence: `src/integrations/delivery-lock.ts`, `src/integrations/service.ts`, `tests/integrations-delivery.test.ts`.
+- TDD: RED showed dispatch completing while a competing durable delivery lock was held; GREEN added bounded wait, active-owner protection, dead-owner reclaim, malformed-record fail-closed behavior, EPERM probing, token-owned cleanup, cross-service adapter single-call convergence, and enqueue identity conflict protection.
+- Verification: focused integration delivery `10/10`; user-product `370/370`; serial root `726/726` on the clean rerun after one non-reproducible first run failure; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `b002e5f fix: serialize integration delivery mutations`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root integration delivery enqueue/dispatch coordination only; no external provider or connector was called, and this does not claim distributed locking, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Harness Run pause and resume synchronization
 
 - Status: **B — user-owned Harness Run pause/resume transitions now hold the Run mutation lock across read, compare-save, event, and checkpoint projection; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
