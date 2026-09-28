@@ -269,7 +269,8 @@ function LearningDashboard() {
       const result = await acceptLearningPlanAdjustment(goal.id, adjustment.id);
       setLearningGoals((current) => current.map((candidate) => candidate.id === goal.id ? result.goal : candidate));
       setGoalAdjustments((current) => ({ ...current, [goal.id]: (current[goal.id] ?? []).map((item) => item.id === adjustment.id ? result.adjustment : item) }));
-      if (result.plan) setGoalPreviews((current) => { const existing = current[goal.id]; return existing ? { ...current, [goal.id]: { ...existing, goal: result.goal, plan: result.plan, created: false } } : current; });
+      const nextPlan = result.plan;
+      if (nextPlan) setGoalPreviews((current) => { const existing = current[goal.id]; return existing ? { ...current, [goal.id]: { ...existing, goal: result.goal, plan: nextPlan, created: false } } : current; });
       setActionNotice('재조정안을 수락해 새 학습 계획 버전을 만들었습니다. 완료 기록은 이전 버전에 보존됩니다.');
     } catch (nextError) { setError(errorMessage(nextError)); }
     finally { setBusy(false); }
