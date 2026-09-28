@@ -8,6 +8,7 @@ import { withDurableLearningProjectApplicationAcceptanceLock } from "./project-a
 import { withDurableLearningPlanPreviewLock } from "./plan-preview-lock.js";
 import { withDurableLearningPlanAdjustmentLock } from "./plan-adjustment-lock.js";
 import { withDurableLearningPlanAdjustmentAcceptanceLock } from "./plan-adjustment-acceptance-lock.js";
+import { withDurableLearningReportLock } from "./report-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -614,10 +615,11 @@ export function createLearningService(root: string, options: LearningServiceOpti
 
     async createLearningReport(principal, goalId, input): Promise<{ report: LearningReport; created: boolean }> {
       ensurePrincipal(principal);
-      const goal = await loadOwnerGoal(root, principal, goalId);
-      if (!goal) throw new Error("Learning goal not found");
       const period = reportPeriod(input);
-      const timezone = principalTimezone(principal);
+      return withDurableLearningReportLock(root, principal.userId, goalId, JSON.stringify(period), async () => {
+        const goal = await loadOwnerGoal(root, principal, goalId);
+        if (!goal) throw new Error("Learning goal not found");
+        const timezone = principalTimezone(principal);
       const plans = (await listLearningPlanVersions(root, principal.userId))
         .filter((candidate) => candidate.userId === principal.userId && candidate.goalId === goal.id && candidate.status !== "superseded")
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
@@ -667,7 +669,8 @@ export function createLearningService(root: string, options: LearningServiceOpti
         createdAt: at, updatedAt: at,
       };
       await saveLearningReport(root, report);
-      return { report, created: true };
+        return { report, created: true };
+      }, { waitForMs: 2_000 });
     },
 
     async listLearningReports(principal, goalId): Promise<LearningReport[]> {

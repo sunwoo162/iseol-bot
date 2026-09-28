@@ -54,3 +54,21 @@ test("learning report preserves coding practice as unverified evidence", async (
   assert.ok(result.report.unverifiedOutcomes.some((outcome) => outcome.outcomeId === `coding-attempt:${attempt.attempt.id}` && outcome.evidenceRefs.includes(attempt.attempt.id)));
   assert.match(result.report.unverifiedOutcomes.find((outcome) => outcome.outcomeId === `coding-attempt:${attempt.attempt.id}`)?.label ?? "", /Report practice|검증/);
 });
+
+test("concurrent learning report creation across service instances remains one report", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-report-concurrent-"));
+  const owner = principal("report-concurrent-owner");
+  const firstService = createLearningService(root, { now: () => at });
+  const secondService = createLearningService(root, { now: () => at });
+  const goal = await firstService.createLearningGoal(owner, { subjectText: "동시 리포트", duration: { days: 3 }, dailyMinutes: 20 });
+  const input = { period: { from: "2026-09-27", to: "2026-09-27", kind: "weekly" as const } };
+
+  const results = await Promise.all([
+    firstService.createLearningReport(owner, goal.id, input),
+    secondService.createLearningReport(owner, goal.id, input),
+  ]);
+
+  assert.deepEqual(results.map((result) => result.created).sort(), [false, true]);
+  assert.equal(new Set(results.map((result) => result.report.id)).size, 1);
+  assert.equal((await firstService.listLearningReports(owner, goal.id)).length, 1);
+});
