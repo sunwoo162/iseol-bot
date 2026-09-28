@@ -197,24 +197,26 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
     },
     async updateProjectTeam(principal, projectId, input) {
       ensurePrincipal(principal); assertIdentityId(projectId);
-      if (!["solo", "ai", "human", "mixed"].includes(input.teamMode)) throw new Error("Invalid project team mode");
-      const current = await loadJson<UserProject>(projectPath(options.platformRoot, principal.userId, projectId));
-      if (!current || current.ownerUserId !== principal.userId || current.status !== "active") throw new Error("Project not found");
-      const nextTeamId = input.teamMode === "human" || input.teamMode === "mixed"
-        ? required(input.teamId ?? "", "Team id", 128)
-        : undefined;
-      if (nextTeamId && (!options.canAccessTeam || !await options.canAccessTeam(principal, nextTeamId))) throw new Error("Team access required for team project");
-      const at = now(); assertTimestamp(at, "project timestamp");
-      const next: UserProject = { ...current, teamMode: input.teamMode, ...(nextTeamId ? { teamId: nextTeamId } : {}), updatedAt: at };
-      if (!nextTeamId) delete next.teamId;
-      const workspace = await loadProjectWorkspace(options.projectModelRoot, projectId);
-      if (!workspace || workspace.ownerUserId !== principal.userId) throw new Error("Project workspace not found");
-      await saveJson(projectPath(options.platformRoot, principal.userId, projectId), next);
-      const nextWorkspace: ProjectWorkspace = { ...workspace, ...(nextTeamId ? { teamId: nextTeamId } : {}), updatedAt: at };
-      if (!nextTeamId) delete nextWorkspace.teamId;
-      await saveProjectWorkspace(options.projectModelRoot, nextWorkspace);
-      if (options.activityService) await options.activityService.recordActivityEvent(principal, { sourceType: "project", sourceId: `${projectId}:team:${randomUUID()}`, eventType: "project.team.changed", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { projectId, teamMode: input.teamMode, changedToTeam: Boolean(nextTeamId) }, occurredAt: at });
-      return next;
+      return withDurableProjectWorkspaceLock(options.projectModelRoot, projectId, async () => {
+        if (!["solo", "ai", "human", "mixed"].includes(input.teamMode)) throw new Error("Invalid project team mode");
+        const current = await loadJson<UserProject>(projectPath(options.platformRoot, principal.userId, projectId));
+        if (!current || current.ownerUserId !== principal.userId || current.status !== "active") throw new Error("Project not found");
+        const nextTeamId = input.teamMode === "human" || input.teamMode === "mixed"
+          ? required(input.teamId ?? "", "Team id", 128)
+          : undefined;
+        if (nextTeamId && (!options.canAccessTeam || !await options.canAccessTeam(principal, nextTeamId))) throw new Error("Team access required for team project");
+        const at = now(); assertTimestamp(at, "project timestamp");
+        const next: UserProject = { ...current, teamMode: input.teamMode, ...(nextTeamId ? { teamId: nextTeamId } : {}), updatedAt: at };
+        if (!nextTeamId) delete next.teamId;
+        const workspace = await loadProjectWorkspace(options.projectModelRoot, projectId);
+        if (!workspace || workspace.ownerUserId !== principal.userId) throw new Error("Project workspace not found");
+        await saveJson(projectPath(options.platformRoot, principal.userId, projectId), next);
+        const nextWorkspace: ProjectWorkspace = { ...workspace, ...(nextTeamId ? { teamId: nextTeamId } : {}), updatedAt: at };
+        if (!nextTeamId) delete nextWorkspace.teamId;
+        await saveProjectWorkspace(options.projectModelRoot, nextWorkspace);
+        if (options.activityService) await options.activityService.recordActivityEvent(principal, { sourceType: "project", sourceId: `${projectId}:team:${randomUUID()}`, eventType: "project.team.changed", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { projectId, teamMode: input.teamMode, changedToTeam: Boolean(nextTeamId) }, occurredAt: at });
+        return next;
+      }, { waitForMs: 2_000 });
     },
     async listProjects(principal) { ensurePrincipal(principal); return listVisibleProjects(options.platformRoot, principal, options.canAccessTeam); },
     async getProject(principal, projectId) {

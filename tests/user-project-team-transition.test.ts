@@ -8,6 +8,7 @@ import { createActivityService } from "../src/activity/service.js";
 import { createTeamService } from "../src/teams/service.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { loadProjectWorkspace } from "../src/project-model/workspace-store.js";
+import { withDurableProjectWorkspaceLock } from "../src/project-model/workspace-lock.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -46,4 +47,42 @@ test("an active project can change teams without leaking workspace access or sta
   assert.equal("teamId" in workspace, false);
   assert.equal(await projects.getProject(principal("member"), project.id), null);
   assert.equal((await activity.listActivityEvents(principal("owner"))).filter((event) => event.eventType === "project.team.changed").length, 2);
+});
+
+test("project team transition waits for the durable Workspace mutation lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-team-lock-"));
+  const platformRoot = join(root, "platform");
+  const projectModelRoot = join(root, "project-model");
+  const teams = createTeamService(platformRoot, { now: () => at });
+  const team = await teams.createTeam(principal("owner"), { name: "Locked team", description: "workspace lock", kind: "project", visibility: "private", capacity: 4 });
+  await teams.addMember(team.id, "owner", "owner");
+  const options = {
+    platformRoot,
+    projectModelRoot,
+    projectHarnessRoot: join(root, "runs"),
+    iseolRoot: root,
+    canAccessTeam: async (viewer: Principal, teamId: string) => teams.canAccess(viewer, teamId),
+    now: () => at,
+  };
+  const projects = createUserProjectService(options);
+  const project = await projects.createProject(principal("owner"), { name: "Locked transition", objective: "wait for workspace lock", purpose: "rapid-prototype", teamMode: "solo" });
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableProjectWorkspaceLock(projectModelRoot, project.id, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const transition = projects.updateProjectTeam(principal("owner"), project.id, { teamMode: "human", teamId: team.id }).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  const updated = await transition;
+  assert.equal(updated.teamMode, "human");
+  assert.equal(updated.teamId, team.id);
 });
