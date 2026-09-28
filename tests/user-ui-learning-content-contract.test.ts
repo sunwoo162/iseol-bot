@@ -9,4 +9,5 @@ test("Learning UI exposes the durable today-content request boundary", async () 
   assert.match(page, /로컬 Runtime 대기/);
   assert.match(page, /검증된 오늘 수업/);
   assert.match(api, /requestLearningSessionContent/);
+  assert.match(page, /const \{ sessions: refreshedSessions \} = await listLearningSessions\(\)/);
 });

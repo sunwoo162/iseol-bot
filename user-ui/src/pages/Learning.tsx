@@ -166,7 +166,7 @@ function LearningDashboard() {
         setCodingAttempts({});
         setAnswerFeedback(null);
       } else {
-        const restored = candidate.status === 'active' ? (await resumeLearningSession(candidate.id)).session : candidate;
+        const restored = candidate.status === 'active' ? (await resumeLearningSession(candidate.id, candidate.revision)).session : candidate;
         setSession(restored);
         if (restored.goalId) {
           try { setContentRequest((await getLearningSessionContent(restored.id)).request); }
@@ -367,7 +367,7 @@ function LearningDashboard() {
     if (!session || session.status !== 'active') return;
     setBusy(true); setError(null);
     try {
-      const result = await completeLearningSession(session.id);
+    const result = await completeLearningSession(session.id, session.revision);
       setSession(result.session);
       setAttempts((await listStudyAttempts(result.session.id)).attempts);
     } catch (nextError) { setError(errorMessage(nextError)); }
@@ -380,7 +380,9 @@ function LearningDashboard() {
     try {
       const result = await requestLearningSessionContent(session.id);
       setContentRequest(result.request);
-      setSession((current) => current ? { ...current, contentStatus: result.request.lesson ? 'ready' : 'pending', contentRequestId: result.request.id, ...(result.request.lesson ? { contentId: result.request.lesson.id } : {}) } : current);
+      const { sessions: refreshedSessions } = await listLearningSessions();
+      const refreshedSession = refreshedSessions.find((candidate) => candidate.id === session.id);
+      if (refreshedSession) setSession(refreshedSession);
     } catch (nextError) { setError(errorMessage(nextError)); }
     finally { setBusy(false); }
   };

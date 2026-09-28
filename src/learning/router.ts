@@ -252,12 +252,17 @@ export async function routeLearningRequest(request: UserRequest, services: Learn
     if (sessionPath && sessionPath.endsWith("/complete")) {
       if (request.method !== "POST") return response(405, { error: "method not allowed" });
       const sessionId = sessionPath.slice(0, -"/complete".length);
-      const session = await learning.completeLearningSession(principal, sessionId);
+      const body = objectBody(request.body);
+      const expectedRevision = typeof body?.expectedRevision === "number" ? body.expectedRevision : undefined;
+      const session = await learning.completeLearningSession(principal, sessionId, expectedRevision);
       return session ? response(200, { session }) : response(404, { error: "learning session not found" });
     }
     if (sessionPath && !sessionPath.endsWith("/attempts")) {
       if (request.method !== "GET") return response(405, { error: "method not allowed" });
-      const session = await learning.resumeLearningSession(principal, sessionPath);
+      const expectedRevisionValue = url.searchParams.get("expectedRevision");
+      const expectedRevision = expectedRevisionValue === null ? undefined : Number(expectedRevisionValue);
+      if (expectedRevisionValue !== null && !Number.isInteger(expectedRevision)) return response(400, { error: "expectedRevision must be an integer" });
+      const session = await learning.resumeLearningSession(principal, sessionPath, expectedRevision);
       return session ? response(200, { session }) : response(404, { error: "learning session not found" });
     }
 

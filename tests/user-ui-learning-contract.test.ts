@@ -15,6 +15,8 @@ test("learning UI restores a durable active session after reconnect", async () =
   assert.match(page, /listLearningSessions/);
   assert.match(page, /resumeLearningSession/);
   assert.match(api, /completeLearningSession/);
+  assert.match(api, /expectedRevision/);
+  assert.match(page, /session\.revision/);
   assert.match(page, /학습 세션 완료/);
   assert.match(page, /listStudyAttempts/);
   assert.match(page, /활성 세션/);

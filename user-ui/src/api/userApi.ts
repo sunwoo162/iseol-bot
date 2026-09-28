@@ -251,6 +251,7 @@ export type LearningSession = {
   id: string;
   userId: string;
   planId: string;
+  revision: number;
   status: 'active' | 'completed';
   startedAt: string;
   resumedAt: string;
@@ -781,11 +782,12 @@ export async function listLearningSessions(): Promise<{ sessions: LearningSessio
   return request<{ sessions: LearningSession[] }>('/api/user/learning/sessions');
 }
 
-export async function resumeLearningSession(sessionId: string): Promise<{ session: LearningSession }> {
-  return request<{ session: LearningSession }>(`/api/user/learning/sessions/${encodeURIComponent(sessionId)}`);
+export async function resumeLearningSession(sessionId: string, expectedRevision?: number): Promise<{ session: LearningSession }> {
+  const query = expectedRevision === undefined ? '' : `?expectedRevision=${encodeURIComponent(String(expectedRevision))}`;
+  return request<{ session: LearningSession }>(`/api/user/learning/sessions/${encodeURIComponent(sessionId)}${query}`);
 }
-export async function completeLearningSession(sessionId: string): Promise<{ session: LearningSession }> {
-  return request<{ session: LearningSession }>(`/api/user/learning/sessions/${encodeURIComponent(sessionId)}/complete`, { method: 'POST', body: '{}' });
+export async function completeLearningSession(sessionId: string, expectedRevision?: number): Promise<{ session: LearningSession }> {
+  return request<{ session: LearningSession }>(`/api/user/learning/sessions/${encodeURIComponent(sessionId)}/complete`, { method: 'POST', body: JSON.stringify(expectedRevision === undefined ? {} : { expectedRevision }) });
 }
 
 export async function requestLearningSessionContent(sessionId: string): Promise<{ request: LearningContentRequest }> {
