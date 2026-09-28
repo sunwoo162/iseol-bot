@@ -2304,6 +2304,15 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root coordination only; no distributed coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service study space creation
+
+- Status: **B — team-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Study space creation now serializes the one-active-space-per-study-team invariant before checking existing spaces and writing the creation activity event.
+- Evidence: `src/study/space-lock.ts`, `src/study/service.ts`, `tests/study-space.test.ts`.
+- TDD: RED reproduced two concurrent study space calls returning different space IDs; GREEN returned one shared space identity and retained one active space.
+- Verification: focused study suite `5/5`; user-product `337/337`; serial root `682/682`; backend/user UI TypeScript checks, backend/user UI builds, `git diff --check`, and isolated browser E2E passed on retry after one unrelated Runtime journey flake. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service growth projection mutations
 
 - Status: **B — owner/event-scoped, durable, same-host cross-service idempotent, notification-safe, and isolated-product verified; live model/provider execution remains unverified**. Verified activity growth projections and retractions now serialize on the exact event identity before reading the ledger and computing achievement deltas.

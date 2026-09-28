@@ -1693,6 +1693,12 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service study space creation
+
+- Study space creation is **B — team-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/study/space-lock.ts` protects the one-active-space-per-team check/create path in `src/study/service.ts`.
+- TDD/verification: concurrent creation moved from two distinct IDs to one shared ID and one active space; focused study `5/5`; user-product `337/337`; root `682/682`; types, both builds, and browser E2E passed on retry with two-account isolation and responsive `[390,768,1024,1440]` across `13` routes.
+- Boundary: same-host/shared-root coordination only; distributed coordination, live model/provider execution, external connector delivery, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room remain unverified/deferred.
+
 ## 2026-09-28 continuation: durable cross-service study submission mutations
 
 - Study submissions are **B — study-space/task/user-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/study/submission-lock.ts` protects the personal submission read-modify-save path in `src/study/service.ts`.
