@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service personal world mutations
+
+- Status: **B — owner-scoped, durable, same-host cross-service personal-world serialization, and isolated-product verified; live model/provider execution remains unverified**. Personal world and character updates now share an exact hashed per-user filesystem lock, preserving disjoint world patches and keeping character synchronization inside the same user mutation boundary.
+- Evidence: `src/personal-world/world-lock.ts`, `src/personal-world/service.ts`, `tests/personal-world-persistence.test.ts`.
+- TDD: RED reproduced concurrent service instances losing the `displayName` patch while applying the `interests` patch; GREEN preserved both fields after the lock re-read.
+- Verification: focused personal-world/API suite `4/4`; user-product `342/342`; serial root `682/682`; backend/user UI TypeScript, both builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained personal-world environment/customization, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed personal-world coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service recruitment application creation
 
 - Status: **B — post/applicant-scoped, durable, same-host cross-service idempotent, and isolated-product verified; live model/provider execution remains unverified**. Recruitment application creation now serializes the existing-application check, application record write, and activity receipt by exact post/applicant identity, so concurrent retries return one pending application.
