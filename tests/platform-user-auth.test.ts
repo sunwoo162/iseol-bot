@@ -108,3 +108,30 @@ test("password change route requires authentication and returns a bounded succes
   assert.equal(await service.resolveAuthenticatedPrincipal(token), null);
   assert.deepEqual(await service.authenticateUser("password-route@example.com", "route-new-123"), signup.body.user);
 });
+
+test("concurrent password changes across service instances allow one compare-and-set winner", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-platform-password-concurrent-"));
+  const firstService = createPlatformUserService(root, { now: () => "2026-09-25T12:00:00.000Z" });
+  const secondService = createPlatformUserService(root, { now: () => "2026-09-25T12:00:00.000Z" });
+  const user = await firstService.createUser({
+    id: "password-concurrent-user",
+    email: "password-concurrent@example.com",
+    displayName: "Password Concurrent User",
+    timezone: "Asia/Seoul",
+    password: "old-password-123",
+  });
+  const principal = { userId: user.id, sessionId: "password-concurrent-session", roles: ["user"] };
+
+  const results = await Promise.allSettled([
+    firstService.changePassword(principal, "old-password-123", "first-new-password"),
+    secondService.changePassword(principal, "old-password-123", "second-new-password"),
+  ]);
+
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+  const authenticated = await Promise.all([
+    firstService.authenticateUser("password-concurrent@example.com", "first-new-password"),
+    firstService.authenticateUser("password-concurrent@example.com", "second-new-password"),
+  ]);
+  assert.equal(authenticated.filter(Boolean).length, 1);
+});

@@ -103,23 +103,25 @@ export function createPlatformUserService(root: string, options: { now?: () => s
     async changePassword(principal: Principal, currentPassword: string, newPassword: string): Promise<void> {
       if (!validPassword(currentPassword)) throw new Error("Current password is invalid");
       if (!validPassword(newPassword)) throw new Error("Password must be between 8 and 256 characters");
-      const user = await loadPlatformUser(root, principal.userId);
-      const credential = user ? await loadPasswordCredential(root, user.id) : null;
-      if (!user || !credential || credential.version !== 1) throw new Error("Current password is invalid");
-      try {
-        const salt = Buffer.from(credential.salt, "base64");
-        const expected = Buffer.from(credential.hash, "base64");
-        const actual = passwordHash(currentPassword, salt);
-        if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) throw new Error("Current password is invalid");
-      } catch (error) {
-        if (error instanceof Error && error.message === "Current password is invalid") throw error;
-        throw new Error("Current password is invalid");
-      }
-      const at = now();
-      assertTimestamp(at, "password timestamp");
-      const salt = randomBytes(16);
-      await savePasswordCredential(root, user.id, { version: 1, salt: salt.toString("base64"), hash: passwordHash(newPassword, salt).toString("base64"), createdAt: at });
-      await revokeSessionsForUser(root, user.id, at);
+      await withDurablePlatformUserLock(root, principal.userId, async () => {
+        const user = await loadPlatformUser(root, principal.userId);
+        const credential = user ? await loadPasswordCredential(root, user.id) : null;
+        if (!user || !credential || credential.version !== 1) throw new Error("Current password is invalid");
+        try {
+          const salt = Buffer.from(credential.salt, "base64");
+          const expected = Buffer.from(credential.hash, "base64");
+          const actual = passwordHash(currentPassword, salt);
+          if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) throw new Error("Current password is invalid");
+        } catch (error) {
+          if (error instanceof Error && error.message === "Current password is invalid") throw error;
+          throw new Error("Current password is invalid");
+        }
+        const at = now();
+        assertTimestamp(at, "password timestamp");
+        const salt = randomBytes(16);
+        await savePasswordCredential(root, user.id, { version: 1, salt: salt.toString("base64"), hash: passwordHash(newPassword, salt).toString("base64"), createdAt: at });
+        await revokeSessionsForUser(root, user.id, at);
+      }, { waitForMs: 2_000 });
     },
 
     async createSession(input: { userId: string; roles: string[]; expiresAt: string }) {
