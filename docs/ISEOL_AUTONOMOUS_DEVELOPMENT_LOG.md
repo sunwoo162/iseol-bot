@@ -2142,3 +2142,22 @@ This log records implementation and verification facts without secrets. It does 
 
 - No live Calendar/GitHub/Discord authorization or external delivery was attempted. No external AI/provider request, operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, deployment, push, data deletion, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred.
 - Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, final approved art sources, and deferred broadcast artifacts remained untouched.
+
+## 2026-09-28 continuation: compose explicit user integration adapters
+
+### Completed in this unit
+
+- Extended the composed ISEOL Runtime input with explicit Calendar/GitHub/Discord `IntegrationAdapter` injection. The composed integration service now forwards only supplied adapters to the owner-scoped delivery ledger.
+- The user Control Plane receives the configured provider list from those explicit adapters, so Settings can distinguish a configured local capability from the default `연동 API 미연결` state. No adapter is created or contacted by default.
+
+### TDD and verification
+
+- RED: the composition test observed an undefined configured-provider list and no adapter delivery before the wiring change.
+- GREEN: Runtime/integration/settings/UI focused coverage passed `51/51`; TypeScript and root build passed.
+- Full user-product regression passed `309/309`; serial root regression passed `677/677`; user UI build passed with only existing Vite warnings; isolated browser E2E passed all journeys, two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Commit: `39cef53 feat: wire explicit user integration adapters`.
+
+### Scope and safety boundary
+
+- Only a temporary fake Calendar adapter was exercised in an isolated test root. No live Calendar/GitHub/Discord authorization or delivery, external AI/provider request, operational Runtime/Agent restart, stale-lock repair, UNKNOWN replay, deployment, push, data deletion, approved-design change, weekly digest implementation, or AI Broadcast Room implementation occurred.
+- Runtime PID `1708`, Desktop Agent PID `22416`, ports `18890`/`18891`, configured dataRoot, stale PID `55000`, UNKNOWN records, durable operational data, final approved art sources, and deferred broadcast artifacts remained untouched.
