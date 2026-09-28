@@ -81,3 +81,29 @@ test("direct messages wait for the shared social interaction lock", async () => 
   await Promise.all([holder, send]);
   assert.equal((await social.listDirectMessages(principal("message-lock-b"), "message-lock-a")).length, 1);
 });
+
+test("friend request creation waits for the shared social interaction lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-friend-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  for (const id of ["friend-lock-a", "friend-lock-b"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const social = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableSocialBlockLock(platformRoot, "friend-lock-a", "friend-lock-b", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const request = social.createFriendRequest(principal("friend-lock-a"), "friend-lock-b");
+  assert.equal(await Promise.race([
+    request.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]), false);
+  release();
+  await Promise.all([holder, request]);
+  assert.equal((await social.listIncomingFriendRequests(principal("friend-lock-b"))).length, 1);
+});

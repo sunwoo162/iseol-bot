@@ -97,11 +97,14 @@ export function createSocialService(root: string, options: SocialServiceOptions)
       return friends.sort((a, b) => a.displayName.localeCompare(b.displayName));
     },
     async createFriendRequest(principal, targetUserId) {
-      ensurePrincipal(principal); assertIdentityId(targetUserId); if (targetUserId === principal.userId) throw new Error("Cannot friend yourself"); if (!await options.platformUserService.getUser(targetUserId)) throw new Error("Target user not found"); if (await isBlocked(principal.userId, targetUserId)) throw new Error("User is blocked");
+      ensurePrincipal(principal); assertIdentityId(targetUserId); if (targetUserId === principal.userId) throw new Error("Cannot friend yourself"); if (!await options.platformUserService.getUser(targetUserId)) throw new Error("Target user not found");
       const id = friendshipId(principal.userId, targetUserId);
-      return withDurableFriendRequestLock(root, id, async () => {
-        const existing = await loadFriendRequest(root, id); if (existing?.status === "accepted" || existing?.status === "pending") return { request: existing, created: false };
-        const at = now(); assertTimestamp(at, "friend request timestamp"); const request: FriendRequest = { version: 1, id, requesterUserId: principal.userId, targetUserId, status: "pending", createdAt: existing?.createdAt ?? at, updatedAt: at }; await saveFriendRequest(root, request); await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: request.id, eventType: "friend.request.created", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { targetUserId } }); return { request, created: true };
+      return withDurableSocialBlockLock(root, principal.userId, targetUserId, async () => {
+        if (await isBlocked(principal.userId, targetUserId)) throw new Error("User is blocked");
+        return withDurableFriendRequestLock(root, id, async () => {
+          const existing = await loadFriendRequest(root, id); if (existing?.status === "accepted" || existing?.status === "pending") return { request: existing, created: false };
+          const at = now(); assertTimestamp(at, "friend request timestamp"); const request: FriendRequest = { version: 1, id, requesterUserId: principal.userId, targetUserId, status: "pending", createdAt: existing?.createdAt ?? at, updatedAt: at }; await saveFriendRequest(root, request); await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: request.id, eventType: "friend.request.created", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { targetUserId } }); return { request, created: true };
+        }, { waitForMs: 2_000 });
       }, { waitForMs: 2_000 });
     },
     async listIncomingFriendRequests(principal) {
