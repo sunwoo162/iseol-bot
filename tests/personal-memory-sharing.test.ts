@@ -1,0 +1,68 @@
+import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import type { Principal } from "../src/identity/contracts.js";
+import { createMemoryService } from "../src/memory/service.js";
+import { createTeamService } from "../src/teams/service.js";
+
+const at = "2026-09-28T12:00:00.000Z";
+const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
+
+test("personal memory sharing is explicit, durable, and limited to active team members", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-memory-sharing-"));
+  const teams = createTeamService(root, { now: () => at });
+  const memory = createMemoryService(root, { now: () => at, teamService: teams });
+  const owner = principal("memory-share-owner");
+  const member = principal("memory-share-member");
+  const outsider = principal("memory-share-outsider");
+  const team = await teams.createTeam(owner, { name: "공유 팀", description: "개인 기억 ACL", kind: "study", visibility: "private", capacity: 4 });
+  await teams.addMember(team.id, member.userId, "member");
+  const record = await memory.appendPrivateMemory(owner, { kind: "설계 결정", content: "팀에 공유하기 전까지는 개인 전용입니다." });
+
+  assert.deepEqual(await memory.listSharedMemories(member, team.id), []);
+  const shared = await memory.updatePrivateMemorySharing(owner, record.id, [team.id]);
+  assert.deepEqual(shared?.sharedTeamIds, [team.id]);
+  assert.deepEqual((await memory.listSharedMemories(member, team.id)).map((item) => item.content), [record.content]);
+  assert.deepEqual(await memory.listSharedMemories(outsider, team.id), []);
+
+  const restarted = createMemoryService(root, { now: () => at, teamService: teams });
+  assert.deepEqual((await restarted.listPrivateMemories(owner, {}))[0]?.sharedTeamIds, [team.id]);
+  assert.deepEqual((await restarted.listSharedMemories(member, team.id))[0]?.id, record.id);
+
+  await teams.leaveTeam(member, team.id);
+  assert.deepEqual(await restarted.listSharedMemories(member, team.id), []);
+  const revoked = await restarted.updatePrivateMemorySharing(owner, record.id, []);
+  assert.deepEqual(revoked?.sharedTeamIds, []);
+  assert.deepEqual(await restarted.listSharedMemories(owner, team.id), []);
+});
+
+test("memory sharing cannot be enabled for a team where the owner is not an active member", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-memory-sharing-owner-acl-"));
+  const teams = createTeamService(root, { now: () => at });
+  const memory = createMemoryService(root, { now: () => at, teamService: teams });
+  const owner = principal("memory-share-owner-acl");
+  const other = principal("memory-share-other-acl");
+  const team = await teams.createTeam(other, { name: "타인 팀", description: "공유 권한 거부", kind: "project", visibility: "public", capacity: 4 });
+  const record = await memory.appendPrivateMemory(owner, { kind: "private", content: "공유할 수 없어야 합니다." });
+
+  await assert.rejects(() => memory.updatePrivateMemorySharing(owner, record.id, [team.id]), /active team member/i);
+  assert.deepEqual((await memory.listPrivateMemories(owner, {}))[0]?.sharedTeamIds, []);
+});
+
+test("memory sharing cannot be re-saved after the owner leaves the selected team", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-memory-sharing-owner-leave-"));
+  const teams = createTeamService(root, { now: () => at });
+  const memory = createMemoryService(root, { now: () => at, teamService: teams });
+  const owner = principal("memory-share-owner-leave");
+  const manager = principal("memory-share-manager-leave");
+  const team = await teams.createTeam(manager, { name: "소유자 탈퇴 팀", description: "재저장 ACL", kind: "project", visibility: "private", capacity: 4 });
+  await teams.addMember(team.id, owner.userId, "member");
+  const record = await memory.appendPrivateMemory(owner, { kind: "private", content: "탈퇴 뒤에는 공유 범위를 재저장할 수 없어야 합니다." });
+
+  await memory.updatePrivateMemorySharing(owner, record.id, [team.id]);
+  await teams.leaveTeam(owner, team.id);
+
+  await assert.rejects(() => memory.updatePrivateMemorySharing(owner, record.id, [team.id]), /active team member/i);
+});
