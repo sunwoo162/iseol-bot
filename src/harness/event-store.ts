@@ -12,6 +12,7 @@ import type {
   HarnessCheckpoint,
   HarnessRunEvent,
 } from "./contracts.js";
+import { withDurableHarnessRunEventLock } from "./event-lock.js";
 import { assertSafeRunId } from "./run-store.js";
 
 function runDirectory(root: string, runId: string): string {
@@ -19,14 +20,32 @@ function runDirectory(root: string, runId: string): string {
   return resolve(root, runId);
 }
 
+async function appendHarnessRunEventUnlocked(root: string, event: HarnessRunEvent): Promise<void> {
+  const directory = runDirectory(root, event.runId);
+  await mkdir(directory, { recursive: true });
+  await appendFile(resolve(directory, "events.jsonl"), `${JSON.stringify(event)}\n`, "utf8");
+}
+
 export async function appendHarnessRunEvent(
   root: string,
   event: HarnessRunEvent,
 ): Promise<void> {
-  const directory = runDirectory(root, event.runId);
-  await mkdir(directory, { recursive: true });
-  await appendFile(resolve(directory, "events.jsonl"), `${JSON.stringify(event)}\n`, "utf8");
-}export async function loadHarnessRunEvents(
+  await withDurableHarnessRunEventLock(root, event.runId, () => appendHarnessRunEventUnlocked(root, event), { waitForMs: 2_000 });
+}
+
+export async function appendHarnessRunEventIfAbsent(
+  root: string,
+  event: HarnessRunEvent,
+): Promise<boolean> {
+  return withDurableHarnessRunEventLock(root, event.runId, async () => {
+    const events = await loadHarnessRunEvents(root, event.runId);
+    if (events.some((item) => item.id === event.id)) return false;
+    await appendHarnessRunEventUnlocked(root, event);
+    return true;
+  }, { waitForMs: 2_000 });
+}
+
+export async function loadHarnessRunEvents(
   root: string,
   runId: string,
 ): Promise<HarnessRunEvent[]> {

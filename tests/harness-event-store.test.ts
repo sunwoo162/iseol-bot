@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { HarnessCheckpoint, HarnessRunEvent, HarnessRunState } from "../src/harness/contracts.js";
 import {
   appendHarnessRunEvent,
+  appendHarnessRunEventIfAbsent,
   loadHarnessRunEvents,
   loadLatestHarnessCheckpoint,
   saveHarnessCheckpoint,
@@ -66,4 +67,24 @@ test("missing event and checkpoint stores are empty", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-events-empty-"));
   assert.deepEqual(await loadHarnessRunEvents(root, "run-001"), []);
   assert.equal(await loadLatestHarnessCheckpoint(root, "run-001"), null);
+});
+
+test("append-once keeps one event identity across independent event-store instances", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-events-append-once-"));
+  const instances = await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      import(`../src/harness/event-store.ts?append-once-instance=${index}-${Date.now()}`),
+    ),
+  );
+  const outcomes = await Promise.allSettled(
+    instances.map((instance) => instance.appendHarnessRunEventIfAbsent(root, event("event-shared", "2026-09-07T00:00:01.000Z"))),
+  );
+
+  assert.equal(outcomes.filter((outcome) => outcome.status === "rejected").length, 0);
+  const values = outcomes
+    .filter((outcome): outcome is PromiseFulfilledResult<boolean> => outcome.status === "fulfilled")
+    .map((outcome) => outcome.value);
+  assert.equal(values.filter(Boolean).length, 1);
+  assert.equal(values.filter((value) => !value).length, 7);
+  assert.deepEqual((await loadHarnessRunEvents(root, "run-001")).map((item) => item.id), ["event-shared"]);
 });

@@ -7,7 +7,7 @@ import type {
   HarnessRetryReason,
 } from "./contracts.js";
 import { createInitialRunState } from "./state-machine.js";
-import { appendHarnessRunEvent } from "./event-store.js";
+import { appendHarnessRunEventIfAbsent } from "./event-store.js";
 import { withDurableHarnessRunLock } from "./run-lock.js";
 import { renameWithTransientRetry } from "../desktop-agent/atomic-file.js";
 
@@ -127,7 +127,7 @@ export async function requestHarnessRunRetry(
         updatedAt: input.requestedAt,
       };
       await writeNormalizedRun(root, next);
-      await appendHarnessRunEvent(root, {
+      await appendHarnessRunEventIfAbsent(root, {
         version: 1,
         id: `retry-requested-${runId}-${cycle}`,
         runId,
