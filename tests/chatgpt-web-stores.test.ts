@@ -143,6 +143,26 @@ test("reasoning turn append-once remains one record across service instances", a
   assert.equal((await listReasoningTurns(store, "run-1")).length, 1);
 });
 
+test("desktop intent identity conflicts stay single-winner across service instances", async () => {
+  const store = await root();
+  const intent = {
+    version: 1 as const, intentId: "intent-cross-service", runId: "run-1", stage: "IMPLEMENT" as const,
+    workspaceRoot: "C:/workspace/project", policySha256: "policy-1", kind: "GIT_INSPECT" as const, cwd: ".",
+  };
+  const instances = await Promise.all(
+    Array.from({ length: 8 }, (_, index) => import(`../src/chatgpt-web/intent-store.ts?instance=${index}`)),
+  );
+  const results = await Promise.allSettled(instances.map((instance, index) => instance.recordDesktopIntent(store, {
+    intent,
+    status: index === 0 ? "accepted" : "rejected",
+    recordedAt: `2026-09-08T01:04:${String(index).padStart(2, "0")}.000Z`,
+    ...(index === 0 ? {} : { reason: "competing identity" }),
+  })));
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected" && /identity conflict/i.test(String(result.reason))).length, 7);
+  assert.equal((await loadDesktopIntent(store, "run-1", "intent-cross-service"))?.status, "accepted");
+});
+
 test("desktop intent records are idempotent and reject credential-shaped input", async () => {
   const store = await root();
   const intent = {

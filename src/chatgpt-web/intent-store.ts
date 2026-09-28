@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { DesktopIntent } from "./contracts.js";
 import { assertDesktopIntent } from "./contracts.js";
+import { withDurableDesktopIntentLock } from "./intent-lock.js";
 
 export type DesktopIntentRecord = {
   version: 1;
@@ -83,13 +84,15 @@ export async function recordDesktopIntent(root: string, input: RecordDesktopInte
   assertInput(input);
   const path = intentFile(root, input.intent.runId, input.intent.intentId);
   return serialized(path, async () => {
-    const next: DesktopIntentRecord = { version: 1, intent: structuredClone(input.intent), status: input.status, recordedAt: input.recordedAt, ...(input.reason === undefined ? {} : { reason: input.reason }) };
-    const existing = await loadDesktopIntent(root, input.intent.runId, input.intent.intentId);
-    if (existing) {
-      if (semanticRecord(existing) !== semanticRecord(next)) throw new Error(`Desktop intent identity conflict: ${input.intent.intentId}`);
-      return existing;
-    }
-    await atomicJson(path, next);
-    return next;
+    return withDurableDesktopIntentLock(root, input.intent.runId, input.intent.intentId, async () => {
+      const next: DesktopIntentRecord = { version: 1, intent: structuredClone(input.intent), status: input.status, recordedAt: input.recordedAt, ...(input.reason === undefined ? {} : { reason: input.reason }) };
+      const existing = await loadDesktopIntent(root, input.intent.runId, input.intent.intentId);
+      if (existing) {
+        if (semanticRecord(existing) !== semanticRecord(next)) throw new Error(`Desktop intent identity conflict: ${input.intent.intentId}`);
+        return existing;
+      }
+      await atomicJson(path, next);
+      return next;
+    }, { waitForMs: 2_000 });
   });
 }
