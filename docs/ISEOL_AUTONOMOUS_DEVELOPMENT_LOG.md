@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-28 continuation: durable cross-service portfolio entry mutations
+
+- Status: **B — owner/entry-scoped, durable, same-host cross-service serialized, patch-preserving, and isolated-product verified; live model/provider execution remains unverified**. Portfolio entry updates now re-read and save under an exact hashed owner/entry lock, preserving disjoint title/visibility edits across service instances.
+- Evidence: `src/portfolio/entry-lock.ts`, `src/portfolio/service.ts`, `tests/portfolio-provenance.test.ts`.
+- TDD: RED reproduced a concurrent title/visibility update losing the title patch and leaving the initial entry; GREEN preserved both patches after the second service re-read under lock.
+- Verification: focused portfolio/provenance/API suite `5/5`; user-product `333/333`; serial root `682/682`; backend/user UI TypeScript checks, backend/user UI builds, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root coordination only; no distributed coordinator, live model/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-28 continuation: durable cross-service team membership mutations
 
 - Status: **B — team-scoped, durable, same-host cross-service membership serialization, capacity-safe, and isolated-product verified; live model/provider execution remains unverified**. Human and AI team membership add/remove/leave mutations now re-read and write under an exact hashed team lock below the teams root.

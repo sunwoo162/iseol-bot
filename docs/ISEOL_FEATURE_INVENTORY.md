@@ -1693,6 +1693,12 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service portfolio entry mutations
+
+- Portfolio entry updates are **B — owner/entry-scoped, durable, same-host cross-service serialized, patch-preserving, and isolated-browser verified**. `src/portfolio/entry-lock.ts` protects the read-modify-save path in `src/portfolio/service.ts`.
+- TDD/verification: concurrent title/visibility edits moved from a lost title patch to preserving both changes; focused portfolio/provenance/API `5/5`; user-product `333/333`; root `682/682`; types, both builds, and browser E2E passed with two-account isolation and responsive `[390,768,1024,1440]` across `13` routes.
+- Boundary: same-host/shared-root coordination only; distributed coordination, live model/provider execution, external connector delivery, weekly digest scheduling, final approved design-source completeness, and AI Broadcast Room remain unverified/deferred.
+
 ## 2026-09-28 continuation: durable cross-service team membership mutations
 
 - Team membership mutations are **B — team-scoped, durable, same-host cross-service serialized, capacity-safe, and isolated-browser verified**. `src/teams/membership-lock.ts` protects human/AI add, remove, and leave paths in `src/teams/service.ts`.
