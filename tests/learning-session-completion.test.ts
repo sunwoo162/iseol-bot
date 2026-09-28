@@ -78,3 +78,22 @@ test("concurrent learning session completions serialize the expected revision", 
   assert.equal((await activity.listActivityEvents(owner)).length, 1);
   assert.equal((await service.listLearningSessions(owner)).find((item) => item.id === session.id)?.revision, session.revision + 1);
 });
+
+test("learning session completions serialize across service instances sharing one root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-session-cas-cross-instance-"));
+  const activity = createActivityService(join(root, "activity"), { now: () => at });
+  const serviceA = createLearningService(join(root, "learning"), { now: () => at, activityService: activity });
+  const serviceB = createLearningService(join(root, "learning"), { now: () => at, activityService: activity });
+  const owner = principal("learning-cas-cross-instance-owner");
+  const plan = await serviceA.createLearningPlan(owner, { title: "Cross-instance CAS", description: "Serialize durable completion", goals: ["One transition"] });
+  const session = await serviceA.startLearningSession(owner, plan.id);
+
+  const results = await Promise.allSettled([
+    serviceA.completeLearningSession(owner, session.id, session.revision),
+    serviceB.completeLearningSession(owner, session.id, session.revision),
+  ]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected" && /revision conflict/i.test(String(result.reason))).length, 1);
+  assert.equal((await activity.listActivityEvents(owner)).length, 1);
+  assert.equal((await serviceA.listLearningSessions(owner)).find((item) => item.id === session.id)?.revision, session.revision + 1);
+});

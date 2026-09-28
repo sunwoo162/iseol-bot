@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CodingAttempt, CodingAttemptInput, CodingExercise, CodingExerciseInput, CodingPracticeResult, GoalInterpretation, LearningAnswerReceipt, LearningContentRequest, LearningFeedback, LearningFeedbackDispute, LearningFeedbackDisputeResult, LearningFeedbackEvaluation, LearningFeedbackEvaluationInput, LearningGoal, LearningGoalInput, LearningGoalSessionInput, LearningLessonBlock, LearningLessonContent, LearningLessonInput, LearningPlanAdjustment, LearningPlanAdjustmentInput, LearningPlanAdjustmentResult, LearningPlanInput, LearningPlanPreview, LearningPlanProposal, LearningPlanVersion, LearningProgress, LearningProjectApplication, LearningProjectApplicationInput, LearningReport, LearningReportPeriod, LearningService, LearningServiceOptions, LearningSessionAction, LearningSessionActionInput, ReviewItemInput, CodeAnalysisInput, StudyAttemptInput, LearningPlan, LearningPlanDay, LearningSession, LearningToday, ReviewItem, CodeAnalysisResult } from "./contracts.js";
 import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoals, listLearningPlanAdjustments, listLearningPlanVersions, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningPlanAdjustment, loadLearningPlanVersion, loadPlan, loadReview, loadSession, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveLearningGoal, saveLearningPlanVersion, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession } from "./store.js";
+import { withDurableLearningSessionLock } from "./session-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -1082,7 +1083,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
     async resumeLearningSession(principal, sessionId, expectedRevision): Promise<LearningSession | null> {
       ensurePrincipal(principal);
       try { assertIdentityId(sessionId); } catch { return null; }
-      return withSessionMutationLock(`${principal.userId}:${sessionId}`, async () => {
+      return withSessionMutationLock(`${principal.userId}:${sessionId}`, () => withDurableLearningSessionLock(root, principal.userId, sessionId, async () => {
         const session = await loadSession(root, principal.userId, sessionId);
         if (!session || session.userId !== principal.userId) return null;
         assertExpectedSessionRevision(session, expectedRevision);
@@ -1091,13 +1092,13 @@ export function createLearningService(root: string, options: LearningServiceOpti
         const resumed = nextSessionRevision(session, { resumedAt: at });
         await saveSession(root, resumed);
         return resumed;
-      });
+      }));
     },
 
     async completeLearningSession(principal, sessionId, expectedRevision): Promise<LearningSession | null> {
       ensurePrincipal(principal);
       try { assertIdentityId(sessionId); } catch { return null; }
-      return withSessionMutationLock(`${principal.userId}:${sessionId}`, async () => {
+      return withSessionMutationLock(`${principal.userId}:${sessionId}`, () => withDurableLearningSessionLock(root, principal.userId, sessionId, async () => {
         const session = await loadSession(root, principal.userId, sessionId);
         if (!session || session.userId !== principal.userId) return null;
         assertExpectedSessionRevision(session, expectedRevision);
@@ -1119,7 +1120,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
           await options.growthService?.applyGrowthProjection(activity);
         }
         return completed;
-      });
+      }));
     },
 
     async recordStudyAttempt(principal, input: StudyAttemptInput) {
