@@ -102,3 +102,26 @@ test("new growth achievements notify only the owner once when achievement alerts
   await growth.applyGrowthProjection(secondEvent);
   assert.equal((await notifications.listNotifications(owner)).notifications.length, 2);
 });
+
+test("concurrent growth projection across service instances remains idempotent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-growth-concurrent-"));
+  const activity = createActivityService(root, { now: () => at });
+  const firstService = createGrowthService(root, { now: () => at });
+  const secondService = createGrowthService(root, { now: () => at });
+  const event = await activity.recordActivityEvent(principal("growth-concurrent-owner"), {
+    sourceType: "learning-session",
+    sourceId: "growth-concurrent-session",
+    eventType: "learning.session.completed",
+    eventVersion: 1,
+    actorType: "user",
+    verificationStatus: "verified",
+  });
+
+  const results = await Promise.allSettled(Array.from({ length: 24 }, () => Promise.all([
+    firstService.applyGrowthProjection(event),
+    secondService.applyGrowthProjection(event),
+  ])));
+
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 24);
+  assert.equal((await firstService.getGrowthSnapshot(principal("growth-concurrent-owner"))).xp, 100);
+});
