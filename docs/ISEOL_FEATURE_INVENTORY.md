@@ -2046,3 +2046,11 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Verification: focused promotion `5/5`; user-product `364/364`; root `687/687`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed after a clean rerun with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `d907b74 feat: serialize project promotion`.
 - Boundary: same-host/shared-root Prototype-to-Project promotion coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
+## 2026-09-28 continuation: durable Idea Lab campaign event append-once synchronization
+
+- Idea Lab campaign event append-once writes are **B — campaign-event-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/idea-lab/event-lock.ts` and `src/idea-lab/event-store.ts` protect the identity-check/append sequence, preventing duplicate JSONL events across Campaign supervisor/action instances.
+- Evidence: `tests/idea-lab-stores.test.ts` proves concurrent identical event calls return one `true`/one `false` result and leave one event; existing Idea Lab campaign/runtime/browser journeys remain green.
+- Verification: focused Idea Lab stores `5/5`; user-product `364/364`; root `688/688`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `82d476f feat: serialize Idea Lab campaign events`.
+- Boundary: same-host/shared-root Idea Lab campaign event coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
