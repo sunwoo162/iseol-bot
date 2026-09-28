@@ -2335,6 +2335,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root social block, unblock, and direct-message coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable social friend-request synchronization
+
+- Status: **B — friend-request blocked checks and persistence now share the canonical two-user social interaction lock with block/unblock and direct-message mutations; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A block cannot race a friend-request precheck into an unauthorized durable request across shared-root service instances.
+- Evidence: `src/social/service.ts`, `src/social/block-lock.ts`, `src/social/friend-request-lock.ts`, `tests/social-messaging.test.ts`.
+- TDD: RED showed friend-request creation completing while a competing social interaction lock was held; GREEN moved the blocked recheck and the existing friend-request idempotency lock/write boundary under the canonical pair lock, preserving one request identity and activity projection.
+- Verification: focused Social messaging/safety/API `8/8`; user-product `373/373`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: follows as `fix: serialize social friend-request mutations`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root social friend-request and block interaction coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Harness Run pause and resume synchronization
 
 - Status: **B — user-owned Harness Run pause/resume transitions now hold the Run mutation lock across read, compare-save, event, and checkpoint projection; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
