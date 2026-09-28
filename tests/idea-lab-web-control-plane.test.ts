@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import { loadIdeaLabCampaign, saveIdeaLabCampaign } from "../src/idea-lab/campaign-store.js";
+import { withDurableIdeaLabCampaignLock } from "../src/idea-lab/campaign-lock.js";
 import { savePrototypeProduction } from "../src/idea-lab/production-store.js";
 import { listIdeaLabCampaignEvents } from "../src/idea-lab/event-store.js";
 import type { PrototypeCandidate } from "../src/project-model/contracts.js";
@@ -66,6 +67,31 @@ test("Campaign cancel is authenticated, idempotent, and rejects malformed ids", 
     method: "POST", path: "/api/idea-lab/campaigns/%2E%2E%2Fescape/cancel", headers: auth(), body: {},
   }, deps);
   assert.equal(malformed.status, 404);
+});
+
+test("Campaign cancel waits for the durable cross-service campaign lock", async () => {
+  const deps = await fixture();
+  await saveIdeaLabCampaign(deps.modelRoot, {
+    version: 1, id: "camp-web-lock-1", seed: "focus", constraints: [], targetReadyCount: 3,
+    productionConcurrency: 1, proposalIds: [], productionIds: [], status: "producing",
+    createdAt: NOW, updatedAt: NOW,
+  });
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableIdeaLabCampaignLock(deps.modelRoot, "camp-web-lock-1", async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+  let settled = false;
+  const cancellation = routeWebControlPlaneRequest({
+    method: "POST", path: "/api/idea-lab/campaigns/camp-web-lock-1/cancel", headers: auth(), body: {},
+  }, { ...deps, now: () => NOW }).then((response) => { settled = true; return response; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  releaseHolder();
+  assert.equal((await cancellation).status, 200);
 });
 
 test("prototype archive is authenticated and preserves immutable prototype identity", async () => {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IdeaLabCampaign } from "../idea-lab/contracts.js";
 import { assertIdeaLabId } from "../idea-lab/contracts.js";
+import { withDurableIdeaLabCampaignLock } from "../idea-lab/campaign-lock.js";
 import { loadIdeaLabCampaign, saveIdeaLabCampaign } from "../idea-lab/campaign-store.js";
 import { appendIdeaLabCampaignEventOnce } from "../idea-lab/event-store.js";
 
@@ -70,20 +71,22 @@ export async function createWebIdeaLabCampaign(options: CreateWebIdeaLabCampaign
 
 export async function cancelWebIdeaLabCampaign(root: string, campaignId: string, at: string): Promise<IdeaLabCampaign> {
   try { assertIdeaLabId(campaignId); } catch { throw new WebIdeaLabActionError(404, "Campaign not found"); }
-  const campaign = await loadIdeaLabCampaign(root, campaignId);
-  if (!campaign) throw new WebIdeaLabActionError(404, `Campaign not found: ${campaignId}`);
-  if (campaign.status === "cancelled") return campaign;
-  if (campaign.status === "complete") throw new WebIdeaLabActionError(409, `Completed Campaign cannot be cancelled: ${campaignId}`);
-  const { blockerSummary: _ignoredBlocker, ...campaignWithoutBlocker } = campaign;
-  const updated: IdeaLabCampaign = { ...campaignWithoutBlocker, status: "cancelled", updatedAt: at };
-  await saveIdeaLabCampaign(root, updated);
-  await appendIdeaLabCampaignEventOnce(root, {
-    version: 1,
-    id: `campaign-cancelled-${campaignId}`,
-    campaignId,
-    type: "campaign-cancelled",
-    at,
-    summary: `Cancelled Idea Lab Campaign ${campaignId}`,
-  });
-  return updated;
+  return withDurableIdeaLabCampaignLock(root, campaignId, async () => {
+    const campaign = await loadIdeaLabCampaign(root, campaignId);
+    if (!campaign) throw new WebIdeaLabActionError(404, `Campaign not found: ${campaignId}`);
+    if (campaign.status === "cancelled") return campaign;
+    if (campaign.status === "complete") throw new WebIdeaLabActionError(409, `Completed Campaign cannot be cancelled: ${campaignId}`);
+    const { blockerSummary: _ignoredBlocker, ...campaignWithoutBlocker } = campaign;
+    const updated: IdeaLabCampaign = { ...campaignWithoutBlocker, status: "cancelled", updatedAt: at };
+    await saveIdeaLabCampaign(root, updated);
+    await appendIdeaLabCampaignEventOnce(root, {
+      version: 1,
+      id: `campaign-cancelled-${campaignId}`,
+      campaignId,
+      type: "campaign-cancelled",
+      at,
+      summary: `Cancelled Idea Lab Campaign ${campaignId}`,
+    });
+    return updated;
+  }, { waitForMs: 2_000 });
 }
