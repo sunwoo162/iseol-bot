@@ -217,3 +217,22 @@ test("concurrent learning plan adjustments across service instances remain one d
   assert.equal(new Set(results.map((result) => result.id)).size, 1);
   assert.equal((await firstService.listLearningPlanAdjustments(owner, goal.id)).length, 1);
 });
+
+test("concurrent learning plan adjustment acceptance across service instances remains one plan", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-plan-adjustment-accept-concurrent-"));
+  const firstService = createLearningService(root, { now: () => at });
+  const secondService = createLearningService(root, { now: () => at });
+  const owner = principal("adjustment-accept-concurrent-owner");
+  const goal = await firstService.createLearningGoal(owner, { subjectText: "동시 승인", duration: { days: 3 }, dailyMinutes: 30 });
+  const preview = await firstService.createLearningPlanPreview(owner, goal.id, goal.revision);
+  const adjustment = await firstService.createLearningPlanAdjustment(owner, goal.id, { basePlanVersionId: preview.plan.id, expectedGoalRevision: preview.goal.revision, reason: "changed-time", dailyMinutes: 20 });
+
+  const results = await Promise.all([
+    firstService.acceptLearningPlanAdjustment(owner, goal.id, adjustment.id),
+    secondService.acceptLearningPlanAdjustment(owner, goal.id, adjustment.id),
+  ]);
+
+  assert.equal(new Set(results.map((result) => result.plan?.id)).size, 1);
+  assert.equal((await firstService.listLearningPlanAdjustments(owner, goal.id))[0]?.status, "accepted");
+  assert.equal((await firstService.listLearningPlanVersions(owner, goal.id)).filter((plan) => plan.id !== preview.plan.id).length, 1);
+});

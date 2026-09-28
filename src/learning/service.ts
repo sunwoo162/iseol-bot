@@ -6,6 +6,7 @@ import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
 import { withDurableLearningPlanPreviewLock } from "./plan-preview-lock.js";
 import { withDurableLearningPlanAdjustmentLock } from "./plan-adjustment-lock.js";
+import { withDurableLearningPlanAdjustmentAcceptanceLock } from "./plan-adjustment-acceptance-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -499,6 +500,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
 
     async acceptLearningPlanAdjustment(principal, goalId, adjustmentId): Promise<LearningPlanAdjustmentResult> {
       ensurePrincipal(principal);
+      return withDurableLearningPlanAdjustmentAcceptanceLock(root, principal.userId, goalId, adjustmentId, async () => {
       const goal = await loadOwnerGoal(root, principal, goalId);
       if (!goal) throw new Error("Learning goal not found");
       try { assertIdentityId(adjustmentId); } catch { throw new Error("Learning plan adjustment not found"); }
@@ -526,6 +528,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const accepted: LearningPlanAdjustment = { ...adjustment, status: "accepted", acceptedPlanVersionId: plan.id, updatedAt: at };
       await saveLearningPlanAdjustment(root, accepted);
       return { adjustment: accepted, goal: updatedGoal, plan };
+      }, { waitForMs: 2_000 });
     },
 
     async listLearningPlanVersions(principal, goalId) {
