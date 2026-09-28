@@ -1693,6 +1693,13 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Remaining boundary: no cross-machine/database coordinator, provider-side exactly-once receipt, automatic startup/recovery scheduling, live operational Runtime throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, stale PID `55000`, UNKNOWN records, durable operational data, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
 
+## 2026-09-28 continuation: durable cross-service Learning action completions
+
+- Learning session action completion is **B — owner/action-scoped, durable, same-host cross-service compare-and-set, and isolated-browser verified**. `src/learning/action-lock.ts` and `src/learning/service.ts` re-read the action inside a durable lock so competing responses preserve the first persisted response and later different responses fail with an explicit completion conflict.
+- Evidence: `src/learning/action-lock.ts`, `src/learning/service.ts`, `tests/learning-actions-answers.test.ts`.
+- Verification: focused Learning actions/answers `9/9`; user-product `358/358`; root `682/682`; backend/user UI TypeScript, both builds, and isolated browser E2E passed with Learning action waiting/completion, two-account isolation, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `b74ec6f feat: serialize learning action completions`.
+- Boundary: same-host/shared-root coordination only; no distributed action coordinator, live Runtime/provider quality or throughput, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed. Operational Runtime/Agent state, UNKNOWN records, external providers, deployment/push state, and approved/deferred design artifacts remain untouched.
+
 ## 2026-09-28 continuation: durable cross-service Learning session actions
 
 - Learning session action creation is **B — owner/session/action-scoped, durable, same-host cross-service idempotent, and isolated-browser verified**. `src/learning/action-lock.ts` serializes session re-read, action idempotency check, durable action save, and the optional injected Runtime boundary so concurrent submissions with one `actionId` return one action identity.
