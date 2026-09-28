@@ -127,6 +127,22 @@ test("reasoning turns append once by semantic identity", async () => {
   assert.equal((await listReasoningTurns(store, "run-1")).length, 1);
 });
 
+test("reasoning turn append-once remains one record across service instances", async () => {
+  const store = await root();
+  const turn = {
+    version: 1 as const, turnId: "turn-cross-service", sessionId: "session-1", runId: "run-1",
+    stage: "IMPLEMENT" as const, generation: 1, promptSha256: "prompt", responseSha256: "response",
+    summary: "Apply patch", decisions: ["Keep API"], desktopIntentIds: ["intent-1"],
+    outcome: "continue" as const, recordedAt: "2026-09-08T01:03:00.000Z",
+  };
+  const instances = await Promise.all(
+    Array.from({ length: 12 }, (_, index) => import(`../src/chatgpt-web/turn-store.ts?instance=${index}`)),
+  );
+  const results = await Promise.all(instances.map((instance) => instance.appendReasoningTurn(store, turn)));
+  assert.equal(results.filter(Boolean).length, 1);
+  assert.equal((await listReasoningTurns(store, "run-1")).length, 1);
+});
+
 test("desktop intent records are idempotent and reject credential-shaped input", async () => {
   const store = await root();
   const intent = {

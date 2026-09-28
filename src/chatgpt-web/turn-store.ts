@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ReasoningTurn } from "./contracts.js";
 import { assertReasoningTurn } from "./contracts.js";
+import { withDurableReasoningTurnLock } from "./turn-lock.js";
 
 const writeQueues = new Map<string, Promise<unknown>>();
 function safeId(value: string, field: string): string {
@@ -52,13 +53,15 @@ export async function appendReasoningTurn(root: string, turn: ReasoningTurn): Pr
   assertReasoningTurn(turn);
   const path = turnsFile(root, turn.runId);
   return serialized(path, async () => {
-    const existing = (await listReasoningTurns(root, turn.runId)).find((item) => item.turnId === turn.turnId);
-    if (existing) {
-      if (semanticTurn(existing) !== semanticTurn(turn)) throw new Error(`Reasoning turn identity mismatch: ${turn.turnId}`);
-      return false;
-    }
-    await mkdir(dirname(path), { recursive: true });
-    await appendFile(path, `${JSON.stringify(turn)}\n`, "utf8");
-    return true;
+    return withDurableReasoningTurnLock(root, turn.runId, async () => {
+      const existing = (await listReasoningTurns(root, turn.runId)).find((item) => item.turnId === turn.turnId);
+      if (existing) {
+        if (semanticTurn(existing) !== semanticTurn(turn)) throw new Error(`Reasoning turn identity mismatch: ${turn.turnId}`);
+        return false;
+      }
+      await mkdir(dirname(path), { recursive: true });
+      await appendFile(path, `${JSON.stringify(turn)}\n`, "utf8");
+      return true;
+    }, { waitForMs: 2_000 });
   });
 }
