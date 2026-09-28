@@ -9,6 +9,7 @@ import { withDurableLearningPlanPreviewLock } from "./plan-preview-lock.js";
 import { withDurableLearningPlanAdjustmentLock } from "./plan-adjustment-lock.js";
 import { withDurableLearningPlanAdjustmentAcceptanceLock } from "./plan-adjustment-acceptance-lock.js";
 import { withDurableLearningReportLock } from "./report-lock.js";
+import { withDurableLearningGoalSessionLock } from "./goal-session-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -712,27 +713,29 @@ export function createLearningService(root: string, options: LearningServiceOpti
 
     async startLearningGoalSession(principal, goalId, input: LearningGoalSessionInput): Promise<LearningSession> {
       ensurePrincipal(principal);
-      const goal = await loadOwnerGoal(root, principal, goalId);
-      if (!goal) throw new Error("Learning goal not found");
-      if (input.expectedRevision !== undefined && input.expectedRevision !== goal.revision) throw new Error("Learning goal revision conflict");
-      try { assertIdentityId(input.planVersionId); assertIdentityId(input.dayId); } catch { throw new Error("Learning plan version or day is invalid"); }
-      const plan = await loadLearningPlanVersion(root, principal.userId, input.planVersionId);
-      if (!plan || plan.userId !== principal.userId || plan.goalId !== goal.id || plan.status === "superseded") throw new Error("Learning plan version not found");
-      const day = plan.days.find((candidate) => candidate.id === input.dayId);
-      if (!day) throw new Error("Learning plan day not found");
-      const existing = (await listSessions(root, principal.userId)).find((candidate) => candidate.userId === principal.userId && candidate.goalId === goal.id && candidate.planVersionId === plan.id && candidate.dayId === day.id && candidate.status === "active");
-      if (existing) return existing;
-      const at = now(); assertTimestamp(at, "goal learning session timestamp");
-      if (plan.status !== "active") await saveLearningPlanVersion(root, { ...plan, status: "active", updatedAt: at });
-      const activatedGoal: LearningGoal = goal.status === "active" ? goal : { ...goal, status: "active", revision: goal.revision + 1, updatedAt: at };
-      if (activatedGoal !== goal) await saveLearningGoal(root, activatedGoal);
-      const session: LearningSession = {
-        version: 1, id: "learning-session-" + randomUUID(), userId: principal.userId, planId: plan.id, revision: 1,
-        goalId: goal.id, planVersionId: plan.id, dayId: day.id, contentStatus: "not-requested",
-        status: "active", startedAt: at, resumedAt: at,
-      };
-      await saveSession(root, session);
-      return session;
+      return withDurableLearningGoalSessionLock(root, principal.userId, goalId, input.planVersionId, input.dayId, async () => {
+        const goal = await loadOwnerGoal(root, principal, goalId);
+        if (!goal) throw new Error("Learning goal not found");
+        try { assertIdentityId(input.planVersionId); assertIdentityId(input.dayId); } catch { throw new Error("Learning plan version or day is invalid"); }
+        const plan = await loadLearningPlanVersion(root, principal.userId, input.planVersionId);
+        if (!plan || plan.userId !== principal.userId || plan.goalId !== goal.id || plan.status === "superseded") throw new Error("Learning plan version not found");
+        const day = plan.days.find((candidate) => candidate.id === input.dayId);
+        if (!day) throw new Error("Learning plan day not found");
+        const existing = (await listSessions(root, principal.userId)).find((candidate) => candidate.userId === principal.userId && candidate.goalId === goal.id && candidate.planVersionId === plan.id && candidate.dayId === day.id && candidate.status === "active");
+        if (existing) return existing;
+        if (input.expectedRevision !== undefined && input.expectedRevision !== goal.revision) throw new Error("Learning goal revision conflict");
+        const at = now(); assertTimestamp(at, "goal learning session timestamp");
+        if (plan.status !== "active") await saveLearningPlanVersion(root, { ...plan, status: "active", updatedAt: at });
+        const activatedGoal: LearningGoal = goal.status === "active" ? goal : { ...goal, status: "active", revision: goal.revision + 1, updatedAt: at };
+        if (activatedGoal !== goal) await saveLearningGoal(root, activatedGoal);
+        const session: LearningSession = {
+          version: 1, id: "learning-session-" + randomUUID(), userId: principal.userId, planId: plan.id, revision: 1,
+          goalId: goal.id, planVersionId: plan.id, dayId: day.id, contentStatus: "not-requested",
+          status: "active", startedAt: at, resumedAt: at,
+        };
+        await saveSession(root, session);
+        return session;
+      }, { waitForMs: 2_000 });
     },
 
     async requestLearningSessionContent(principal, sessionId): Promise<LearningContentRequest> {

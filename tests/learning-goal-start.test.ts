@@ -48,3 +48,21 @@ test("goal session start rejects stale revisions, foreign plan versions, and unk
   await assert.rejects(() => service.startLearningGoalSession(other, goal.id, { planVersionId: preview.plan.id, dayId: preview.plan.days[0]!.id }), /not found|forbidden/i);
   await assert.rejects(() => service.startLearningGoalSession(owner, goal.id, { planVersionId: preview.plan.id, dayId: "missing-day", expectedRevision: preview.goal.revision }), /day|not found/i);
 });
+
+test("concurrent goal day session starts across service instances remain one session", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-goal-start-concurrent-"));
+  const owner = principal("goal-start-concurrent-owner");
+  const firstService = createLearningService(root, { now: () => at });
+  const secondService = createLearningService(root, { now: () => at });
+  const goal = await firstService.createLearningGoal(owner, { subjectText: "동시 세션 시작", duration: { days: 3 }, dailyMinutes: 20 });
+  const preview = await firstService.createLearningPlanPreview(owner, goal.id, goal.revision);
+  const input = { planVersionId: preview.plan.id, dayId: preview.plan.days[0]!.id, expectedRevision: preview.goal.revision };
+
+  const results = await Promise.all([
+    firstService.startLearningGoalSession(owner, goal.id, input),
+    secondService.startLearningGoalSession(owner, goal.id, input),
+  ]);
+
+  assert.equal(new Set(results.map((session) => session.id)).size, 1);
+  assert.equal((await firstService.listLearningSessions(owner)).filter((session) => session.goalId === goal.id && session.dayId === input.dayId && session.status === "active").length, 1);
+});
