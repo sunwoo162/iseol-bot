@@ -2054,3 +2054,11 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Verification: focused Idea Lab stores `5/5`; user-product `364/364`; root `688/688`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `82d476f feat: serialize Idea Lab campaign events`.
 - Boundary: same-host/shared-root Idea Lab campaign event coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
+## 2026-09-28 continuation: durable Portfolio document patch synchronization
+
+- Portfolio document patches are **B — project-Portfolio-scoped, durable, same-host cross-service serialized, and isolated-browser verified**. `src/project-model/portfolio-lock.ts` and `src/project-model/portfolio-store.ts` protect validated section/readme read-modify-save updates so disjoint edits are retained.
+- Evidence: `tests/project-model-stores.test.ts` proves concurrent section patches preserve both edited sections; existing Portfolio provenance/public API and browser journeys remain green.
+- Verification: focused project-model stores `8/8`; user-product `364/364`; root `689/689`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `fe9fbce feat: serialize portfolio document patches`.
+- Boundary: same-host/shared-root project Portfolio patch coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
