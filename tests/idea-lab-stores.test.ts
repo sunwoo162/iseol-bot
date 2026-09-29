@@ -283,6 +283,32 @@ test("campaign reads wait for the durable campaign lock", async () => {
   });
 });
 
+test("campaign writes wait for the durable campaign lock", async () => {
+  await withRoot(async (root) => {
+    const item = campaign();
+    await saveIdeaLabCampaign(root, item);
+    let releaseHolder!: () => void;
+    const holderStarted = new Promise<void>((resolve) => {
+      void withDurableIdeaLabCampaignLock(root, item.id, async () => {
+        resolve();
+        await new Promise<void>((release) => { releaseHolder = release; });
+      });
+    });
+    await holderStarted;
+
+    let settled = false;
+    const writing = saveIdeaLabCampaign(root, { ...item, status: "producing" }).then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(settled, false);
+
+    releaseHolder();
+    await writing;
+    assert.equal((await loadIdeaLabCampaign(root, item.id))?.status, "producing");
+  });
+});
+
 test("campaign events append once by semantic identity and reject conflicting reuse", async () => {
   await withRoot(async (root) => {
     const event: IdeaLabCampaignEvent = {
