@@ -130,25 +130,23 @@ export function createMemoryService(root: string, options: { now?: () => string;
       ensurePrincipal(principal);
       assertIdentityId(memoryId);
       const nextTeamIds = normalizeTeamIds(teamIds);
-      return withDurableMemoryLock(root, principal.userId, memoryId, async () => {
+      const persistSharing = async () => withDurableMemoryLock(root, principal.userId, memoryId, async () => {
         const current = await loadMemory(root, principal.userId, memoryId);
         if (!current || current.userId !== principal.userId || current.visibility !== "private") return null;
-        const persistSharing = async () => {
-          if (nextTeamIds.length > 0) {
-            if (!options.teamService) throw new Error("Memory sharing is unavailable");
-            for (const teamId of nextTeamIds) {
-              const memberships = await options.teamService.listMemberships(teamId);
-              if (!activeHumanMember(teamId, principal.userId, memberships)) throw new Error("Active team member access is required for memory sharing");
-            }
+        if (nextTeamIds.length > 0) {
+          if (!options.teamService) throw new Error("Memory sharing is unavailable");
+          for (const teamId of nextTeamIds) {
+            const memberships = await options.teamService.listMemberships(teamId);
+            if (!activeHumanMember(teamId, principal.userId, memberships)) throw new Error("Active team member access is required for memory sharing");
           }
-          const at = now();
-          assertTimestamp(at, "memory sharing timestamp");
-          const updated = { ...current, sharedTeamIds: nextTeamIds, updatedAt: at };
-          await saveMemory(root, updated);
-          return updated;
-        };
-        return nextTeamIds.length > 0 ? withTeamMembershipLocks(teamMembershipRoot, [...nextTeamIds].sort(), persistSharing) : persistSharing();
+        }
+        const at = now();
+        assertTimestamp(at, "memory sharing timestamp");
+        const updated = { ...current, sharedTeamIds: nextTeamIds, updatedAt: at };
+        await saveMemory(root, updated);
+        return updated;
       }, { waitForMs: 2_000 });
+      return nextTeamIds.length > 0 ? withTeamMembershipLocks(teamMembershipRoot, [...nextTeamIds].sort(), persistSharing) : persistSharing();
     },
 
     async deletePrivateMemory(principal, memoryId): Promise<boolean> {
