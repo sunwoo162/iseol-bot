@@ -22,6 +22,7 @@ import {
 import { withDurableIdeaLabCampaignLock } from "../src/idea-lab/campaign-lock.js";
 import { withDurableIdeaLabCampaignEventLock } from "../src/idea-lab/event-lock.js";
 import { loadIdeaProposal, saveIdeaProposal } from "../src/idea-lab/proposal-store.js";
+import { withDurableIdeaLabProposalLock } from "../src/idea-lab/proposal-lock.js";
 import {
   listPrototypeProductions,
   loadPrototypeProduction,
@@ -123,6 +124,32 @@ test("campaign proposal and production stores round trip and list deterministica
     await savePrototypeProduction(root, { ...production("prod-a"), createdAt: "2026-09-08T10:00:00.000Z" });
     assert.equal((await loadPrototypeProduction(root, "prod-b"))?.runId, "run-prod-b");
     assert.deepEqual((await listPrototypeProductions(root)).map((item) => item.id), ["prod-a", "prod-b"]);
+  });
+});
+
+test("proposal reads wait for the durable proposal lock", async () => {
+  await withRoot(async (root) => {
+    const item = proposal();
+    await saveIdeaProposal(root, item);
+    let releaseHolder!: () => void;
+    const holderStarted = new Promise<void>((resolve) => {
+      void withDurableIdeaLabProposalLock(root, item.id, async () => {
+        resolve();
+        await new Promise<void>((release) => { releaseHolder = release; });
+      });
+    });
+    await holderStarted;
+
+    let settled = false;
+    const reading = loadIdeaProposal(root, item.id).then((value) => {
+      settled = true;
+      return value;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(settled, false);
+
+    releaseHolder();
+    assert.equal((await reading)?.id, item.id);
   });
 });
 
