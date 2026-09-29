@@ -70,7 +70,9 @@ export function createAiAgentProfileService(root: string, options: { now?: () =>
   return {
     async getProfile(principal): Promise<AiAgentProfile> {
       assertIdentityId(principal.userId);
-      return (await loadAiAgentProfile(root, principal.userId)) ?? defaultProfile(principal.userId, now());
+      return withDurableAiAgentProfileLock(root, principal.userId, async () => {
+        return (await loadAiAgentProfile(root, principal.userId)) ?? defaultProfile(principal.userId, now());
+      }, { waitForMs: 2_000 });
     },
     async updateProfile(principal: Principal, patch: AiAgentProfilePatch): Promise<AiAgentProfile> {
       assertIdentityId(principal.userId);

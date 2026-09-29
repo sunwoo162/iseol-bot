@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createAiAgentProfileService } from "../src/ai-agent/service.js";
+import { withDurableAiAgentProfileLock } from "../src/ai-agent/profile-lock.js";
+import { saveAiAgentProfile } from "../src/ai-agent/store.js";
 
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
 
@@ -54,6 +56,27 @@ test("agent profile mutations across service instances preserve both patches", a
   const persisted = await createAiAgentProfileService(root).getProfile(owner);
   assert.equal(persisted.name, "첫 번째 이름");
   assert.equal(persisted.tone, "짧고 명확하게");
+});
+
+test("agent profile reads wait for the durable profile lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "npc-agent-profile-read-lock-"));
+  const owner = principal("profile-read-lock");
+  const service = createAiAgentProfileService(root, { now: () => "2026-09-29T12:00:00.000Z" });
+  const profile = await service.updateProfile(owner, { name: "기존 이름" });
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableAiAgentProfileLock(root, owner.userId, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let settled = false;
+  const read = service.getProfile(owner).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await saveAiAgentProfile(root, { ...profile, name: "잠금 해제 후 이름", updatedAt: "2026-09-29T12:00:01.000Z" });
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await read).name, "잠금 해제 후 이름");
 });
 
 test("agent profile rejects invalid names, oversized text, and unsafe avatar URLs", async () => {
