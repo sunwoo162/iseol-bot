@@ -9,6 +9,7 @@ import { createGrowthService } from "../src/growth/read-model.js";
 import { saveGrowthEntry } from "../src/growth/ledger.js";
 import { withDurableGrowthProjectionLock } from "../src/growth/projection-lock.js";
 import { withDurableActivityEventLock } from "../src/activity/event-lock.js";
+import { listActivityEvents, loadActivityEvent, saveActivityEvent } from "../src/activity/store.js";
 import { removeOwnedLock } from "../src/lock-utils.js";
 
 const at = "2026-09-25T12:00:00.000Z";
@@ -156,6 +157,66 @@ test("activity event reads wait for the durable event lock before projecting sta
   await lockHeld;
   assert.deepEqual((await listed).map((candidate) => candidate.id), [event.id]);
   assert.equal((await fetched)?.id, event.id);
+});
+
+test("public activity event store reads and writes wait for the shared event lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-activity-store-lock-"));
+  const owner = principal("activity-store-lock-owner");
+  const service = createActivityService(root, { now: () => at });
+  const event = await service.recordActivityEvent(owner, {
+    sourceType: "test",
+    sourceId: "activity-store-lock",
+    eventType: "test.completed",
+    eventVersion: 1,
+    actorType: "user",
+    verificationStatus: "verified",
+  });
+  const updated = { ...event, status: "retracted" as const, retractedAt: at, updatedAt: at };
+
+  const holdEventLock = async () => {
+    let release!: () => void;
+    let acquired!: () => void;
+    const acquiredPromise = new Promise<void>((resolve) => { acquired = resolve; });
+    const holder = withDurableActivityEventLock(root, owner.userId, event.id, async () => {
+      acquired();
+      await new Promise<void>((resolve) => { release = resolve; });
+    }, { waitForMs: 0 });
+    await acquiredPromise;
+    return { holder, release };
+  };
+
+  const saveLock = await holdEventLock();
+  let saveSettled = false;
+  const pendingSave = saveActivityEvent(root, updated).then(() => { saveSettled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(saveSettled, false);
+  saveLock.release();
+  await saveLock.holder;
+  await pendingSave;
+
+  const loadLock = await holdEventLock();
+  let loadSettled = false;
+  const pendingLoad = loadActivityEvent(root, owner.userId, event.id).then((value) => {
+    loadSettled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(loadSettled, false);
+  loadLock.release();
+  await loadLock.holder;
+  assert.equal((await pendingLoad)?.status, "retracted");
+
+  const listLock = await holdEventLock();
+  let listSettled = false;
+  const pendingList = listActivityEvents(root, owner.userId).then((value) => {
+    listSettled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(listSettled, false);
+  listLock.release();
+  await listLock.holder;
+  assert.equal((await pendingList)[0]?.status, "retracted");
 });
 
 test("growth snapshots wait for the event lock and reload the latest durable entry", async () => {
