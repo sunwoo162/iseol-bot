@@ -5,7 +5,7 @@ import type { CurriculumLink, StudyService, StudyServiceOptions, StudySpace, Stu
 import { withDurableStudySubmissionLock } from "./submission-lock.js";
 import { withDurableStudySpaceLock } from "./space-lock.js";
 import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
-import { listCurriculumLinks, listStudySpaces, listStudyTasks, loadStudySpace, loadStudyTask, loadTaskSubmission, loadTaskSubmissionUnlocked, saveCurriculumLink, saveStudySpace, saveStudyTask, saveTaskSubmission, saveTaskSubmissionUnlocked } from "./store.js";
+import { listCurriculumLinksUnlocked, listStudySpaces, listStudySpacesUnlocked, listStudyTasksUnlocked, loadStudySpace, loadStudySpaceUnlocked, loadStudyTask, loadTaskSubmissionUnlocked, saveCurriculumLink, saveStudySpaceUnlocked, saveStudyTask, saveTaskSubmissionUnlocked } from "./store.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
 function required(value: string, label: string, max: number): string { const trimmed = value.trim(); if (!trimmed || trimmed.length > max) throw new Error(`${label} is required`); return trimmed; }
@@ -15,10 +15,10 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
   const now = options.now ?? (() => new Date().toISOString());
   const teamMembershipRoot = options.teamMembershipRoot ?? dirname(root);
   const withTeamMembershipMutationLock = <T>(teamId: string, task: () => Promise<T>, waitForMs = 2_000): Promise<T> => withDurableTeamMembershipLock(teamMembershipRoot, teamId, task, { waitForMs });
-  const loadAccessibleSpace = async (principal: Principal, studySpaceId: string, membershipLockHeld = false): Promise<StudySpace | null> => {
+  const loadAccessibleSpace = async (principal: Principal, studySpaceId: string, membershipLockHeld = false, spaceLockHeld = false): Promise<StudySpace | null> => {
     ensurePrincipal(principal);
     try { assertIdentityId(studySpaceId); } catch { return null; }
-    const space = await loadStudySpace(root, studySpaceId);
+    const space = spaceLockHeld ? await loadStudySpaceUnlocked(root, studySpaceId) : await loadStudySpace(root, studySpaceId);
     if (!space || space.status !== "active") return null;
     const team = membershipLockHeld ? await options.teamService.getTeamWithinMembershipLock(principal, space.teamId) : await options.teamService.getTeam(principal, space.teamId);
     return team && isActiveHumanMember(team.members, principal.userId) ? space : null;
@@ -38,7 +38,7 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
       const space = await loadAccessibleSpace(principal, studySpaceId, true);
       if (!space) return null;
       return withDurableStudySpaceLock(root, space.teamId, async () => {
-        const current = await loadAccessibleSpace(principal, studySpaceId, true);
+        const current = await loadAccessibleSpace(principal, studySpaceId, true, true);
         return current ? task(current) : null;
       }, { waitForMs: 2_000 });
     }, { waitForMs: 2_000 });
@@ -53,11 +53,11 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
         const team = await options.teamService.getTeamWithinMembershipLock(principal, input.teamId);
         if (!team || team.team.kind !== "study") throw new Error("Study team required");
         return withDurableStudySpaceLock(root, input.teamId, async () => {
-          const existing = (await listStudySpaces(root)).find((item) => item.teamId === input.teamId && item.status === "active");
+          const existing = (await listStudySpacesUnlocked(root)).find((item) => item.teamId === input.teamId && item.status === "active");
           if (existing) return existing;
           const at = now(); assertTimestamp(at, "study space timestamp");
           const space: StudySpace = { version: 1, id: `study-${randomUUID()}`, teamId: input.teamId, ownerUserId: principal.userId, title: required(input.title, "Study title", 200), description: required(input.description, "Study description", 5_000), status: "active", createdAt: at, updatedAt: at };
-          await saveStudySpace(root, space);
+          await saveStudySpaceUnlocked(root, space);
           await options.activityService?.recordActivityEvent(principal, { sourceType: "study", sourceId: space.id, eventType: "study.space.created", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { teamId: space.teamId } });
           return space;
         }, { waitForMs: 2_000 });
@@ -69,7 +69,7 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
     },
     async getStudySpace(principal, studySpaceId) {
       return withAccessibleSpaceMembershipLock(principal, studySpaceId, async (space) => {
-        const [curriculumLinks, tasks] = await Promise.all([listCurriculumLinks(root, space.id), listStudyTasks(root, space.id)]);
+        const [curriculumLinks, tasks] = await Promise.all([listCurriculumLinksUnlocked(root, space.id), listStudyTasksUnlocked(root, space.id)]);
         const mySubmissions: StudyTaskSubmission[] = [];
         for (const task of tasks) {
           const submission = await withDurableStudySubmissionLock(root, space.id, task.id, principal.userId, () => loadTaskSubmissionUnlocked(root, space.id, task.id, principal.userId), { waitForMs: 2_000 });
