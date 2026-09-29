@@ -1,5 +1,6 @@
 import type { HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import type { ProjectWorkspace } from "../project-model/contracts.js";
+import { withDurableProjectWorkspaceLock } from "../project-model/workspace-lock.js";
 import type { DiscordProjectContext } from "./contracts.js";
 
 export type DiscordProjectStatusView = {
@@ -17,6 +18,7 @@ export type DiscordProjectStatusView = {
 };
 
 export type DiscordProjectStatusDependencies = {
+  workspaceRoot?: string;
   loadWorkspace(projectId: string): Promise<ProjectWorkspace | null>;
   loadRun(runId: string): Promise<HarnessRuntimeRunEnvelope | null>;
 };
@@ -37,7 +39,7 @@ function legacyView(context: DiscordProjectContext): Omit<DiscordProjectStatusVi
   };
 }
 
-export async function buildDiscordProjectStatus(
+async function buildDiscordProjectStatusUnlocked(
   context: DiscordProjectContext,
   deps: DiscordProjectStatusDependencies,
 ): Promise<DiscordProjectStatusView> {
@@ -76,4 +78,19 @@ export async function buildDiscordProjectStatus(
       runs,
     },
   };
+}
+
+export async function buildDiscordProjectStatus(
+  context: DiscordProjectContext,
+  deps: DiscordProjectStatusDependencies,
+): Promise<DiscordProjectStatusView> {
+  if (deps.workspaceRoot && context.state === "bound" && context.binding && context.work?.nodeId) {
+    return withDurableProjectWorkspaceLock(
+      deps.workspaceRoot,
+      context.binding.projectId,
+      () => buildDiscordProjectStatusUnlocked(context, deps),
+      { waitForMs: 2_000 },
+    );
+  }
+  return buildDiscordProjectStatusUnlocked(context, deps);
 }

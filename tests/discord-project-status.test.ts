@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 import type { ProjectWorkspace } from "../src/project-model/contracts.js";
 import type { DiscordProjectContext } from "../src/discord-project/contracts.js";
 import { buildDiscordProjectStatus } from "../src/discord-project/status-card.js";
+import { withDurableProjectWorkspaceLock } from "../src/project-model/workspace-lock.js";
 
 const legacy = {
   projectId: "legacy-1",
@@ -71,6 +75,38 @@ test("bound status exposes Workspace root Run and Genesis deployment", async () 
   assert.equal(result.workspace.node?.id, "root");
   assert.equal(result.workspace.runs[0]?.stage, "IMPLEMENT");
   assert.equal(result.workspace.deploymentUrl, "https://washer.example.com");
+});
+
+test("bound status waits for the Project Workspace lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-discord-status-"));
+  const context: DiscordProjectContext = {
+    legacy,
+    state: "bound",
+    binding: { version: 1, guildId: "guild-1", storedProjectId: "legacy-1", projectId: "project-1", defaultNodeId: "root", createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z" },
+    work: { projectId: "project-1", nodeId: "root" },
+  };
+  let acquired!: () => void;
+  let release!: () => void;
+  const lockAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const lockReleased = new Promise<void>((resolve) => { release = resolve; });
+  const holder = withDurableProjectWorkspaceLock(root, "project-1", async () => {
+    acquired();
+    await lockReleased;
+  });
+  await lockAcquired;
+
+  let completed = false;
+  const reading = buildDiscordProjectStatus(context, {
+    workspaceRoot: root,
+    loadWorkspace: async () => workspace(),
+    loadRun: async () => run(),
+  }).finally(() => { completed = true; });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(completed, false);
+
+  release();
+  assert.equal((await reading).workspace.state, "bound");
+  await holder;
 });
 
 test("archived Workspace is visible but explicitly archived", async () => {
