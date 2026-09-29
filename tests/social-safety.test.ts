@@ -297,6 +297,37 @@ test("incoming friend request reads re-check request state after waiting for the
   await holder;
 });
 
+test("incoming friend request reads wait for the requester's profile lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-incoming-profile-read-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  for (const id of ["incoming-profile-read-requester", "incoming-profile-read-target"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const social = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+  const requester = await social.updateProfile(principal("incoming-profile-read-requester"), { handle: "before" });
+  await social.createFriendRequest(principal("incoming-profile-read-requester"), "incoming-profile-read-target");
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableSocialProfileLock(platformRoot, requester.userId, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = social.listIncomingFriendRequests(principal("incoming-profile-read-target")).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await saveProfile(platformRoot, { ...requester, handle: "after", updatedAt: "2026-09-27T15:00:01.000Z" });
+  release();
+  assert.equal((await reading)[0]?.requester?.handle, "after");
+  await holder;
+});
+
 test("profile list reads re-check social block state after waiting for the pair lock", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-social-profile-list-read-lock-"));
   const platformRoot = join(root, "platform");
