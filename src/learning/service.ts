@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CodingAttempt, CodingAttemptInput, CodingExercise, CodingExerciseInput, CodingPracticeResult, GoalInterpretation, LearningAnswerReceipt, LearningContentRequest, LearningFeedback, LearningFeedbackDispute, LearningFeedbackDisputeResult, LearningFeedbackEvaluation, LearningFeedbackEvaluationInput, LearningGoal, LearningGoalInput, LearningGoalSessionInput, LearningLessonBlock, LearningLessonContent, LearningLessonInput, LearningPlanAdjustment, LearningPlanAdjustmentInput, LearningPlanAdjustmentResult, LearningPlanInput, LearningPlanPreview, LearningPlanProposal, LearningPlanVersion, LearningProgress, LearningProjectApplication, LearningProjectApplicationInput, LearningReport, LearningReportPeriod, LearningService, LearningServiceOptions, LearningSessionAction, LearningSessionActionInput, ReviewItemInput, CodeAnalysisInput, StudyAttemptInput, LearningPlan, LearningPlanDay, LearningSession, LearningToday, ReviewItem, CodeAnalysisResult } from "./contracts.js";
-import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanVersions, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningReport, loadPlan, loadReview, loadSession, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveLearningPlanVersion, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession } from "./store.js";
+import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanVersions, listLearningPlanVersionsUnlocked, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningPlanVersionUnlocked, loadLearningReport, loadPlan, loadReview, loadSession, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveLearningPlanVersion, saveLearningPlanVersionUnlocked, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession } from "./store.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
 import { withDurableLearningProjectApplicationAcceptanceLock } from "./project-application-acceptance-lock.js";
@@ -412,7 +412,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       return withDurableLearningPlanPreviewLock(root, principal.userId, goalId, () => withDurableLearningGoalLock(root, principal.userId, goalId, async () => {
       const goal = await loadOwnerGoal(root, principal, goalId, true);
       if (!goal) throw new Error("Learning goal not found");
-      const existing = (await listLearningPlanVersions(root, principal.userId))
+      const existing = (await listLearningPlanVersionsUnlocked(root, principal.userId))
         .filter((plan) => plan.goalId === goal.id && plan.inputRevision === (goal.status === "preview-ready" ? goal.revision - 1 : goal.revision))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
       if (existing) {
@@ -438,7 +438,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
         await saveGoalInterpretation(root, interpretation);
         const planId = "learning-plan-version-" + randomUUID();
         const plan = previewFromProposal(goal, at, proposal, planId, interpretation.id, timezone);
-        await saveLearningPlanVersion(root, plan);
+        await saveLearningPlanVersionUnlocked(root, plan);
         const updatedGoal: LearningGoal = { ...goal, status: "preview-ready", revision: goal.revision + 1, updatedAt: at };
         await saveLearningGoalUnlocked(root, updatedGoal);
         return { goal: updatedGoal, interpretation, plan, created: true };
@@ -453,7 +453,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       };
       await saveGoalInterpretation(root, interpretation);
       const plan = previewFor(goal, at, interpretation, "learning-plan-version-" + randomUUID(), principalTimezone(principal));
-      await saveLearningPlanVersion(root, plan);
+      await saveLearningPlanVersionUnlocked(root, plan);
       const updatedGoal: LearningGoal = { ...goal, status: "preview-ready", revision: goal.revision + 1, updatedAt: at };
       await saveLearningGoalUnlocked(root, updatedGoal);
       return { goal: updatedGoal, interpretation, plan, created: true };
@@ -536,12 +536,12 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const adjustment = await loadLearningPlanAdjustment(root, principal.userId, adjustmentId);
       if (!adjustment || adjustment.userId !== principal.userId || adjustment.goalId !== goal.id) throw new Error("Learning plan adjustment not found");
       if (adjustment.status === "accepted" && adjustment.acceptedPlanVersionId) {
-        const plan = await loadLearningPlanVersion(root, principal.userId, adjustment.acceptedPlanVersionId);
+        const plan = await loadLearningPlanVersionUnlocked(root, principal.userId, adjustment.acceptedPlanVersionId);
         return { adjustment, goal, ...(plan ? { plan } : {}) };
       }
       if (adjustment.status !== "proposed") throw new Error("Learning plan adjustment is not available");
       if (goal.revision !== adjustment.baseGoalRevision) throw new Error("Learning goal revision conflict");
-      const basePlan = await loadLearningPlanVersion(root, principal.userId, adjustment.basePlanVersionId);
+      const basePlan = await loadLearningPlanVersionUnlocked(root, principal.userId, adjustment.basePlanVersionId);
       if (!basePlan || basePlan.status === "superseded" || basePlan.goalId !== goal.id) throw new Error("Learning plan version is superseded");
       const at = now(); assertTimestamp(at, "learning plan adjustment acceptance timestamp");
       const planId = "learning-plan-version-" + randomUUID();
@@ -551,8 +551,8 @@ export function createLearningService(root: string, options: LearningServiceOpti
         status: goal.status === "active" ? "active" : "preview-ready", revision: goal.revision + 1, updatedAt: at,
       };
       const plan = adjustedPlanFrom(basePlan, updatedGoal, adjustment, planId, at, principalTimezone(principal));
-      await saveLearningPlanVersion(root, { ...basePlan, status: "superseded", updatedAt: at });
-      await saveLearningPlanVersion(root, plan);
+      await saveLearningPlanVersionUnlocked(root, { ...basePlan, status: "superseded", updatedAt: at });
+      await saveLearningPlanVersionUnlocked(root, plan);
       await saveLearningGoalUnlocked(root, updatedGoal);
       const accepted: LearningPlanAdjustment = { ...adjustment, status: "accepted", acceptedPlanVersionId: plan.id, updatedAt: at };
       await saveLearningPlanAdjustment(root, accepted);
@@ -566,7 +566,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       return withDurableLearningGoalLock(root, principal.userId, goalId, async () => {
         const goal = await loadOwnerGoal(root, principal, goalId, true);
         if (!goal) return [];
-        return (await listLearningPlanVersions(root, principal.userId)).filter((plan) => plan.userId === principal.userId && plan.goalId === goal.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        return (await listLearningPlanVersionsUnlocked(root, principal.userId)).filter((plan) => plan.userId === principal.userId && plan.goalId === goal.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       }, { waitForMs: 2_000 });
     },
 
@@ -576,7 +576,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       return withDurableLearningGoalLock(root, principal.userId, goalId, async () => {
         const goal = await loadOwnerGoal(root, principal, goalId, true);
         if (!goal) return null;
-        const plan = await loadLearningPlanVersion(root, principal.userId, versionId);
+        const plan = await loadLearningPlanVersionUnlocked(root, principal.userId, versionId);
         return plan?.userId === principal.userId && plan.goalId === goal.id ? plan : null;
       }, { waitForMs: 2_000 });
     },
