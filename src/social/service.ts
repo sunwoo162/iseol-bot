@@ -198,7 +198,19 @@ export function createSocialService(root: string, options: SocialServiceOptions)
         const current = await loadBlock(root, principal.userId, targetUserId); if (!current || current.status !== "active") throw new Error("Block not found"); const at = now(); assertTimestamp(at, "unblock timestamp"); const block: SocialBlock = { ...current, status: "removed", updatedAt: at }; await saveBlock(root, block); return block;
       }, { waitForMs: 2_000 });
     },
-    async listBlocks(principal) { ensurePrincipal(principal); return (await listBlocks(root)).filter((item) => item.blockerUserId === principal.userId && item.status === "active").sort((a, b) => b.createdAt.localeCompare(a.createdAt)); },
+    async listBlocks(principal) {
+      ensurePrincipal(principal);
+      const current = (await listBlocks(root)).filter((item) => item.blockerUserId === principal.userId && item.status === "active");
+      const visible = [];
+      for (const item of current) {
+        const block = await withDurableSocialBlockLock(root, principal.userId, item.blockedUserId, async () => {
+          const latest = await loadBlock(root, principal.userId, item.blockedUserId);
+          return latest?.status === "active" ? latest : null;
+        }, { waitForMs: 2_000 });
+        if (block) visible.push(block);
+      }
+      return visible.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    },
     async reportUser(principal, targetUserId, reason) {
       ensurePrincipal(principal); assertIdentityId(targetUserId); if (targetUserId === principal.userId) throw new Error("Cannot report yourself"); if (!await options.platformUserService.getUser(targetUserId)) throw new Error("Target user not found"); const at = now(); assertTimestamp(at, "report timestamp"); const report: SocialReport = { version: 1, id: `report-${randomUUID()}`, reporterUserId: principal.userId, targetUserId, reason: required(reason, "Report reason", 5_000), status: "open", createdAt: at, updatedAt: at }; await saveReport(root, report); await options.activityService?.recordActivityEvent(principal, { sourceType: "social", sourceId: report.id, eventType: "social.report.created", eventVersion: 1, actorType: "user", verificationStatus: "unverified", payload: { targetUserId } }); return report;
     },
