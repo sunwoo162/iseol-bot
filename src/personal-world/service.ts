@@ -47,6 +47,14 @@ function defaultCharacter(userId: string, character: CharacterType, at: string):
   return { version: 1, userId, character, appearance: {}, updatedAt: at };
 }
 
+async function readWorld(root: string, userId: string, at: string): Promise<WorldRecord> {
+  const existing = await loadWorld(root, userId);
+  if (existing) return existing;
+  const world = defaultWorld(userId, at);
+  await saveWorld(root, world);
+  return world;
+}
+
 export function createPersonalWorldService(root: string, options: { now?: () => string } = {}): PersonalWorldService {
   const now = options.now ?? (() => new Date().toISOString());
 
@@ -55,11 +63,7 @@ export function createPersonalWorldService(root: string, options: { now?: () => 
       ensurePrincipal(principal);
       const at = now();
       assertTimestamp(at, "world timestamp");
-      const existing = await loadWorld(root, principal.userId);
-      if (existing) return existing;
-      const world = defaultWorld(principal.userId, at);
-      await saveWorld(root, world);
-      return world;
+      return withDurablePersonalWorldLock(root, principal.userId, () => readWorld(root, principal.userId, at), { waitForMs: 2_000 });
     },
 
     async updateWorld(principal, patch: WorldPatch): Promise<WorldRecord> {
@@ -95,12 +99,14 @@ export function createPersonalWorldService(root: string, options: { now?: () => 
       ensurePrincipal(principal);
       const at = now();
       assertTimestamp(at, "character timestamp");
-      const existing = await loadCharacter(root, principal.userId);
-      if (existing) return existing;
-      const world = await this.getWorld(principal);
-      const character = defaultCharacter(principal.userId, world.character, at);
-      await saveCharacter(root, character);
-      return character;
+      return withDurablePersonalWorldLock(root, principal.userId, async () => {
+        const existing = await loadCharacter(root, principal.userId);
+        if (existing) return existing;
+        const world = await readWorld(root, principal.userId, at);
+        const character = defaultCharacter(principal.userId, world.character, at);
+        await saveCharacter(root, character);
+        return character;
+      }, { waitForMs: 2_000 });
     },
 
     async updateCharacter(principal, patch: CharacterPatch): Promise<CharacterRecord> {
@@ -115,7 +121,8 @@ export function createPersonalWorldService(root: string, options: { now?: () => 
       const at = now();
       assertTimestamp(at, "character timestamp");
       return withDurablePersonalWorldLock(root, principal.userId, async () => {
-        const current = await loadCharacter(root, principal.userId) ?? defaultCharacter(principal.userId, (await this.getWorld(principal)).character, at);
+        const world = await readWorld(root, principal.userId, at);
+        const current = await loadCharacter(root, principal.userId) ?? defaultCharacter(principal.userId, world.character, at);
         const next: CharacterRecord = {
           ...current,
           ...(patch.character === undefined ? {} : { character: patch.character }),
@@ -123,7 +130,6 @@ export function createPersonalWorldService(root: string, options: { now?: () => 
           updatedAt: at,
         };
         await saveCharacter(root, next);
-        const world = await this.getWorld(principal);
         if (world.character !== next.character) await saveWorld(root, { ...world, character: next.character, updatedAt: at });
         return next;
       }, { waitForMs: 2_000 });

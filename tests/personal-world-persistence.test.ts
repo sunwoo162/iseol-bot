@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createPersonalWorldService } from "../src/personal-world/service.js";
+import { saveWorld } from "../src/personal-world/store.js";
+import { withDurablePersonalWorldLock } from "../src/personal-world/world-lock.js";
 
 const at = "2026-09-25T12:00:00.000Z";
 
@@ -70,4 +72,41 @@ test("concurrent personal world patches across service instances preserve disjoi
   const world = await firstService.getWorld(principal("user-concurrent"));
   assert.equal(world.displayName, "Concurrent Ari");
   assert.deepEqual(world.interests, ["AI/ML"]);
+});
+
+test("personal world reads wait for the owner lock and reload the latest durable world", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-personal-world-read-lock-"));
+  const service = createPersonalWorldService(root, { now: () => at });
+  const user = principal("user-read-lock");
+  const initial = await service.updateWorld(user, { displayName: "Before" });
+
+  let releaseLock!: () => void;
+  let lockAcquired!: Promise<void>;
+  const acquired = new Promise<void>((resolve) => { lockAcquired = resolve; });
+  const lockReleased = new Promise<void>((resolve) => { releaseLock = resolve; });
+  const heldLock = withDurablePersonalWorldLock(root, user.userId, async () => {
+    lockAcquired();
+    await lockReleased;
+  });
+  await acquired;
+
+  let settled = false;
+  const read = service.getWorld(user).then((world) => {
+    settled = true;
+    return world;
+  });
+  let characterSettled = false;
+  const readCharacter = service.getCharacter(user).then((character) => {
+    characterSettled = true;
+    return character;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(settled, false);
+  assert.equal(characterSettled, false);
+
+  await saveWorld(root, { ...initial, displayName: "After external durable update", character: "c" });
+  releaseLock();
+  await heldLock;
+  assert.equal((await read).displayName, "After external durable update");
+  assert.equal((await readCharacter).character, "c");
 });
