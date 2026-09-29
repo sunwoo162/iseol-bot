@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable shared memory lock-order alignment
+
+- Status: **B — Shared memory read and write paths now use one canonical Team membership → Memory lock order; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. The read hardening from PR #86 no longer has an inverse write order that could deadlock cross-service sharing operations.
+- Evidence: `src/memory/service.ts`, `src/memory/memory-lock.ts`, `src/teams/membership-lock.ts`, `tests/personal-memory-sharing.test.ts`.
+- TDD: the lock-order review identified the inverse `Memory → Team` write path after the `Team → Memory` read boundary; GREEN moved team membership acquisition outside the memory lock and retained the existing membership revalidation tests.
+- Verification: focused Memory/Team/Collaboration regression `17/17`; backend `tsc` build; `git diff --check` passed. Shared read lock/reload and Team membership revalidation remain covered.
+- Implementation commit: `cd7bfb4 fix: align shared memory lock ordering`; merged by PR #88 with merge commit `a99731d`.
+- Boundary: same-host/shared-root shared-memory lock ordering only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable shared memory read synchronization
 
 - Status: **B — Shared memory list reads now keep the canonical Team membership → per-memory lock order and reload each current owner-scoped record before projecting team-visible content; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent memory edit, unshare, or delete cannot leave a team member with an unlocked stale shared projection.
