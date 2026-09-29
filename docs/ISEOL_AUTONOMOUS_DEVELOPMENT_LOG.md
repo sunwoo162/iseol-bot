@@ -2305,6 +2305,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root Discord Project binding 생성/삭제 mutation coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Project Workspace document write synchronization
+
+- Status: **B — Project Workspace public writes now wait on the canonical durable Workspace lock, while live Runtime/provider execution remains unverified**. purpose/team/task/Run attachment paths use an internal unlocked helper after acquiring the same lock.
+- Evidence: `src/project-model/workspace-store.ts`, `src/project-model/workspace-lock.ts`, `src/project-model/user-project-service.ts`, `src/project-model/workspace-run-preparation.ts`, `tests/project-model-stores.test.ts`, `tests/user-project-execution.test.ts`.
+- TDD: RED reproduced Workspace writes completing while the Workspace lock was held; GREEN added the locked public write, fixed purpose/team/task/Run attachment reentrancy, updated lock-held test mutation to use the unlocked helper, and preserved bounded lock waiting.
+- Verification: Project/Discord/Web focused regression `105/105`; serial full test suite `752/752`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `ce52f62 fix: synchronize Project Workspace writes`; merged by PR #156 with merge commit `14b4865`.
+- Boundary: same-host/shared-root Project Workspace document write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Idea Lab Campaign document write synchronization
 
 - Status: **B — Idea Lab Campaign public writes now wait on the canonical durable Campaign lock, while live Runtime/provider execution remains unverified**. supervisor and Web action writes use an internal unlocked helper after acquiring the same lock.
