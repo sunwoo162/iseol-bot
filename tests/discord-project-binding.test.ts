@@ -144,3 +144,39 @@ test("binding creation waits for the durable binding lock", async () => {
     created,
   );
 });
+
+test("binding reads wait for the durable binding lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-discord-binding-"));
+  const input = {
+    guildId: "1234567890",
+    storedProjectId: "legacy-001",
+    projectId: "project-a",
+    defaultNodeId: "root",
+    at: "2026-09-07T12:00:00.000Z",
+  } as const;
+  const created = await createDiscordProjectBinding(root, input);
+  let acquired!: () => void;
+  let release!: () => void;
+  const lockAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const lockReleased = new Promise<void>((resolve) => { release = resolve; });
+  const holder = withDurableDiscordProjectBindingLock(
+    root,
+    input.guildId,
+    input.storedProjectId,
+    async () => {
+      acquired();
+      await lockReleased;
+    },
+  );
+  await lockAcquired;
+
+  let completed = false;
+  const loading = loadDiscordProjectBinding(root, input.guildId, input.storedProjectId)
+    .finally(() => { completed = true; });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(completed, false);
+
+  release();
+  assert.deepEqual(await loading, created);
+  await holder;
+});

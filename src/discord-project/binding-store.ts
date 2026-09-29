@@ -45,7 +45,13 @@ export async function loadDiscordProjectBinding(
   guildId: string,
   storedProjectId: string,
 ): Promise<DiscordProjectBinding | null> {
-  return readBinding(bindingFile(root, guildId, storedProjectId));
+  return withDurableDiscordProjectBindingLock(
+    root,
+    guildId,
+    storedProjectId,
+    () => readBinding(bindingFile(root, guildId, storedProjectId)),
+    { waitForMs: 2_000 },
+  );
 }
 
 export async function createDiscordProjectBinding(
