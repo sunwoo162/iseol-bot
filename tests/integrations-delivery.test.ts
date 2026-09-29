@@ -7,7 +7,7 @@ import { createIntegrationService } from "../src/integrations/service.js";
 import { withDurableIntegrationDeliveryLock } from "../src/integrations/delivery-lock.js";
 import type { IntegrationDeliveryInput, IntegrationProvider } from "../src/integrations/contracts.js";
 import type { Principal } from "../src/identity/contracts.js";
-import { saveIntegrationDelivery } from "../src/integrations/store.js";
+import { listIntegrationDeliveries, loadIntegrationDelivery, saveIntegrationDelivery, saveIntegrationDeliveryUnlocked } from "../src/integrations/store.js";
 
 function principal(userId: string): Principal {
   return { userId, sessionId: `session-${userId}`, roles: ["user"] };
@@ -132,10 +132,63 @@ test("delivery lists wait for the durable delivery lock and reload current state
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(settled, false);
-    await saveIntegrationDelivery(root, { ...queued, state: "blocked", reason: "user-opt-in-required", updatedAt: "2026-09-25T12:00:01.000Z" });
+    await saveIntegrationDeliveryUnlocked(root, { ...queued, state: "blocked", reason: "user-opt-in-required", updatedAt: "2026-09-25T12:00:01.000Z" });
     release();
     assert.equal((await listing)[0]?.state, "blocked");
     await holder;
+  });
+});
+
+test("public integration delivery store reads and writes wait for the shared delivery lock", async () => {
+  await withRoot(async (root) => {
+    const service = createIntegrationService(root);
+    const queued = await service.enqueueDelivery(principal("user-a"), input());
+    const updated = { ...queued, state: "blocked" as const, reason: "user-opt-in-required", updatedAt: "2026-09-25T12:00:01.000Z" };
+
+    const holdDeliveryLock = async () => {
+      let release!: () => void;
+      let acquired!: () => void;
+      const acquiredPromise = new Promise<void>((resolve) => { acquired = resolve; });
+      const holder = withDurableIntegrationDeliveryLock(root, queued.userId, queued.id, async () => {
+        acquired();
+        await new Promise<void>((resolve) => { release = resolve; });
+      }, { waitForMs: 0 });
+      await acquiredPromise;
+      return { holder, release };
+    };
+
+    const saveLock = await holdDeliveryLock();
+    let saveSettled = false;
+    const pendingSave = saveIntegrationDelivery(root, updated).then(() => { saveSettled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(saveSettled, false);
+    saveLock.release();
+    await saveLock.holder;
+    await pendingSave;
+
+    const loadLock = await holdDeliveryLock();
+    let loadSettled = false;
+    const pendingLoad = loadIntegrationDelivery(root, queued.userId, queued.id).then((value) => {
+      loadSettled = true;
+      return value;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(loadSettled, false);
+    loadLock.release();
+    await loadLock.holder;
+    assert.equal((await pendingLoad)?.state, "blocked");
+
+    const listLock = await holdDeliveryLock();
+    let listSettled = false;
+    const pendingList = listIntegrationDeliveries(root, queued.userId).then((value) => {
+      listSettled = true;
+      return value;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(listSettled, false);
+    listLock.release();
+    await listLock.holder;
+    assert.equal((await pendingList)[0]?.state, "blocked");
   });
 });
 
