@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createLearningService } from "../src/learning/service.js";
-import { saveLearningGoal } from "../src/learning/store.js";
+import { saveLearningGoalUnlocked } from "../src/learning/store.js";
 import { withDurableLearningGoalLock } from "../src/learning/goal-lock.js";
 
 const at = "2026-09-26T12:00:00.000Z";
@@ -81,7 +81,7 @@ test("learning goal reads wait for the durable goal lock and reload current stat
   assert.equal(listSettled, false);
 
   const updated = { ...goal, status: "paused" as const, revision: 2, updatedAt: at };
-  await saveLearningGoal(root, updated);
+  await saveLearningGoalUnlocked(root, updated);
   releaseHolder();
   await lockHeld;
   assert.equal((await fetched)?.status, "paused");
