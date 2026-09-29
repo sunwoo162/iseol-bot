@@ -68,3 +68,37 @@ test("public portfolio reads re-check visibility after waiting for the entry loc
   assert.equal(await reading, null);
   await holder;
 });
+
+test("public portfolio lists re-check visibility after waiting for each entry lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-public-portfolio-list-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => "2026-09-26T12:00:00.000Z" });
+  const user = await users.createUser({ id: "public-list-lock-user", email: "public-list-lock@example.com", displayName: "Public List Lock", timezone: "Asia/Seoul" });
+  const activity = createActivityService(platformRoot, { now: () => "2026-09-26T12:00:00.000Z" });
+  const projects = createUserProjectService({ platformRoot, projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root });
+  const portfolio = createPortfolioService(platformRoot, { activityService: activity, userProjectService: projects, now: () => "2026-09-26T12:00:00.000Z" });
+  const principal = { userId: user.id, sessionId: "session", roles: ["user"] as const };
+  const event = await activity.recordActivityEvent(principal, { sourceType: "learning", sourceId: "public-list-lock-session", eventType: "study.completed", eventVersion: 1, actorType: "user", verificationStatus: "verified" });
+  const entry = await portfolio.createEntry(principal, { title: "잠금 목록 기록", summary: "공개 목록 경쟁조건을 검증합니다.", visibility: "public", evidenceIds: [`activity:${event.id}`] });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurablePortfolioEntryLock(platformRoot, user.id, entry.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = portfolio.listPublicEntries(user.id).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await savePortfolioEntry(platformRoot, { ...entry, visibility: "private", updatedAt: "2026-09-26T12:00:01.000Z" });
+  release();
+  assert.deepEqual(await reading, []);
+  await holder;
+});
