@@ -2385,6 +2385,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root recruitment application and Team membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Social profile read authorization rechecks
+
+- Status: **B — public profile reads for another user now acquire the canonical two-user social interaction lock and recheck block state before returning the profile; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A block that wins the pair lock while a profile read is waiting can no longer be followed by stale profile disclosure.
+- Evidence: `src/social/service.ts`, `src/social/block-lock.ts`, `src/social/profile-lock.ts`, `tests/social-safety.test.ts`, `tests/social-public-profile-privacy.test.ts`, `tests/social-public-profile-portfolio.test.ts`, and the existing browser coverage.
+- TDD: RED held the canonical pair lock, started a public profile read, created the durable block while it waited, and showed the old unlocked path returning the profile; GREEN moved the block check and profile projection inside the bounded pair lock while preserving self-profile reads.
+- Verification: focused Social/profile/API `14/14`; user-product `387/387`; serial root `726/726`; backend `tsc` build, user UI build, isolated browser E2E, and `git diff --check` all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: follows as `fix: serialize social profile reads under block lock`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Social profile and block authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Team list read authorization rechecks
 
 - Status: **B — Team list reads now acquire the canonical Team membership lock per team and recheck team status plus viewer membership before returning private-team visibility; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A membership removal or status change that wins the lock while a team list is waiting can no longer leave a stale private team visible.
