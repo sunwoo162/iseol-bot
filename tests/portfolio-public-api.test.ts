@@ -8,6 +8,8 @@ import { createActivityService } from "../src/activity/service.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { createPortfolioService } from "../src/portfolio/service.js";
+import { withDurablePortfolioEntryLock } from "../src/portfolio/entry-lock.js";
+import { savePortfolioEntry } from "../src/portfolio/store.js";
 import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
 
 test("public portfolio API exposes only public or unlisted entries without a session", async () => {
@@ -31,4 +33,38 @@ test("public portfolio API exposes only public or unlisted entries without a ses
     const privateResponse = await fetch(`http://127.0.0.1:${address.port}/api/public/portfolio/${privateEntry.id}`);
     assert.equal(privateResponse.status, 404);
   } finally { await server.closeForShutdown(); }
+});
+
+test("public portfolio reads re-check visibility after waiting for the entry lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-public-portfolio-read-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => "2026-09-26T12:00:00.000Z" });
+  const user = await users.createUser({ id: "public-read-lock-user", email: "public-read-lock@example.com", displayName: "Public Read Lock", timezone: "Asia/Seoul" });
+  const activity = createActivityService(platformRoot, { now: () => "2026-09-26T12:00:00.000Z" });
+  const projects = createUserProjectService({ platformRoot, projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root });
+  const portfolio = createPortfolioService(platformRoot, { activityService: activity, userProjectService: projects, now: () => "2026-09-26T12:00:00.000Z" });
+  const principal = { userId: user.id, sessionId: "session", roles: ["user"] as const };
+  const event = await activity.recordActivityEvent(principal, { sourceType: "learning", sourceId: "public-read-lock-session", eventType: "study.completed", eventVersion: 1, actorType: "user", verificationStatus: "verified" });
+  const entry = await portfolio.createEntry(principal, { title: "잠금 공개 기록", summary: "공개 상태 경쟁조건을 검증합니다.", visibility: "public", evidenceIds: [`activity:${event.id}`] });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurablePortfolioEntryLock(platformRoot, user.id, entry.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = portfolio.getPublicEntry(entry.id).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await savePortfolioEntry(platformRoot, { ...entry, visibility: "private", updatedAt: "2026-09-26T12:00:01.000Z" });
+  release();
+  assert.equal(await reading, null);
+  await holder;
 });

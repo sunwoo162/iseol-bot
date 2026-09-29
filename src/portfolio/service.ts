@@ -54,11 +54,15 @@ export function createPortfolioService(root: string, options: PortfolioServiceOp
     async exportPortfolio(principal, format) { ensurePrincipal(principal); if (!["json", "markdown"].includes(format)) throw new Error("Unsupported portfolio format"); const snapshot = await readSnapshot(principal); const evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item])); if (format === "json") return { format, filename: "iseol-portfolio.json", content: JSON.stringify({ entries: snapshot.entries, evidence: snapshot.evidence }, null, 2) }; const lines = [`# ISEOL Portfolio`, ``, `Generated: ${now()}`, ``]; for (const entry of snapshot.entries) { lines.push(`## ${entry.title}`, ``, entry.summary, ``, `Visibility: ${entry.visibility}`, ``); for (const evidenceId of entry.evidenceIds) { const item = evidenceById.get(evidenceId); if (item) lines.push(`- ${item.summary} (${item.actorType}, ${item.verificationStatus}, ${item.occurredAt})`); } lines.push(``); } return { format, filename: "iseol-portfolio.md", content: lines.join("\n") }; },
     async getPublicEntry(entryId): Promise<PublicPortfolioView | null> {
       assertIdentityId(entryId);
-      const entry = await findPortfolioEntry(root, entryId);
-      if (!entry || entry.visibility === "private") return null;
-      const snapshot = await readSnapshot({ userId: entry.userId, sessionId: "public-portfolio", roles: ["user"] });
-      const evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]));
-      return { entry, evidence: entry.evidenceIds.map((id) => evidenceById.get(id)).filter((item): item is PortfolioEvidence => Boolean(item && item.verificationStatus === "verified")).map(({ projectId: _projectId, reportId: _reportId, ...item }) => item) };
+      const initial = await findPortfolioEntry(root, entryId);
+      if (!initial) return null;
+      return withDurablePortfolioEntryLock(root, initial.userId, entryId, async () => {
+        const entry = await loadPortfolioEntry(root, initial.userId, entryId);
+        if (!entry || entry.visibility === "private") return null;
+        const snapshot = await readSnapshot({ userId: entry.userId, sessionId: "public-portfolio", roles: ["user"] });
+        const evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]));
+        return { entry, evidence: entry.evidenceIds.map((id) => evidenceById.get(id)).filter((item): item is PortfolioEvidence => Boolean(item && item.verificationStatus === "verified")).map(({ projectId: _projectId, reportId: _reportId, ...item }) => item) };
+      }, { waitForMs: 2_000 });
     },
   };
 }
