@@ -8,6 +8,7 @@ import { saveProjectWorkspace } from "../src/project-model/workspace-store.js";
 import type { ProjectContext } from "../src/services/project-context.js";
 import { createDiscordProjectBinding } from "../src/discord-project/binding-store.js";
 import { resolveDiscordProjectContext } from "../src/discord-project/context-resolver.js";
+import { withDurableProjectWorkspaceLock } from "../src/project-model/workspace-lock.js";
 
 function legacy(): ProjectContext {
   return {
@@ -97,6 +98,35 @@ test("bound project resolves the default root work context", async () => {
   assert.equal(context?.state, "bound");
   assert.equal(context?.work?.projectId, "project-prototype-001");
   assert.equal(context?.work?.nodeId, "root");
+});
+
+test("bound context resolution waits for the Project Workspace lock", async () => {
+  const { modelRoot, bindingRoot } = await fixture();
+  let acquired!: () => void;
+  let release!: () => void;
+  const lockAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const lockReleased = new Promise<void>((resolve) => { release = resolve; });
+  const holder = withDurableProjectWorkspaceLock(modelRoot, "project-prototype-001", async () => {
+    acquired();
+    await lockReleased;
+  });
+  await lockAcquired;
+
+  let completed = false;
+  const resolving = resolveDiscordProjectContext({
+    modelRoot,
+    bindingRoot,
+    workspaceRoot: modelRoot,
+    guildId: "1234567890",
+    storedProjectId: "legacy-001",
+    resolveLegacy,
+  }).finally(() => { completed = true; });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(completed, false);
+
+  release();
+  assert.equal((await resolving)?.state, "bound");
+  await holder;
 });
 
 test("explicit node and attached Run are validated together", async () => {
