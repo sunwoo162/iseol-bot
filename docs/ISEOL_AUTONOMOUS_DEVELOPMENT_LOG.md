@@ -2385,6 +2385,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root recruitment application and Team membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Team list read authorization rechecks
+
+- Status: **B — Team list reads now acquire the canonical Team membership lock per team and recheck team status plus viewer membership before returning private-team visibility; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A membership removal or status change that wins the lock while a team list is waiting can no longer leave a stale private team visible.
+- Evidence: `src/teams/service.ts`, `src/teams/membership-lock.ts`, `src/teams/store.ts`, `tests/team-membership-acl.test.ts`, `tests/collaboration-api.test.ts`, and the existing Team Chat/browser coverage.
+- TDD: RED held a Team membership lock, started the viewer's team list, removed the viewer while it waited, and showed the old unlocked list returning the private team; GREEN moved each team's status/membership read into its own bounded Team-scoped durable lock.
+- Verification: focused Team/Chat/Collaboration `11/11`; user-product `386/386`; serial root `726/726`; backend `tsc` build, user UI build, isolated browser E2E, and `git diff --check` all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: follows as `fix: serialize team list reads under membership lock`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Team list read and membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Recruitment read authorization rechecks
 
 - Status: **B — Recruitment post detail reads now acquire the canonical Team membership lock and recheck manager authority before returning private applications; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A manager removal or status change that wins the lock while a recruitment read is waiting can no longer be followed by stale application disclosure.
