@@ -69,7 +69,7 @@ export type UserProjectService = {
   updateProjectTeam(principal: Principal, projectId: string, input: { teamMode: UserProjectTeamMode; teamId?: string }): Promise<UserProject>;
 };
 
-export type UserProjectServiceOptions = { platformRoot: string; projectModelRoot: string; projectHarnessRoot: string; iseolRoot: string; teamMembershipRoot?: string; canAccessTeam?: (principal: Principal, teamId: string) => Promise<boolean>; activityService?: ActivityService; growthService?: GrowthService; settingsService?: SettingsService; now?: () => string };
+export type UserProjectServiceOptions = { platformRoot: string; projectModelRoot: string; projectHarnessRoot: string; iseolRoot: string; teamMembershipRoot?: string; canAccessTeam?: (principal: Principal, teamId: string) => Promise<boolean>; canAccessTeamWithinMembershipLock?: (principal: Principal, teamId: string) => Promise<boolean>; activityService?: ActivityService; growthService?: GrowthService; settingsService?: SettingsService; now?: () => string };
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
 function required(value: string, label: string, max: number): string { const trimmed = value.trim(); if (!trimmed || trimmed.length > max) throw new Error(`${label} is required`); return trimmed; }
@@ -165,6 +165,7 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
   const teamMembershipRoot = options.teamMembershipRoot ?? options.platformRoot;
   const withTeamMembershipMutationLock = <T>(teamId: string, task: () => Promise<T>): Promise<T> => withDurableTeamMembershipLock(teamMembershipRoot, teamId, task, { waitForMs: 2_000 });
   const projectScheduleLocks = new Map<string, Promise<void>>();
+  const canAccessTeamForMutation = options.canAccessTeamWithinMembershipLock ?? options.canAccessTeam;
   const withProjectScheduleLock = async <T>(projectId: string, operation: () => Promise<T>): Promise<T> => {
     const previous = projectScheduleLocks.get(projectId) ?? Promise.resolve();
     let release!: () => void;
@@ -200,7 +201,7 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
         updatedAt: at,
       };
       const persistProject = async () => {
-        if (teamId && (!options.canAccessTeam || !await options.canAccessTeam(principal, teamId))) throw new Error("Team access required for team project");
+        if (teamId && (!canAccessTeamForMutation || !await canAccessTeamForMutation(principal, teamId))) throw new Error("Team access required for team project");
         await mkdir(project.workspaceRoot, { recursive: true });
         await saveJson(projectPath(options.platformRoot, principal.userId, project.id), project);
         await saveProjectWorkspace(options.projectModelRoot, initialWorkspace(project, at));
@@ -228,7 +229,7 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
         const mutate = async () => {
           const current = await loadJson<UserProject>(projectPath(options.platformRoot, principal.userId, projectId));
           if (!current || current.ownerUserId !== principal.userId || current.status !== "active") throw new Error("Project not found");
-          if (nextTeamId && (!options.canAccessTeam || !await options.canAccessTeam(principal, nextTeamId))) throw new Error("Team access required for team project");
+          if (nextTeamId && (!canAccessTeamForMutation || !await canAccessTeamForMutation(principal, nextTeamId))) throw new Error("Team access required for team project");
           const at = now(); assertTimestamp(at, "project timestamp");
           const next: UserProject = { ...current, teamMode: input.teamMode, ...(nextTeamId ? { teamId: nextTeamId } : {}), updatedAt: at };
           if (!nextTeamId) delete next.teamId;

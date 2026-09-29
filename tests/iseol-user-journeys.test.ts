@@ -51,6 +51,7 @@ test("ISEOL user journey crosses durable domains without leaking user data", asy
     iseolRoot: root,
     now,
     canAccessTeam: (principal, teamId) => teamService.canAccess(principal, teamId),
+    canAccessTeamWithinMembershipLock: (principal, teamId) => teamService.canAccessWithinMembershipLock(principal, teamId),
     activityService,
   });
   const server = await startWebControlPlaneServer({

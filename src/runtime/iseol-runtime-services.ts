@@ -448,6 +448,7 @@ export async function startIseolRuntimeServices(
     projectHarnessRoot: roots.projectRunRoot ?? roots.runRoot,
     iseolRoot: roots.iseolRoot,
     canAccessTeam: (principal, teamId) => teamService.canAccess(principal, teamId),
+    canAccessTeamWithinMembershipLock: (principal, teamId) => teamService.canAccessWithinMembershipLock(principal, teamId),
     activityService,
     growthService,
     settingsService,

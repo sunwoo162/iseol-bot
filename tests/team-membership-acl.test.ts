@@ -34,7 +34,7 @@ test("team membership is durable and immediately changes private access and coll
 
   const projects = createUserProjectService({
     platformRoot: join(root, "platform"), projectModelRoot: join(root, "project-model"), projectHarnessRoot: join(root, "runs"), iseolRoot: root,
-    canAccessTeam: (viewer, teamId) => teams.canAccess(viewer, teamId), now: () => at,
+    canAccessTeam: (viewer, teamId) => teams.canAccess(viewer, teamId), canAccessTeamWithinMembershipLock: (viewer, teamId) => teams.canAccessWithinMembershipLock(viewer, teamId), now: () => at,
   });
   const teamProject = await projects.createProject(principal("team-a"), { name: "Shared project", objective: "team project access", purpose: "rapid-prototype", teamMode: "human", teamId: team.id });
   assert.equal(await projects.getProject(principal("team-b"), teamProject.id), null);
@@ -176,4 +176,31 @@ test("team collaboration checks wait for the membership lock and re-check both m
   await saveMembership(root, { ...membership, status: "removed", updatedAt: at });
   release();
   await Promise.all([holder, assert.doesNotReject(async () => assert.equal(await collaboration, false))]);
+});
+
+test("team access checks wait for the membership lock and re-check the viewer", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-team-access-read-lock-"));
+  const owner = principal("team-access-owner");
+  const teams = createTeamService(root, { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Access read team", description: "access read recheck", kind: "project", visibility: "private", capacity: 3 });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(root, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const access = teams.canAccess(owner, team.id);
+  assert.equal(await Promise.race([
+    access,
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]), false);
+  const membership = await loadMembership(root, team.id, owner.userId);
+  assert.ok(membership);
+  await saveMembership(root, { ...membership, status: "removed", updatedAt: at });
+  release();
+  await Promise.all([holder, assert.doesNotReject(async () => assert.equal(await access, false))]);
 });

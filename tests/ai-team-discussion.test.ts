@@ -23,7 +23,7 @@ test("AI team technical discussions persist a bounded Runtime answer without cre
   const teams = createTeamService(join(root, "platform"), { now: () => at });
   const team = await teams.createTeam(owner, { name: "AI discussion team", description: "technical discussion", kind: "project", visibility: "private", capacity: 3 });
   await teams.addAiMember(owner, team.id, { agentId: "architect", assignmentRole: "architecture", capabilities: ["context.read", "discussion.propose"], approvalScope: "suggestion-only" }, at);
-  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
   const project = await projects.createProject(owner, { name: "Discussion project", objective: "keep AI technical reasoning reviewable", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
   const discussions = createAiTeamDiscussionService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher: async ({ question }) => ({ status: "completed", answer: `검토 결과: ${question}`, keyPoints: ["경계를 먼저 확인합니다."], alternatives: ["작게 나누어 검증합니다."], risks: ["실행 전 사람 검토가 필요합니다."] }) });
 
@@ -42,7 +42,7 @@ test("AI team discussion lists wait for each durable discussion lock before proj
   const teams = createTeamService(join(root, "platform"), { now: () => at });
   const team = await teams.createTeam(owner, { name: "Discussion read lock team", description: "read synchronization", kind: "project", visibility: "private", capacity: 3 });
   await teams.addAiMember(owner, team.id, { agentId: "architect", assignmentRole: "architecture", capabilities: ["discussion.propose"], approvalScope: "suggestion-only" }, at);
-  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
   const project = await projects.createProject(owner, { name: "Discussion read project", objective: "serialize discussion reads", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
   const discussions = createAiTeamDiscussionService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher: async () => ({ status: "completed" as const, answer: "기존 답변", keyPoints: [], alternatives: [], risks: [] }) });
   const discussion = await discussions.requestDiscussion(owner, project.id, { agentId: "architect", requestId: "discussion-read-lock", question: "기존 질문" });
@@ -69,7 +69,7 @@ test("AI team discussion without a local dispatcher stays durably waiting and me
   const teams = createTeamService(join(root, "platform"), { now: () => at });
   const team = await teams.createTeam(owner, { name: "Waiting discussion team", description: "waiting boundary", kind: "project", visibility: "public", capacity: 3 });
   await teams.addAiMember(owner, team.id, { agentId: "reviewer", assignmentRole: "review", capabilities: ["discussion.propose"], approvalScope: "suggestion-only" }, at);
-  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
   const project = await projects.createProject(owner, { name: "Waiting discussion project", objective: "preserve no-runtime state", purpose: "portfolio", teamMode: "mixed", teamId: team.id });
   const discussions = createAiTeamDiscussionService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at });
 
@@ -86,7 +86,7 @@ test("AI team proposal and discussion dispatches share one per-user Runtime gate
   const teams = createTeamService(join(root, "platform"), { now: () => at });
   const team = await teams.createTeam(owner, { name: "Shared Runtime team", description: "one local Runtime boundary", kind: "project", visibility: "private", capacity: 4 });
   await teams.addAiMember(owner, team.id, { agentId: "architect", assignmentRole: "architecture", capabilities: ["context.read", "task.propose", "discussion.propose"], approvalScope: "suggestion-only" }, at);
-  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
   const project = await projects.createProject(owner, { name: "Shared Runtime project", objective: "serialize AI team work", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
   const sharedGate = createUserRuntimeDispatchGate();
   let active = 0;
@@ -134,7 +134,7 @@ test("concurrent AI team discussion requests across service instances remain one
   const teams = createTeamService(join(root, "platform"), { now: () => at });
   const team = await teams.createTeam(owner, { name: "Concurrent discussion team", description: "discussion idempotency", kind: "project", visibility: "public", capacity: 4 });
   await teams.addAiMember(owner, team.id, { agentId: "architect", assignmentRole: "architecture", capabilities: ["context.read", "discussion.propose"], approvalScope: "suggestion-only" }, at);
-  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
   const project = await projects.createProject(owner, { name: "Concurrent discussion project", objective: "one durable discussion", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
   let dispatchCount = 0;
   const dispatcher = async ({ question }: { question: string }) => {
@@ -162,7 +162,7 @@ test("AI team discussions re-check active membership after waiting for the Team 
   const teams = createTeamService(platform, { now: () => at });
   const team = await teams.createTeam(owner, { name: "Discussion lock team", description: "membership recheck", kind: "project", visibility: "private", capacity: 4 });
   await teams.addAiMember(owner, team.id, { agentId: "reviewer", assignmentRole: "reviewer", capabilities: ["discussion.propose"], approvalScope: "suggestion-only" }, at);
-  const projects = createUserProjectService({ platformRoot: platform, projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const projects = createUserProjectService({ platformRoot: platform, projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
   const project = await projects.createProject(owner, { name: "Discussion lock project", objective: "recheck team membership", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
   const discussions = createAiTeamDiscussionService({ root: join(platform, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher: async () => ({ status: "completed" as const, answer: "Should not persist", keyPoints: [], alternatives: [], risks: [] }) });
 
