@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable incoming friend-request state rechecks
+
+- Status: **B — incoming friend-request reads now reacquire the canonical friend-request lock inside the social pair lock and reload request status before exposing a pending request; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A request accepted while the list is waiting can no longer remain visible as pending.
+- Evidence: `src/social/service.ts`, `src/social/block-lock.ts`, `src/social/friend-request-lock.ts`, `src/social/store.ts`, `tests/social-safety.test.ts`.
+- TDD: RED reproduced an incoming request read completing after a competing pending-to-accepted mutation and still returning the request; GREEN added the pair → friend-request lock boundary and latest request identity/status recheck.
+- Verification: focused Social safety/messaging/API/profile suites `22/22`; Iseol user-product `398/398`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `1f49d7c fix: recheck incoming friend requests`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root incoming friend-request read authorization coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable friend-list relationship rechecks
 
 - Status: **B — friend-list reads now reacquire the canonical friend-request lock inside the social pair lock and reload the relationship before projecting a friend; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A relationship that changes from accepted to rejected while the list is waiting can no longer remain visible as a friend.
