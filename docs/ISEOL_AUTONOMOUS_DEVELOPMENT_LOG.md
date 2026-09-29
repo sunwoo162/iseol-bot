@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Team manager read synchronization
+
+- Status: **B — Team manager authorization now acquires the canonical Team membership lock and reloads current Team/membership role state; lock-held AI Team, Recruitment, and Study paths use an explicit internal predicate to avoid nested-lock deadlock, while live Runtime/provider execution remains unverified**. A concurrent manager-role downgrade can no longer leave `isManager` with an unlocked stale allow result.
+- Evidence: `src/teams/contracts.ts`, `src/teams/service.ts`, `src/ai-team/service.ts`, `src/recruitment/service.ts`, `src/study/service.ts`, `tests/team-membership-acl.test.ts`.
+- TDD: RED reproduced `isManager` returning while the Team membership lock was held; GREEN added the durable lock/reload boundary, the lock-held manager predicate, and updated lock-held service paths, then verified the downgraded owner was denied after release without deadlocking dependent flows.
+- Verification: focused Team/Study/Recruitment/AI team regression `38/38`; collaboration regression `55/55`; Iseol user-product `435/435`; serial root `727/727`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `9fd202b fix: synchronize team manager reads`; merged by PR #100 with merge commit `4c4a5eb`.
+- Boundary: same-host/shared-root Team manager authorization reads and dependent lock-order integration only; recruitment application review remains a separate mutation-lock boundary, distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Study submission read synchronization
 
 - Status: **B — Study Space detail reads now keep the canonical Team membership → Study space → personal Submission lock order and reload each task answer before projection; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent personal answer save cannot leave a member with an unlocked stale submission in the Study Space view.
