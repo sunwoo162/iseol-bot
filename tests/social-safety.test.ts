@@ -8,7 +8,7 @@ import { createPlatformUserService } from "../src/platform-user/service.js";
 import { withDurableSocialBlockLock } from "../src/social/block-lock.js";
 import { withDurableSocialProfileLock } from "../src/social/profile-lock.js";
 import { createSocialService } from "../src/social/service.js";
-import { saveBlock, saveProfile } from "../src/social/store.js";
+import { saveBlock, saveFriendRequest, saveProfile } from "../src/social/store.js";
 
 const at = "2026-09-27T15:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -139,6 +139,37 @@ test("friend list reads re-check social block state after waiting for the pair l
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
   await saveBlock(platformRoot, { version: 1, id: "block-friends-read-a-friends-read-b", blockerUserId: "friends-read-a", blockedUserId: "friends-read-b", status: "active", createdAt: at, updatedAt: at });
+  release();
+  assert.deepEqual(await reading, []);
+  await holder;
+});
+
+test("friend list reads re-check friendship state after waiting for the pair lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-friends-request-read-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  for (const id of ["friends-request-read-a", "friends-request-read-b"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const social = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+  await social.createFriendRequest(principal("friends-request-read-a"), "friends-request-read-b");
+  await social.respondToFriendRequest(principal("friends-request-read-b"), "friend-friends-request-read-a-friends-request-read-b", "accept");
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableSocialBlockLock(platformRoot, "friends-request-read-a", "friends-request-read-b", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = social.listFriends(principal("friends-request-read-a")).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await saveFriendRequest(platformRoot, { version: 1, id: "friend-friends-request-read-a-friends-request-read-b", requesterUserId: "friends-request-read-a", targetUserId: "friends-request-read-b", status: "rejected", createdAt: at, updatedAt: "2026-09-27T15:00:01.000Z" });
   release();
   assert.deepEqual(await reading, []);
   await holder;

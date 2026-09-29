@@ -116,7 +116,11 @@ export function createSocialService(root: string, options: SocialServiceOptions)
         const other = request.requesterUserId === principal.userId ? request.targetUserId : request.requesterUserId;
         const profile = await withDurableSocialBlockLock(root, principal.userId, other, async () => {
           if (await isBlocked(principal.userId, other)) return null;
-          return profileFor(other);
+          return withDurableFriendRequestLock(root, request.id, async () => {
+            const current = await loadFriendRequest(root, request.id);
+            if (!current || current.status !== "accepted" || current.requesterUserId !== request.requesterUserId || current.targetUserId !== request.targetUserId) return null;
+            return profileFor(other);
+          }, { waitForMs: 2_000 });
         }, { waitForMs: 2_000 });
         if (profile) friends.push(profile);
       }
