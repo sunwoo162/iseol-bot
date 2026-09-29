@@ -7,7 +7,7 @@ import type { Principal } from "../src/identity/contracts.js";
 import { personalScope } from "../src/access/authorization.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { withDurablePlatformUserLock } from "../src/platform-user/user-lock.js";
-import { savePlatformUser } from "../src/platform-user/store.js";
+import { loadPasswordCredential, loadPlatformUser, listPlatformUsers, savePasswordCredential, savePlatformUser, savePlatformUserUnlocked } from "../src/platform-user/store.js";
 import { routeUserRequest } from "../src/web-control-plane/user-router.js";
 
 const at = "2026-09-25T12:00:00.000Z";
@@ -97,7 +97,7 @@ test("platform user reads wait for the user lock and reload current state", asyn
   assert.equal(getSettled, false);
   assert.equal(listSettled, false);
 
-  await savePlatformUser(root, { ...user, displayName: "After", updatedAt: at });
+  await savePlatformUserUnlocked(root, { ...user, displayName: "After", updatedAt: at });
   release();
   await holder;
   assert.equal((await fetched)?.displayName, "After");
@@ -125,10 +125,83 @@ test("platform user email lookup waits for the user lock and reloads current sta
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  await savePlatformUser(root, { ...user, email: "after@example.com", updatedAt: at });
+  await savePlatformUserUnlocked(root, { ...user, email: "after@example.com", updatedAt: at });
   release();
   await holder;
   assert.equal((await found)?.email, "after@example.com");
+});
+
+test("public platform user profile and credential stores wait for the shared user lock", async () => {
+  const { root, service } = await serviceFixture();
+  const user = await service.createUser({ id: "store-lock-user", email: "store-lock@example.com", displayName: "Before", timezone: "Asia/Seoul" });
+  const credential = { version: 1 as const, salt: "c2FsdA==", hash: "aGFzaA==", createdAt: at };
+
+  const holdUserLock = async () => {
+    let release!: () => void;
+    let acquired!: () => void;
+    const acquiredPromise = new Promise<void>((resolve) => { acquired = resolve; });
+    const holder = withDurablePlatformUserLock(root, user.id, async () => {
+      acquired();
+      await new Promise<void>((resolve) => { release = resolve; });
+    }, { waitForMs: 0 });
+    await acquiredPromise;
+    return { holder, release };
+  };
+
+  const profile = { ...user, displayName: "After", updatedAt: at };
+  const profileLock = await holdUserLock();
+  let profileSaveSettled = false;
+  const pendingProfileSave = savePlatformUser(root, profile).then(() => { profileSaveSettled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(profileSaveSettled, false);
+  profileLock.release();
+  await profileLock.holder;
+  await pendingProfileSave;
+
+  const credentialLock = await holdUserLock();
+  let credentialSaveSettled = false;
+  const pendingCredentialSave = savePasswordCredential(root, user.id, credential).then(() => { credentialSaveSettled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(credentialSaveSettled, false);
+  credentialLock.release();
+  await credentialLock.holder;
+  await pendingCredentialSave;
+
+  const loadLock = await holdUserLock();
+  let loadSettled = false;
+  const pendingLoad = loadPlatformUser(root, user.id).then((value) => {
+    loadSettled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(loadSettled, false);
+  loadLock.release();
+  await loadLock.holder;
+  assert.equal((await pendingLoad)?.displayName, "After");
+
+  const credentialLoadLock = await holdUserLock();
+  let credentialLoadSettled = false;
+  const pendingCredentialLoad = loadPasswordCredential(root, user.id).then((value) => {
+    credentialLoadSettled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(credentialLoadSettled, false);
+  credentialLoadLock.release();
+  await credentialLoadLock.holder;
+  assert.deepEqual(await pendingCredentialLoad, credential);
+
+  const listLock = await holdUserLock();
+  let listSettled = false;
+  const pendingList = listPlatformUsers(root).then((value) => {
+    listSettled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(listSettled, false);
+  listLock.release();
+  await listLock.holder;
+  assert.equal((await pendingList).find((item) => item.id === user.id)?.displayName, "After");
 });
 
 test("user router requires a platform session and returns the authenticated profile", async () => {
