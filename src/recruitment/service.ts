@@ -3,7 +3,7 @@ import { assertIdentityId, assertTimestamp, type Principal } from "../identity/c
 import type { RecruitmentApplication, RecruitmentInput, RecruitmentPost, RecruitmentService, RecruitmentServiceOptions } from "./contracts.js";
 import { withDurableRecruitmentApplicationLock } from "./application-lock.js";
 import { withDurableRecruitmentReviewLock } from "./review-lock.js";
-import { listApplications, listPosts, loadApplication, loadPost, saveApplication, savePost } from "./store.js";
+import { listApplicationsUnlocked, listPostsUnlocked, loadApplication, loadApplicationUnlocked, loadPost, loadPostUnlocked, saveApplication, saveApplicationUnlocked, savePost } from "./store.js";
 import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -17,11 +17,11 @@ export function createRecruitmentService(root: string, options: RecruitmentServi
     },
     async listPosts(principal, kind) {
       ensurePrincipal(principal);
-      const candidates = await listPosts(root);
+      const candidates = await listPostsUnlocked(root);
       const current: RecruitmentPost[] = [];
       for (const candidate of candidates) {
         await withDurableTeamMembershipLock(root, candidate.teamId, async () => {
-          const post = await loadPost(root, candidate.id);
+          const post = await loadPostUnlocked(root, candidate.id);
           if (post?.status === "open" && (!kind || post.kind === kind)) current.push(post);
         }, { waitForMs: 2_000 });
       }
@@ -31,7 +31,7 @@ export function createRecruitmentService(root: string, options: RecruitmentServi
       ensurePrincipal(principal); try { assertIdentityId(postId); } catch { return null; }
       const initialPost = await loadPost(root, postId); if (!initialPost) return null;
       const readPostContext = () => withDurableTeamMembershipLock(root, initialPost.teamId, async () => {
-        const post = await loadPost(root, postId);
+        const post = await loadPostUnlocked(root, postId);
         if (!post) return null;
         const canSeeApplications = await options.teamService.isManagerWithinMembershipLock(principal, post.teamId);
         if (!canSeeApplications && post.status !== "open") return null;
@@ -39,13 +39,13 @@ export function createRecruitmentService(root: string, options: RecruitmentServi
       }, { waitForMs: 2_000 });
       const initialContext = await readPostContext();
       if (!initialContext || !initialContext.canSeeApplications) return initialContext ? { post: initialContext.post, applications: [] } : null;
-      const candidates = (await listApplications(root)).filter((item) => item.postId === initialContext.post.id);
+      const candidates = (await listApplicationsUnlocked(root)).filter((item) => item.postId === initialContext.post.id);
       const applications = [] as NonNullable<Awaited<ReturnType<typeof loadApplication>>>[];
       for (const candidate of candidates) {
         const current = await withDurableRecruitmentReviewLock(root, candidate.id, async () => {
           const context = await readPostContext();
           if (!context || !context.canSeeApplications) return null;
-          const application = await loadApplication(root, candidate.id);
+          const application = await loadApplicationUnlocked(root, candidate.id);
           if (!application || application.postId !== context.post.id) return null;
           return application;
         }, { waitForMs: 2_000 });
@@ -62,11 +62,11 @@ export function createRecruitmentService(root: string, options: RecruitmentServi
       const initialTeam = await options.teamService.getTeam(principal, initialPost.teamId);
       if (initialTeam?.members.some((member) => member.userId === principal.userId)) throw new Error("Already a team member");
       return withDurableTeamMembershipLock(root, initialPost.teamId, async () => withDurableRecruitmentApplicationLock(root, postId, principal.userId, async () => {
-        const post = await loadPost(root, postId);
+        const post = await loadPostUnlocked(root, postId);
         if (!post || post.status !== "open") throw new Error("Recruitment post not found");
         const team = await options.teamService.getTeamWithinMembershipLock(principal, post.teamId);
         if (team?.members.some((member) => member.userId === principal.userId)) throw new Error("Already a team member");
-        const existing = (await listApplications(root)).find((item) => item.postId === postId && item.applicantUserId === principal.userId && ["pending", "accepted"].includes(item.status));
+        const existing = (await listApplicationsUnlocked(root)).find((item) => item.postId === postId && item.applicantUserId === principal.userId && ["pending", "accepted"].includes(item.status));
         if (existing) return { application: existing, created: false };
         const at = now();
         assertTimestamp(at, "application timestamp");
@@ -80,8 +80,8 @@ export function createRecruitmentService(root: string, options: RecruitmentServi
       ensurePrincipal(principal); assertIdentityId(applicationId); if (!["accept", "reject"].includes(action)) throw new Error("Invalid application action");
       const initial = await loadApplication(root, applicationId); if (!initial) throw new Error("Application not found");
       return withDurableRecruitmentReviewLock(root, applicationId, async () => withDurableTeamMembershipLock(root, initial.teamId, async () => {
-        const current = await loadApplication(root, applicationId); if (!current || current.teamId !== initial.teamId || !await options.teamService.isManagerWithinMembershipLock(principal, current.teamId) || current.status !== "pending") throw new Error("Application not found");
-        const at = now(); const next: RecruitmentApplication = { ...current, status: action === "accept" ? "accepted" : "rejected", updatedAt: at }; if (action === "accept") await options.teamService.addMemberWithinMembershipLock(current.teamId, current.applicantUserId, "member", at); await saveApplication(root, next); await options.activityService?.recordActivityEvent(principal, { sourceType: "recruitment", sourceId: next.id, eventType: "recruitment.application.reviewed", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { action, applicantUserId: next.applicantUserId, teamId: next.teamId } }); if (action === "accept" && options.notificationService) { let enabled = !options.settingsService; if (options.settingsService) { try { enabled = (await options.settingsService.getSettings({ userId: current.applicantUserId, sessionId: "notification-system", roles: ["system"] })).notifications.teamInvite; } catch { enabled = false; } } if (enabled) await options.notificationService.createTeamInviteNotification({ userId: current.applicantUserId, teamId: current.teamId, applicationId: next.id, actorUserId: principal.userId, createdAt: at }); } return next;
+        const current = await loadApplicationUnlocked(root, applicationId); if (!current || current.teamId !== initial.teamId || !await options.teamService.isManagerWithinMembershipLock(principal, current.teamId) || current.status !== "pending") throw new Error("Application not found");
+        const at = now(); const next: RecruitmentApplication = { ...current, status: action === "accept" ? "accepted" : "rejected", updatedAt: at }; if (action === "accept") await options.teamService.addMemberWithinMembershipLock(current.teamId, current.applicantUserId, "member", at); await saveApplicationUnlocked(root, next); await options.activityService?.recordActivityEvent(principal, { sourceType: "recruitment", sourceId: next.id, eventType: "recruitment.application.reviewed", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { action, applicantUserId: next.applicantUserId, teamId: next.teamId } }); if (action === "accept" && options.notificationService) { let enabled = !options.settingsService; if (options.settingsService) { try { enabled = (await options.settingsService.getSettings({ userId: current.applicantUserId, sessionId: "notification-system", roles: ["system"] })).notifications.teamInvite; } catch { enabled = false; } } if (enabled) await options.notificationService.createTeamInviteNotification({ userId: current.applicantUserId, teamId: current.teamId, applicationId: next.id, actorUserId: principal.userId, createdAt: at }); } return next;
       }, { waitForMs: 2_000 }), { waitForMs: 2_000 });
     },
   };

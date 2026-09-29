@@ -8,7 +8,7 @@ import { createActivityService } from "../src/activity/service.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createRecruitmentService } from "../src/recruitment/service.js";
 import { withDurableRecruitmentReviewLock } from "../src/recruitment/review-lock.js";
-import { saveApplication, savePost } from "../src/recruitment/store.js";
+import { saveApplicationUnlocked, savePostUnlocked } from "../src/recruitment/store.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
 import { loadMembershipUnlocked, saveMembershipUnlocked } from "../src/teams/store.js";
 import { createTeamService } from "../src/teams/service.js";
@@ -215,7 +215,7 @@ test("recruitment post lists wait for the Team lock and reload current status", 
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await savePost(platform, { ...post, status: "closed", updatedAt: at });
+  await savePostUnlocked(platform, { ...post, status: "closed", updatedAt: at });
   release();
   assert.deepEqual(await listing, []);
   await holder;
@@ -249,7 +249,7 @@ test("recruitment post reads wait for each application review lock and reload cu
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  await saveApplication(platform, { ...application, status: "accepted", updatedAt: at });
+  await saveApplicationUnlocked(platform, { ...application, status: "accepted", updatedAt: at });
   release();
   await holder;
   assert.equal((await reading)?.applications[0]?.status, "accepted");
