@@ -7,6 +7,7 @@ import type { Principal } from "../src/identity/contracts.js";
 import { createActivityService } from "../src/activity/service.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createRecruitmentService } from "../src/recruitment/service.js";
+import { savePost } from "../src/recruitment/store.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
 import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createTeamService } from "../src/teams/service.js";
@@ -148,5 +149,35 @@ test("recruitment post reads re-check manager access after waiting for the Team 
   release();
   const result = await reading;
   assert.deepEqual(result?.applications, []);
+  await holder;
+});
+
+test("recruitment post lists wait for the Team lock and reload current status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-recruitment-list-read-lock-"));
+  const platform = join(root, "platform");
+  const teams = createTeamService(platform, { now: () => at });
+  const recruitment = createRecruitmentService(platform, { teamService: teams, now: () => at });
+  const team = await teams.createTeam(principal("recruit-list-owner"), { name: "List lock team", description: "reload recruitment lists", kind: "project", visibility: "public", capacity: 3 });
+  const post = await recruitment.createPost(principal("recruit-list-owner"), { teamId: team.id, kind: "project", title: "List lock post", description: "reload the current post status", roles: ["member"], tags: [] });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(platform, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const listing = recruitment.listPosts(principal("recruit-list-owner")).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await savePost(platform, { ...post, status: "closed", updatedAt: at });
+  release();
+  assert.deepEqual(await listing, []);
   await holder;
 });
