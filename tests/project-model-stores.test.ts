@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ProjectHistoryEvent, ProjectWorkspace, PrototypeCandidate } from "../src/project-model/contracts.js";
 import {
+  listPrototypeCandidates,
   loadPrototypeCandidate,
   savePrototypeCandidate,
   updatePrototypeCandidate,
@@ -15,6 +16,7 @@ import { ensurePortfolioDocument, loadPortfolioDocument, savePortfolioDocument, 
 import { createPortfolioDocument } from "../src/project-model/portfolio-store.js";
 import { withDurablePortfolioLock } from "../src/project-model/portfolio-lock.js";
 import { withDurableProjectWorkspaceLock } from "../src/project-model/workspace-lock.js";
+import { withDurablePrototypeLock } from "../src/project-model/prototype-lock.js";
 
 function candidate(): PrototypeCandidate {
   return {
@@ -81,6 +83,30 @@ test("concurrent prototype candidate patches preserve disjoint fields", async ()
   const updated = await loadPrototypeCandidate(root, "prototype-001");
   assert.equal(updated?.status, "verified");
   assert.equal(updated?.promotedProjectId, "project-prototype-001");
+});
+
+test("prototype listing waits for each durable prototype lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-prototype-list-lock-"));
+  await savePrototypeCandidate(root, candidate());
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurablePrototypeLock(root, candidate().id, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+
+  let settled = false;
+  const listing = listPrototypeCandidates(root).then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  releaseHolder();
+  assert.deepEqual((await listing).map((item) => item.id), [candidate().id]);
 });
 
 test("concurrent portfolio document patches preserve disjoint sections", async () => {
