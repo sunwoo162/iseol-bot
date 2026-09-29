@@ -30,7 +30,7 @@ export type AiTeamProposal = {
 export type AiTeamProposalDraft = { title: string; objective: string; acceptanceCriteria: string[]; rationale: string };
 export type AiTeamProposalDispatchResult = { status: "proposed"; draft: AiTeamProposalDraft } | { status: "waiting"; blocker: string };
 export type AiTeamProposalDispatcher = (input: { principal: Principal; projectId: string; teamId: string; agentId: string; assignmentRole: string; capabilities: TeamCapability[] }) => Promise<AiTeamProposalDispatchResult>;
-export type AiTeamProposalServiceOptions = { root: string; teamService: TeamService; userProjectService: UserProjectService; activityService?: ActivityService; dispatcher?: AiTeamProposalDispatcher; dispatchForUser?: UserRuntimeDispatchGate; now?: () => string };
+export type AiTeamProposalServiceOptions = { root: string; teamMembershipRoot?: string; teamService: TeamService; userProjectService: UserProjectService; activityService?: ActivityService; dispatcher?: AiTeamProposalDispatcher; dispatchForUser?: UserRuntimeDispatchGate; now?: () => string };
 export type AiTeamProposalService = {
   requestProposal(principal: Principal, projectId: string, input: { agentId: string; requestId: string }): Promise<AiTeamProposal>;
   listProposals(principal: Principal, projectId: string): Promise<AiTeamProposal[]>;
@@ -69,7 +69,7 @@ export type AiTeamDiscussionResult = {
   risks: string[];
 } | { status: "waiting"; blocker: string };
 export type AiTeamDiscussionDispatcher = (input: { principal: Principal; projectId: string; teamId: string; agentId: string; assignmentRole: string; capabilities: TeamCapability[]; question: string }) => Promise<AiTeamDiscussionResult>;
-export type AiTeamDiscussionServiceOptions = { root: string; teamService: TeamService; userProjectService: UserProjectService; activityService?: ActivityService; dispatcher?: AiTeamDiscussionDispatcher; dispatchForUser?: UserRuntimeDispatchGate; now?: () => string };
+export type AiTeamDiscussionServiceOptions = { root: string; teamMembershipRoot?: string; teamService: TeamService; userProjectService: UserProjectService; activityService?: ActivityService; dispatcher?: AiTeamDiscussionDispatcher; dispatchForUser?: UserRuntimeDispatchGate; now?: () => string };
 export type AiTeamDiscussionService = {
   requestDiscussion(principal: Principal, projectId: string, input: { agentId: string; requestId: string; question: string }): Promise<AiTeamDiscussion>;
   listDiscussions(principal: Principal, projectId: string): Promise<AiTeamDiscussion[]>;

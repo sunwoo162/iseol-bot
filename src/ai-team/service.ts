@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { dirname } from "node:path";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { TeamCapability, TeamMembership } from "../teams/contracts.js";
 import type { AiTeamProposal, AiTeamProposalDraft, AiTeamProposalService, AiTeamProposalServiceOptions } from "./contracts.js";
@@ -6,6 +7,7 @@ import { withDurableAiTeamProposalLock } from "./proposal-lock.js";
 import { withDurableAiTeamProposalDecisionLock } from "./proposal-decision-lock.js";
 import { listAiTeamProposals, loadAiTeamProposal, saveAiTeamProposal } from "./store.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
+import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
 function required(value: string, label: string, max: number): string { const result = value.trim(); if (!result || result.length > max) throw new Error(label + " is required"); return result; }
@@ -33,11 +35,14 @@ function waitingProposal(input: { projectId: string; teamId: string; agent: Team
 }
 export function createAiTeamProposalService(options: AiTeamProposalServiceOptions): AiTeamProposalService {
   const now = options.now ?? (() => new Date().toISOString());
+  const teamMembershipRoot = options.teamMembershipRoot ?? dirname(options.root);
   const dispatchForUser = options.dispatchForUser ?? createUserRuntimeDispatchGate();
   return {
     async requestProposal(principal, projectId, input) {
-      ensurePrincipal(principal); assertIdentityId(projectId); const requestId = required(input.requestId, "AI proposal requestId", 160); const agentId = required(input.agentId, "AI agentId", 128); const context = await projectAccess(options, principal, projectId); const agent = aiAssignment(context.members, agentId);
-      return withDurableAiTeamProposalLock(options.root, projectId, requestId, async () => {
+      ensurePrincipal(principal); assertIdentityId(projectId); const requestId = required(input.requestId, "AI proposal requestId", 160); const agentId = required(input.agentId, "AI agentId", 128); const initialContext = await projectAccess(options, principal, projectId); aiAssignment(initialContext.members, agentId);
+      return withDurableTeamMembershipLock(teamMembershipRoot, initialContext.teamId, async () => {
+        const context = await projectAccess(options, principal, projectId); const agent = aiAssignment(context.members, agentId);
+        return withDurableAiTeamProposalLock(options.root, projectId, requestId, async () => {
         const existing = (await listAiTeamProposals(options.root, projectId)).find((item) => item.requestId === requestId);
         if (existing) { if (existing.agentId !== agentId) throw new Error("AI proposal requestId conflict"); return existing; }
         const at = now(); assertTimestamp(at, "AI proposal timestamp");
@@ -47,11 +52,14 @@ export function createAiTeamProposalService(options: AiTeamProposalServiceOption
           if (result.status === "waiting") { const waiting = waitingProposal({ projectId, teamId: context.teamId, agent, requestId, at, blocker: required(result.blocker, "AI proposal blocker", 240) }); await saveAiTeamProposal(options.root, waiting); return waiting; }
           const draft = validateDraft(result.draft); const proposal: AiTeamProposal = { version: 1, id: "ai-proposal-" + randomUUID(), projectId, teamId: context.teamId, agentId, assignmentRole: agent.assignmentRole, capabilities: [...agent.capabilities], approvalScope: agent.approvalScope, requestId, ...draft, status: "proposed", source: "local-runtime", createdAt: at, updatedAt: at }; await saveAiTeamProposal(options.root, proposal); return proposal;
         } catch (error) { const blocker = error instanceof Error ? error.message.slice(0, 240) : "AI Team Runtime proposal failed"; const waiting = waitingProposal({ projectId, teamId: context.teamId, agent, requestId, at, blocker }); await saveAiTeamProposal(options.root, waiting); return waiting; }
+        }, { waitForMs: 2_000 });
       }, { waitForMs: 2_000 });
     },
     async listProposals(principal, projectId) { ensurePrincipal(principal); await projectAccess(options, principal, projectId); return listAiTeamProposals(options.root, projectId); },
     async acceptProposal(principal, projectId, proposalId) {
-      ensurePrincipal(principal); assertIdentityId(projectId); assertIdentityId(proposalId); await projectAccess(options, principal, projectId, true); const initial = await loadAiTeamProposal(options.root, projectId, proposalId); if (!initial) throw new Error("AI team proposal not found");
+      ensurePrincipal(principal); assertIdentityId(projectId); assertIdentityId(proposalId); const initialContext = await projectAccess(options, principal, projectId, true); const initial = await loadAiTeamProposal(options.root, projectId, proposalId); if (!initial) throw new Error("AI team proposal not found");
+      return withDurableTeamMembershipLock(teamMembershipRoot, initialContext.teamId, async () => {
+      await projectAccess(options, principal, projectId, true);
       return withDurableAiTeamProposalDecisionLock(options.root, projectId, proposalId, async () => {
       const current = await loadAiTeamProposal(options.root, projectId, proposalId); if (!current) throw new Error("AI team proposal not found");
       if (current.status === "accepted" && current.workRequestId) { const view = await options.userProjectService.getProject(principal, projectId); const workRequest = view?.workRequests.find((item) => item.id === current.workRequestId); if (workRequest) return { proposal: current, workRequest }; throw new Error("Accepted AI proposal work request not found"); }
@@ -70,10 +78,14 @@ export function createAiTeamProposalService(options: AiTeamProposalServiceOption
       });
       return { proposal, workRequest: result.request };
       }, { waitForMs: 2_000 });
+      }, { waitForMs: 2_000 });
     },
     async rejectProposal(principal, projectId, proposalId) {
-      ensurePrincipal(principal); assertIdentityId(projectId); assertIdentityId(proposalId); await projectAccess(options, principal, projectId, true); const initial = await loadAiTeamProposal(options.root, projectId, proposalId); if (!initial) throw new Error("AI team proposal not found");
-      return withDurableAiTeamProposalDecisionLock(options.root, projectId, proposalId, async () => { const current = await loadAiTeamProposal(options.root, projectId, proposalId); if (!current) throw new Error("AI team proposal not found"); if (current.status === "rejected") return current; if (current.status !== "proposed") throw new Error("AI team proposal is " + current.status); const at = now(); assertTimestamp(at, "AI proposal rejection timestamp"); const proposal = { ...current, status: "rejected" as const, updatedAt: at }; await saveAiTeamProposal(options.root, proposal); return proposal; }, { waitForMs: 2_000 });
+      ensurePrincipal(principal); assertIdentityId(projectId); assertIdentityId(proposalId); const initialContext = await projectAccess(options, principal, projectId, true); const initial = await loadAiTeamProposal(options.root, projectId, proposalId); if (!initial) throw new Error("AI team proposal not found");
+      return withDurableTeamMembershipLock(teamMembershipRoot, initialContext.teamId, async () => {
+        await projectAccess(options, principal, projectId, true);
+        return withDurableAiTeamProposalDecisionLock(options.root, projectId, proposalId, async () => { const current = await loadAiTeamProposal(options.root, projectId, proposalId); if (!current) throw new Error("AI team proposal not found"); if (current.status === "rejected") return current; if (current.status !== "proposed") throw new Error("AI team proposal is " + current.status); const at = now(); assertTimestamp(at, "AI proposal rejection timestamp"); const proposal = { ...current, status: "rejected" as const, updatedAt: at }; await saveAiTeamProposal(options.root, proposal); return proposal; }, { waitForMs: 2_000 });
+      }, { waitForMs: 2_000 });
     },
   };
 }

@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { dirname } from "node:path";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { TeamCapability, TeamMembership } from "../teams/contracts.js";
 import type { AiTeamDiscussion, AiTeamDiscussionResult, AiTeamDiscussionService, AiTeamDiscussionServiceOptions } from "./contracts.js";
 import { withDurableAiTeamDiscussionLock } from "./discussion-lock.js";
 import { listAiTeamDiscussions, saveAiTeamDiscussion } from "./discussion-store.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
+import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
 function required(value: string, label: string, max: number): string { const result = value.trim(); if (!result || result.length > max) throw new Error(label + " is required"); return result; }
@@ -47,10 +49,13 @@ async function persistDiscussion(options: AiTeamDiscussionServiceOptions, princi
 }
 export function createAiTeamDiscussionService(options: AiTeamDiscussionServiceOptions): AiTeamDiscussionService {
   const now = options.now ?? (() => new Date().toISOString());
+  const teamMembershipRoot = options.teamMembershipRoot ?? dirname(options.root);
   const dispatchForUser = options.dispatchForUser ?? createUserRuntimeDispatchGate();
   return {
     async requestDiscussion(principal, projectId, input) {
-      ensurePrincipal(principal); assertIdentityId(projectId); const requestId = required(input.requestId, "AI discussion requestId", 160); const agentId = required(input.agentId, "AI agentId", 128); const question = required(input.question, "AI discussion question", 4_000); const context = await projectAccess(options, principal, projectId); const agent = aiAssignment(context.members, agentId);
+      ensurePrincipal(principal); assertIdentityId(projectId); const requestId = required(input.requestId, "AI discussion requestId", 160); const agentId = required(input.agentId, "AI agentId", 128); const question = required(input.question, "AI discussion question", 4_000); const initialContext = await projectAccess(options, principal, projectId); aiAssignment(initialContext.members, agentId);
+      return withDurableTeamMembershipLock(teamMembershipRoot, initialContext.teamId, async () => {
+      const context = await projectAccess(options, principal, projectId); const agent = aiAssignment(context.members, agentId);
       return withDurableAiTeamDiscussionLock(options.root, projectId, requestId, async () => {
         const existing = (await listAiTeamDiscussions(options.root, projectId)).find((item) => item.requestId === requestId);
         if (existing) { if (existing.agentId !== agentId || existing.question !== question) throw new Error("AI discussion requestId conflict"); return existing; }
@@ -61,6 +66,7 @@ export function createAiTeamDiscussionService(options: AiTeamDiscussionServiceOp
           if (dispatched.status === "waiting") { const result = waiting({ projectId, teamId: context.teamId, agent, requestId, question, at, blocker: required(dispatched.blocker, "AI discussion blocker", 240) }); return persistDiscussion(options, principal, result); }
           const normalized = validateResult(dispatched); const discussion: AiTeamDiscussion = { version: 1, id: "ai-discussion-" + randomUUID(), projectId, teamId: context.teamId, agentId, assignmentRole: agent.assignmentRole, capabilities: [...agent.capabilities], approvalScope: agent.approvalScope, requestId, question, ...normalized, source: "local-runtime", createdAt: at, updatedAt: at }; return persistDiscussion(options, principal, discussion);
         } catch (error) { const blocker = error instanceof Error ? error.message.slice(0, 240) : "AI Team Runtime discussion failed"; const result = waiting({ projectId, teamId: context.teamId, agent, requestId, question, at, blocker }); return persistDiscussion(options, principal, result); }
+      }, { waitForMs: 2_000 });
       }, { waitForMs: 2_000 });
     },
     async listDiscussions(principal, projectId) { ensurePrincipal(principal); assertIdentityId(projectId); await projectAccess(options, principal, projectId); return listAiTeamDiscussions(options.root, projectId); },

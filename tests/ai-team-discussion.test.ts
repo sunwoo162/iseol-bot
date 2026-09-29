@@ -5,6 +5,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { Principal } from "../src/identity/contracts.js";
 import { createTeamService } from "../src/teams/service.js";
+import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
+import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { createAiTeamDiscussionService } from "../src/ai-team/discussion-service.js";
 import { createAiTeamProposalService } from "../src/ai-team/service.js";
@@ -123,4 +125,38 @@ test("concurrent AI team discussion requests across service instances remain one
   assert.equal(dispatchCount, 1);
   assert.equal(new Set(results.map((result) => result.id)).size, 1);
   assert.equal((await firstService.listDiscussions(owner, project.id)).length, 1);
+});
+
+test("AI team discussions re-check active membership after waiting for the Team lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-discussion-lock-"));
+  const platform = join(root, "platform");
+  const owner = principal("discussion-lock-owner");
+  const teams = createTeamService(platform, { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Discussion lock team", description: "membership recheck", kind: "project", visibility: "private", capacity: 4 });
+  await teams.addAiMember(owner, team.id, { agentId: "reviewer", assignmentRole: "reviewer", capabilities: ["discussion.propose"], approvalScope: "suggestion-only" }, at);
+  const projects = createUserProjectService({ platformRoot: platform, projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const project = await projects.createProject(owner, { name: "Discussion lock project", objective: "recheck team membership", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
+  const discussions = createAiTeamDiscussionService({ root: join(platform, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher: async () => ({ status: "completed" as const, answer: "Should not persist", keyPoints: [], alternatives: [], risks: [] }) });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(platform, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const request = discussions.requestDiscussion(owner, project.id, { agentId: "reviewer", requestId: "discussion-lock-request", question: "Should not run" });
+  assert.equal(await Promise.race([
+    request.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]), false);
+  const currentOwner = await loadMembership(platform, team.id, owner.userId);
+  assert.ok(currentOwner);
+  await saveMembership(platform, { ...currentOwner, status: "removed", updatedAt: at });
+  release();
+  await Promise.all([holder, assert.rejects(() => request, /team member|access/i)]);
+  await saveMembership(platform, { ...currentOwner, status: "active", updatedAt: at });
+  assert.deepEqual(await discussions.listDiscussions(owner, project.id), []);
 });
