@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CodingAttempt, CodingAttemptInput, CodingExercise, CodingExerciseInput, CodingPracticeResult, GoalInterpretation, LearningAnswerReceipt, LearningContentRequest, LearningFeedback, LearningFeedbackDispute, LearningFeedbackDisputeResult, LearningFeedbackEvaluation, LearningFeedbackEvaluationInput, LearningGoal, LearningGoalInput, LearningGoalSessionInput, LearningLessonBlock, LearningLessonContent, LearningLessonInput, LearningPlanAdjustment, LearningPlanAdjustmentInput, LearningPlanAdjustmentResult, LearningPlanInput, LearningPlanPreview, LearningPlanProposal, LearningPlanVersion, LearningProgress, LearningProjectApplication, LearningProjectApplicationInput, LearningReport, LearningReportPeriod, LearningService, LearningServiceOptions, LearningSessionAction, LearningSessionActionInput, ReviewItemInput, CodeAnalysisInput, StudyAttemptInput, LearningPlan, LearningPlanDay, LearningSession, LearningToday, ReviewItem, CodeAnalysisResult } from "./contracts.js";
-import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanVersions, listLearningPlanVersionsUnlocked, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningPlanVersionUnlocked, loadLearningReport, loadPlan, loadReview, loadSession, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveLearningPlanVersion, saveLearningPlanVersionUnlocked, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession } from "./store.js";
+import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listGoalInterpretationsUnlocked, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanVersions, listLearningPlanVersionsUnlocked, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningPlanVersionUnlocked, loadLearningReport, loadPlan, loadReview, loadSession, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveGoalInterpretationUnlocked, saveLearningPlanVersion, saveLearningPlanVersionUnlocked, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession } from "./store.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
 import { withDurableLearningProjectApplicationAcceptanceLock } from "./project-application-acceptance-lock.js";
@@ -416,7 +416,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
         .filter((plan) => plan.goalId === goal.id && plan.inputRevision === (goal.status === "preview-ready" ? goal.revision - 1 : goal.revision))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
       if (existing) {
-        const interpretation = await listGoalInterpretations(root, principal.userId);
+        const interpretation = await listGoalInterpretationsUnlocked(root, principal.userId);
         const matched = interpretation.find((item) => item.id === existing.interpretationId);
         if (!matched) throw new Error("Learning goal interpretation not found");
         return { goal, interpretation: matched, plan: existing, created: false };
@@ -435,7 +435,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
           assumptions: proposal.assumptions, feasibleOutcomes: proposal.feasibleOutcomes, exclusions: proposal.exclusions, prerequisites: proposal.prerequisites,
           level: proposal.level, feasibleMinutes: proposal.feasibleMinutes, createdAt: at,
         };
-        await saveGoalInterpretation(root, interpretation);
+        await saveGoalInterpretationUnlocked(root, interpretation);
         const planId = "learning-plan-version-" + randomUUID();
         const plan = previewFromProposal(goal, at, proposal, planId, interpretation.id, timezone);
         await saveLearningPlanVersionUnlocked(root, plan);
@@ -451,7 +451,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
         exclusions: ["지정된 시간 안에서 다루기 어려운 고급·전문 범위"], prerequisites: [],
         level: { value: goal.optionalSettings?.level ?? "unknown", evidenceRefs: [] }, feasibleMinutes: durationDays(goal.input.duration, learningDate(at, principalTimezone(principal)).date) * goal.input.dailyMinutes, createdAt: at,
       };
-      await saveGoalInterpretation(root, interpretation);
+      await saveGoalInterpretationUnlocked(root, interpretation);
       const plan = previewFor(goal, at, interpretation, "learning-plan-version-" + randomUUID(), principalTimezone(principal));
       await saveLearningPlanVersionUnlocked(root, plan);
       const updatedGoal: LearningGoal = { ...goal, status: "preview-ready", revision: goal.revision + 1, updatedAt: at };
