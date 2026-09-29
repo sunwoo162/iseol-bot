@@ -26,6 +26,13 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
     const membership = await getMembership(teamId, userId);
     return active(membership) && (membership.role === "owner" || membership.role === "admin");
   };
+  const canAccessWithinMembershipLock = async (principal: Principal, teamId: string): Promise<boolean> => {
+    ensurePrincipal(principal);
+    assertIdentityId(teamId);
+    const team = await loadTeam(root, teamId);
+    if (!team || team.status !== "active") return false;
+    return team.visibility === "public" || active(await getMembership(teamId, principal.userId));
+  };
 
   return {
     async createTeam(principal, input: TeamInput) {
@@ -141,7 +148,12 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
     },
 
     async isManager(principal, teamId) { ensurePrincipal(principal); return isManagerByUser(teamId, principal.userId); },
-    async canAccess(principal, teamId) { ensurePrincipal(principal); const team = await loadTeam(root, teamId); if (!team || team.status !== "active") return false; return team.visibility === "public" || active(await getMembership(teamId, principal.userId)); },
+    async canAccess(principal, teamId) {
+      ensurePrincipal(principal);
+      assertIdentityId(teamId);
+      return withDurableTeamMembershipLock(root, teamId, () => canAccessWithinMembershipLock(principal, teamId), { waitForMs: 2_000 });
+    },
+    canAccessWithinMembershipLock,
     async canCollaborate(userA, userB) {
       assertIdentityId(userA); assertIdentityId(userB);
       const teams = await listTeams(root);

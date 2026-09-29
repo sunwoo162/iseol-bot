@@ -27,6 +27,7 @@ test("an active project can change teams without leaking workspace access or sta
     projectHarnessRoot: join(root, "runs"),
     iseolRoot: root,
     canAccessTeam: (viewer, teamId) => teams.canAccess(viewer, teamId),
+    canAccessTeamWithinMembershipLock: (viewer, teamId) => teams.canAccessWithinMembershipLock(viewer, teamId),
     activityService: activity,
     now: () => at,
   });
@@ -64,6 +65,7 @@ test("project team transition waits for the durable Workspace mutation lock", as
     projectHarnessRoot: join(root, "runs"),
     iseolRoot: root,
     canAccessTeam: async (viewer: Principal, teamId: string) => teams.canAccess(viewer, teamId),
+    canAccessTeamWithinMembershipLock: async (viewer: Principal, teamId: string) => teams.canAccessWithinMembershipLock(viewer, teamId),
     now: () => at,
   };
   const projects = createUserProjectService(options);
@@ -102,6 +104,7 @@ test("project team transition re-checks team access after waiting for the Team m
     projectHarnessRoot: join(root, "runs"),
     iseolRoot: root,
     canAccessTeam: async (viewer: Principal, teamId: string) => teams.canAccess(viewer, teamId),
+    canAccessTeamWithinMembershipLock: async (viewer: Principal, teamId: string) => teams.canAccessWithinMembershipLock(viewer, teamId),
     now: () => at,
   };
   const projects = createUserProjectService(options);

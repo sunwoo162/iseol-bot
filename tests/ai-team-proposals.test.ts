@@ -22,7 +22,7 @@ test("AI team proposals require a bounded assigned capability and human acceptan
   const teams = createTeamService(join(root, "platform"), { now: () => at });
   const team = await teams.createTeam(owner, { name: "AI delivery team", description: "bounded AI collaboration", kind: "project", visibility: "public", capacity: 5 });
   await teams.addAiMember(owner, team.id, { agentId: "frontend", assignmentRole: "frontend", capabilities: ["context.read", "task.propose"], approvalScope: "owner-approved-execution" }, at);
-  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
   const project = await projects.createProject(owner, { name: "AI proposal project", objective: "connect bounded proposals", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
   const proposalService = createAiTeamProposalService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher: async () => ({ status: "proposed", draft: { title: "Create typed client", objective: "Add a typed client boundary", acceptanceCriteria: ["API types compile", "scope remains owner-bound"], rationale: "Reduce integration drift" } }) });
 
@@ -50,7 +50,7 @@ test("AI team proposal lists wait for each durable proposal lock before projecti
   const teams = createTeamService(join(root, "platform"), { now: () => at });
   const team = await teams.createTeam(owner, { name: "Proposal read lock team", description: "read synchronization", kind: "project", visibility: "private", capacity: 3 });
   await teams.addAiMember(owner, team.id, { agentId: "planner", assignmentRole: "planner", capabilities: ["task.propose"], approvalScope: "suggestion-only" }, at);
-  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
   const project = await projects.createProject(owner, { name: "Proposal read project", objective: "serialize proposal reads", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
   const proposals = createAiTeamProposalService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher: async () => ({ status: "proposed" as const, draft: { title: "기존 제목", objective: "기존 목표", acceptanceCriteria: ["기존 조건"], rationale: "기존 근거" } }) });
   const proposal = await proposals.requestProposal(owner, project.id, { agentId: "planner", requestId: "proposal-read-lock" });
@@ -76,7 +76,7 @@ test("AI team proposal without a local dispatcher is durable waiting and does no
   const teams = createTeamService(join(root, "platform"), { now: () => at });
   const team = await teams.createTeam(owner, { name: "Waiting AI team", description: "waiting boundary", kind: "project", visibility: "private", capacity: 3 });
   await teams.addAiMember(owner, team.id, { agentId: "qa", assignmentRole: "qa", capabilities: ["discussion.propose"], approvalScope: "suggestion-only" }, at);
-  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
   const project = await projects.createProject(owner, { name: "Waiting proposal project", objective: "preserve no-runtime state", purpose: "portfolio", teamMode: "mixed", teamId: team.id });
   const proposalService = createAiTeamProposalService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at });
   const waiting = await proposalService.requestProposal(owner, project.id, { agentId: "qa", requestId: "waiting-1" });
@@ -91,7 +91,7 @@ test("concurrent AI team proposal requests across service instances remain one p
   const teams = createTeamService(join(root, "platform"), { now: () => at });
   const team = await teams.createTeam(owner, { name: "Concurrent AI team", description: "proposal idempotency", kind: "project", visibility: "public", capacity: 5 });
   await teams.addAiMember(owner, team.id, { agentId: "frontend", assignmentRole: "frontend", capabilities: ["context.read", "task.propose"], approvalScope: "owner-approved-execution" }, at);
-  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
   const project = await projects.createProject(owner, { name: "Concurrent proposal project", objective: "one durable proposal", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
   let dispatchCount = 0;
   const dispatcher = async () => {
@@ -118,7 +118,7 @@ test("concurrent AI team proposal decisions keep one terminal decision", async (
   const teams = createTeamService(join(root, "platform"), { now: () => at });
   const team = await teams.createTeam(owner, { name: "Decision AI team", description: "proposal decision serialization", kind: "project", visibility: "public", capacity: 5 });
   await teams.addAiMember(owner, team.id, { agentId: "frontend", assignmentRole: "frontend", capabilities: ["context.read", "task.propose"], approvalScope: "owner-approved-execution" }, at);
-  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
   const project = await projects.createProject(owner, { name: "Decision proposal project", objective: "one decision", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
   const firstService = createAiTeamProposalService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher: async () => ({ status: "proposed" as const, draft: { title: "One task", objective: "One bounded task", acceptanceCriteria: ["types compile"], rationale: "keep scope bounded" } }) });
   const secondService = createAiTeamProposalService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at });
@@ -142,7 +142,7 @@ test("AI team proposal requests re-check active membership after waiting for the
   const teams = createTeamService(platform, { now: () => at });
   const team = await teams.createTeam(owner, { name: "Proposal lock team", description: "membership recheck", kind: "project", visibility: "private", capacity: 4 });
   await teams.addAiMember(owner, team.id, { agentId: "planner", assignmentRole: "planner", capabilities: ["task.propose"], approvalScope: "suggestion-only" }, at);
-  const projects = createUserProjectService({ platformRoot: platform, projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const projects = createUserProjectService({ platformRoot: platform, projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
   const project = await projects.createProject(owner, { name: "Proposal lock project", objective: "recheck team membership", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
   const proposals = createAiTeamProposalService({ root: join(platform, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher: async () => ({ status: "proposed" as const, draft: { title: "Should not persist", objective: "membership must remain active", acceptanceCriteria: ["recheck"], rationale: "lock race" } }) });
 
@@ -176,7 +176,7 @@ test("AI team proposal acceptance re-checks manager authority after waiting for 
   const teams = createTeamService(platform, { now: () => at });
   const team = await teams.createTeam(owner, { name: "Proposal accept lock team", description: "manager recheck", kind: "project", visibility: "private", capacity: 4 });
   await teams.addAiMember(owner, team.id, { agentId: "planner", assignmentRole: "planner", capabilities: ["task.propose"], approvalScope: "suggestion-only" }, at);
-  const projects = createUserProjectService({ platformRoot: platform, projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const projects = createUserProjectService({ platformRoot: platform, projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
   const project = await projects.createProject(owner, { name: "Proposal accept lock project", objective: "recheck manager", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
   const proposals = createAiTeamProposalService({ root: join(platform, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher: async () => ({ status: "proposed" as const, draft: { title: "Approve me", objective: "only an active manager can accept", acceptanceCriteria: ["recheck"], rationale: "lock race" } }) });
   const proposal = await proposals.requestProposal(owner, project.id, { agentId: "planner", requestId: "proposal-accept-lock-request" });
