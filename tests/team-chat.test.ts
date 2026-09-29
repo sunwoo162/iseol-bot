@@ -7,7 +7,7 @@ import type { Principal } from "../src/identity/contracts.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createTeamService } from "../src/teams/service.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
-import { loadMembership, saveMembership } from "../src/teams/store.js";
+import { loadMembershipUnlocked, saveMembershipUnlocked } from "../src/teams/store.js";
 import { createTeamChatService } from "../src/team-chat/service.js";
 
 const at = "2026-09-27T12:00:00.000Z";
@@ -100,9 +100,9 @@ test("team chat reads re-check membership after waiting for the shared team lock
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  const membership = await loadMembership(root, team.id, owner.userId);
+  const membership = await loadMembershipUnlocked(root, team.id, owner.userId);
   assert.ok(membership);
-  await saveMembership(root, { ...membership, status: "removed" });
+  await saveMembershipUnlocked(root, { ...membership, status: "removed" });
   release();
   await assert.rejects(() => reading, /membership/i);
   await holder;

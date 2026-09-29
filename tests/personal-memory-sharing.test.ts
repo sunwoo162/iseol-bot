@@ -9,7 +9,7 @@ import { withDurableMemoryLock } from "../src/memory/memory-lock.js";
 import { saveMemoryUnlocked } from "../src/memory/store.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
 import { createTeamService } from "../src/teams/service.js";
-import { loadMembership, saveMembership } from "../src/teams/store.js";
+import { loadMembershipUnlocked, saveMembershipUnlocked } from "../src/teams/store.js";
 
 const at = "2026-09-28T12:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -96,9 +96,9 @@ test("memory sharing re-checks active membership after waiting for the Team lock
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  const membership = await loadMembership(root, team.id, owner.userId);
+  const membership = await loadMembershipUnlocked(root, team.id, owner.userId);
   assert.ok(membership);
-  await saveMembership(root, { ...membership, status: "removed" });
+  await saveMembershipUnlocked(root, { ...membership, status: "removed" });
   releaseHolder();
   await assert.rejects(() => sharing, /active team member/i);
   assert.deepEqual((await memory.listPrivateMemories(owner, {}))[0]?.sharedTeamIds, []);
@@ -130,9 +130,9 @@ test("shared memory reads re-check active membership after waiting for the Team 
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  const membership = await loadMembership(root, team.id, member.userId);
+  const membership = await loadMembershipUnlocked(root, team.id, member.userId);
   assert.ok(membership);
-  await saveMembership(root, { ...membership, status: "removed" });
+  await saveMembershipUnlocked(root, { ...membership, status: "removed" });
   releaseHolder();
   assert.deepEqual(await reading, []);
 });

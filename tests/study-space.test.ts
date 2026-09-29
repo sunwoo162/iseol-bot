@@ -9,7 +9,7 @@ import { createTeamService } from "../src/teams/service.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
 import { withDurableStudySpaceLock } from "../src/study/space-lock.js";
 import { withDurableStudySubmissionLock } from "../src/study/submission-lock.js";
-import { loadMembership, saveMembership } from "../src/teams/store.js";
+import { loadMembershipUnlocked, saveMembershipUnlocked } from "../src/teams/store.js";
 import { createStudyService } from "../src/study/service.js";
 import { saveStudySpace, saveTaskSubmission } from "../src/study/store.js";
 
@@ -128,9 +128,9 @@ test("study manager mutations re-check authority after waiting for the Team memb
     createSpace.then(() => true),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
   ]), false);
-  const currentOwner = await loadMembership(platformRoot, team.id, "study-lock-owner");
+  const currentOwner = await loadMembershipUnlocked(platformRoot, team.id, "study-lock-owner");
   assert.ok(currentOwner);
-  await saveMembership(platformRoot, { ...currentOwner, status: "removed", updatedAt: at });
+  await saveMembershipUnlocked(platformRoot, { ...currentOwner, status: "removed", updatedAt: at });
   release();
   await Promise.all([holder, assert.rejects(() => createSpace, /manager/i)]);
   assert.deepEqual(await studies.listStudySpaces(principal("study-lock-owner")), []);
@@ -162,9 +162,9 @@ test("study submissions re-check active membership after waiting for the Team me
     submit.then(() => true),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
   ]), false);
-  const currentMember = await loadMembership(platformRoot, team.id, "study-submission-member");
+  const currentMember = await loadMembershipUnlocked(platformRoot, team.id, "study-submission-member");
   assert.ok(currentMember);
-  await saveMembership(platformRoot, { ...currentMember, status: "removed", updatedAt: at });
+  await saveMembershipUnlocked(platformRoot, { ...currentMember, status: "removed", updatedAt: at });
   release();
   await Promise.all([holder, assert.rejects(() => submit, /study space/i)]);
   assert.deepEqual((await studies.getStudySpace(principal("study-submission-owner"), space.id))?.mySubmissions, []);
@@ -196,9 +196,9 @@ test("study space reads re-check active membership after waiting for the Team me
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  const membership = await loadMembership(platformRoot, team.id, owner.userId);
+  const membership = await loadMembershipUnlocked(platformRoot, team.id, owner.userId);
   assert.ok(membership);
-  await saveMembership(platformRoot, { ...membership, status: "removed", updatedAt: at });
+  await saveMembershipUnlocked(platformRoot, { ...membership, status: "removed", updatedAt: at });
   release();
   assert.equal(await reading, null);
   await holder;
