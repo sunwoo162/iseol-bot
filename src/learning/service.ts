@@ -974,7 +974,13 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const answer = await loadLearningAnswerReceipt(root, principal.userId, answerId);
       if (!answer || answer.userId !== principal.userId) return null;
       const feedback = (await listLearningFeedback(root, principal.userId)).find((candidate) => candidate.answerId === answer.id);
-      return feedback?.userId === principal.userId ? feedback : null;
+      if (!feedback || feedback.userId !== principal.userId) return null;
+      return withDurableLearningFeedbackCompletionLock(root, principal.userId, feedback.id, async () => {
+        const currentAnswer = await loadLearningAnswerReceipt(root, principal.userId, answerId);
+        if (!currentAnswer || currentAnswer.userId !== principal.userId) return null;
+        const current = (await listLearningFeedback(root, principal.userId)).find((candidate) => candidate.answerId === currentAnswer.id);
+        return current?.userId === principal.userId ? current : null;
+      }, { waitForMs: 2_000 });
     },
 
     async listLearningAnswers(principal, sessionId): Promise<LearningAnswerReceipt[]> {
