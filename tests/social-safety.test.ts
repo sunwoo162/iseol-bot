@@ -6,8 +6,9 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { withDurableSocialBlockLock } from "../src/social/block-lock.js";
+import { withDurableSocialProfileLock } from "../src/social/profile-lock.js";
 import { createSocialService } from "../src/social/service.js";
-import { saveBlock } from "../src/social/store.js";
+import { saveBlock, saveProfile } from "../src/social/store.js";
 
 const at = "2026-09-27T15:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -230,5 +231,35 @@ test("block list reads re-check block state after waiting for the pair lock", as
   await saveBlock(platformRoot, { version: 1, id: "block-block-list-owner-block-list-target", blockerUserId: "block-list-owner", blockedUserId: "block-list-target", status: "removed", createdAt: at, updatedAt: at });
   release();
   assert.deepEqual(await reading, []);
+  await holder;
+});
+
+test("own profile reads wait for the durable profile lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-own-profile-read-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  await users.createUser({ id: "own-profile-read", email: "own-profile-read@example.com", displayName: "Own profile read", timezone: "Asia/Seoul" });
+  const social = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+  await social.updateProfile(principal("own-profile-read"), { handle: "before" });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableSocialProfileLock(platformRoot, "own-profile-read", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = social.getProfile(principal("own-profile-read")).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await saveProfile(platformRoot, { version: 1, userId: "own-profile-read", handle: "after", bio: "", skills: [], visibility: "public", createdAt: at, updatedAt: at });
+  release();
+  assert.equal((await reading)?.handle, "after");
   await holder;
 });

@@ -92,7 +92,9 @@ export function createSocialService(root: string, options: SocialServiceOptions)
         const profile = await profileFor(userId, true);
         return profile && (profile.visibility === "public" || userId === principal.userId) ? profile : null;
       };
-      return userId === principal.userId ? read() : withDurableSocialBlockLock(root, principal.userId, userId, read, { waitForMs: 2_000 });
+      return userId === principal.userId
+        ? withDurableSocialProfileLock(root, principal.userId, read, { waitForMs: 2_000 })
+        : withDurableSocialBlockLock(root, principal.userId, userId, read, { waitForMs: 2_000 });
     },
     async listProfiles(principal, search = "") {
       ensurePrincipal(principal); const users = await options.platformUserService.listUsers(); const query = search.trim().toLowerCase(); const profiles: PublicProfile[] = [];
