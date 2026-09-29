@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable own-profile read synchronization
+
+- Status: **B — own-profile reads now share the durable per-user profile lock with profile mutations; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A profile update that wins the lock while a self-read is waiting can no longer be followed by a stale pre-update projection.
+- Evidence: `src/social/service.ts`, `tests/social-safety.test.ts`.
+- TDD: RED reproduced a self-profile read completing while the profile lock was held and a newer profile record was persisted; GREEN routed self-profile reads through the existing profile lock while preserving the bilateral block lock for other-user reads.
+- Verification: focused Social safety/messaging/API suites `16/16`; user-product `393/393`; backend `tsc` build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `12ff7b0 fix: serialize own profile reads`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root own-profile read and profile mutation coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable block-list read authorization rechecks
 
 - Status: **B — block-list reads now acquire the canonical social pair lock per active block and recheck the latest durable block before returning it; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. An unblock that wins the pair lock while the list is waiting can no longer leave a stale active block visible.
