@@ -172,3 +172,33 @@ test("incoming friend request reads re-check social block state after waiting fo
   assert.deepEqual(await reading, []);
   await holder;
 });
+
+test("profile list reads re-check social block state after waiting for the pair lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-profile-list-read-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  for (const id of ["profile-list-viewer", "profile-list-target"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const social = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+  await social.updateProfile(principal("profile-list-target"), { handle: "profile-list-target" });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableSocialBlockLock(platformRoot, "profile-list-viewer", "profile-list-target", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = social.listProfiles(principal("profile-list-viewer"), "profile-list-target").then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await saveBlock(platformRoot, { version: 1, id: "block-profile-list-viewer-profile-list-target", blockerUserId: "profile-list-viewer", blockedUserId: "profile-list-target", status: "active", createdAt: at, updatedAt: at });
+  release();
+  assert.deepEqual(await reading, []);
+  await holder;
+});

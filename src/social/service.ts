@@ -96,7 +96,16 @@ export function createSocialService(root: string, options: SocialServiceOptions)
     },
     async listProfiles(principal, search = "") {
       ensurePrincipal(principal); const users = await options.platformUserService.listUsers(); const query = search.trim().toLowerCase(); const profiles: PublicProfile[] = [];
-      for (const user of users) { if (user.id !== principal.userId && await isBlocked(principal.userId, user.id)) continue; const profile = await profileFor(user.id); if (!profile || (profile.visibility !== "public" && profile.userId !== principal.userId)) continue; if (!query || `${profile.displayName} ${profile.handle} ${profile.skills.join(" ")}`.toLowerCase().includes(query)) profiles.push(profile); }
+      for (const user of users) {
+        const profile = user.id === principal.userId
+          ? await profileFor(user.id)
+          : await withDurableSocialBlockLock(root, principal.userId, user.id, async () => {
+              if (await isBlocked(principal.userId, user.id)) return null;
+              return profileFor(user.id);
+            }, { waitForMs: 2_000 });
+        if (!profile || (profile.visibility !== "public" && profile.userId !== principal.userId)) continue;
+        if (!query || `${profile.displayName} ${profile.handle} ${profile.skills.join(" ")}`.toLowerCase().includes(query)) profiles.push(profile);
+      }
       return profiles.sort((a, b) => a.displayName.localeCompare(b.displayName) || a.userId.localeCompare(b.userId));
     },
     async listFriends(principal) {
