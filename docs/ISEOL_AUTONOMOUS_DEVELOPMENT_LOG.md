@@ -3669,3 +3669,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `8984c37 fix: synchronize activity event reads`; merged by PR #64 with merge commit `94884c0`.
 - Boundary: same-host/shared-root Activity event read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Recruitment post read synchronization
+
+- Status: **B — Recruitment post lists and direct reads now acquire the canonical Team membership lock before reloading post projections; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent post closure or membership change cannot leave recruitment reads with an unlocked stale result.
+- Evidence: `src/recruitment/service.ts`, `src/recruitment/store.ts`, `src/teams/membership-lock.ts`, `tests/recruitment-flow.test.ts`.
+- TDD: RED reproduced the recruitment post list completing while the Team membership lock was held; GREEN added per-team lock/reload boundaries for list and direct reads and verified that a closed post is excluded after release.
+- Verification: focused Recruitment suite `6/6`; collaboration/notification regression `17/17`; Iseol user-product `421/421`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `0f501ae fix: synchronize recruitment post reads`; merged by PR #66 with merge commit `dbbd5ce`.
+- Boundary: same-host/shared-root Recruitment post read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
