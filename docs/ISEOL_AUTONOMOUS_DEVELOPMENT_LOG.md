@@ -3989,3 +3989,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `742598e fix: synchronize Idea Lab production list reads`; merged by PR #128 with merge commit `e8b9b3d`.
 - Boundary: same-host/shared-root Idea Lab Production list read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Idea Lab Campaign list read synchronization
+
+- Status: **B — Idea Lab Campaign list reads now wait on each Campaign's canonical durable lock before loading its record, while live Runtime/provider execution remains unverified**. Windows transient lock-handle contention is retried only within the existing bounded wait budget.
+- Evidence: `src/idea-lab/campaign-store.ts`, `src/idea-lab/campaign-lock.ts`, `tests/idea-lab-stores.test.ts`.
+- TDD: RED reproduced `listIdeaLabCampaigns` completing while a Campaign lock was held; GREEN added the per-Campaign lock boundary, safe id validation, bounded EPERM retry, and verified the listing after release.
+- Verification: Idea Lab store regression `7/7`; serial full test suite `739/739`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `f276e51 fix: synchronize Idea Lab campaign list reads`; merged by PR #130 with merge commit `4f7e397`.
+- Boundary: same-host/shared-root Idea Lab Campaign list read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
