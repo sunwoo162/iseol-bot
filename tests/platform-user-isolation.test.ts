@@ -6,6 +6,8 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { personalScope } from "../src/access/authorization.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
+import { withDurablePlatformUserLock } from "../src/platform-user/user-lock.js";
+import { savePlatformUser } from "../src/platform-user/store.js";
 import { routeUserRequest } from "../src/web-control-plane/user-router.js";
 
 const at = "2026-09-25T12:00:00.000Z";
@@ -66,6 +68,40 @@ test("platform user lookup does not import legacy operator records", async () =>
   await legacyService.createUser({ id: "operator-user", email: "operator@example.com", displayName: "Operator", timezone: "Asia/Seoul" });
 
   assert.equal(await service.getUser("operator-user"), null);
+});
+
+test("platform user reads wait for the user lock and reload current state", async () => {
+  const { root, service } = await serviceFixture();
+  const user = await service.createUser({ id: "read-lock-user", email: "read-lock@example.com", displayName: "Before", timezone: "Asia/Seoul" });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurablePlatformUserLock(root, user.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let getSettled = false;
+  let listSettled = false;
+  const fetched = service.getUser(user.id).then((result) => {
+    getSettled = true;
+    return result;
+  });
+  const listed = service.listUsers().then((result) => {
+    listSettled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(getSettled, false);
+  assert.equal(listSettled, false);
+
+  await savePlatformUser(root, { ...user, displayName: "After", updatedAt: at });
+  release();
+  await holder;
+  assert.equal((await fetched)?.displayName, "After");
+  assert.equal((await listed).find((item) => item.id === user.id)?.displayName, "After");
 });
 
 test("user router requires a platform session and returns the authenticated profile", async () => {
