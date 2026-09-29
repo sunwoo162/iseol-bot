@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { IdeaLabCampaign } from "../idea-lab/contracts.js";
 import { assertIdeaLabId } from "../idea-lab/contracts.js";
 import { withDurableIdeaLabCampaignLock } from "../idea-lab/campaign-lock.js";
-import { loadIdeaLabCampaign, saveIdeaLabCampaign } from "../idea-lab/campaign-store.js";
+import { loadIdeaLabCampaignUnlocked, saveIdeaLabCampaign } from "../idea-lab/campaign-store.js";
 import { appendIdeaLabCampaignEventOnce } from "../idea-lab/event-store.js";
 
 export class WebIdeaLabActionError extends Error {
@@ -53,7 +53,7 @@ export async function createWebIdeaLabCampaign(options: CreateWebIdeaLabCampaign
   const id = (options.idFactory ?? (() => `campaign-${randomUUID()}`))();
   try { assertIdeaLabId(id); } catch { throw new WebIdeaLabActionError(400, "Generated Campaign id is invalid"); }
   return withDurableIdeaLabCampaignLock(options.root, id, async () => {
-    if (await loadIdeaLabCampaign(options.root, id)) throw new WebIdeaLabActionError(409, `Campaign already exists: ${id}`);
+    if (await loadIdeaLabCampaignUnlocked(options.root, id)) throw new WebIdeaLabActionError(409, `Campaign already exists: ${id}`);
     const campaign: IdeaLabCampaign = {
       version: 1, id, seed, constraints: constraints.map((item) => String(item).trim()),
       targetReadyCount, productionConcurrency, proposalIds: [], productionIds: [], status: "generating",
@@ -75,7 +75,7 @@ export async function createWebIdeaLabCampaign(options: CreateWebIdeaLabCampaign
 export async function cancelWebIdeaLabCampaign(root: string, campaignId: string, at: string): Promise<IdeaLabCampaign> {
   try { assertIdeaLabId(campaignId); } catch { throw new WebIdeaLabActionError(404, "Campaign not found"); }
   return withDurableIdeaLabCampaignLock(root, campaignId, async () => {
-    const campaign = await loadIdeaLabCampaign(root, campaignId);
+    const campaign = await loadIdeaLabCampaignUnlocked(root, campaignId);
     if (!campaign) throw new WebIdeaLabActionError(404, `Campaign not found: ${campaignId}`);
     if (campaign.status === "cancelled") return campaign;
     if (campaign.status === "complete") throw new WebIdeaLabActionError(409, `Completed Campaign cannot be cancelled: ${campaignId}`);
