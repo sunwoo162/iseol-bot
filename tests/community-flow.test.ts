@@ -6,6 +6,8 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createCommunityService } from "../src/community/service.js";
+import { withDurableCommunityLikeLock } from "../src/community/like-lock.js";
+import { saveLike } from "../src/community/store.js";
 import { createNotificationService } from "../src/notifications/service.js";
 import { createSettingsService } from "../src/settings/service.js";
 
@@ -20,6 +22,35 @@ test("community posts and likes are durable, public, and user-attributed", async
   assert.deepEqual(await community.toggleLike(principal("community-b"), post.id), { liked: true, likeCount: 1 }); assert.equal((await community.listPosts(principal("community-b")))[0]?.viewerLiked, true);
   assert.deepEqual(await community.toggleLike(principal("community-b"), post.id), { liked: false, likeCount: 0 });
   const reloaded = createCommunityService(platform, { platformUserService: users, now: () => at }); assert.equal((await reloaded.listPosts(principal("community-b"))).length, 1);
+});
+
+test("community post reads wait for the viewer like lock before projecting like state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-community-like-read-lock-")); const platform = join(root, "platform"); const users = createPlatformUserService(platform, { now: () => at });
+  await users.createUser({ id: "like-read-author", email: "like-read-author@example.com", displayName: "Like Read Author", timezone: "Asia/Seoul" }); await users.createUser({ id: "like-read-viewer", email: "like-read-viewer@example.com", displayName: "Like Read Viewer", timezone: "Asia/Seoul" });
+  const community = createCommunityService(platform, { platformUserService: users, now: () => at }); const post = await community.createPost(principal("like-read-author"), { category: "개발 이야기", title: "좋아요 읽기 잠금", content: "좋아요 projection 경쟁조건을 확인하는 게시글입니다.", tags: [] });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableCommunityLikeLock(platform, post.id, "like-read-viewer", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = community.listPosts(principal("like-read-viewer")).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await saveLike(platform, post.id, "like-read-viewer");
+  release();
+  const result = (await reading)[0];
+  assert.equal(result?.viewerLiked, true);
+  assert.equal(result?.likeCount, 1);
+  await holder;
 });
 
 test("community comments are durable, public, and user-attributed", async () => {
