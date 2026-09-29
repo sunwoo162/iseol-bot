@@ -2305,6 +2305,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root Study personal submission read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable recruitment application read synchronization
+
+- Status: **B — Recruitment manager application reads now keep the canonical per-application Review → Team lock order and reload the current post, manager access, and application before projection; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent application review cannot leave a manager with an unlocked stale application status in the recruitment post detail view.
+- Evidence: `src/recruitment/service.ts`, `src/recruitment/review-lock.ts`, `src/teams/membership-lock.ts`, `tests/recruitment-flow.test.ts`.
+- TDD: RED reproduced recruitment post detail reads completing while an application review lock was held; GREEN added the per-application review-lock/reload boundary and verified the accepted status after release. The read path uses the same Review → Team order as application acceptance to avoid an inverse lock order.
+- Verification: Recruitment/Collaboration/Team focused regression `17/17`; recruitment-focused regression `7/7`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `ac2de5b fix: synchronize recruitment application reads`; merged by PR #92 with merge commit `c40bdad`.
+- Boundary: same-host/shared-root recruitment application read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable shared memory lock-order alignment
 
 - Status: **B — Shared memory read and write paths now use one canonical Team membership → Memory lock order; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. The read hardening from PR #86 no longer has an inverse write order that could deadlock cross-service sharing operations.
