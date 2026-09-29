@@ -13,6 +13,7 @@ import { createSettingsService } from "../src/settings/service.js";
 import { createSocialService } from "../src/social/service.js";
 import { createTeamChatService } from "../src/team-chat/service.js";
 import { createTeamService } from "../src/teams/service.js";
+import { saveNotification } from "../src/notifications/store.js";
 
 const at = "2026-09-27T13:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -121,6 +122,32 @@ test("notification read waits for the same durable identity lock", async () => {
   const read = await pending;
   assert.equal(read.readAt, at);
   assert.equal((await notifications.listStreamEvents(userId)).filter((event) => event.change === "read").length, 1);
+});
+
+test("notification list waits for each durable identity lock and reloads current read state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-notification-list-read-lock-"));
+  const userId = "notification-list-read-lock-owner";
+  const notifications = createNotificationService(root, { now: () => at });
+  const created = await notifications.createDirectMessageNotification({ userId, messageId: "list-read-lock-message", actorUserId: "list-read-lock-sender", conversationUserId: "list-read-lock-sender" });
+  const lockKey = `${userId}:notification:${created.id}`;
+  const lockPath = join(root, ".locks", "notifications", `${createHash("sha256").update(lockKey).digest("hex")}.lock`);
+  await mkdir(dirname(lockPath), { recursive: true });
+  const handle = await open(lockPath, "wx");
+  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token: "test-list-read-lock", createdAt: at }), "utf8");
+  let settled = false;
+  const pending = notifications.listNotifications(principal(userId)).then((value) => {
+    settled = true;
+    return value;
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await saveNotification(root, { ...created, readAt: at, updatedAt: at });
+  await handle.close();
+  await unlink(lockPath);
+  const listed = await pending;
+  assert.equal(listed.unreadCount, 0);
+  assert.equal(listed.notifications[0]?.readAt, at);
 });
 
 test("community comment notifications are bounded and idempotent by comment identity", async () => {
