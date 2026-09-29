@@ -14,10 +14,19 @@ export async function savePrototypeProduction(root: string, production: Prototyp
   await writeIdeaLabJsonAtomic(productionFile(root, production.id), production);
 }
 
-export async function loadPrototypeProduction(root: string, id: string): Promise<PrototypeProduction | null> {
+export async function loadPrototypeProductionUnlocked(root: string, id: string): Promise<PrototypeProduction | null> {
   const value = await readIdeaLabJson<PrototypeProduction>(productionFile(root, id));
   if (value) assertPrototypeProduction(value);
   return value;
+}
+
+export async function loadPrototypeProduction(root: string, id: string): Promise<PrototypeProduction | null> {
+  return withDurableIdeaLabProductionLock(
+    root,
+    id,
+    () => loadPrototypeProductionUnlocked(root, id),
+    { waitForMs: 2_000 },
+  );
 }
 
 export async function listPrototypeProductions(root: string): Promise<PrototypeProduction[]> {
@@ -29,7 +38,7 @@ export async function listPrototypeProductions(root: string): Promise<PrototypeP
     const production = await withDurableIdeaLabProductionLock(
       root,
       id,
-      () => loadPrototypeProduction(root, id),
+      () => loadPrototypeProductionUnlocked(root, id),
       { waitForMs: 2_000 },
     );
     if (production) productions.push(production);
