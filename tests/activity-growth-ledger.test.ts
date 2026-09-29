@@ -6,6 +6,7 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createActivityService } from "../src/activity/service.js";
 import { createGrowthService } from "../src/growth/read-model.js";
+import { withDurableActivityEventLock } from "../src/activity/event-lock.js";
 import { removeOwnedLock } from "../src/lock-utils.js";
 
 const at = "2026-09-25T12:00:00.000Z";
@@ -122,4 +123,35 @@ test("concurrent identical activity events across service instances remain idemp
 
   assert.equal(results.filter((result) => result.status === "fulfilled").length, sources.length * 2);
   assert.equal((await firstService.listActivityEvents(principal("activity-owner"))).length, sources.length);
+});
+
+test("activity event reads wait for the durable event lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-activity-read-lock-"));
+  const owner = principal("activity-read-lock-owner");
+  const service = createActivityService(root, { now: () => at });
+  const event = await service.recordActivityEvent(owner, {
+    sourceType: "test",
+    sourceId: "activity-read-lock",
+    eventType: "test.completed",
+    eventVersion: 1,
+    actorType: "user",
+    verificationStatus: "verified",
+  });
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableActivityEventLock(root, owner.userId, event.id, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let listSettled = false;
+  let getSettled = false;
+  const listed = service.listActivityEvents(owner).then((result) => { listSettled = true; return result; });
+  const fetched = service.getActivityEvent(owner, event.id).then((result) => { getSettled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(listSettled, false);
+  assert.equal(getSettled, false);
+
+  releaseHolder();
+  await lockHeld;
+  assert.deepEqual((await listed).map((candidate) => candidate.id), [event.id]);
+  assert.equal((await fetched)?.id, event.id);
 });
