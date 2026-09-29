@@ -1,0 +1,50 @@
+import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { AddressInfo } from "node:net";
+import test from "node:test";
+import { createMemoryService } from "../src/memory/service.js";
+import { createAiChatService } from "../src/ai-chat/service.js";
+import { createPlatformUserService } from "../src/platform-user/service.js";
+import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
+
+test("AI chat API keeps conversations private and reports Runtime waiting honestly", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-chat-api-")); const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => "2026-09-26T12:00:00.000Z" });
+  const user = await users.createUser({ id: "ai-chat-api-user", email: "ai-chat-api@example.com", displayName: "AI Chat API", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-27T12:00:00.000Z" });
+  const server = await startWebControlPlaneServer({ host: "127.0.0.1", port: 0, token: "control", modelRoot: join(root, "model"), harnessRoot: join(root, "runs"), webRoot: join(root, "web"), userService: users, memoryService: createMemoryService(platformRoot), aiChatService: createAiChatService(platformRoot, { memoryService: createMemoryService(platformRoot), now: () => "2026-09-26T12:00:00.000Z" }) });
+  const address = server.address() as AddressInfo; const base = `http://127.0.0.1:${address.port}/api/user/ai-chat/conversations`; const auth = { authorization: `Bearer ${session.token}`, "content-type": "application/json" };
+  try {
+    assert.equal((await fetch(base)).status, 401);
+    const createdResponse = await fetch(base, { method: "POST", headers: auth, body: JSON.stringify({ title: "API 대화" }) }); assert.equal(createdResponse.status, 201);
+    const conversation = (await createdResponse.json() as { conversation: { id: string } }).conversation;
+    const sentResponse = await fetch(`${base}/${conversation.id}/messages`, { method: "POST", headers: auth, body: JSON.stringify({ content: "Runtime 연결 상태를 알려줘" }) }); assert.equal(sentResponse.status, 201);
+    const sent = await sentResponse.json() as { runtimeStatus: string; conversation: { messages: Array<{ status: string }> } };
+    assert.equal(sent.runtimeStatus, "waiting_runtime"); assert.equal(sent.conversation.messages[0].status, "waiting_runtime");
+  } finally { await server.closeForShutdown(); }
+});
+
+test("AI chat API persists bounded text attachments and rejects binary input without appending a message", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-chat-attachment-api-")); const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => "2026-09-27T15:30:00.000Z" });
+  const user = await users.createUser({ id: "ai-chat-attachment-api-user", email: "ai-chat-attachment-api@example.com", displayName: "AI Chat Attachment API", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-28T15:30:00.000Z" });
+  const server = await startWebControlPlaneServer({ host: "127.0.0.1", port: 0, token: "control", modelRoot: join(root, "model"), harnessRoot: join(root, "runs"), webRoot: join(root, "web"), userService: users, aiChatService: createAiChatService(platformRoot, { now: () => "2026-09-27T15:30:00.000Z" }) });
+  const address = server.address() as AddressInfo; const base = `http://127.0.0.1:${address.port}/api/user/ai-chat/conversations`; const auth = { authorization: `Bearer ${session.token}`, "content-type": "application/json" };
+  try {
+    const createdResponse = await fetch(base, { method: "POST", headers: auth, body: JSON.stringify({ title: "첨부 API 대화" }) });
+    const conversation = (await createdResponse.json() as { conversation: { id: string } }).conversation;
+    const attached = await fetch(`${base}/${conversation.id}/messages`, { method: "POST", headers: auth, body: JSON.stringify({ content: "이 파일을 읽어줘", attachments: [{ name: "notes.md", mimeType: "text/markdown", content: "# 개인 메모" }] }) });
+    assert.equal(attached.status, 201);
+    const attachedBody = await attached.json() as { conversation: { messages: Array<{ attachments?: Array<{ name: string; content: string }> }> } };
+    assert.deepEqual(attachedBody.conversation.messages[0]?.attachments?.map((item) => ({ name: item.name, content: item.content })), [{ name: "notes.md", content: "# 개인 메모" }]);
+
+    const rejected = await fetch(`${base}/${conversation.id}/messages`, { method: "POST", headers: auth, body: JSON.stringify({ content: "실행 파일", attachments: [{ name: "run.exe", mimeType: "application/octet-stream", content: "MZ" }] }) });
+    assert.equal(rejected.status, 400);
+    const conversationAfterReject = await fetch(`${base}/${conversation.id}`, { headers: { authorization: `Bearer ${session.token}` } });
+    const afterReject = await conversationAfterReject.json() as { conversation: { messages: unknown[] } };
+    assert.equal(afterReject.conversation.messages.length, 1);
+  } finally { await server.closeForShutdown(); }
+});

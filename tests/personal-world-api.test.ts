@@ -1,0 +1,69 @@
+import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { AddressInfo } from "node:net";
+import test from "node:test";
+import { createMemoryService } from "../src/memory/service.js";
+import { createPlatformUserService } from "../src/platform-user/service.js";
+import { createPersonalWorldService } from "../src/personal-world/service.js";
+import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
+
+test("personal world and private memory API persist through the user session boundary", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-personal-world-api-"));
+  const now = () => "2026-09-25T12:00:00.000Z";
+  const platform = createPlatformUserService(join(root, "platform"), { now });
+  const world = createPersonalWorldService(join(root, "platform"), { now });
+  const memory = createMemoryService(join(root, "platform"), { now });
+  const userA = await platform.createUser({ id: "api-a", email: "a@example.com", displayName: "A", timezone: "Asia/Seoul" });
+  const userB = await platform.createUser({ id: "api-b", email: "b@example.com", displayName: "B", timezone: "Asia/Seoul" });
+  const sessionA = await platform.createSession({ userId: userA.id, roles: ["user"], expiresAt: "2026-09-26T12:00:00.000Z" });
+  const sessionB = await platform.createSession({ userId: userB.id, roles: ["user"], expiresAt: "2026-09-26T12:00:00.000Z" });
+  const server = await startWebControlPlaneServer({
+    host: "127.0.0.1", port: 0, token: "operator-only",
+    modelRoot: join(root, "model"), harnessRoot: join(root, "runs"), webRoot: join(root, "web"),
+    userService: platform, personalWorldService: world, memoryService: memory,
+  });
+  const address = server.address() as AddressInfo;
+  const url = `http://127.0.0.1:${address.port}`;
+  const authA = { authorization: `Bearer ${sessionA.token}`, "content-type": "application/json" };
+  const authB = { authorization: `Bearer ${sessionB.token}` };
+  try {
+    const initial = await fetch(`${url}/api/user/world`, { headers: authA });
+    assert.equal(initial.status, 200);
+    assert.equal((await initial.json() as any).world.onboardingCompleted, false);
+
+    const updated = await fetch(`${url}/api/user/world`, {
+      method: "PUT", headers: authA,
+      body: JSON.stringify({ displayName: "Ari", handle: "ari_dev", character: "c", interests: ["AI/ML"], activities: ["learn"], onboardingCompleted: true }),
+    });
+    assert.equal(updated.status, 200);
+    assert.equal((await updated.json() as any).world.displayName, "Ari");
+
+    const createdMemory = await fetch(`${url}/api/user/memory`, {
+      method: "POST", headers: authA,
+      body: JSON.stringify({ kind: "note", content: "private context" }),
+    });
+    assert.equal(createdMemory.status, 201);
+    const listedByB = await fetch(`${url}/api/user/memory`, { headers: authB });
+    assert.deepEqual(await listedByB.json(), { memories: [] });
+    const listedByA = await fetch(`${url}/api/user/memory?search=private`, { headers: authA });
+    const listed = await listedByA.json() as any;
+    assert.equal(listed.memories.length, 1);
+    const updatedMemory = await fetch(`${url}/api/user/memory/${encodeURIComponent(listed.memories[0].id)}`, {
+      method: "PATCH", headers: authA,
+      body: JSON.stringify({ kind: "edited-note", content: "edited private context", source: null }),
+    });
+    assert.equal(updatedMemory.status, 200);
+    assert.equal((await updatedMemory.json() as any).memory.content, "edited private context");
+    const foreignUpdate = await fetch(`${url}/api/user/memory/${encodeURIComponent(listed.memories[0].id)}`, {
+      method: "PATCH", headers: { ...authB, "content-type": "application/json" },
+      body: JSON.stringify({ content: "must remain private" }),
+    });
+    assert.equal(foreignUpdate.status, 404);
+    const deletedMemory = await fetch(`${url}/api/user/memory/${encodeURIComponent(listed.memories[0].id)}`, { method: "DELETE", headers: authA });
+    assert.equal(deletedMemory.status, 204);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});

@@ -11,6 +11,18 @@ export type RepositoryOwner = {
   type: string;
 };
 
+export type RepositoryVisibility = "public" | "private";
+
+const GITHUB_AUTOMATION_EVENTS = ["pull_request", "milestone"] as const;
+
+export function buildAutomationWebhookUrl(publicBaseUrl: string): string {
+  const url = new URL(publicBaseUrl);
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/github/events`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
 const GITHUB_EVENTS = [
   "push",
   "pull_request",
@@ -50,19 +62,16 @@ export class GitHubWebhookService {
   }
 
   async getRepositoryOwner(repository: RepositoryRef): Promise<RepositoryOwner> {
-    const { data } = await this.octokit.rest.repos.get({
-      owner: repository.owner,
-      repo: repository.repo,
-    });
-
+    const { data } = await this.octokit.rest.repos.get({ owner: repository.owner, repo: repository.repo });
     if (!data.owner?.login || !data.owner.type) {
       throw new Error(`GitHub 저장소 owner 정보를 확인할 수 없습니다: ${repository.url}`);
     }
+    return { login: data.owner.login, type: data.owner.type };
+  }
 
-    return {
-      login: data.owner.login,
-      type: data.owner.type,
-    };
+  async getRepositoryVisibility(repository: RepositoryRef): Promise<RepositoryVisibility> {
+    const { data } = await this.octokit.rest.repos.get({ owner: repository.owner, repo: repository.repo });
+    return data.private ? "private" : "public";
   }
 
   async createDiscordWebhook(repository: RepositoryRef, discordWebhookUrl: string): Promise<number> {
@@ -77,38 +86,64 @@ export class GitHubWebhookService {
     return data.id;
   }
 
+  async createAutomationWebhook(repository: RepositoryRef, endpoint: string, secret: string): Promise<number> {
+    const { data } = await this.octokit.rest.repos.createWebhook({
+      owner: repository.owner,
+      repo: repository.repo,
+      name: "web",
+      active: true,
+      events: [...GITHUB_AUTOMATION_EVENTS],
+      config: { url: endpoint, content_type: "json", insecure_ssl: "0", secret },
+    });
+    return data.id;
+  }
+
+  async createIssue(repository: RepositoryRef | string, title: string, body: string): Promise<{ number: number; htmlUrl: string }> {
+    const ref = typeof repository === "string" ? parseGitHubRepository(repository) : repository;
+    const { data } = await this.octokit.rest.issues.create({ owner: ref.owner, repo: ref.repo, title, body });
+    return { number: data.number, htmlUrl: data.html_url };
+  }
+
+  async ensureRepositoryFile(repository: RepositoryRef, path: string, content: string, message: string): Promise<{ created: boolean; branch: string }> {
+    const { data: repositoryData } = await this.octokit.rest.repos.get({ owner: repository.owner, repo: repository.repo });
+    const branch = repositoryData.default_branch;
+    try {
+      await this.octokit.rest.repos.getContent({ owner: repository.owner, repo: repository.repo, path, ref: branch });
+      return { created: false, branch };
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      if (status !== 404) throw error;
+    }
+    await this.octokit.rest.repos.createOrUpdateFileContents({
+      owner: repository.owner,
+      repo: repository.repo,
+      path,
+      branch,
+      message,
+      content: Buffer.from(content, "utf8").toString("base64"),
+    });
+    return { created: true, branch };
+  }
+
   async deleteWebhook(repository: RepositoryRef, hookId: number): Promise<void> {
     await this.octokit.rest.repos.deleteWebhook({ owner: repository.owner, repo: repository.repo, hook_id: hookId });
   }
 
   async deleteDiscordWebhooks(repository: RepositoryRef): Promise<number> {
-    const { data: hooks } = await this.octokit.rest.repos.listWebhooks({
-      owner: repository.owner,
-      repo: repository.repo,
-      per_page: 100,
-    });
-
+    const { data: hooks } = await this.octokit.rest.repos.listWebhooks({ owner: repository.owner, repo: repository.repo, per_page: 100 });
     let deleted = 0;
     for (const hook of hooks) {
       const target = typeof hook.config.url === "string" ? hook.config.url : "";
       if (!target) continue;
-
       let url: URL;
-      try {
-        url = new URL(target);
-      } catch {
-        continue;
-      }
-
+      try { url = new URL(target); } catch { continue; }
       const host = url.hostname.toLowerCase();
       const isDiscord = host === "discord.com" || host === "www.discord.com" || host === "discordapp.com" || host === "www.discordapp.com";
       const isProjectWebhook = url.pathname.includes("/api/webhooks/") && url.pathname.endsWith("/github");
       if (!isDiscord || !isProjectWebhook) continue;
-
       await this.deleteWebhook(repository, hook.id);
       deleted += 1;
     }
-
     return deleted;
   }
 

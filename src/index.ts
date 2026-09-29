@@ -1,13 +1,9 @@
 import "./services/fetch-fallback.js";
 import {
-  ActionRowBuilder,
   Client,
   Events,
   GatewayIntentBits,
-  ModalBuilder,
   PermissionFlagsBits,
-  TextInputBuilder,
-  TextInputStyle,
 } from "discord.js";
 import { handleContestCommandV2 } from "./commands/contest-v2.js";
 import { handleContestVoteButton } from "./commands/contest.js";
@@ -16,9 +12,10 @@ import { handleJobCommand } from "./commands/job.js";
 import { config } from "./config.js";
 import { handleMusicAutocomplete, handleMusicCommand } from "./commands/music.js";
 import { handleProjectAutocomplete, handleProjectCommand } from "./commands/project.js";
-import { handleScrumCommand } from "./commands/scrum.js";
+import { handleScrumAutocomplete, handleScrumCommand } from "./commands/scrum.js";
 import { handleVoiceCommand } from "./commands/voice.js";
 import { commandHelpEmbed } from "./services/command-help.js";
+import { handleCalendarButton, handleCalendarModal } from "./services/calendar/calendar-discord.js";
 import { startContestAudienceFeedPolling } from "./services/contest-audience-feed.js";
 import { startContestFeedPolling } from "./services/contest-feed.js";
 import { ensureContestPrepAnnouncementChannels } from "./services/contest-prep-announcement.js";
@@ -28,7 +25,8 @@ import { startGitHubCommitFeedPolling } from "./services/github-commit-feed.js";
 import { GitHubWebhookService } from "./services/github.js";
 import { startJobFeedPolling } from "./services/job-feed.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
-import { findProject } from "./services/projects.js";
+import { routeInteraction, type InteractionRouterDependencies } from "./interactions/interaction-router.js";
+import { handleProjectJoinButton, handleProjectJoinModal } from "./interactions/project-join.js";
 import { handleVoiceAutoLeave } from "./services/voice-auto-leave.js";
 import {
   getActiveStudySession,
@@ -37,6 +35,8 @@ import {
   stopStudySession,
 } from "./services/voice-time.js";
 import { startWebhookServer } from "./services/webhook-server.js";
+import { startIseolRuntimeServices } from "./runtime/iseol-runtime-services.js";
+import { createBoundProjectProgressChannelResolver, createDiscordProgressAdapter } from "./discord-project/progress-discord-adapter.js";
 
 const client = new Client({
   intents: [
@@ -48,10 +48,77 @@ const client = new Client({
   ],
 });
 const github = new GitHubWebhookService(config.githubToken);
+let iseolRuntimeServices: Awaited<ReturnType<typeof startIseolRuntimeServices>> | null = null;
+let iseolRuntimeStartup: Promise<Awaited<ReturnType<typeof startIseolRuntimeServices>>> | null = null;
+
+function discordProgressRuntimeOptions(): {
+  progressNotificationRoot?: string;
+  progressNotificationAdapter?: ReturnType<typeof createDiscordProgressAdapter>;
+} {
+  // Progress dispatch is explicitly opt-in. The existing Discord client is
+  // reused, while both durable roots must be configured before any message
+  // can be sent. This keeps a partially configured deployment fail-closed.
+  const notificationRoot = process.env.ISEOL_DISCORD_NOTIFICATION_ROOT?.trim();
+  const bindingRoot = process.env.ISEOL_DISCORD_BINDING_ROOT?.trim();
+  if (!notificationRoot || !bindingRoot) return {};
+  const resolveChannel = createBoundProjectProgressChannelResolver({ bindingRoot });
+  return {
+    progressNotificationRoot: notificationRoot,
+    progressNotificationAdapter: createDiscordProgressAdapter(client, resolveChannel),
+  };
+}
+
+let shuttingDown = false;
+async function shutdownIseolRuntime(signal: "SIGINT" | "SIGTERM"): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try {
+    const services = iseolRuntimeServices ?? await iseolRuntimeStartup?.catch(() => null);
+    await services?.dispose();
+  } catch (error) {
+    console.error("Iseol runtime shutdown failed", error);
+    process.exitCode = 1;
+  } finally {
+    process.exitCode ??= signal === "SIGINT" ? 130 : 143;
+    client.destroy();
+  }
+}
+process.once("SIGINT", () => { void shutdownIseolRuntime("SIGINT"); });
+process.once("SIGTERM", () => { void shutdownIseolRuntime("SIGTERM"); });
+
+
+const interactionRouterDependencies: InteractionRouterDependencies = {
+  handleProjectAutocomplete,
+  handleMusicAutocomplete,
+  handleScrumAutocomplete,
+  handleProjectCommand,
+  handleContestCommand: handleContestCommandV2,
+  handleJobCommand,
+  handleGitHubCommand,
+  handleScrumCommand,
+  handleVoiceCommand,
+  handleMusicCommand,
+  handleCalendarButton,
+  handleContestVoteButton,
+  handleProjectJoinButton,
+  handleCalendarModal,
+  handleProjectJoinModal: (interaction) => handleProjectJoinModal(interaction, github),
+  afterProjectCommand: () => ensureProjectDiscussionChannels(client),
+  afterContestVote: () => ensureContestPrepAnnouncementChannels(client),
+};
 
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`${readyClient.user.tag} 로그인 완료 · 연결 서버 ${readyClient.guilds.cache.size}개`);
   startWebhookServer(client);
+  iseolRuntimeStartup = startIseolRuntimeServices({
+    env: process.env,
+    ...discordProgressRuntimeOptions(),
+  });
+  void iseolRuntimeStartup
+    .then((services) => {
+      if (!shuttingDown) iseolRuntimeServices = services;
+    })
+    .catch((error) => console.error("Iseol runtime composition failed", error));
   startContestFeedPolling(client);
   startContestAudienceFeedPolling(client);
   startJobFeedPolling(client);
@@ -153,70 +220,7 @@ client.on(Events.MessageCreate, async (message) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
-    if (interaction.isAutocomplete()) {
-      if (interaction.commandName === "project") await handleProjectAutocomplete(interaction);
-      if (interaction.commandName === "music") await handleMusicAutocomplete(interaction);
-      return;
-    }
-
-    if (interaction.isChatInputCommand()) {
-      if (interaction.commandName === "project") {
-        await handleProjectCommand(interaction);
-        await ensureProjectDiscussionChannels(client);
-      }
-      if (interaction.commandName === "contest") await handleContestCommandV2(interaction);
-      if (interaction.commandName === "job") await handleJobCommand(interaction);
-      if (interaction.commandName === "github") await handleGitHubCommand(interaction);
-      if (interaction.commandName === "scrum") await handleScrumCommand(interaction);
-      if (interaction.commandName === "voice") await handleVoiceCommand(interaction);
-      if (interaction.commandName === "music") await handleMusicCommand(interaction);
-      return;
-    }
-
-    if (interaction.isButton() && interaction.customId.startsWith("contest_vote:")) {
-      await handleContestVoteButton(interaction);
-      await ensureContestPrepAnnouncementChannels(client);
-      return;
-    }
-
-    if (interaction.isButton() && interaction.customId.startsWith("project_join:")) {
-      const projectId = interaction.customId.split(":")[1];
-      const project = projectId ? await findProject(projectId) : null;
-      if (!project || project.guildId !== interaction.guildId) {
-        await interaction.reply({ content: "프로젝트 정보를 찾을 수 없습니다.", ephemeral: true });
-        return;
-      }
-
-      const username = new TextInputBuilder().setCustomId("github_username").setLabel("GitHub 사용자명").setPlaceholder("예: sunwoo162").setMinLength(1).setMaxLength(39).setRequired(true).setStyle(TextInputStyle.Short);
-      const modal = new ModalBuilder().setCustomId(`project_join_modal:${project.id}`).setTitle(`${project.name} 참여`);
-      modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(username));
-      await interaction.showModal(modal);
-      return;
-    }
-
-    if (interaction.isModalSubmit() && interaction.customId.startsWith("project_join_modal:")) {
-      const projectId = interaction.customId.split(":")[1];
-      const project = projectId ? await findProject(projectId) : null;
-      if (!project || project.guildId !== interaction.guildId) {
-        await interaction.reply({ content: "프로젝트 정보를 찾을 수 없습니다.", ephemeral: true });
-        return;
-      }
-
-      const username = interaction.fields.getTextInputValue("github_username").trim().replace(/^@/, "");
-      if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(username)) {
-        await interaction.reply({ content: "❌ 올바른 GitHub 사용자명을 입력해주세요.", ephemeral: true });
-        return;
-      }
-
-      await interaction.deferReply({ ephemeral: true });
-      try {
-        await github.inviteOrganizationMember(project.organization, username);
-        await interaction.editReply(`✅ **@${username}** 계정으로 **${project.organization}** Organization 초대를 보냈습니다.\nGitHub 알림 또는 이메일에서 초대를 수락하면 합류가 완료됩니다.`);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
-        await interaction.editReply(`❌ GitHub Organization 초대에 실패했습니다.\n\`${message}\`\n\n이미 멤버/초대 대기 중인지, 또는 토큰에 Organization Members 쓰기 권한이 있는지 확인해주세요.`);
-      }
-    }
+    await routeInteraction(interaction, interactionRouterDependencies);
   } catch (error) {
     console.error(error);
     if (interaction.isRepliable() && !interaction.deferred && !interaction.replied) {

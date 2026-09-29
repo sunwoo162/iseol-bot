@@ -1,5 +1,4 @@
 import { ChannelType, Client } from "discord.js";
-import { DAILY_SCRUM_CHANNEL_NAME } from "./daily-scrum.js";
 import { listProjects } from "./projects.js";
 
 const ANNOUNCEMENT_CHANNEL_NAME = "📢・공지";
@@ -66,40 +65,6 @@ export async function ensureProjectDiscussionChannels(client: Client): Promise<v
         }
 
         console.log(`프로젝트 토론 채널 생성 완료: ${project.name}`);
-        children = (await guild.channels.fetch()).filter((channel) => channel?.parentId === category.id);
-      }
-
-      const dailyScrum = children.find((channel) =>
-        channel?.type === ChannelType.GuildText
-        && channel.name === DAILY_SCRUM_CHANNEL_NAME,
-      );
-
-      if (!dailyScrum) {
-        const discussionChannel = children.find((channel) =>
-          channel?.type === ChannelType.GuildText
-          && channel.name === DISCUSSION_CHANNEL_NAME,
-        );
-        const created = await guild.channels.create({
-          name: DAILY_SCRUM_CHANNEL_NAME,
-          type: ChannelType.GuildText,
-          parent: category.id,
-          reason: `${project.name} 데일리 스크럼 채널 추가`,
-        });
-
-        if (discussionChannel) {
-          await created.setPosition(discussionChannel.position + 1).catch(() => undefined);
-        }
-
-        await created.send({
-          content:
-            "📋 **데일리 스크럼 채널입니다.**\n" +
-            "`/scrum write todo:...`로 오늘 할 일을 기록하세요.\n" +
-            "`did`를 입력하지 않으면 전날 TODO가 자동으로 DID에 들어갑니다.\n" +
-            "매일 오전 8시(한국시간)에 @everyone 알림이 전송됩니다.",
-          allowedMentions: { parse: [] },
-        });
-
-        console.log(`프로젝트 데일리 스크럼 채널 생성 완료: ${project.name}`);
       }
     } catch (error) {
       console.error(`프로젝트 채널 확인 실패 (${project.name})`, error);

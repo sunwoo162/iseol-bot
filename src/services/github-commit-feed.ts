@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { Client, EmbedBuilder, TextChannel } from "discord.js";
 import { config } from "../config.js";
 import type { RepositoryRef } from "./github.js";
+import { startGitHubAutomationPolling } from "./github-automation-polling.js";
 import { GitHubUserService, listGitHubAccounts, type GitHubRepositoryEvent } from "./github-user.js";
 import { listProjects, type StoredProject } from "./projects.js";
 
@@ -199,6 +200,7 @@ export async function syncGitHubCommitFeeds(client: Client): Promise<void> {
 }
 
 export function startGitHubCommitFeedPolling(client: Client): NodeJS.Timeout {
+  startGitHubAutomationPolling(client);
   let running = false;
 
   const run = async () => {

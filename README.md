@@ -13,7 +13,8 @@
 ├─ 💬・토론
 ├─ 🗓・데일리스크럼
 ├─ 💻・frontend-log
-└─ 🛠・backend-log
+├─ 🛠・backend-log
+└─ 📅・일정
 ```
 
 `frontend-log`에는 프론트엔드 저장소 GitHub 이벤트가,
@@ -63,12 +64,21 @@ Discord Developer Portal에서 애플리케이션과 Bot을 생성합니다.
 
 GitHub Fine-grained personal access token을 만들고 대상 프론트/백엔드 저장소에 접근 권한을 부여합니다.
 
-필수 repository permission:
+코드리뷰/일정 자동화까지 포함한 권장 repository permission:
 
-- Webhooks: Read and write
 - Metadata: Read
+- Contents: Read and write
+- Workflows: Read and write
+- Actions: Read
+- Pull requests: Read and write
+- Issues: Read and write
+- Webhooks: Read and write
+
+`Contents`/`Workflows` 쓰기 권한은 프로젝트 저장소에 `.github/workflows/iseol-code-review.yml`을 최초 설치할 때 사용합니다. `Actions` 읽기 권한은 완료된 리뷰 workflow와 artifact를 조회할 때 사용합니다. `Pull requests` 쓰기 권한은 `🤖 이설 Code Review` 및 inline comment 작성에 필요합니다.
 
 프로젝트 저장소가 private이면 해당 저장소 자체에 대한 접근도 허용되어 있어야 합니다.
+
+GitHub Organization 참여 기능까지 사용한다면 Organization Members 쓰기 권한도 별도로 필요합니다.
 
 GitHub 프로필의 잔디는 GitHub GraphQL `contributionsCollection`을 사용해 조회합니다.
 
@@ -82,11 +92,28 @@ DISCORD_CLIENT_ID=...
 GITHUB_TOKEN=...
 FIGMA_TOKEN=...
 NOTION_TOKEN=...
+
+# Google Calendar를 사용할 때만 설정
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REFRESH_TOKEN=...
+GOOGLE_REDIRECT_URI=...
+
+# 선택: 중앙 collector 버전을 직접 지정할 때만 설정
+ISEOL_REVIEW_COLLECTOR_REF=...
+
+# 선택: 기존 signed-webhook AI fallback을 사용할 때만 설정
+GEMINI_API_KEY=...
+GITHUB_WEBHOOK_SECRET=...
+PUBLIC_BASE_URL=...
+WEBHOOK_PORT=...
 ```
 
 - `DISCORD_CLIENT_ID`: Discord Application ID
-- `GITHUB_TOKEN`: 저장소 webhook, 저장소 이벤트 조회, GitHub 프로필/잔디 조회에 사용하는 GitHub token
+- `GITHUB_TOKEN`: 저장소 webhook/contents/workflows/actions/PR/issue 조회 및 자동화에 사용하는 GitHub token
 - `DISCORD_GUILD_ID`: 선택값. 과거 길드 전용 slash command를 정리할 때만 기존 서버 ID를 잠시 유지합니다.
+- 기본 PR 코드리뷰에는 Gemini/OpenAI/Groq 등 유료 AI API 키가 필요하지 않습니다.
+- `GITHUB_WEBHOOK_SECRET`, `PUBLIC_BASE_URL`, `WEBHOOK_PORT`, `GEMINI_API_KEY`는 기존 signed webhook fallback을 사용할 때만 필요합니다.
 
 멀티 서버 운영에서는 각 서버의 프로젝트, 공모전, GitHub 사용자 연결, 데일리 스크럼, 음악/음성 상태가 Discord `guildId`를 기준으로 분리됩니다.
 
@@ -147,24 +174,23 @@ frontend: team/rain-gj-frontend
 backend: team/rain-gj-backend
 ```
 
-명령을 실행하면 카테고리와 프로젝트 채널을 만들고,
-Discord webhook을 만든 뒤 각 GitHub repository webhook을 자동 등록합니다.
+명령을 실행하면 카테고리와 프로젝트 채널을 만들고 Discord webhook을 만든 뒤 각 GitHub repository webhook을 자동 등록합니다.
 
-GitHub 이벤트는 Discord의 GitHub-compatible webhook endpoint로 바로 전달되므로
-별도의 GitHub 이벤트 수신용 웹 서버는 필요하지 않습니다.
+기존 GitHub 로그는 Discord의 GitHub-compatible webhook으로 계속 전달됩니다. PR 코드리뷰와 milestone 동기화의 기본 경로는 외부에서 이설 서버로 들어오는 webhook이 아니라 **이설이 GitHub를 1분 간격으로 조회하는 outbound polling**입니다.
 
 ### 데일리 스크럼
 
 프로젝트 카테고리에 `🗓・데일리스크럼` 채널이 자동 생성됩니다. 기존 프로젝트도 봇 재시작 시 채널이 없으면 자동으로 추가됩니다.
 
 ```text
-/scrum write todo:<오늘 할 일> did:<오늘 한 일, 선택>
+/scrum write todo:<오늘 할 일> did:<완료한 일, 선택>
 ```
 
 - `todo`는 필수입니다.
-- `did`는 선택입니다.
-- `did`를 입력하지 않으면 같은 프로젝트에서 **해당 사용자가 전날 작성한 TODO**를 자동으로 DID에 넣습니다.
-- 전날 TODO가 없으면 `전날 TODO 없음`으로 기록합니다.
+- 여러 TODO/DID를 쉼표(`,`)로 구분하면 Discord 임베드에서 `1.`, `2.`, `3.` 번호 목록으로 표시됩니다.
+- `did`는 선택값이며 입력하지 않으면 DID 영역 자체가 표시되지 않습니다.
+- `did` 입력칸을 선택하면 같은 프로젝트에서 해당 사용자가 **전날 작성한 TODO 목록**이 자동완성 후보로 표시됩니다.
+- 전날 TODO 전체를 한 번에 선택하거나 개별 항목을 선택할 수 있으며, 직접 입력도 가능합니다.
 - 같은 날 다시 `/scrum write`를 실행하면 기존 오늘 스크럼 메시지를 새로 올리지 않고 수정합니다.
 - 명령어는 해당 프로젝트 카테고리 안의 어느 텍스트 채널에서든 실행할 수 있고 결과는 `🗓・데일리스크럼` 채널에 기록됩니다.
 - 매일 **오전 8시(Asia/Seoul)**에 각 프로젝트 데일리 스크럼 채널로 `@everyone` 작성 알림을 보냅니다.
@@ -217,4 +243,71 @@ ChatGPT에서 연결한 Notion/Figma/GitHub 계정과 실제 Discord Bot 런타�
 - GitHub: `https://github.com/ORG/REPO` 형식만 허용
 - Frontend/Backend는 반드시 같은 GitHub Organization 아래에 있어야 함
 - 프로젝트 채널의 `GitHub Organization 참여` 버튼 → GitHub 사용자명 입력 → Organization 초대 자동 발송
-- GitHub 토큰에는 기존 Webhooks 쓰기 권한 외에 Organization Members 쓰기 권한이 필요함
+- Organization 참여 기능을 쓰는 GitHub token에는 Organization Members 쓰기 권한이 필요함
+
+## Google Calendar / GitHub 자동화 / 무료 코드리뷰
+
+프로젝트 생성 시 `📅・일정` 채널과 고정 일정 패널이 추가됩니다. Google OAuth가 설정되어 있으면 프로젝트 전용 보조 캘린더도 자동 생성됩니다.
+
+일정 패널에서 다음 작업을 할 수 있습니다.
+
+- 일정 추가 / 보기 / 수정 / 삭제
+- GitHub Issue와 Google Calendar 일정 동시 생성
+- GitHub milestone due date를 Calendar 일정으로 자동 동기화
+
+Google Calendar를 사용할 때 필요한 환경변수:
+
+```env
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REFRESH_TOKEN=...
+GOOGLE_REDIRECT_URI=...
+```
+
+Google Cloud에서 Calendar API를 활성화하고 OAuth 2.0 Client를 만든 뒤, 이설이 사용하는 Google 계정으로 offline access를 승인해 refresh token을 발급합니다. 토큰은 `.env`에만 저장하며 프로젝트 JSON에는 저장하지 않습니다.
+
+로컬 OAuth 설정 helper:
+
+```bash
+npm run google:auth
+```
+
+### 무료 PR 코드리뷰
+
+기본 PR 리뷰는 유료 LLM/API를 호출하지 않습니다.
+
+```text
+PR opened/reopened/synchronize
+  → GitHub Actions `Iseol Code Review`
+  → self-hosted `iseol-review` runner
+  → ESLint / TypeScript / npm audit / Knip / dependency-cruiser
+  → 선택적으로 Semgrep / Gitleaks / Trivy / OSV-Scanner / actionlint
+  → `iseol-review-findings` artifact
+  → 이설 1분 outbound polling
+  → PR HEAD SHA / artifact metadata 검증
+  → 변경된 RIGHT-side line만 필터링
+  → `🤖 이설 Code Review` + inline comments
+```
+
+리뷰 정책:
+
+- 같은 `repository + PR + HEAD SHA`는 한 번만 리뷰
+- 실제 PR에서 추가된 RIGHT-side line만 inline comment 대상으로 사용
+- 스타일/세미콜론/quote/line-length 같은 잡음은 제거
+- 같은 위치를 여러 분석기가 잡으면 confidence를 높여 우선순위 상승
+- 일반 inline comment는 최대 5개
+- critical security finding은 필요하면 일반 cap을 넘겨 유지 가능
+- merge 차단이나 자동 merge는 하지 않음
+- fork PR 코드는 신뢰된 self-hosted runner에서 실행하지 않음
+
+기존 프로젝트에 리뷰 workflow를 한 번에 설치하려면:
+
+```bash
+npm run review:install-workflows
+```
+
+이설의 1분 GitHub polling도 프로젝트별로 workflow 설치를 한 번 시도합니다. 이미 `.github/workflows/iseol-code-review.yml`이 있으면 덮어쓰지 않습니다.
+
+self-hosted runner 운영 및 도구 설치 방법은 `docs/operations/iseol-review-runner.md`를 참고합니다.
+
+기존 signed GitHub webhook/Gemini 경로는 optional fallback으로만 남아 있으며, 기본 운영에서는 `PUBLIC_BASE_URL`이나 외부 `8787` 포트를 열 필요가 없습니다.

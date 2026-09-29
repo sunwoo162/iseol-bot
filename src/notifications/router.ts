@@ -1,0 +1,34 @@
+import type { PlatformUserService } from "../platform-user/contracts.js";
+import type { UserRequest, UserResponse } from "../web-control-plane/user-router.js";
+import type { NotificationService } from "./contracts.js";
+
+export type NotificationRouteServices = { platformUserService: PlatformUserService; notificationService?: NotificationService };
+const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
+function response(status: number, body: unknown): UserResponse { return { status, headers: JSON_HEADERS, body }; }
+function bearer(headers: Record<string, string | undefined>): string | null { const value = headers.authorization; return value?.startsWith("Bearer ") ? value.slice(7).trim() || null : null; }
+
+export async function routeNotificationsRequest(request: UserRequest, services: NotificationRouteServices): Promise<UserResponse> {
+  const token = bearer(request.headers);
+  const principal = token ? await services.platformUserService.resolveAuthenticatedPrincipal(token) : null;
+  if (!principal) return response(401, { error: "authentication required" });
+  if (!services.notificationService) return response(503, { error: "notifications unavailable" });
+  const url = new URL(request.path, "http://iseol.local");
+  try {
+    if (url.pathname === "/api/user/notifications") {
+      if (request.method !== "GET") return response(405, { error: "method not allowed" });
+      const unreadOnly = url.searchParams.get("unreadOnly") === "1" || url.searchParams.get("unreadOnly") === "true";
+      return response(200, await services.notificationService.listNotifications(principal, { unreadOnly }));
+    }
+    const match = url.pathname.match(/^\/api\/user\/notifications\/([^/]+)\/read$/);
+    if (!match) return response(404, { error: "notification route not found" });
+    const notificationId = match[1];
+    if (!notificationId) return response(404, { error: "notification route not found" });
+    if (request.method !== "POST") return response(405, { error: "method not allowed" });
+    return response(200, { notification: await services.notificationService.markRead(principal, decodeURIComponent(notificationId)) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "notification request failed";
+    if (/not found/i.test(message)) return response(404, { error: message });
+    if (/invalid|required/i.test(message)) return response(400, { error: message });
+    return response(409, { error: message });
+  }
+}
