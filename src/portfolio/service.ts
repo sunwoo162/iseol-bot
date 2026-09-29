@@ -44,22 +44,25 @@ export function createPortfolioService(root: string, options: PortfolioServiceOp
     }
     return evidence.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || a.id.localeCompare(b.id));
   };
-  const readSnapshot = async (principal: Principal): Promise<PortfolioSnapshot> => ({ entries: (await listPortfolioEntries(root, principal.userId)).filter((entry) => entry.userId === principal.userId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), evidence: await collectEvidence(principal) });
+  const readEntries = async (userId: string): Promise<PortfolioEntry[]> => {
+    const entries = await listPortfolioEntries(root, userId);
+    const current: PortfolioEntry[] = [];
+    for (const initial of entries) {
+      if (initial.userId !== userId) continue;
+      await withDurablePortfolioEntryLock(root, userId, initial.id, async () => {
+        const entry = await loadPortfolioEntry(root, userId, initial.id);
+        if (entry?.userId === userId) current.push(entry);
+      }, { waitForMs: 2_000 });
+    }
+    return current.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+  };
+  const readSnapshot = async (principal: Principal): Promise<PortfolioSnapshot> => ({ entries: await readEntries(principal.userId), evidence: await collectEvidence(principal) });
   const validateEntryInput = async (principal: Principal, input: PortfolioEntryInput): Promise<PortfolioEvidence[]> => { validateVisibility(input.visibility); if (!Array.isArray(input.evidenceIds) || input.evidenceIds.length > 100) throw new Error("Portfolio evidence selection is invalid"); const evidence = await collectEvidence(principal); const byId = new Map(evidence.map((item) => [item.id, item])); const selected = [...new Set(input.evidenceIds)].map((id) => byId.get(id)); if (selected.some((item) => !item || item.verificationStatus !== "verified")) throw new Error("Portfolio entries require verified evidence"); return selected as PortfolioEvidence[]; };
   return {
     async listPortfolio(principal) { ensurePrincipal(principal); return readSnapshot(principal); },
     async listPublicEntries(userId) {
       assertIdentityId(userId);
-      const entries = await listPortfolioEntries(root, userId);
-      const visible: PortfolioEntry[] = [];
-      for (const initial of entries) {
-        if (initial.userId !== userId) continue;
-        await withDurablePortfolioEntryLock(root, userId, initial.id, async () => {
-          const entry = await loadPortfolioEntry(root, userId, initial.id);
-          if (entry?.userId === userId && entry.visibility === "public") visible.push(entry);
-        }, { waitForMs: 2_000 });
-      }
-      return visible.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+      return (await readEntries(userId)).filter((entry) => entry.visibility === "public");
     },
     async createEntry(principal, input) { ensurePrincipal(principal); await validateEntryInput(principal, input); const at = now(); assertTimestamp(at, "portfolio timestamp"); const entry: PortfolioEntry = { version: 1, id: `portfolio-${randomUUID()}`, userId: principal.userId, title: required(input.title, "Portfolio title", 200), summary: required(input.summary, "Portfolio summary", 10_000), visibility: input.visibility, evidenceIds: [...new Set(input.evidenceIds)], createdAt: at, updatedAt: at }; await savePortfolioEntry(root, entry); return entry; },
     async updateEntry(principal, entryId, patch) { ensurePrincipal(principal); assertIdentityId(entryId); return withDurablePortfolioEntryLock(root, principal.userId, entryId, async () => { const current = await loadPortfolioEntry(root, principal.userId, entryId); if (!current || current.userId !== principal.userId) throw new Error("Portfolio entry not found"); const nextInput: PortfolioEntryInput = { title: patch.title ?? current.title, summary: patch.summary ?? current.summary, visibility: patch.visibility ?? current.visibility, evidenceIds: patch.evidenceIds ?? current.evidenceIds }; await validateEntryInput(principal, nextInput); const next: PortfolioEntry = { ...current, title: required(nextInput.title, "Portfolio title", 200), summary: required(nextInput.summary, "Portfolio summary", 10_000), visibility: nextInput.visibility, evidenceIds: [...new Set(nextInput.evidenceIds)], updatedAt: now() }; await savePortfolioEntry(root, next); return next; }, { waitForMs: 2_000 }); },
@@ -71,8 +74,8 @@ export function createPortfolioService(root: string, options: PortfolioServiceOp
       return withDurablePortfolioEntryLock(root, initial.userId, entryId, async () => {
         const entry = await loadPortfolioEntry(root, initial.userId, entryId);
         if (!entry || entry.visibility === "private") return null;
-        const snapshot = await readSnapshot({ userId: entry.userId, sessionId: "public-portfolio", roles: ["user"] });
-        const evidenceById = new Map(snapshot.evidence.map((item) => [item.id, item]));
+        const evidence = await collectEvidence({ userId: entry.userId, sessionId: "public-portfolio", roles: ["user"] });
+        const evidenceById = new Map(evidence.map((item) => [item.id, item]));
         return { entry, evidence: entry.evidenceIds.map((id) => evidenceById.get(id)).filter((item): item is PortfolioEvidence => Boolean(item && item.verificationStatus === "verified")).map(({ projectId: _projectId, reportId: _reportId, ...item }) => item) };
       }, { waitForMs: 2_000 });
     },

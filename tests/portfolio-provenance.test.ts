@@ -9,6 +9,8 @@ import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import type { UserProjectService } from "../src/project-model/user-project-service.js";
 import { createPortfolioService } from "../src/portfolio/service.js";
+import { withDurablePortfolioEntryLock } from "../src/portfolio/entry-lock.js";
+import { savePortfolioEntry } from "../src/portfolio/store.js";
 
 const at = "2026-09-25T12:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -132,4 +134,38 @@ test("portfolio entry mutations across service instances preserve both patches",
   const stored = (await firstService.listPortfolio(owner)).entries.find((item) => item.id === entry.id);
   assert.equal(stored?.title, "제목 수정 포트폴리오");
   assert.equal(stored?.visibility, "public");
+});
+
+test("owner portfolio snapshots re-check entries after waiting for the entry lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-portfolio-snapshot-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  const owner = principal("portfolio-snapshot-lock-owner");
+  await users.createUser({ id: owner.userId, email: "portfolio-snapshot-lock@example.com", displayName: "Snapshot Lock", timezone: "Asia/Seoul" });
+  const activity = createActivityService(platformRoot, { now: () => at });
+  const projects = createUserProjectService({ platformRoot, projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root });
+  const portfolio = createPortfolioService(platformRoot, { activityService: activity, userProjectService: projects, now: () => at });
+  const evidence = await activity.recordActivityEvent(owner, { sourceType: "learning", sourceId: "portfolio-snapshot-lock", eventType: "study.completed", eventVersion: 1, actorType: "user", verificationStatus: "verified" });
+  const entry = await portfolio.createEntry(owner, { title: "잠금 전 제목", summary: "소유자 스냅샷 경쟁조건을 검증합니다.", visibility: "private", evidenceIds: [`activity:${evidence.id}`] });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurablePortfolioEntryLock(platformRoot, owner.userId, entry.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = portfolio.listPortfolio(owner).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await savePortfolioEntry(platformRoot, { ...entry, title: "잠금 후 제목", updatedAt: "2026-09-25T12:00:01.000Z" });
+  release();
+  assert.equal((await reading).entries.find((item) => item.id === entry.id)?.title, "잠금 후 제목");
+  await holder;
 });
