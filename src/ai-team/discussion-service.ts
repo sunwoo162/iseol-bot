@@ -4,7 +4,7 @@ import { assertIdentityId, assertTimestamp, type Principal } from "../identity/c
 import type { TeamCapability, TeamMembership } from "../teams/contracts.js";
 import type { AiTeamDiscussion, AiTeamDiscussionResult, AiTeamDiscussionService, AiTeamDiscussionServiceOptions } from "./contracts.js";
 import { withDurableAiTeamDiscussionLock } from "./discussion-lock.js";
-import { listAiTeamDiscussions, loadAiTeamDiscussion, saveAiTeamDiscussion } from "./discussion-store.js";
+import { listAiTeamDiscussions, listAiTeamDiscussionsUnlocked, loadAiTeamDiscussionUnlocked, saveAiTeamDiscussionUnlocked } from "./discussion-store.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
 
@@ -34,7 +34,7 @@ function waiting(input: { projectId: string; teamId: string; agent: TeamMembersh
   return { version: 1, id: "ai-discussion-" + randomUUID(), projectId: input.projectId, teamId: input.teamId, agentId: input.agent.aiMemberId!, assignmentRole: input.agent.assignmentRole, capabilities: [...input.agent.capabilities], approvalScope: input.agent.approvalScope, requestId: input.requestId, question: input.question, keyPoints: [], alternatives: [], risks: [], status: "waiting-runtime", source: "local-runtime", blocker: input.blocker, createdAt: input.at, updatedAt: input.at };
 }
 async function persistDiscussion(options: AiTeamDiscussionServiceOptions, principal: Principal, discussion: AiTeamDiscussion): Promise<AiTeamDiscussion> {
-  await saveAiTeamDiscussion(options.root, discussion);
+  await saveAiTeamDiscussionUnlocked(options.root, discussion);
   await options.activityService?.recordActivityEvent(principal, {
     sourceType: "ai-team-discussion",
     sourceId: discussion.id,
@@ -57,7 +57,7 @@ export function createAiTeamDiscussionService(options: AiTeamDiscussionServiceOp
       return withDurableTeamMembershipLock(teamMembershipRoot, initialContext.teamId, async () => {
       const context = await projectAccess(options, principal, projectId, true); const agent = aiAssignment(context.members, agentId);
       return withDurableAiTeamDiscussionLock(options.root, projectId, requestId, async () => {
-        const existing = (await listAiTeamDiscussions(options.root, projectId)).find((item) => item.requestId === requestId);
+        const existing = (await listAiTeamDiscussionsUnlocked(options.root, projectId)).find((item) => item.requestId === requestId);
         if (existing) { if (existing.agentId !== agentId || existing.question !== question) throw new Error("AI discussion requestId conflict"); return existing; }
         const at = now(); assertTimestamp(at, "AI discussion timestamp");
         if (!options.dispatcher) { const result = waiting({ projectId, teamId: context.teamId, agent, requestId, question, at, blocker: "AI Team Runtime is not configured" }); return persistDiscussion(options, principal, result); }
@@ -75,7 +75,7 @@ export function createAiTeamDiscussionService(options: AiTeamDiscussionServiceOp
       const current: AiTeamDiscussion[] = [];
       for (const candidate of candidates) {
         await withDurableAiTeamDiscussionLock(options.root, projectId, candidate.requestId, async () => {
-          const discussion = await loadAiTeamDiscussion(options.root, projectId, candidate.id);
+          const discussion = await loadAiTeamDiscussionUnlocked(options.root, projectId, candidate.id);
           if (discussion?.projectId === projectId) current.push(discussion);
         }, { waitForMs: 2_000 });
       }

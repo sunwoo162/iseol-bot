@@ -5,7 +5,7 @@ import type { TeamCapability, TeamMembership } from "../teams/contracts.js";
 import type { AiTeamProposal, AiTeamProposalDraft, AiTeamProposalService, AiTeamProposalServiceOptions } from "./contracts.js";
 import { withDurableAiTeamProposalLock } from "./proposal-lock.js";
 import { withDurableAiTeamProposalDecisionLock } from "./proposal-decision-lock.js";
-import { listAiTeamProposals, loadAiTeamProposal, saveAiTeamProposal } from "./store.js";
+import { listAiTeamProposals, listAiTeamProposalsUnlocked, loadAiTeamProposal, loadAiTeamProposalUnlocked, saveAiTeamProposal, saveAiTeamProposalUnlocked } from "./store.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
 
@@ -43,15 +43,15 @@ export function createAiTeamProposalService(options: AiTeamProposalServiceOption
       return withDurableTeamMembershipLock(teamMembershipRoot, initialContext.teamId, async () => {
         const context = await projectAccess(options, principal, projectId, false, true); const agent = aiAssignment(context.members, agentId);
         return withDurableAiTeamProposalLock(options.root, projectId, requestId, async () => {
-        const existing = (await listAiTeamProposals(options.root, projectId)).find((item) => item.requestId === requestId);
+        const existing = (await listAiTeamProposalsUnlocked(options.root, projectId)).find((item) => item.requestId === requestId);
         if (existing) { if (existing.agentId !== agentId) throw new Error("AI proposal requestId conflict"); return existing; }
         const at = now(); assertTimestamp(at, "AI proposal timestamp");
-        if (!options.dispatcher) { const waiting = waitingProposal({ projectId, teamId: context.teamId, agent, requestId, at, blocker: "AI Team Runtime is not configured" }); await saveAiTeamProposal(options.root, waiting); return waiting; }
+        if (!options.dispatcher) { const waiting = waitingProposal({ projectId, teamId: context.teamId, agent, requestId, at, blocker: "AI Team Runtime is not configured" }); await saveAiTeamProposalUnlocked(options.root, waiting); return waiting; }
         try {
           const result = await dispatchForUser(principal.userId, () => options.dispatcher!({ principal, projectId, teamId: context.teamId, agentId, assignmentRole: agent.assignmentRole, capabilities: [...agent.capabilities] as TeamCapability[] }));
-          if (result.status === "waiting") { const waiting = waitingProposal({ projectId, teamId: context.teamId, agent, requestId, at, blocker: required(result.blocker, "AI proposal blocker", 240) }); await saveAiTeamProposal(options.root, waiting); return waiting; }
-          const draft = validateDraft(result.draft); const proposal: AiTeamProposal = { version: 1, id: "ai-proposal-" + randomUUID(), projectId, teamId: context.teamId, agentId, assignmentRole: agent.assignmentRole, capabilities: [...agent.capabilities], approvalScope: agent.approvalScope, requestId, ...draft, status: "proposed", source: "local-runtime", createdAt: at, updatedAt: at }; await saveAiTeamProposal(options.root, proposal); return proposal;
-        } catch (error) { const blocker = error instanceof Error ? error.message.slice(0, 240) : "AI Team Runtime proposal failed"; const waiting = waitingProposal({ projectId, teamId: context.teamId, agent, requestId, at, blocker }); await saveAiTeamProposal(options.root, waiting); return waiting; }
+          if (result.status === "waiting") { const waiting = waitingProposal({ projectId, teamId: context.teamId, agent, requestId, at, blocker: required(result.blocker, "AI proposal blocker", 240) }); await saveAiTeamProposalUnlocked(options.root, waiting); return waiting; }
+          const draft = validateDraft(result.draft); const proposal: AiTeamProposal = { version: 1, id: "ai-proposal-" + randomUUID(), projectId, teamId: context.teamId, agentId, assignmentRole: agent.assignmentRole, capabilities: [...agent.capabilities], approvalScope: agent.approvalScope, requestId, ...draft, status: "proposed", source: "local-runtime", createdAt: at, updatedAt: at }; await saveAiTeamProposalUnlocked(options.root, proposal); return proposal;
+        } catch (error) { const blocker = error instanceof Error ? error.message.slice(0, 240) : "AI Team Runtime proposal failed"; const waiting = waitingProposal({ projectId, teamId: context.teamId, agent, requestId, at, blocker }); await saveAiTeamProposalUnlocked(options.root, waiting); return waiting; }
         }, { waitForMs: 2_000 });
       }, { waitForMs: 2_000 });
     },
@@ -61,7 +61,7 @@ export function createAiTeamProposalService(options: AiTeamProposalServiceOption
       const current: AiTeamProposal[] = [];
       for (const candidate of candidates) {
         await withDurableAiTeamProposalLock(options.root, projectId, candidate.requestId, async () => {
-          const proposal = await loadAiTeamProposal(options.root, projectId, candidate.id);
+          const proposal = await loadAiTeamProposalUnlocked(options.root, projectId, candidate.id);
           if (proposal?.projectId === projectId) current.push(proposal);
         }, { waitForMs: 2_000 });
       }

@@ -10,7 +10,7 @@ import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { createAiTeamProposalService } from "../src/ai-team/service.js";
 import { withDurableAiTeamProposalLock } from "../src/ai-team/proposal-lock.js";
-import { saveAiTeamProposal } from "../src/ai-team/store.js";
+import { loadAiTeamProposal, saveAiTeamProposal, saveAiTeamProposalUnlocked } from "../src/ai-team/store.js";
 
 const at = "2026-09-27T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `session-${userId}`, roles: ["user"] }; }
@@ -64,10 +64,40 @@ test("AI team proposal lists wait for each durable proposal lock before projecti
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  await saveAiTeamProposal(join(root, "ai-team"), { ...proposal, title: "잠금 해제 후 제목", updatedAt: "2026-09-27T12:00:01.000Z" });
+  await saveAiTeamProposalUnlocked(join(root, "ai-team"), { ...proposal, title: "잠금 해제 후 제목", updatedAt: "2026-09-27T12:00:01.000Z" });
   releaseHolder();
   await lockHeld;
   assert.equal((await read)[0]?.title, "잠금 해제 후 제목");
+
+  let releaseWriteHolder!: () => void;
+  const writeHolderStarted = new Promise<void>((resolve) => {
+    void withDurableAiTeamProposalLock(join(root, "ai-team"), project.id, proposal.requestId, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseWriteHolder = release; });
+    });
+  });
+  await writeHolderStarted;
+  let writeSettled = false;
+  const writing = saveAiTeamProposal(join(root, "ai-team"), { ...proposal, title: "공개 저장 대기 후 제목", updatedAt: "2026-09-27T12:00:02.000Z" }).then(() => { writeSettled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(writeSettled, false);
+  releaseWriteHolder();
+  await writing;
+
+  let releaseReadHolder!: () => void;
+  const readHolderStarted = new Promise<void>((resolve) => {
+    void withDurableAiTeamProposalLock(join(root, "ai-team"), project.id, proposal.requestId, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseReadHolder = release; });
+    });
+  });
+  await readHolderStarted;
+  let directReadSettled = false;
+  const directRead = loadAiTeamProposal(join(root, "ai-team"), project.id, proposal.id).then((value) => { directReadSettled = true; return value; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(directReadSettled, false);
+  releaseReadHolder();
+  assert.equal((await directRead)?.title, "공개 저장 대기 후 제목");
 });
 
 test("AI team proposal without a local dispatcher is durable waiting and does not fabricate a task", async () => {
