@@ -5,7 +5,9 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
+import { withDurableSocialBlockLock } from "../src/social/block-lock.js";
 import { createSocialService } from "../src/social/service.js";
+import { saveBlock } from "../src/social/store.js";
 
 const at = "2026-09-27T15:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -79,4 +81,33 @@ test("concurrent block mutations across service instances preserve one active bl
   assert.equal(results.filter((result) => result.status === "fulfilled").length, targets.length * 2);
   assert.equal((await firstService.listBlocks(principal("block-owner"))).length, targets.length);
   assert.ok((await firstService.listBlocks(principal("block-owner"))).every((block) => block.status === "active"));
+});
+
+test("public profile reads re-check social block state after waiting for the pair lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-profile-read-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  for (const id of ["profile-read-viewer", "profile-read-target"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const social = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableSocialBlockLock(platformRoot, "profile-read-viewer", "profile-read-target", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = social.getProfile(principal("profile-read-viewer"), "profile-read-target").then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await saveBlock(platformRoot, { version: 1, id: "block-profile-read-viewer-profile-read-target", blockerUserId: "profile-read-viewer", blockedUserId: "profile-read-target", status: "active", createdAt: at, updatedAt: at });
+  release();
+  assert.equal(await reading, null);
+  await holder;
 });

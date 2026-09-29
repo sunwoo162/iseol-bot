@@ -85,7 +85,15 @@ export function createSocialService(root: string, options: SocialServiceOptions)
         await saveProfile(root, profile); return { ...profile, displayName: user.displayName };
       }, { waitForMs: 2_000 });
     },
-    async getProfile(principal, userId = principal.userId) { ensurePrincipal(principal); if (userId !== principal.userId && await isBlocked(principal.userId, userId)) return null; const profile = await profileFor(userId, true); return profile && (profile.visibility === "public" || userId === principal.userId) ? profile : null; },
+    async getProfile(principal, userId = principal.userId) {
+      ensurePrincipal(principal);
+      const read = async () => {
+        if (userId !== principal.userId && await isBlocked(principal.userId, userId)) return null;
+        const profile = await profileFor(userId, true);
+        return profile && (profile.visibility === "public" || userId === principal.userId) ? profile : null;
+      };
+      return userId === principal.userId ? read() : withDurableSocialBlockLock(root, principal.userId, userId, read, { waitForMs: 2_000 });
+    },
     async listProfiles(principal, search = "") {
       ensurePrincipal(principal); const users = await options.platformUserService.listUsers(); const query = search.trim().toLowerCase(); const profiles: PublicProfile[] = [];
       for (const user of users) { if (user.id !== principal.userId && await isBlocked(principal.userId, user.id)) continue; const profile = await profileFor(user.id); if (!profile || (profile.visibility !== "public" && profile.userId !== principal.userId)) continue; if (!query || `${profile.displayName} ${profile.handle} ${profile.skills.join(" ")}`.toLowerCase().includes(query)) profiles.push(profile); }
