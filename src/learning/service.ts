@@ -17,6 +17,7 @@ import { withDurableLearningAnswerLock } from "./answer-lock.js";
 import { withDurableLearningFeedbackDisputeLock } from "./feedback-dispute-lock.js";
 import { withDurableLearningActionLock } from "./action-lock.js";
 import { withDurableLearningFeedbackCompletionLock } from "./feedback-completion-lock.js";
+import { withDurableLearningGoalLock } from "./goal-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
@@ -385,20 +386,30 @@ export function createLearningService(root: string, options: LearningServiceOpti
 
     async listLearningGoals(principal) {
       ensurePrincipal(principal);
-      return (await listLearningGoals(root, principal.userId)).filter((goal) => goal.userId === principal.userId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      const candidates = (await listLearningGoals(root, principal.userId)).filter((goal) => goal.userId === principal.userId);
+      const current: LearningGoal[] = [];
+      for (const candidate of candidates) {
+        try { assertIdentityId(candidate.id); } catch { continue; }
+        await withDurableLearningGoalLock(root, principal.userId, candidate.id, async () => {
+          const goal = await loadLearningGoal(root, principal.userId, candidate.id);
+          if (goal?.userId === principal.userId) current.push(goal);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     },
 
     async getLearningGoal(principal, goalId) {
       ensurePrincipal(principal);
-      return loadOwnerGoal(root, principal, goalId);
+      try { assertIdentityId(goalId); } catch { return null; }
+      return withDurableLearningGoalLock(root, principal.userId, goalId, () => loadOwnerGoal(root, principal, goalId), { waitForMs: 2_000 });
     },
 
     async createLearningPlanPreview(principal, goalId, expectedRevision): Promise<LearningPlanPreview> {
       ensurePrincipal(principal);
-      const initialGoal = await loadOwnerGoal(root, principal, goalId);
+      const initialGoal = await withDurableLearningGoalLock(root, principal.userId, goalId, () => loadOwnerGoal(root, principal, goalId), { waitForMs: 2_000 });
       if (!initialGoal) throw new Error("Learning goal not found");
       if (expectedRevision !== undefined && expectedRevision !== initialGoal.revision) throw new Error("Learning goal revision conflict");
-      return withDurableLearningPlanPreviewLock(root, principal.userId, goalId, async () => {
+      return withDurableLearningPlanPreviewLock(root, principal.userId, goalId, () => withDurableLearningGoalLock(root, principal.userId, goalId, async () => {
       const goal = await loadOwnerGoal(root, principal, goalId);
       if (!goal) throw new Error("Learning goal not found");
       const existing = (await listLearningPlanVersions(root, principal.userId))
@@ -446,7 +457,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const updatedGoal: LearningGoal = { ...goal, status: "preview-ready", revision: goal.revision + 1, updatedAt: at };
       await saveLearningGoal(root, updatedGoal);
       return { goal: updatedGoal, interpretation, plan, created: true };
-      }, { waitForMs: 2_000 });
+      }, { waitForMs: 2_000 }), { waitForMs: 2_000 });
     },
 
     async createLearningPlanAdjustment(principal, goalId, input: LearningPlanAdjustmentInput): Promise<LearningPlanAdjustment> {
@@ -518,7 +529,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
 
     async acceptLearningPlanAdjustment(principal, goalId, adjustmentId): Promise<LearningPlanAdjustmentResult> {
       ensurePrincipal(principal);
-      return withDurableLearningPlanAdjustmentAcceptanceLock(root, principal.userId, goalId, adjustmentId, async () => {
+      return withDurableLearningPlanAdjustmentAcceptanceLock(root, principal.userId, goalId, adjustmentId, () => withDurableLearningGoalLock(root, principal.userId, goalId, async () => {
       const goal = await loadOwnerGoal(root, principal, goalId);
       if (!goal) throw new Error("Learning goal not found");
       try { assertIdentityId(adjustmentId); } catch { throw new Error("Learning plan adjustment not found"); }
@@ -546,7 +557,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const accepted: LearningPlanAdjustment = { ...adjustment, status: "accepted", acceptedPlanVersionId: plan.id, updatedAt: at };
       await saveLearningPlanAdjustment(root, accepted);
       return { adjustment: accepted, goal: updatedGoal, plan };
-      }, { waitForMs: 2_000 });
+      }, { waitForMs: 2_000 }), { waitForMs: 2_000 });
     },
 
     async listLearningPlanVersions(principal, goalId) {
