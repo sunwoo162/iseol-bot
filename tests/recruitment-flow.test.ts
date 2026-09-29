@@ -8,7 +8,7 @@ import { createActivityService } from "../src/activity/service.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createRecruitmentService } from "../src/recruitment/service.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
-import { saveMembership } from "../src/teams/store.js";
+import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createTeamService } from "../src/teams/service.js";
 
 const at = "2026-09-25T12:00:00.000Z";
@@ -113,4 +113,40 @@ test("recruitment applications re-check post and team membership after waiting f
   release();
   await Promise.all([holder, assert.rejects(() => apply, /already a team member/i)]);
   assert.equal((await recruitment.getPost(principal("recruit-apply-owner"), post.id))?.applications.length, 0);
+});
+
+test("recruitment post reads re-check manager access after waiting for the Team lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-recruitment-read-lock-"));
+  const platform = join(root, "platform");
+  const users = createPlatformUserService(platform, { now: () => at });
+  for (const id of ["recruit-read-owner", "recruit-read-applicant"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const teams = createTeamService(platform, { now: () => at });
+  const recruitment = createRecruitmentService(platform, { teamService: teams, now: () => at });
+  const team = await teams.createTeam(principal("recruit-read-owner"), { name: "Read lock team", description: "manager read recheck", kind: "project", visibility: "public", capacity: 3 });
+  const post = await recruitment.createPost(principal("recruit-read-owner"), { teamId: team.id, kind: "project", title: "Read lock post", description: "applications are private to managers", roles: ["member"], tags: [] });
+  await recruitment.apply(principal("recruit-read-applicant"), post.id, "Please review me.");
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(platform, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = recruitment.getPost(principal("recruit-read-owner"), post.id).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  const membership = await loadMembership(platform, team.id, "recruit-read-owner");
+  assert.ok(membership);
+  await saveMembership(platform, { ...membership, status: "removed", updatedAt: at });
+  release();
+  const result = await reading;
+  assert.deepEqual(result?.applications, []);
+  await holder;
 });
