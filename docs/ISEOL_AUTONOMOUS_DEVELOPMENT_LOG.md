@@ -4019,3 +4019,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `97c6522 fix: synchronize work request record reads`; merged by PR #134 with merge commit `a518806`.
 - Boundary: same-host/shared-root Project Work Request record read/write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Project Portfolio document read synchronization
+
+- Status: **B — Project Portfolio document reads now wait on the canonical durable Portfolio lock, while live Runtime/provider execution remains unverified**. ensure/update mutation paths use an internal unlocked read because they already own the same lock.
+- Evidence: `src/project-model/portfolio-store.ts`, `src/project-model/portfolio-lock.ts`, `tests/project-model-stores.test.ts`.
+- TDD: RED reproduced `loadPortfolioDocument` completing while the Portfolio lock was held; GREEN added the public locked read boundary, preserved ensure/update reentrancy through an internal unlocked helper, and added bounded EPERM retry.
+- Verification: Project model store regression `12/12`; serial full test suite `742/742`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `1e879b0 fix: synchronize portfolio document reads`; merged by PR #136 with merge commit `17a618b`.
+- Boundary: same-host/shared-root Project Portfolio document read/mutation coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
