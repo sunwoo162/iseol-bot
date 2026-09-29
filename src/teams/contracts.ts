@@ -63,6 +63,8 @@ export type TeamService = {
   /** Use only while the caller already holds the canonical team membership lock. */
   getTeamWithinMembershipLock(principal: Principal, teamId: string): Promise<{ team: TeamRecord; members: TeamMembership[] } | null>;
   listMemberships(teamId: string): Promise<TeamMembership[]>;
+  /** Use only while the caller already holds the canonical team membership lock. */
+  listMembershipsWithinMembershipLock(teamId: string): Promise<TeamMembership[]>;
   addMember(teamId: string, userId: string, role: TeamMemberRole, at?: string): Promise<TeamMembership>;
   /** Use only while the caller already holds the canonical team membership lock. */
   addMemberWithinMembershipLock(teamId: string, userId: string, role: TeamMemberRole, at?: string): Promise<TeamMembership>;

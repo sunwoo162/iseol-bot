@@ -15,12 +15,12 @@ function validateResult(result: AiTeamDiscussionResult): Exclude<AiTeamDiscussio
   if (result.status !== "completed") throw new Error("AI discussion result is not complete");
   return { status: "completed", answer: required(result.answer, "AI discussion answer", 10_000), keyPoints: boundedList(result.keyPoints, "AI discussion key point"), alternatives: boundedList(result.alternatives, "AI discussion alternative"), risks: boundedList(result.risks, "AI discussion risk") };
 }
-async function projectAccess(options: AiTeamDiscussionServiceOptions, principal: Principal, projectId: string): Promise<{ teamId: string; members: TeamMembership[] }> {
+async function projectAccess(options: AiTeamDiscussionServiceOptions, principal: Principal, projectId: string, membershipLockHeld = false): Promise<{ teamId: string; members: TeamMembership[] }> {
   const view = await options.userProjectService.getProject(principal, projectId);
   if (!view) throw new Error("Project not found");
   const teamId = view.project.teamId;
   if (!teamId || !["ai", "mixed"].includes(view.project.teamMode)) throw new Error("AI team project is required");
-  const members = await options.teamService.listMemberships(teamId);
+  const members = await (membershipLockHeld ? options.teamService.listMembershipsWithinMembershipLock(teamId) : options.teamService.listMemberships(teamId));
   if (!members.some((member) => member.memberType === "human" && member.userId === principal.userId && member.status === "active")) throw new Error("Team member access required");
   return { teamId, members };
 }
@@ -55,7 +55,7 @@ export function createAiTeamDiscussionService(options: AiTeamDiscussionServiceOp
     async requestDiscussion(principal, projectId, input) {
       ensurePrincipal(principal); assertIdentityId(projectId); const requestId = required(input.requestId, "AI discussion requestId", 160); const agentId = required(input.agentId, "AI agentId", 128); const question = required(input.question, "AI discussion question", 4_000); const initialContext = await projectAccess(options, principal, projectId); aiAssignment(initialContext.members, agentId);
       return withDurableTeamMembershipLock(teamMembershipRoot, initialContext.teamId, async () => {
-      const context = await projectAccess(options, principal, projectId); const agent = aiAssignment(context.members, agentId);
+      const context = await projectAccess(options, principal, projectId, true); const agent = aiAssignment(context.members, agentId);
       return withDurableAiTeamDiscussionLock(options.root, projectId, requestId, async () => {
         const existing = (await listAiTeamDiscussions(options.root, projectId)).find((item) => item.requestId === requestId);
         if (existing) { if (existing.agentId !== agentId || existing.question !== question) throw new Error("AI discussion requestId conflict"); return existing; }

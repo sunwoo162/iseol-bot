@@ -61,6 +61,10 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
     if (team.visibility === "private" && !active(membership)) return null;
     return { team, members: (await listMemberships(root, teamId)).filter((item) => item.status === "active").sort((a, b) => a.joinedAt.localeCompare(b.joinedAt)) };
   };
+  const listMembershipsWithinMembershipLock = async (teamId: string): Promise<TeamMembership[]> => {
+    assertIdentityId(teamId);
+    return (await listMemberships(root, teamId)).filter((item) => item.status === "active");
+  };
 
   return {
     async createTeam(principal, input: TeamInput) {
@@ -100,7 +104,11 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
     },
     getTeamWithinMembershipLock,
 
-    async listMemberships(teamId) { try { assertIdentityId(teamId); } catch { return []; } return (await listMemberships(root, teamId)).filter((item) => item.status === "active"); },
+    async listMemberships(teamId) {
+      try { assertIdentityId(teamId); } catch { return []; }
+      return withDurableTeamMembershipLock(root, teamId, () => listMembershipsWithinMembershipLock(teamId), { waitForMs: 2_000 });
+    },
+    listMembershipsWithinMembershipLock,
 
     async addMember(teamId, userId, role, at = now()) {
       return withDurableTeamMembershipLock(root, teamId, () => addMemberWithinMembershipLock(teamId, userId, role, at), { waitForMs: 2_000 });

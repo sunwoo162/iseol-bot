@@ -18,7 +18,7 @@ async function projectAccess(options: AiTeamProposalServiceOptions, principal: P
   if (!view) throw new Error("Project not found");
   const teamId = view.project.teamId;
   if (!teamId || !["ai", "mixed"].includes(view.project.teamMode)) throw new Error("AI team project is required");
-  const members = await options.teamService.listMemberships(teamId);
+  const members = await (membershipLockHeld ? options.teamService.listMembershipsWithinMembershipLock(teamId) : options.teamService.listMemberships(teamId));
   const human = members.find((member) => member.memberType === "human" && member.userId === principal.userId && member.status === "active");
   if (!human) throw new Error("Team member access required");
   if (manager && !(membershipLockHeld ? await options.teamService.isManagerWithinMembershipLock(principal, teamId) : await options.teamService.isManager(principal, teamId))) throw new Error("Team manager access required");
@@ -41,7 +41,7 @@ export function createAiTeamProposalService(options: AiTeamProposalServiceOption
     async requestProposal(principal, projectId, input) {
       ensurePrincipal(principal); assertIdentityId(projectId); const requestId = required(input.requestId, "AI proposal requestId", 160); const agentId = required(input.agentId, "AI agentId", 128); const initialContext = await projectAccess(options, principal, projectId); aiAssignment(initialContext.members, agentId);
       return withDurableTeamMembershipLock(teamMembershipRoot, initialContext.teamId, async () => {
-        const context = await projectAccess(options, principal, projectId); const agent = aiAssignment(context.members, agentId);
+        const context = await projectAccess(options, principal, projectId, false, true); const agent = aiAssignment(context.members, agentId);
         return withDurableAiTeamProposalLock(options.root, projectId, requestId, async () => {
         const existing = (await listAiTeamProposals(options.root, projectId)).find((item) => item.requestId === requestId);
         if (existing) { if (existing.agentId !== agentId) throw new Error("AI proposal requestId conflict"); return existing; }

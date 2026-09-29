@@ -179,6 +179,36 @@ test("team get reads wait for the membership lock and re-check current membershi
   await holder;
 });
 
+test("team membership list reads wait for the membership lock and reload current members", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-team-membership-list-read-lock-"));
+  const owner = principal("team-membership-list-owner");
+  const teams = createTeamService(root, { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Membership list read team", description: "membership list read recheck", kind: "project", visibility: "private", capacity: 3 });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(root, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = teams.listMemberships(team.id).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  const membership = await loadMembership(root, team.id, owner.userId);
+  assert.ok(membership);
+  await saveMembership(root, { ...membership, status: "removed", updatedAt: at });
+  release();
+  assert.deepEqual(await reading, []);
+  await holder;
+});
+
 test("team collaboration checks wait for the membership lock and re-check both members", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-team-collaboration-read-lock-"));
   const owner = principal("team-collaboration-owner");
