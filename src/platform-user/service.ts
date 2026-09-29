@@ -88,8 +88,12 @@ export function createPlatformUserService(root: string, options: { now?: () => s
     async findUserByEmail(email: string): Promise<PlatformUserRecord | null> {
       const normalized = email.trim().toLowerCase();
       if (!validEmail(normalized)) return null;
-      const users = await listPlatformUsers(root);
-      return users.find((user) => user.email.trim().toLowerCase() === normalized) ?? null;
+      const candidates = await listPlatformUsers(root);
+      for (const candidate of candidates) {
+        const user = await withDurablePlatformUserLock(root, candidate.id, () => loadPlatformUser(root, candidate.id), { waitForMs: 2_000 });
+        if (user?.email.trim().toLowerCase() === normalized) return user;
+      }
+      return null;
     },
 
     async authenticateUser(email: string, password: string): Promise<PlatformUserRecord | null> {

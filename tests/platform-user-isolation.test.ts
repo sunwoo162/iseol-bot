@@ -104,6 +104,33 @@ test("platform user reads wait for the user lock and reload current state", asyn
   assert.equal((await listed).find((item) => item.id === user.id)?.displayName, "After");
 });
 
+test("platform user email lookup waits for the user lock and reloads current state", async () => {
+  const { root, service } = await serviceFixture();
+  const user = await service.createUser({ id: "email-lock-user", email: "before@example.com", displayName: "Before", timezone: "Asia/Seoul" });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurablePlatformUserLock(root, user.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const found = service.findUserByEmail("after@example.com").then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await savePlatformUser(root, { ...user, email: "after@example.com", updatedAt: at });
+  release();
+  await holder;
+  assert.equal((await found)?.email, "after@example.com");
+});
+
 test("user router requires a platform session and returns the authenticated profile", async () => {
   const { service } = await serviceFixture();
   const unauthenticated = await routeUserRequest({ method: "GET", path: "/api/user/me", headers: {} }, service);
