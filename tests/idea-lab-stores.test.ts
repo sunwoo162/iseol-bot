@@ -19,6 +19,7 @@ import {
   loadIdeaLabCampaign,
   saveIdeaLabCampaign,
 } from "../src/idea-lab/campaign-store.js";
+import { withDurableIdeaLabCampaignLock } from "../src/idea-lab/campaign-lock.js";
 import { loadIdeaProposal, saveIdeaProposal } from "../src/idea-lab/proposal-store.js";
 import {
   listPrototypeProductions,
@@ -139,6 +140,32 @@ test("production listing waits for each durable production lock", async () => {
 
     let settled = false;
     const listing = listPrototypeProductions(root).then((value) => {
+      settled = true;
+      return value;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(settled, false);
+
+    releaseHolder();
+    assert.deepEqual((await listing).map((value) => value.id), [item.id]);
+  });
+});
+
+test("campaign listing waits for each durable campaign lock", async () => {
+  await withRoot(async (root) => {
+    const item = campaign();
+    await saveIdeaLabCampaign(root, item);
+    let releaseHolder!: () => void;
+    const holderStarted = new Promise<void>((resolve) => {
+      void withDurableIdeaLabCampaignLock(root, item.id, async () => {
+        resolve();
+        await new Promise<void>((release) => { releaseHolder = release; });
+      });
+    });
+    await holderStarted;
+
+    let settled = false;
+    const listing = listIdeaLabCampaigns(root).then((value) => {
       settled = true;
       return value;
     });
