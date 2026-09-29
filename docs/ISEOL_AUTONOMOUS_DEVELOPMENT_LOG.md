@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Study submission read synchronization
+
+- Status: **B — Study Space detail reads now keep the canonical Team membership → Study space → personal Submission lock order and reload each task answer before projection; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent personal answer save cannot leave a member with an unlocked stale submission in the Study Space view.
+- Evidence: `src/study/service.ts`, `src/study/submission-lock.ts`, `src/study/space-lock.ts`, `src/teams/membership-lock.ts`, `tests/study-space.test.ts`.
+- TDD: RED reproduced Study Space detail reads completing while the personal submission lock was held; GREEN added the per-submission lock/reload boundary and verified the latest answer after release.
+- Verification: Study Space regression `9/9`; Study API/Team/Collaboration related coverage `19/20` due the existing concurrent submission environment race, with the affected test rerun alone `1/1`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `20bd918 fix: synchronize study submission reads`; merged by PR #90 with merge commit `8c04947`.
+- Boundary: same-host/shared-root Study personal submission read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable shared memory lock-order alignment
 
 - Status: **B — Shared memory read and write paths now use one canonical Team membership → Memory lock order; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. The read hardening from PR #86 no longer has an inverse write order that could deadlock cross-service sharing operations.
