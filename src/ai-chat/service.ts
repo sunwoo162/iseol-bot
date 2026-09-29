@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { AiChatAgentProfile, AiChatAttachment, AiChatContextLearning, AiChatContextSelection, AiChatContextSnapshot, AiChatContextTeamDoc, AiChatExecutionPlan, AiChatExecutionPlanInput, AiChatSendOptions, AiChatService, AiChatServiceOptions, AiChatConversation, AiChatMessage } from "./contracts.js";
-import { listConversations, loadConversation, saveConversation } from "./store.js";
+import { listConversationsUnlocked, loadConversationUnlocked, saveConversation, saveConversationUnlocked } from "./store.js";
 import { withDurableAiChatConversationLock } from "./conversation-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 
@@ -282,7 +282,7 @@ export function createAiChatService(root: string, options: AiChatServiceOptions 
     let completed = false;
     let completedAt: string | undefined;
     const next = await withDurableAiChatConversationLock(root, principal.userId, conversationId, async () => {
-      const current = await loadConversation(root, principal.userId, conversationId);
+      const current = await loadConversationUnlocked(root, principal.userId, conversationId);
       if (!current || current.userId !== principal.userId) throw new Error("AI chat conversation not found");
       const index = current.messages.findIndex((message) => message.id === messageId);
       const pending = index >= 0 ? current.messages[index] : undefined;
@@ -293,7 +293,7 @@ export function createAiChatService(root: string, options: AiChatServiceOptions 
       const executionPlan = normalizeExecutionPlan(executionPlanInput, at);
       const assistantMessage: AiChatMessage = { id: `message-${randomUUID()}`, role: "assistant", content: text(assistantContent, "Assistant response", 20_000), status: "persisted", createdAt: at, ...(pending.projectId ? { projectId: pending.projectId } : {}), ...(executionPlan ? { executionPlan } : {}) };
       const updated: AiChatConversation = { ...current, messages: [...current.messages.slice(0, index), completedMessage, assistantMessage, ...current.messages.slice(index + 1)], updatedAt: at };
-      await saveConversation(root, updated);
+      await saveConversationUnlocked(root, updated);
       completed = true;
       completedAt = at;
       return updated;
@@ -317,7 +317,7 @@ export function createAiChatService(root: string, options: AiChatServiceOptions 
   async function updateExecutionPlan(principal: Principal, conversationId: string, messageId: string, status: "approved" | "rejected"): Promise<AiChatConversation> {
     ensurePrincipal(principal); assertIdentityId(conversationId); assertIdentityId(messageId);
     return withDurableAiChatConversationLock(root, principal.userId, conversationId, async () => {
-      const current = await loadConversation(root, principal.userId, conversationId);
+      const current = await loadConversationUnlocked(root, principal.userId, conversationId);
       if (!current || current.userId !== principal.userId) throw new Error("AI chat conversation not found");
       const index = current.messages.findIndex((message) => message.id === messageId);
       const message = index >= 0 ? current.messages[index] : undefined;
@@ -328,7 +328,7 @@ export function createAiChatService(root: string, options: AiChatServiceOptions 
       const executionPlan: AiChatExecutionPlan = { ...message.executionPlan, status, updatedAt: at, ...(status === "approved" ? { approvedAt: at } : { rejectedAt: at }) };
       const nextMessage: AiChatMessage = { ...message, executionPlan };
       const next: AiChatConversation = { ...current, messages: [...current.messages.slice(0, index), nextMessage, ...current.messages.slice(index + 1)], updatedAt: at };
-      await saveConversation(root, next);
+      await saveConversationUnlocked(root, next);
       return next;
     }, { waitForMs: 2_000 });
   }
@@ -337,7 +337,7 @@ export function createAiChatService(root: string, options: AiChatServiceOptions 
     if (!options.userProjectService) throw new Error("Project work request unavailable");
     const userProjectService = options.userProjectService;
     return withDurableAiChatConversationLock(root, principal.userId, conversationId, async () => {
-      const current = await loadConversation(root, principal.userId, conversationId);
+      const current = await loadConversationUnlocked(root, principal.userId, conversationId);
       if (!current || current.userId !== principal.userId) throw new Error("AI chat conversation not found");
       const index = current.messages.findIndex((message) => message.id === messageId);
       const message = index >= 0 ? current.messages[index] : undefined;
@@ -352,18 +352,18 @@ export function createAiChatService(root: string, options: AiChatServiceOptions 
       const updatedPlan: AiChatExecutionPlan = { ...plan, workRequestId: result.request.id, updatedAt: at };
       const nextMessage: AiChatMessage = { ...message, executionPlan: updatedPlan };
       const next: AiChatConversation = { ...current, messages: [...current.messages.slice(0, index), nextMessage, ...current.messages.slice(index + 1)], updatedAt: at };
-      await saveConversation(root, next);
+      await saveConversationUnlocked(root, next);
       return { conversation: next, workRequest: result.request, created: result.created };
     }, { waitForMs: 2_000 });
   }
   return {
     async listConversations(principal) {
       ensurePrincipal(principal);
-      const candidates = (await listConversations(root, principal.userId)).filter((item) => item.userId === principal.userId);
+      const candidates = (await listConversationsUnlocked(root, principal.userId)).filter((item) => item.userId === principal.userId);
       const current: AiChatConversation[] = [];
       for (const candidate of candidates) {
         await withDurableAiChatConversationLock(root, principal.userId, candidate.id, async () => {
-          const conversation = await loadConversation(root, principal.userId, candidate.id);
+          const conversation = await loadConversationUnlocked(root, principal.userId, candidate.id);
           if (conversation?.userId === principal.userId) current.push(conversation);
         }, { waitForMs: 2_000 });
       }
@@ -374,7 +374,7 @@ export function createAiChatService(root: string, options: AiChatServiceOptions 
       ensurePrincipal(principal);
       assertIdentityId(conversationId);
       return withDurableAiChatConversationLock(root, principal.userId, conversationId, async () => {
-        const conversation = await loadConversation(root, principal.userId, conversationId);
+        const conversation = await loadConversationUnlocked(root, principal.userId, conversationId);
         return conversation?.userId === principal.userId ? conversation : null;
       }, { waitForMs: 2_000 });
     },
@@ -394,11 +394,11 @@ export function createAiChatService(root: string, options: AiChatServiceOptions 
       const attachments = normalizeAttachments(sendOptions?.attachments, at);
       const message = { id: `message-${randomUUID()}`, role: "user" as const, content: text(content, "Message", 20_000), status: "waiting_runtime" as const, createdAt: at, contextSelection, ...(projectId ? { projectId } : {}), ...(attachments.length > 0 ? { attachments } : {}) };
       const next = await withDurableAiChatConversationLock(root, principal.userId, conversationId, async () => {
-        const current = await loadConversation(root, principal.userId, conversationId);
+        const current = await loadConversationUnlocked(root, principal.userId, conversationId);
         if (!current || current.userId !== principal.userId) throw new Error("AI chat conversation not found");
         const updated: AiChatConversation = { ...current, messages: [...current.messages, message], updatedAt: at };
         if (options.memoryService) await options.memoryService.appendPrivateMemory(principal, { kind: "ai-chat-context", content: message.content, source: `ai-chat:${conversationId}` });
-        await saveConversation(root, updated);
+        await saveConversationUnlocked(root, updated);
         return updated;
       }, { waitForMs: 2_000 });
       if (!options.runtimeDispatcher) return { conversation: next, runtimeStatus: "waiting_runtime" as const };
