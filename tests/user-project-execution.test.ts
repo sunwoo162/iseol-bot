@@ -15,7 +15,7 @@ import { createUserProjectService } from "../src/project-model/user-project-serv
 import { projectRunObservation } from "../src/project-model/run-observability.js";
 import { withDurableProjectWorkRequestRunLock } from "../src/project-model/work-request-lock.js";
 import { withDurableProjectWorkspaceLock } from "../src/project-model/workspace-lock.js";
-import { loadProjectWorkspace, saveProjectWorkspace } from "../src/project-model/workspace-store.js";
+import { loadProjectWorkspace, saveProjectWorkspace, saveProjectWorkspaceUnlocked } from "../src/project-model/workspace-store.js";
 import { createSettingsService } from "../src/settings/service.js";
 
 const at = "2026-09-25T12:00:00.000Z";
@@ -79,7 +79,7 @@ test("project reads wait for the durable workspace lock before projecting state"
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  await saveProjectWorkspace(options.projectModelRoot, { ...workspace, name: "잠금 해제 후 프로젝트", updatedAt: "2026-09-25T12:00:01.000Z" });
+  await saveProjectWorkspaceUnlocked(options.projectModelRoot, { ...workspace, name: "잠금 해제 후 프로젝트", updatedAt: "2026-09-25T12:00:01.000Z" });
   releaseHolder();
   await lockHeld;
   assert.equal((await read)?.workspace.name, "잠금 해제 후 프로젝트");

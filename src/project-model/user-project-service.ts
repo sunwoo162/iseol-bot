@@ -18,7 +18,7 @@ import { addProjectTreeNode } from "./project-tree.js";
 import { selectProjectEvidence } from "./evidence-service.js";
 import { projectLifecycleFromEvidence, type ProjectLifecycleView } from "./lifecycle.js";
 import { loadProjectHistory } from "./history-store.js";
-import { loadProjectWorkspace, loadProjectWorkspaceUnlocked, saveProjectWorkspace } from "./workspace-store.js";
+import { loadProjectWorkspace, loadProjectWorkspaceUnlocked, saveProjectWorkspace, saveProjectWorkspaceUnlocked } from "./workspace-store.js";
 import { missingProjectRunObservation, projectRunObservation, runtimeObservationStatus, type UserProjectRunObservation } from "./run-observability.js";
 import { listUserProjectWorkspaceFiles, readUserProjectWorkspaceFile, type UserProjectWorkspaceFilePreview, type UserProjectWorkspaceFiles } from "./workspace-files.js";
 import { withDurableProjectScheduleLock } from "./schedule-lock.js";
@@ -238,7 +238,7 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
           await saveJson(projectPath(options.platformRoot, principal.userId, projectId), next);
           const nextWorkspace: ProjectWorkspace = { ...workspace, ...(nextTeamId ? { teamId: nextTeamId } : {}), updatedAt: at };
           if (!nextTeamId) delete nextWorkspace.teamId;
-          await saveProjectWorkspace(options.projectModelRoot, nextWorkspace);
+          await saveProjectWorkspaceUnlocked(options.projectModelRoot, nextWorkspace);
           if (options.activityService) await options.activityService.recordActivityEvent(principal, { sourceType: "project", sourceId: `${projectId}:team:${randomUUID()}`, eventType: "project.team.changed", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { projectId, teamMode: input.teamMode, changedToTeam: Boolean(nextTeamId) }, occurredAt: at });
           return next;
         };
@@ -346,7 +346,7 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
         if (!workspace.tree.some((node) => node.id === nodeId)) {
           const rootNode = workspace.tree.find((node) => node.kind === "root");
           if (!rootNode) throw new Error("Project workspace root node is required before creating a task");
-          await saveProjectWorkspace(options.projectModelRoot, addProjectTreeNode(workspace, { id: nodeId, parentId: rootNode.id, kind: "task", title, status: "planned", at }));
+          await saveProjectWorkspaceUnlocked(options.projectModelRoot, addProjectTreeNode(workspace, { id: nodeId, parentId: rootNode.id, kind: "task", title, status: "planned", at }));
         }
         if (result.created && options.activityService) {
           await options.activityService.recordActivityEvent(principal, {

@@ -5,7 +5,7 @@ import { loadHarnessRun } from "../harness/run-store.js";
 import { appendProjectHistoryEventOnce } from "./history-store.js";
 import { attachRunToProjectTreeNode } from "./project-tree.js";
 import { findProjectTreeNode } from "./project-tree.js";
-import { loadProjectWorkspace, loadProjectWorkspaceUnlocked, saveProjectWorkspace } from "./workspace-store.js";
+import { loadProjectWorkspace, loadProjectWorkspaceUnlocked, saveProjectWorkspaceUnlocked } from "./workspace-store.js";
 import { withDurableProjectWorkspaceLock } from "./workspace-lock.js";
 
 export type ProjectExecutionPreparation = {
@@ -67,7 +67,7 @@ async function reconcileProjectWorkspaceRunUnlocked(
 
   const attached = targetNode.runIds.includes(runId);
   if (!attached) {
-    await saveProjectWorkspace(root, attachRunToProjectTreeNode(workspace, targetNode.id, runId, at));
+    await saveProjectWorkspaceUnlocked(root, attachRunToProjectTreeNode(workspace, targetNode.id, runId, at));
   }
   await appendProjectHistoryEventOnce(root, {
     version: 1,
