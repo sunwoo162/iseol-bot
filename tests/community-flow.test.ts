@@ -7,7 +7,7 @@ import type { Principal } from "../src/identity/contracts.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createCommunityService } from "../src/community/service.js";
 import { withDurableCommunityLikeLock } from "../src/community/like-lock.js";
-import { saveLike } from "../src/community/store.js";
+import { saveLikeUnlocked } from "../src/community/store.js";
 import { createNotificationService } from "../src/notifications/service.js";
 import { createSettingsService } from "../src/settings/service.js";
 
@@ -45,7 +45,7 @@ test("community post reads wait for the viewer like lock before projecting like 
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveLike(platform, post.id, "like-read-viewer");
+  await saveLikeUnlocked(platform, post.id, "like-read-viewer");
   release();
   const result = (await reading)[0];
   assert.equal(result?.viewerLiked, true);
