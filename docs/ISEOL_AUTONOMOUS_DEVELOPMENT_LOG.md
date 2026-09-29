@@ -2385,6 +2385,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root recruitment application and Team membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Study read authorization rechecks
+
+- Status: **B — Study space lists and detail reads now acquire the canonical Team membership lock and recheck active human membership before returning shared curriculum/task data and private-to-viewer submissions; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A membership removal or status change that wins the lock while a Study read is waiting can no longer be followed by stale shared data.
+- Evidence: `src/study/service.ts`, `src/study/space-lock.ts`, `src/teams/membership-lock.ts`, `tests/study-space.test.ts`, `tests/study-space-api.test.ts`, and the existing AI context/browser coverage.
+- TDD: RED held the Team membership lock, started a Study detail read, removed the reader while it waited, and showed the old unlocked read returning the space; GREEN added a shared read helper that locks the space's Team before rechecking access and reading detail/list data.
+- Verification: focused Study/AI/API `21/21`; user-product `384/384`; serial root `726/726`; backend `tsc` build, user UI build, isolated browser E2E, and `git diff --check` all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: follows as `fix: serialize study reads under team membership lock`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Study read and Team membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Team Chat read authorization rechecks
 
 - Status: **B — Team Chat message reads now acquire the canonical Team membership lock and recheck active human membership before returning the message list; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A membership removal or status change that wins the lock while a chat read is waiting can no longer be followed by a stale message response.
