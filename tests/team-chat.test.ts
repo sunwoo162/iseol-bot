@@ -7,6 +7,7 @@ import type { Principal } from "../src/identity/contracts.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createTeamService } from "../src/teams/service.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
+import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createTeamChatService } from "../src/team-chat/service.js";
 
 const at = "2026-09-27T12:00:00.000Z";
@@ -73,4 +74,36 @@ test("team chat send waits for the shared team membership lock", async () => {
   release();
   await Promise.all([holder, send]);
   assert.deepEqual((await chat.listMessages(owner, team.id)).map((message) => message.body), ["잠긴 팀 메시지"]);
+});
+
+test("team chat reads re-check membership after waiting for the shared team lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-team-chat-read-lock-"));
+  const teams = createTeamService(root, { now: () => at });
+  const owner = principal("chat-read-lock-owner");
+  const team = await teams.createTeam(owner, { name: "Locked chat read", description: "membership read boundary", kind: "project", visibility: "private", capacity: 2 });
+  const chat = createTeamChatService(root, { teamService: teams, now: () => at });
+  await chat.sendMessage(owner, team.id, "읽기 전용 경합 메시지");
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(root, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = chat.listMessages(owner, team.id).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  const membership = await loadMembership(root, team.id, owner.userId);
+  assert.ok(membership);
+  await saveMembership(root, { ...membership, status: "removed" });
+  release();
+  await assert.rejects(() => reading, /membership/i);
+  await holder;
 });

@@ -23,8 +23,10 @@ export function createTeamChatService(root: string, options: TeamChatServiceOpti
 
   return {
     async listMessages(principal, teamId) {
-      await requireMember(principal, teamId);
-      return (await listTeamMessages(root, teamId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+      return withDurableTeamMembershipLock(root, teamId, async () => {
+        await requireMember(principal, teamId);
+        return (await listTeamMessages(root, teamId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+      }, { waitForMs: 2_000 });
     },
     async sendMessage(principal, teamId, body) {
       return withDurableTeamMembershipLock(root, teamId, async () => {
