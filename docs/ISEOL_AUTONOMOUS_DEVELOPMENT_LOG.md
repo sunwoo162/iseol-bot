@@ -3709,3 +3709,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `6dcf301 fix: synchronize personal world reads`; merged by PR #72 with merge commit `3fc73c4`.
 - Boundary: same-host/shared-root Personal World/Character read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Growth snapshot read synchronization
+
+- Status: **B — Growth snapshots now acquire each canonical event projection lock before reloading owner-scoped ledger entries; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent growth projection or retraction cannot leave a snapshot with an unlocked stale ledger entry.
+- Evidence: `src/growth/read-model.ts`, `src/growth/projection-lock.ts`, `src/growth/ledger.ts`, `tests/activity-growth-ledger.test.ts`.
+- TDD: RED reproduced the Growth snapshot completing while the event projection lock was held; GREEN added event-grouped lock/reload boundaries, skipped malformed or foreign rows fail-closed, and verified the latest durable XP after release.
+- Verification: focused Growth/Activity suites `11/11`; Iseol user-product `424/424`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `f6a9345 fix: synchronize growth snapshot reads`; merged by PR #74 with merge commit `5dbd3bc`.
+- Boundary: same-host/shared-root Growth snapshot read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
