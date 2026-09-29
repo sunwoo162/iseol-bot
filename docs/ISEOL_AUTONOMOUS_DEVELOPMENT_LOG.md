@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Platform User email read synchronization
+
+- Status: **B — Platform User email lookups now acquire each candidate's canonical per-user lock before reloading the current profile; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent profile email update cannot leave authentication lookup with an unlocked stale email projection.
+- Evidence: `src/platform-user/service.ts`, `src/platform-user/user-lock.ts`, `src/platform-user/store.ts`, `tests/platform-user-isolation.test.ts`.
+- TDD: RED reproduced email lookup completing while the user lock was held and missing a newly persisted email; GREEN added the per-user lock/reload boundary and verified the updated email after release.
+- Verification: focused Platform User/auth/identity regression `22/22`; backend `tsc` build; Study Space focused regression `8/8`. The full Iseol user-product reruns exposed the same unrelated Study submission concurrency race (`427/429`, then `428/429`); the affected `tests/study-space.test.ts` rerun passed `8/8`. `git diff --check` passed.
+- Implementation commit: `45d478e fix: synchronize platform user email lookups`; merged by PR #84 with merge commit `21c1024`.
+- Boundary: same-host/shared-root Platform User email lookup coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Platform User read synchronization
 
 - Status: **B — Platform User direct and list reads now acquire the canonical per-user lock before reloading owner-scoped profiles; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent profile update cannot leave user reads with an unlocked stale projection.
