@@ -6,7 +6,7 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { withDurableMemoryLock } from "../src/memory/memory-lock.js";
 import { createMemoryService } from "../src/memory/service.js";
-import { saveMemory } from "../src/memory/store.js";
+import { loadMemory, saveMemory, saveMemoryUnlocked } from "../src/memory/store.js";
 
 const at = "2026-09-25T12:00:00.000Z";
 
@@ -92,8 +92,38 @@ test("private memory lists wait for the durable memory lock and reload current c
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveMemory(root, { ...memory, content: "after read lock", updatedAt: at });
+  await saveMemoryUnlocked(root, { ...memory, content: "after read lock", updatedAt: at });
   release();
   assert.equal((await listing)[0]?.content, "after read lock");
   await holder;
+
+  let releaseWrite!: () => void;
+  const writeHolderAcquired = new Promise<void>((resolve) => {
+    void withDurableMemoryLock(root, owner.userId, memory.id, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseWrite = release; });
+    }, { waitForMs: 0 });
+  });
+  await writeHolderAcquired;
+  let writeSettled = false;
+  const writing = saveMemory(root, { ...memory, content: "after public write lock", updatedAt: at }).then(() => { writeSettled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(writeSettled, false);
+  releaseWrite();
+  await writing;
+
+  let releaseRead!: () => void;
+  const readHolderAcquired = new Promise<void>((resolve) => {
+    void withDurableMemoryLock(root, owner.userId, memory.id, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseRead = release; });
+    }, { waitForMs: 0 });
+  });
+  await readHolderAcquired;
+  let directReadSettled = false;
+  const directRead = loadMemory(root, owner.userId, memory.id).then((value) => { directReadSettled = true; return value; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(directReadSettled, false);
+  releaseRead();
+  assert.equal((await directRead)?.content, "after public write lock");
 });

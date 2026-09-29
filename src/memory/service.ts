@@ -3,7 +3,7 @@ import { assertIdentityId, assertTimestamp, type Principal } from "../identity/c
 import type { TeamService } from "../teams/contracts.js";
 import type { MemoryInput, MemoryPatch, MemoryRecord, MemoryService } from "./contracts.js";
 import { withDurableMemoryLock } from "./memory-lock.js";
-import { deleteMemory, listAllMemories, listMemories, loadMemory, saveMemory } from "./store.js";
+import { deleteMemoryUnlocked, listAllMemoriesUnlocked, listMemoriesUnlocked, loadMemoryUnlocked, saveMemory, saveMemoryUnlocked } from "./store.js";
 import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
 
 function ensurePrincipal(principal: Principal): void {
@@ -68,10 +68,10 @@ export function createMemoryService(root: string, options: { now?: () => string;
       const search = query.search?.trim().toLowerCase();
       const limit = Math.max(1, Math.min(500, Math.floor(query.limit ?? 100)));
       const current: MemoryRecord[] = [];
-      for (const candidate of await listMemories(root, principal.userId)) {
+      for (const candidate of await listMemoriesUnlocked(root, principal.userId)) {
         try { assertIdentityId(candidate.id); } catch { continue; }
         await withDurableMemoryLock(root, principal.userId, candidate.id, async () => {
-          const record = await loadMemory(root, principal.userId, candidate.id);
+          const record = await loadMemoryUnlocked(root, principal.userId, candidate.id);
           if (!record || record.userId !== principal.userId || record.visibility !== "private") return;
           if (!search || `${record.kind} ${record.content} ${record.source ?? ""}`.toLowerCase().includes(search)) current.push(record);
         }, { waitForMs: 2_000 });
@@ -87,10 +87,10 @@ export function createMemoryService(root: string, options: { now?: () => string;
         const memberships = await options.teamService!.listMembershipsWithinMembershipLock(teamId);
         if (!activeHumanMember(teamId, principal.userId, memberships)) return [];
         const current: MemoryRecord[] = [];
-        for (const candidate of await listAllMemories(root)) {
+        for (const candidate of await listAllMemoriesUnlocked(root)) {
           try { assertIdentityId(candidate.userId); assertIdentityId(candidate.id); } catch { continue; }
           await withDurableMemoryLock(root, candidate.userId, candidate.id, async () => {
-            const record = await loadMemory(root, candidate.userId, candidate.id);
+            const record = await loadMemoryUnlocked(root, candidate.userId, candidate.id);
             if (!record || record.visibility !== "private" || !sharedTeamIds(record).includes(teamId)) return;
             current.push(withSharing(record));
           }, { waitForMs: 2_000 });
@@ -103,7 +103,7 @@ export function createMemoryService(root: string, options: { now?: () => string;
       ensurePrincipal(principal);
       assertIdentityId(memoryId);
       return withDurableMemoryLock(root, principal.userId, memoryId, async () => {
-        const current = await loadMemory(root, principal.userId, memoryId);
+        const current = await loadMemoryUnlocked(root, principal.userId, memoryId);
         if (!current || current.userId !== principal.userId || current.visibility !== "private") return null;
         if (!patch || typeof patch !== "object" || Object.keys(patch).length === 0) throw new Error("Memory patch is required");
         if (patch.kind !== undefined && (typeof patch.kind !== "string" || !patch.kind.trim() || patch.kind.length > 100)) throw new Error("Memory kind is required");
@@ -121,7 +121,7 @@ export function createMemoryService(root: string, options: { now?: () => string;
           sharedTeamIds: sharedTeamIds(current),
         };
         if (!source) delete updated.source;
-        await saveMemory(root, updated);
+        await saveMemoryUnlocked(root, updated);
         return updated;
       }, { waitForMs: 2_000 });
     },
@@ -131,7 +131,7 @@ export function createMemoryService(root: string, options: { now?: () => string;
       assertIdentityId(memoryId);
       const nextTeamIds = normalizeTeamIds(teamIds);
       const persistSharing = async () => withDurableMemoryLock(root, principal.userId, memoryId, async () => {
-        const current = await loadMemory(root, principal.userId, memoryId);
+        const current = await loadMemoryUnlocked(root, principal.userId, memoryId);
         if (!current || current.userId !== principal.userId || current.visibility !== "private") return null;
         if (nextTeamIds.length > 0) {
           if (!options.teamService) throw new Error("Memory sharing is unavailable");
@@ -143,7 +143,7 @@ export function createMemoryService(root: string, options: { now?: () => string;
         const at = now();
         assertTimestamp(at, "memory sharing timestamp");
         const updated = { ...current, sharedTeamIds: nextTeamIds, updatedAt: at };
-        await saveMemory(root, updated);
+        await saveMemoryUnlocked(root, updated);
         return updated;
       }, { waitForMs: 2_000 });
       return nextTeamIds.length > 0 ? withTeamMembershipLocks(teamMembershipRoot, [...nextTeamIds].sort(), persistSharing) : persistSharing();
@@ -153,9 +153,9 @@ export function createMemoryService(root: string, options: { now?: () => string;
       ensurePrincipal(principal);
       assertIdentityId(memoryId);
       return withDurableMemoryLock(root, principal.userId, memoryId, async () => {
-        const current = await loadMemory(root, principal.userId, memoryId);
+        const current = await loadMemoryUnlocked(root, principal.userId, memoryId);
         if (!current || current.userId !== principal.userId || current.visibility !== "private") return false;
-        return deleteMemory(root, principal.userId, memoryId);
+        return deleteMemoryUnlocked(root, principal.userId, memoryId);
       }, { waitForMs: 2_000 });
     },
   };
