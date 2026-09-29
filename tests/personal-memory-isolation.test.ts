@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
+import { withDurableMemoryLock } from "../src/memory/memory-lock.js";
 import { createMemoryService } from "../src/memory/service.js";
+import { saveMemory } from "../src/memory/store.js";
 
 const at = "2026-09-25T12:00:00.000Z";
 
@@ -66,4 +68,32 @@ test("memory mutations across service instances preserve both patches", async ()
   const persisted = await createMemoryService(root).listPrivateMemories(owner, {});
   assert.equal(persisted[0]?.kind, "learning-note");
   assert.equal(persisted[0]?.source, "updated-source");
+});
+
+test("private memory lists wait for the durable memory lock and reload current content", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-private-memory-read-lock-"));
+  const service = createMemoryService(root, { now: () => at });
+  const owner = principal("memory-read-lock-owner");
+  const memory = await service.appendPrivateMemory(owner, { kind: "note", content: "before read lock" });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableMemoryLock(root, owner.userId, memory.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const listing = service.listPrivateMemories(owner, {}).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await saveMemory(root, { ...memory, content: "after read lock", updatedAt: at });
+  release();
+  assert.equal((await listing)[0]?.content, "after read lock");
+  await holder;
 });
