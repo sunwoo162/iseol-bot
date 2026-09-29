@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createPersonalWorldService } from "../src/personal-world/service.js";
-import { saveWorld } from "../src/personal-world/store.js";
+import { loadCharacter, loadWorld, saveCharacter, saveWorld, saveWorldUnlocked } from "../src/personal-world/store.js";
 import { withDurablePersonalWorldLock } from "../src/personal-world/world-lock.js";
 
 const at = "2026-09-25T12:00:00.000Z";
@@ -104,9 +104,48 @@ test("personal world reads wait for the owner lock and reload the latest durable
   assert.equal(settled, false);
   assert.equal(characterSettled, false);
 
-  await saveWorld(root, { ...initial, displayName: "After external durable update", character: "c" });
+  await saveWorldUnlocked(root, { ...initial, displayName: "After external durable update", character: "c" });
   releaseLock();
   await heldLock;
   assert.equal((await read).displayName, "After external durable update");
   assert.equal((await readCharacter).character, "c");
+});
+
+test("public personal world store reads and writes wait for the shared owner lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-personal-world-store-lock-"));
+  const user = principal("user-store-lock");
+  const service = createPersonalWorldService(root, { now: () => at });
+  const world = await service.getWorld(user);
+  const character = await service.getCharacter(user);
+  const updatedWorld = { ...world, displayName: "잠금 해제 후 world", character: "c", updatedAt: at };
+  const updatedCharacter = { ...character, character: "c", updatedAt: at };
+
+  let releaseLock!: () => void;
+  let lockAcquired!: () => void;
+  const acquired = new Promise<void>((resolve) => { lockAcquired = resolve; });
+  const heldLock = withDurablePersonalWorldLock(root, user.userId, async () => {
+    lockAcquired();
+    await new Promise<void>((resolve) => { releaseLock = resolve; });
+  }, { waitForMs: 0 });
+  await acquired;
+
+  let worldSaveSettled = false;
+  const pendingWorldSave = saveWorld(root, updatedWorld).then(() => { worldSaveSettled = true; });
+  let characterSaveSettled = false;
+  const pendingCharacterSave = saveCharacter(root, updatedCharacter).then(() => { characterSaveSettled = true; });
+  let worldLoadSettled = false;
+  const pendingWorldLoad = loadWorld(root, user.userId).then((value) => { worldLoadSettled = true; return value; });
+  let characterLoadSettled = false;
+  const pendingCharacterLoad = loadCharacter(root, user.userId).then((value) => { characterLoadSettled = true; return value; });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(worldSaveSettled, false);
+  assert.equal(characterSaveSettled, false);
+  assert.equal(worldLoadSettled, false);
+  assert.equal(characterLoadSettled, false);
+
+  releaseLock();
+  await heldLock;
+  await Promise.all([pendingWorldSave, pendingCharacterSave]);
+  assert.equal((await pendingWorldLoad)?.displayName, "잠금 해제 후 world");
+  assert.equal((await pendingCharacterLoad)?.character, "c");
 });
