@@ -167,7 +167,13 @@ export function createSocialService(root: string, options: SocialServiceOptions)
       }, { waitForMs: 2_000 });
     },
     async listDirectMessages(principal, otherUserId) {
-      ensurePrincipal(principal); assertIdentityId(otherUserId); if (await isBlocked(principal.userId, otherUserId)) throw new Error("User is blocked"); const allowed = await isAccepted(principal.userId, otherUserId) || await options.canCollaborate?.(principal.userId, otherUserId) === true; if (!allowed) throw new Error("Direct messaging requires an accepted friendship or shared team"); return (await listDirectMessages(root)).filter((message) => (message.senderUserId === principal.userId && message.recipientUserId === otherUserId) || (message.senderUserId === otherUserId && message.recipientUserId === principal.userId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      ensurePrincipal(principal); assertIdentityId(otherUserId);
+      return withDurableSocialBlockLock(root, principal.userId, otherUserId, async () => {
+        if (await isBlocked(principal.userId, otherUserId)) throw new Error("User is blocked");
+        const allowed = await isAccepted(principal.userId, otherUserId) || await options.canCollaborate?.(principal.userId, otherUserId) === true;
+        if (!allowed) throw new Error("Direct messaging requires an accepted friendship or shared team");
+        return (await listDirectMessages(root)).filter((message) => (message.senderUserId === principal.userId && message.recipientUserId === otherUserId) || (message.senderUserId === otherUserId && message.recipientUserId === principal.userId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      }, { waitForMs: 2_000 });
     },
     async blockUser(principal, targetUserId) {
       ensurePrincipal(principal); assertIdentityId(targetUserId); if (targetUserId === principal.userId) throw new Error("Cannot block yourself"); if (!await options.platformUserService.getUser(targetUserId)) throw new Error("Target user not found");

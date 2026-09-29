@@ -8,6 +8,7 @@ import { createActivityService } from "../src/activity/service.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createSocialService } from "../src/social/service.js";
 import { withDurableSocialBlockLock } from "../src/social/block-lock.js";
+import { saveBlock } from "../src/social/store.js";
 
 const at = "2026-09-25T12:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -106,4 +107,36 @@ test("friend request creation waits for the shared social interaction lock", asy
   release();
   await Promise.all([holder, request]);
   assert.equal((await social.listIncomingFriendRequests(principal("friend-lock-b"))).length, 1);
+});
+
+test("direct message reads re-check social block state after waiting for the pair lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-message-read-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  for (const id of ["message-read-a", "message-read-b"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const social = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+  await social.createFriendRequest(principal("message-read-a"), "message-read-b");
+  await social.respondToFriendRequest(principal("message-read-b"), "friend-message-read-a-message-read-b", "accept");
+  await social.sendDirectMessage(principal("message-read-a"), "message-read-b", "보여주면 안 되는 DM");
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableSocialBlockLock(platformRoot, "message-read-a", "message-read-b", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = social.listDirectMessages(principal("message-read-a"), "message-read-b").then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await saveBlock(platformRoot, { version: 1, id: "block-message-read-b-message-read-a", blockerUserId: "message-read-b", blockedUserId: "message-read-a", status: "active", createdAt: at, updatedAt: at });
+  release();
+  await assert.rejects(() => reading, /blocked/i);
+  await holder;
 });
