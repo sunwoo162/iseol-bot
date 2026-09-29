@@ -5,7 +5,9 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createActivityService } from "../src/activity/service.js";
+import { withDurableLearningCodingAttemptLock } from "../src/learning/coding-attempt-lock.js";
 import { createLearningService } from "../src/learning/service.js";
+import { saveCodingAttempt } from "../src/learning/store.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -95,6 +97,30 @@ test("a configured coding verifier can complete a practice receipt without chang
   assert.equal(result.attempt.practiceResult.status, "syntax-verified");
   assert.deepEqual(result.attempt.practiceResult.artifactRefs, ["coding-syntax:receipt"]);
   assert.equal((result.attempt.practiceResult as any).receipt.passed, true);
+});
+
+test("coding attempt lists wait for each durable attempt lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-coding-read-lock-"));
+  const owner = principal("coding-read-lock-owner");
+  const service = createLearningService(root, { now: () => at });
+  const plan = await service.createLearningPlan(owner, { title: "Coding reads", description: "Coding reads", goals: ["Practice"] });
+  const session = await service.startLearningSession(owner, plan.id);
+  const exercise = await service.createCodingExercise(owner, { sessionId: session.id, title: "Read attempt", prompt: "Write an answer", language: "typescript", estimatedMinutes: 5 });
+  const submitted = await service.submitCodingAttempt(owner, { exerciseId: exercise.id, clientRequestId: "coding-read-attempt", response: "const answer = 1;" });
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableLearningCodingAttemptLock(root, owner.userId, exercise.id, submitted.attempt.clientRequestId, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let settled = false;
+  const read = service.listCodingAttempts(owner, exercise.id).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await saveCodingAttempt(root, { ...submitted.attempt, response: "잠금 해제 후 시도" });
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await read)[0]?.response, "잠금 해제 후 시도");
 });
 
 test("coding attempt submissions create one owner-scoped unverified activity receipt", async () => {

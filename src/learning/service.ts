@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CodingAttempt, CodingAttemptInput, CodingExercise, CodingExerciseInput, CodingPracticeResult, GoalInterpretation, LearningAnswerReceipt, LearningContentRequest, LearningFeedback, LearningFeedbackDispute, LearningFeedbackDisputeResult, LearningFeedbackEvaluation, LearningFeedbackEvaluationInput, LearningGoal, LearningGoalInput, LearningGoalSessionInput, LearningLessonBlock, LearningLessonContent, LearningLessonInput, LearningPlanAdjustment, LearningPlanAdjustmentInput, LearningPlanAdjustmentResult, LearningPlanInput, LearningPlanPreview, LearningPlanProposal, LearningPlanVersion, LearningProgress, LearningProjectApplication, LearningProjectApplicationInput, LearningReport, LearningReportPeriod, LearningService, LearningServiceOptions, LearningSessionAction, LearningSessionActionInput, ReviewItemInput, CodeAnalysisInput, StudyAttemptInput, LearningPlan, LearningPlanDay, LearningSession, LearningToday, ReviewItem, CodeAnalysisResult } from "./contracts.js";
-import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoals, listLearningPlanAdjustments, listLearningPlanVersions, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningReport, loadPlan, loadReview, loadSession, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveLearningGoal, saveLearningPlanVersion, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession } from "./store.js";
+import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoals, listLearningPlanAdjustments, listLearningPlanVersions, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningReport, loadPlan, loadReview, loadSession, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveLearningGoal, saveLearningPlanVersion, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession } from "./store.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
 import { withDurableLearningProjectApplicationAcceptanceLock } from "./project-application-acceptance-lock.js";
@@ -1440,7 +1440,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
             // environment-required result remains the truthful fallback.
           }
         }
-        const persisted = (await this.listCodingAttempts(principal, exercise.id)).find((candidate) => candidate.id === attempt.id) ?? attempt;
+        const persisted = (await loadCodingAttempt(root, principal.userId, attempt.id)) ?? attempt;
         await recordCodingAttemptActivity(principal, exercise, persisted);
         return { attempt: persisted, created: true };
       }, { waitForMs: 2_000 });
@@ -1450,9 +1450,15 @@ export function createLearningService(root: string, options: LearningServiceOpti
       ensurePrincipal(principal);
       const exercise = await this.getCodingExercise(principal, exerciseId);
       if (!exercise) return [];
-      return (await listCodingAttempts(root, principal.userId))
-        .filter((attempt) => attempt.userId === principal.userId && attempt.exerciseId === exercise.id)
-        .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+      const candidates = (await listCodingAttempts(root, principal.userId)).filter((attempt) => attempt.userId === principal.userId && attempt.exerciseId === exercise.id);
+      const current: CodingAttempt[] = [];
+      for (const candidate of candidates) {
+        await withDurableLearningCodingAttemptLock(root, principal.userId, exercise.id, candidate.clientRequestId, async () => {
+          const attempt = await loadCodingAttempt(root, principal.userId, candidate.id);
+          if (attempt?.userId === principal.userId && attempt.exerciseId === exercise.id) current.push(attempt);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
     },
 
     async createLearningProjectApplication(principal, goalId, input: LearningProjectApplicationInput) {
