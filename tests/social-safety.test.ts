@@ -384,3 +384,33 @@ test("own profile reads wait for the durable profile lock before projecting stat
   assert.equal((await reading)?.handle, "after");
   await holder;
 });
+
+test("own profile list reads wait for the durable profile lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-own-profile-list-read-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  await users.createUser({ id: "own-profile-list-read", email: "own-profile-list-read@example.com", displayName: "Own profile list read", timezone: "Asia/Seoul" });
+  const social = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+  await social.updateProfile(principal("own-profile-list-read"), { handle: "before" });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableSocialProfileLock(platformRoot, "own-profile-list-read", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = social.listProfiles(principal("own-profile-list-read"), "own profile list read").then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await saveProfile(platformRoot, { version: 1, userId: "own-profile-list-read", handle: "after", bio: "", skills: [], visibility: "private", createdAt: at, updatedAt: "2026-09-27T15:00:01.000Z" });
+  release();
+  assert.equal((await reading)[0]?.handle, "after");
+  await holder;
+});

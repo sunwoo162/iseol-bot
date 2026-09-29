@@ -100,7 +100,7 @@ export function createSocialService(root: string, options: SocialServiceOptions)
       ensurePrincipal(principal); const users = await options.platformUserService.listUsers(); const query = search.trim().toLowerCase(); const profiles: PublicProfile[] = [];
       for (const user of users) {
         const profile = user.id === principal.userId
-          ? await profileFor(user.id)
+          ? await withDurableSocialProfileLock(root, principal.userId, () => profileFor(user.id), { waitForMs: 2_000 })
           : await withDurableSocialBlockLock(root, principal.userId, user.id, async () => {
               if (await isBlocked(principal.userId, user.id)) return null;
               return withDurableSocialProfileLock(root, user.id, () => profileFor(user.id), { waitForMs: 2_000 });
