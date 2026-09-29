@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { IdeaLabCampaign } from "./contracts.js";
 import { assertIdeaLabCampaign, assertIdeaLabId } from "./contracts.js";
 import { ideaLabDirectory, listIdeaLabJsonFiles, readIdeaLabJson, writeIdeaLabJsonAtomic } from "./store-utils.js";
+import { withDurableIdeaLabCampaignLock } from "./campaign-lock.js";
 
 function campaignFile(root: string, id: string): string {
   assertIdeaLabId(id);
@@ -24,7 +25,13 @@ export async function listIdeaLabCampaigns(root: string): Promise<IdeaLabCampaig
   const campaigns: IdeaLabCampaign[] = [];
   for (const name of await listIdeaLabJsonFiles(directory)) {
     const id = name.slice(0, -5);
-    const campaign = await loadIdeaLabCampaign(root, id);
+    assertIdeaLabId(id);
+    const campaign = await withDurableIdeaLabCampaignLock(
+      root,
+      id,
+      () => loadIdeaLabCampaign(root, id),
+      { waitForMs: 2_000 },
+    );
     if (campaign) campaigns.push(campaign);
   }
   return campaigns.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
