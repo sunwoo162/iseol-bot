@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable direct-message read authorization rechecks
+
+- Status: **B — direct-message reads now acquire the canonical social pair lock and recheck bilateral block state plus friendship/collaboration authorization before returning messages; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A block or collaboration change that wins the pair lock while the read is waiting can no longer leave a stale private conversation visible.
+- Evidence: `src/social/service.ts`, `tests/social-messaging.test.ts`.
+- TDD: RED reproduced the DM read completing while the shared social pair lock was held and a block was persisted; GREEN wrapped the full authorization and message projection in the pair lock, preserving the existing fail-closed errors for blocked or unauthorized conversations.
+- Verification: focused Social safety/messaging/API suites `13/13`; user-product `390/390`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `b2e4cdb fix: serialize direct message reads`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root direct-message read and social block/collaboration authorization coordination only; profile-list read coordination, distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable identity user and session mutation synchronization
 
 - Status: **B — identity user creation and session creation/revocation now serialize across same-host/shared-root service instances; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. User mutations use a user-scoped durable lock, session mutations use a session-scoped durable lock, and bulk session revocation locks each session before re-reading and replacing it.
