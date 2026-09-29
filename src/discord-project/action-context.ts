@@ -5,6 +5,7 @@ import { resolveDiscordProjectContext } from "./context-resolver.js";
 export type ResolveBoundActionContextInput = {
   modelRoot: string;
   bindingRoot: string;
+  workspaceRoot?: string;
   guildId: string;
   storedProjectId: string;
   nodeId?: string;

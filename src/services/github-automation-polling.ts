@@ -205,6 +205,7 @@ async function recordReviewProjectHistory(
     await recordStoredProjectAction({
       modelRoot,
       bindingRoot: modelRoot,
+      workspaceRoot: modelRoot,
       guildId: project.guildId,
       storedProjectId: project.id,
       fact,

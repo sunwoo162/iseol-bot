@@ -476,6 +476,7 @@ async function handleBindProject(interaction: ChatInputCommandInteraction): Prom
       await recordStoredProjectAction({
         modelRoot,
         bindingRoot: modelRoot,
+        workspaceRoot: modelRoot,
         guildId: interaction.guildId,
         storedProjectId,
         fact: discordProjectBindingHistoryFact(binding),
@@ -505,6 +506,7 @@ async function handleProjectStatus(interaction: ChatInputCommandInteraction): Pr
     const context = await resolveDiscordProjectContext({
       modelRoot,
       bindingRoot: modelRoot,
+      workspaceRoot: modelRoot,
       guildId: interaction.guildId,
       storedProjectId,
     });

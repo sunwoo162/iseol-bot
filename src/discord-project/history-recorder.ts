@@ -103,6 +103,7 @@ export type StoredProjectActionFact = {
 export type RecordStoredProjectActionInput = {
   modelRoot: string;
   bindingRoot: string;
+  workspaceRoot?: string;
   guildId: string;
   storedProjectId: string;
   fact: StoredProjectActionFact;
@@ -118,6 +119,7 @@ export async function recordStoredProjectAction(
   const context = await resolveBoundActionContext({
     modelRoot: input.modelRoot,
     bindingRoot: input.bindingRoot,
+    ...(input.workspaceRoot === undefined ? {} : { workspaceRoot: input.workspaceRoot }),
     guildId: input.guildId,
     storedProjectId: input.storedProjectId,
     ...(input.nodeId === undefined ? {} : { nodeId: input.nodeId }),
