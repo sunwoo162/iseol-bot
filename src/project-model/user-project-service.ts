@@ -231,6 +231,7 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
     async getProject(principal, projectId) {
       ensurePrincipal(principal);
       try { assertIdentityId(projectId); } catch { return null; }
+      return withDurableProjectWorkspaceLock(options.projectModelRoot, projectId, async () => {
       const project = (await listVisibleProjects(options.platformRoot, principal, options.canAccessTeam)).find((item) => item.id === projectId) ?? null;
       if (!project) return null;
       const workspace = await loadProjectWorkspace(options.projectModelRoot, project.id);
@@ -301,6 +302,7 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
       const lifecycle = projectLifecycleFromEvidence({ projectId: project.id, evidence });
       const history = await loadProjectHistory(options.projectModelRoot, project.id);
       return { project, workspace: { ...workspace, files: workspaceFiles }, workRequests, runtime, evidence, observability: { runs: observabilityRuns }, lifecycle, history };
+      }, { waitForMs: 2_000 });
     },
     async readWorkspaceFile(principal, projectId, relativePath) {
       ensurePrincipal(principal);

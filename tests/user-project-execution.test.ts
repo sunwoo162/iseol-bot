@@ -14,6 +14,8 @@ import { appendProjectHistoryEvent } from "../src/project-model/history-store.js
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { projectRunObservation } from "../src/project-model/run-observability.js";
 import { withDurableProjectWorkRequestRunLock } from "../src/project-model/work-request-lock.js";
+import { withDurableProjectWorkspaceLock } from "../src/project-model/workspace-lock.js";
+import { loadProjectWorkspace, saveProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { createSettingsService } from "../src/settings/service.js";
 
 const at = "2026-09-25T12:00:00.000Z";
@@ -57,6 +59,30 @@ test("user projects persist with owner scope and create idempotent work requests
   assert.equal(task?.kind, "task");
   assert.equal(task?.title, "기본 화면");
   assert.equal(await service.getProject(principal("user-b"), created.id), null);
+});
+
+test("project reads wait for the durable workspace lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-read-lock-"));
+  const owner = principal("project-read-lock-owner");
+  const options = { platformRoot: join(root, "platform"), projectModelRoot: join(root, "project-model"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, now: () => at };
+  const service = createUserProjectService(options);
+  const project = await service.createProject(owner, { name: "기존 프로젝트", objective: "read synchronization", purpose: "rapid-prototype", teamMode: "solo" });
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableProjectWorkspaceLock(options.projectModelRoot, project.id, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let settled = false;
+  const read = service.getProject(owner, project.id).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  const workspace = await loadProjectWorkspace(options.projectModelRoot, project.id);
+  assert.ok(workspace);
+  await saveProjectWorkspace(options.projectModelRoot, { ...workspace, name: "잠금 해제 후 프로젝트", updatedAt: "2026-09-25T12:00:01.000Z" });
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await read)?.workspace.name, "잠금 해제 후 프로젝트");
 });
 
 test("concurrent Work Request creation preserves both Workspace task nodes", async () => {
