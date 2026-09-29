@@ -3909,3 +3909,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `75abde1 fix: synchronize Discord progress delivery`; merged by PR #112 with merge commit `64fdd35`.
 - Boundary: same-host/shared-root Discord progress notification durable-log coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Discord Project status read synchronization
+
+- Status: **B — bound Discord Project status snapshots now wait for the canonical Project Workspace lock before reading Workspace and attached Run state, while legacy/stale reads and live Runtime/provider execution remain unverified**. A status request cannot complete inside a concurrent Workspace mutation window.
+- Evidence: `src/discord-project/status-card.ts`, `src/commands/project.ts`, `src/project-model/workspace-lock.ts`, `tests/discord-project-status.test.ts`.
+- TDD: RED reproduced bound status completing while the Project Workspace lock was held; GREEN added the optional workspace-root lock boundary, wired the real command root, and verified the status snapshot after release.
+- Verification: Discord Project related regression `44/44`; serial full test suite `731/731`; backend `tsc` build and `git diff --check` passed. Parallel root execution still exposes pre-existing nondeterministic E2E/heartbeat/desktop timing failures and is not treated as clean evidence.
+- Implementation commit: `15bc1f3 fix: synchronize Discord project status reads`; merged by PR #114 with merge commit `f02d20e`.
+- Boundary: same-host/shared-root Discord Project status read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
