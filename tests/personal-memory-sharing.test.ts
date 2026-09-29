@@ -6,7 +6,7 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createMemoryService } from "../src/memory/service.js";
 import { withDurableMemoryLock } from "../src/memory/memory-lock.js";
-import { saveMemory } from "../src/memory/store.js";
+import { saveMemoryUnlocked } from "../src/memory/store.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
 import { createTeamService } from "../src/teams/service.js";
 import { loadMembership, saveMembership } from "../src/teams/store.js";
@@ -166,7 +166,7 @@ test("shared memory reads wait for the memory lock and reload current state", as
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  await saveMemory(root, { ...shared, content: "변경 후 공유 메모리입니다.", updatedAt: at });
+  await saveMemoryUnlocked(root, { ...shared, content: "변경 후 공유 메모리입니다.", updatedAt: at });
   releaseHolder();
   await holder;
   assert.deepEqual((await reading).map((item) => item.content), ["변경 후 공유 메모리입니다."]);

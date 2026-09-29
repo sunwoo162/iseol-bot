@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { assertIdentityId } from "../identity/contracts.js";
 import type { MemoryRecord } from "./contracts.js";
+import { withDurableMemoryLock } from "./memory-lock.js";
 
 function memoryDirectory(root: string, userId: string): string {
   assertIdentityId(userId);
@@ -21,11 +22,15 @@ async function saveJson(path: string, value: unknown): Promise<void> {
   await rename(temporary, path);
 }
 
-export async function saveMemory(root: string, memory: MemoryRecord): Promise<void> {
+export async function saveMemoryUnlocked(root: string, memory: MemoryRecord): Promise<void> {
   await saveJson(memoryPath(root, memory.userId, memory.id), memory);
 }
 
-export async function loadMemory(root: string, userId: string, memoryId: string): Promise<MemoryRecord | null> {
+export async function saveMemory(root: string, memory: MemoryRecord): Promise<void> {
+  return withDurableMemoryLock(root, memory.userId, memory.id, () => saveMemoryUnlocked(root, memory), { waitForMs: 2_000 });
+}
+
+export async function loadMemoryUnlocked(root: string, userId: string, memoryId: string): Promise<MemoryRecord | null> {
   try {
     return JSON.parse(await readFile(memoryPath(root, userId, memoryId), "utf8")) as MemoryRecord;
   } catch (error) {
@@ -34,7 +39,11 @@ export async function loadMemory(root: string, userId: string, memoryId: string)
   }
 }
 
-export async function listMemories(root: string, userId: string): Promise<MemoryRecord[]> {
+export async function loadMemory(root: string, userId: string, memoryId: string): Promise<MemoryRecord | null> {
+  return withDurableMemoryLock(root, userId, memoryId, () => loadMemoryUnlocked(root, userId, memoryId), { waitForMs: 2_000 });
+}
+
+export async function listMemoriesUnlocked(root: string, userId: string): Promise<MemoryRecord[]> {
   const directory = memoryDirectory(root, userId);
   let names: string[];
   try { names = await readdir(directory); } catch (error) {
@@ -48,7 +57,21 @@ export async function listMemories(root: string, userId: string): Promise<Memory
   return records;
 }
 
-export async function listAllMemories(root: string): Promise<MemoryRecord[]> {
+export async function listMemories(root: string, userId: string): Promise<MemoryRecord[]> {
+  const candidates = await listMemoriesUnlocked(root, userId);
+  const records: MemoryRecord[] = [];
+  for (const candidate of candidates) {
+    try {
+      const current = await withDurableMemoryLock(root, userId, candidate.id, () => loadMemoryUnlocked(root, userId, candidate.id), { waitForMs: 2_000 });
+      if (current) records.push(current);
+    } catch {
+      // malformed or inaccessible records fail closed for the owner-scoped list
+    }
+  }
+  return records;
+}
+
+export async function listAllMemoriesUnlocked(root: string): Promise<MemoryRecord[]> {
   let entries: import("node:fs").Dirent[];
   try { entries = await readdir(resolve(root, "users"), { withFileTypes: true }); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
@@ -59,7 +82,21 @@ export async function listAllMemories(root: string): Promise<MemoryRecord[]> {
   return records;
 }
 
-export async function deleteMemory(root: string, userId: string, memoryId: string): Promise<boolean> {
+export async function listAllMemories(root: string): Promise<MemoryRecord[]> {
+  const candidates = await listAllMemoriesUnlocked(root);
+  const records: MemoryRecord[] = [];
+  for (const candidate of candidates) {
+    try {
+      const current = await withDurableMemoryLock(root, candidate.userId, candidate.id, () => loadMemoryUnlocked(root, candidate.userId, candidate.id), { waitForMs: 2_000 });
+      if (current) records.push(current);
+    } catch {
+      // malformed or inaccessible records fail closed for shared reads
+    }
+  }
+  return records;
+}
+
+export async function deleteMemoryUnlocked(root: string, userId: string, memoryId: string): Promise<boolean> {
   try {
     await unlink(memoryPath(root, userId, memoryId));
     return true;
@@ -67,4 +104,8 @@ export async function deleteMemory(root: string, userId: string, memoryId: strin
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw error;
   }
+}
+
+export async function deleteMemory(root: string, userId: string, memoryId: string): Promise<boolean> {
+  return withDurableMemoryLock(root, userId, memoryId, () => deleteMemoryUnlocked(root, userId, memoryId), { waitForMs: 2_000 });
 }
