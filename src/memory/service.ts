@@ -4,6 +4,7 @@ import type { TeamService } from "../teams/contracts.js";
 import type { MemoryInput, MemoryPatch, MemoryRecord, MemoryService } from "./contracts.js";
 import { withDurableMemoryLock } from "./memory-lock.js";
 import { deleteMemory, listAllMemories, listMemories, loadMemory, saveMemory } from "./store.js";
+import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
 
 function ensurePrincipal(principal: Principal): void {
   assertIdentityId(principal.userId);
@@ -29,8 +30,15 @@ function activeHumanMember(teamId: string, userId: string, memberships: Awaited<
   return memberships.some((membership) => membership.teamId === teamId && membership.userId === userId && membership.memberType === "human" && membership.status === "active");
 }
 
-export function createMemoryService(root: string, options: { now?: () => string; teamService?: TeamService } = {}): MemoryService {
+async function withTeamMembershipLocks<T>(root: string, teamIds: string[], task: () => Promise<T>): Promise<T> {
+  const [teamId, ...remaining] = teamIds;
+  if (!teamId) return task();
+  return withDurableTeamMembershipLock(root, teamId, () => withTeamMembershipLocks(root, remaining, task), { waitForMs: 2_000 });
+}
+
+export function createMemoryService(root: string, options: { now?: () => string; teamMembershipRoot?: string; teamService?: TeamService } = {}): MemoryService {
   const now = options.now ?? (() => new Date().toISOString());
+  const teamMembershipRoot = options.teamMembershipRoot ?? root;
   return {
     async appendPrivateMemory(principal, input: MemoryInput): Promise<MemoryRecord> {
       ensurePrincipal(principal);
@@ -112,18 +120,21 @@ export function createMemoryService(root: string, options: { now?: () => string;
       return withDurableMemoryLock(root, principal.userId, memoryId, async () => {
         const current = await loadMemory(root, principal.userId, memoryId);
         if (!current || current.userId !== principal.userId || current.visibility !== "private") return null;
-        if (nextTeamIds.length > 0) {
-          if (!options.teamService) throw new Error("Memory sharing is unavailable");
-          for (const teamId of nextTeamIds) {
-            const memberships = await options.teamService.listMemberships(teamId);
-            if (!activeHumanMember(teamId, principal.userId, memberships)) throw new Error("Active team member access is required for memory sharing");
+        const persistSharing = async () => {
+          if (nextTeamIds.length > 0) {
+            if (!options.teamService) throw new Error("Memory sharing is unavailable");
+            for (const teamId of nextTeamIds) {
+              const memberships = await options.teamService.listMemberships(teamId);
+              if (!activeHumanMember(teamId, principal.userId, memberships)) throw new Error("Active team member access is required for memory sharing");
+            }
           }
-        }
-        const at = now();
-        assertTimestamp(at, "memory sharing timestamp");
-        const updated = { ...current, sharedTeamIds: nextTeamIds, updatedAt: at };
-        await saveMemory(root, updated);
-        return updated;
+          const at = now();
+          assertTimestamp(at, "memory sharing timestamp");
+          const updated = { ...current, sharedTeamIds: nextTeamIds, updatedAt: at };
+          await saveMemory(root, updated);
+          return updated;
+        };
+        return nextTeamIds.length > 0 ? withTeamMembershipLocks(teamMembershipRoot, [...nextTeamIds].sort(), persistSharing) : persistSharing();
       }, { waitForMs: 2_000 });
     },
 

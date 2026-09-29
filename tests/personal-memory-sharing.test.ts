@@ -5,7 +5,9 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createMemoryService } from "../src/memory/service.js";
+import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
 import { createTeamService } from "../src/teams/service.js";
+import { loadMembership, saveMembership } from "../src/teams/store.js";
 
 const at = "2026-09-28T12:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -65,4 +67,37 @@ test("memory sharing cannot be re-saved after the owner leaves the selected team
   await teams.leaveTeam(owner, team.id);
 
   await assert.rejects(() => memory.updatePrivateMemorySharing(owner, record.id, [team.id]), /active team member/i);
+});
+
+test("memory sharing re-checks active membership after waiting for the Team lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-memory-sharing-lock-"));
+  const teams = createTeamService(root, { now: () => at });
+  const memory = createMemoryService(root, { now: () => at, teamService: teams });
+  const manager = principal("memory-share-lock-manager");
+  const owner = principal("memory-share-lock-owner");
+  const team = await teams.createTeam(manager, { name: "공유 경합 팀", description: "공유 권한 재검증", kind: "project", visibility: "private", capacity: 4 });
+  await teams.addMember(team.id, owner.userId, "member");
+  const record = await memory.appendPrivateMemory(owner, { kind: "private", content: "멤버십 락 대기 뒤 재검증해야 합니다." });
+
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableTeamMembershipLock(root, team.id, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    }, { waitForMs: 2_000 });
+  });
+  await holderStarted;
+  let settled = false;
+  const sharing = memory.updatePrivateMemorySharing(owner, record.id, [team.id]).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  const membership = await loadMembership(root, team.id, owner.userId);
+  assert.ok(membership);
+  await saveMembership(root, { ...membership, status: "removed" });
+  releaseHolder();
+  await assert.rejects(() => sharing, /active team member/i);
+  assert.deepEqual((await memory.listPrivateMemories(owner, {}))[0]?.sharedTeamIds, []);
 });
