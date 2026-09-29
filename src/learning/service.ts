@@ -1495,7 +1495,15 @@ export function createLearningService(root: string, options: LearningServiceOpti
     async listLearningProjectApplications(principal, goalId) {
       ensurePrincipal(principal);
       if (!await loadOwnerGoal(root, principal, goalId)) return [];
-      return (await listLearningProjectApplications(root, principal.userId)).filter((item) => item.userId === principal.userId && item.goalId === goalId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      const candidates = (await listLearningProjectApplications(root, principal.userId)).filter((item) => item.userId === principal.userId && item.goalId === goalId);
+      const current: LearningProjectApplication[] = [];
+      for (const candidate of candidates) {
+        await withDurableLearningProjectApplicationAcceptanceLock(root, principal.userId, goalId, candidate.id, async () => {
+          const application = await loadLearningProjectApplication(root, principal.userId, candidate.id);
+          if (application?.userId === principal.userId && application.goalId === goalId) current.push(application);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     },
 
     async acceptLearningProjectApplication(principal, goalId, proposalId) {
