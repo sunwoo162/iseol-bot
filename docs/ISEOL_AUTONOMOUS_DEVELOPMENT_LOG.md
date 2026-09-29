@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable coding attempt list read synchronization
+
+- Status: **B — Coding attempt lists now acquire each client-request attempt lock before reloading the receipt projection; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent coding attempt verifier/update can no longer leave the attempt list with an unlocked stale result.
+- Evidence: `src/learning/service.ts`, `src/learning/coding-attempt-lock.ts`, `src/learning/store.ts`, `tests/learning-coding-test.test.ts`.
+- TDD: RED reproduced the coding attempt list completing while the attempt lock was held; GREEN added the per-attempt lock/reload boundary and verified the latest durable response after release. The submission path now uses a direct durable reload inside its existing lock to avoid self-reentrant locking.
+- Verification: focused Learning coding suite `5/5`; Iseol user-product `417/417`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root Learning coding attempt list read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Learning project application read synchronization
 
 - Status: **B — Learning project application lists now acquire each proposal acceptance lock before reloading the projection; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent application acceptance can no longer leave the application list with an unlocked stale result.

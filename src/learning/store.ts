@@ -80,6 +80,7 @@ export const saveCodingExercise = (root: string, value: CodingExercise) => saveJ
 export const loadCodingExercise = (root: string, userId: string, id: string) => loadJson<CodingExercise>(pathFor(root, userId, "coding-exercises", id));
 export const listCodingExercises = (root: string, userId: string) => listJson<CodingExercise>(root, userId, "coding-exercises");
 export const saveCodingAttempt = (root: string, value: CodingAttempt) => saveJson(pathFor(root, value.userId, "coding-attempts", value.id), value);
+export const loadCodingAttempt = (root: string, userId: string, id: string) => loadJson<CodingAttempt>(pathFor(root, userId, "coding-attempts", id));
 export const listCodingAttempts = (root: string, userId: string) => listJson<CodingAttempt>(root, userId, "coding-attempts");
 export const saveLearningProjectApplication = (root: string, value: LearningProjectApplication) => saveJson(pathFor(root, value.userId, "project-proposals", value.id), value);
 export const loadLearningProjectApplication = (root: string, userId: string, id: string) => loadJson<LearningProjectApplication>(pathFor(root, userId, "project-proposals", id));
