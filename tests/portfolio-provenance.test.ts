@@ -10,7 +10,7 @@ import { createUserProjectService } from "../src/project-model/user-project-serv
 import type { UserProjectService } from "../src/project-model/user-project-service.js";
 import { createPortfolioService } from "../src/portfolio/service.js";
 import { withDurablePortfolioEntryLock } from "../src/portfolio/entry-lock.js";
-import { savePortfolioEntry } from "../src/portfolio/store.js";
+import { savePortfolioEntryUnlocked } from "../src/portfolio/store.js";
 
 const at = "2026-09-25T12:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -164,7 +164,7 @@ test("owner portfolio snapshots re-check entries after waiting for the entry loc
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await savePortfolioEntry(platformRoot, { ...entry, title: "잠금 후 제목", updatedAt: "2026-09-25T12:00:01.000Z" });
+  await savePortfolioEntryUnlocked(platformRoot, { ...entry, title: "잠금 후 제목", updatedAt: "2026-09-25T12:00:01.000Z" });
   release();
   assert.equal((await reading).entries.find((item) => item.id === entry.id)?.title, "잠금 후 제목");
   await holder;
