@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Discord Project binding mutation synchronization
+
+- Status: **B — Discord Project binding 생성/삭제가 guild와 StoredProject 조합의 durable lock 안에서 직렬화되며, 동일 binding의 idempotency와 conflicting rebind 보호를 유지한다; live Runtime/provider 실행은 여전히 검증되지 않음**. 공유 binding 파일을 동시에 변경할 때 한 target이 조용히 덮어써지는 경로를 차단했다.
+- Evidence: `src/discord-project/binding-lock.ts`, `src/discord-project/binding-store.ts`, `tests/discord-project-binding.test.ts`.
+- TDD: RED에서 binding lock 모듈 부재를 확인했고, GREEN에서 lock 대기, stale owner 정리, 생성/삭제 경계 직렬화와 현재 binding 보존을 검증했다.
+- Verification: Discord Project 관련 회귀 `41/41`; 전체 테스트 `728/728`; backend `tsc` build와 `git diff --check` 통과.
+- Implementation commit: `66878d0 fix: synchronize Discord project binding writes`; merged by PR #108 with merge commit `249d827`.
+- Boundary: same-host/shared-root Discord Project binding 생성/삭제 mutation coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Study submission read synchronization
 
 - Status: **B — Study Space detail reads now keep the canonical Team membership → Study space → personal Submission lock order and reload each task answer before projection; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent personal answer save cannot leave a member with an unlocked stale submission in the Study Space view.
