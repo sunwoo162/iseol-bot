@@ -3699,3 +3699,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `8339d61 fix: synchronize integration delivery reads`; merged by PR #70 with merge commit `27831fd`.
 - Boundary: same-host/shared-root Integration delivery read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery itself, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Personal World read synchronization
+
+- Status: **B — Personal World and Character reads now acquire the canonical owner/world lock before creating or reloading projections; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent world or character update cannot leave personal-world reads with an unlocked stale result.
+- Evidence: `src/personal-world/service.ts`, `src/personal-world/world-lock.ts`, `src/personal-world/store.ts`, `tests/personal-world-persistence.test.ts`.
+- TDD: RED reproduced the Personal World and Character reads completing while the world lock was held; GREEN added the lock/reload boundary and verified the latest durable world and character after release.
+- Verification: focused Personal World persistence suite `4/4`; Iseol user-product `423/423`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `6dcf301 fix: synchronize personal world reads`; merged by PR #72 with merge commit `3fc73c4`.
+- Boundary: same-host/shared-root Personal World/Character read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
