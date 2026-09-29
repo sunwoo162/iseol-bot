@@ -562,18 +562,23 @@ export function createLearningService(root: string, options: LearningServiceOpti
 
     async listLearningPlanVersions(principal, goalId) {
       ensurePrincipal(principal);
-      const goal = await loadOwnerGoal(root, principal, goalId);
-      if (!goal) return [];
-      return (await listLearningPlanVersions(root, principal.userId)).filter((plan) => plan.userId === principal.userId && plan.goalId === goal.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      try { assertIdentityId(goalId); } catch { return []; }
+      return withDurableLearningGoalLock(root, principal.userId, goalId, async () => {
+        const goal = await loadOwnerGoal(root, principal, goalId);
+        if (!goal) return [];
+        return (await listLearningPlanVersions(root, principal.userId)).filter((plan) => plan.userId === principal.userId && plan.goalId === goal.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      }, { waitForMs: 2_000 });
     },
 
     async getLearningPlanVersion(principal, goalId, versionId) {
       ensurePrincipal(principal);
-      const goal = await loadOwnerGoal(root, principal, goalId);
-      if (!goal) return null;
-      try { assertIdentityId(versionId); } catch { return null; }
-      const plan = await loadLearningPlanVersion(root, principal.userId, versionId);
-      return plan?.userId === principal.userId && plan.goalId === goal.id ? plan : null;
+      try { assertIdentityId(goalId); assertIdentityId(versionId); } catch { return null; }
+      return withDurableLearningGoalLock(root, principal.userId, goalId, async () => {
+        const goal = await loadOwnerGoal(root, principal, goalId);
+        if (!goal) return null;
+        const plan = await loadLearningPlanVersion(root, principal.userId, versionId);
+        return plan?.userId === principal.userId && plan.goalId === goal.id ? plan : null;
+      }, { waitForMs: 2_000 });
     },
 
     async getLearningGoalProgress(principal, goalId): Promise<LearningProgress | null> {
