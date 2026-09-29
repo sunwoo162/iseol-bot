@@ -63,7 +63,7 @@ function validate(value: ProjectWorkRequest): void {
 export async function saveProjectWorkRequest(root: string, request: ProjectWorkRequest): Promise<void> {
   validate(request);
   const path = requestFile(root, request.projectId, request.id);
-  await serializeWorkRequestWrite(path, async () => {
+  await withDurableProjectWorkRequestLock(root, request.projectId, `record:${request.id}`, () => serializeWorkRequestWrite(path, async () => {
     await mkdir(dirname(path), { recursive: true });
     const temp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
     await writeFile(temp, JSON.stringify(request, null, 2), "utf8");
@@ -75,7 +75,7 @@ export async function saveProjectWorkRequest(root: string, request: ProjectWorkR
       });
       throw error;
     }
-  });
+  }), { waitForMs: 2_000 });
 }
 
 export async function loadProjectWorkRequest(root: string, projectId: string, id: string): Promise<ProjectWorkRequest | null> {
@@ -98,7 +98,15 @@ export async function listProjectWorkRequests(root: string, projectId: string): 
   }
   const result: ProjectWorkRequest[] = [];
   for (const name of names.filter((item) => item.endsWith(".json"))) {
-    const request = await loadProjectWorkRequest(root, projectId, name.slice(0, -5));
+    const id = name.slice(0, -5);
+    if (!idPattern.test(id)) continue;
+    const request = await withDurableProjectWorkRequestLock(
+      root,
+      projectId,
+      `record:${id}`,
+      () => loadProjectWorkRequest(root, projectId, id),
+      { waitForMs: 2_000 },
+    );
     if (request) result.push(request);
   }
   return result.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));

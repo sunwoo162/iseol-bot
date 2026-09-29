@@ -46,6 +46,30 @@ test("work request creation waits for the shared idempotency lock", async () => 
   assert.equal(settled, true);
 });
 
+test("work request listing waits for the canonical record lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-request-record-lock-"));
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Build profile", objective: "Implement profile", idempotencyKey: "profile-record", at, id: "work-record" });
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableProjectWorkRequestLock(root, "project-1", "record:work-record", async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+
+  let settled = false;
+  const listing = listProjectWorkRequests(root, "project-1").then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  releaseHolder();
+  assert.deepEqual((await listing).map((item) => item.id), ["work-record"]);
+});
+
 test("concurrent work request creation converges on one identity across service boundaries", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-work-request-cross-instance-"));
   const [first, second] = await Promise.all([
