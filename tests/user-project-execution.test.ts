@@ -85,6 +85,27 @@ test("project reads wait for the durable workspace lock before projecting state"
   assert.equal((await read)?.workspace.name, "잠금 해제 후 프로젝트");
 });
 
+test("project lists wait for each durable workspace lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-list-read-lock-"));
+  const owner = principal("project-list-read-lock-owner");
+  const options = { platformRoot: join(root, "platform"), projectModelRoot: join(root, "project-model"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, now: () => at };
+  const service = createUserProjectService(options);
+  const project = await service.createProject(owner, { name: "목록 프로젝트", objective: "list synchronization", purpose: "rapid-prototype", teamMode: "solo" });
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableProjectWorkspaceLock(options.projectModelRoot, project.id, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let settled = false;
+  const read = service.listProjects(owner).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await read)[0]?.id, project.id);
+});
+
 test("concurrent Work Request creation preserves both Workspace task nodes", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-project-workspace-tree-race-"));
   const options = {

@@ -109,6 +109,23 @@ async function listVisibleProjects(root: string, principal: Principal, canAccess
   }
   return visible.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
 }
+async function listVisibleProjectsWithWorkspaceLocks(
+  platformRoot: string,
+  projectModelRoot: string,
+  principal: Principal,
+  canAccessTeam?: (principal: Principal, teamId: string) => Promise<boolean>,
+): Promise<UserProject[]> {
+  const candidates = await listVisibleProjects(platformRoot, principal, canAccessTeam);
+  const current: UserProject[] = [];
+  for (const candidate of candidates) {
+    await withDurableProjectWorkspaceLock(projectModelRoot, candidate.id, async () => {
+      const project = await loadJson<UserProject>(projectPath(platformRoot, candidate.ownerUserId, candidate.id));
+      if (!project || project.ownerUserId !== candidate.ownerUserId) return;
+      if (project.ownerUserId === principal.userId || (project.teamId && canAccessTeam && await canAccessTeam(principal, project.teamId))) current.push(project);
+    }, { waitForMs: 2_000 });
+  }
+  return current.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+}
 function runtimeStatus(status: HarnessRunStatus): UserProjectRuntimeView["status"] { return runtimeObservationStatus(status); }
 function lifecycleActivityType(kind: HarnessEvidenceRecord["kind"]): "project.artifact.recorded" | "project.revision.recorded" | "project.deployment.recorded" | null {
   if (kind === "build" || kind === "test" || kind === "file-change") return "project.artifact.recorded";
@@ -227,7 +244,7 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
         return nextTeamId ? withTeamMembershipMutationLock(nextTeamId, mutate) : mutate();
       }, { waitForMs: 2_000 });
     },
-    async listProjects(principal) { ensurePrincipal(principal); return listVisibleProjects(options.platformRoot, principal, options.canAccessTeam); },
+    async listProjects(principal) { ensurePrincipal(principal); return listVisibleProjectsWithWorkspaceLocks(options.platformRoot, options.projectModelRoot, principal, options.canAccessTeam); },
     async getProject(principal, projectId) {
       ensurePrincipal(principal);
       try { assertIdentityId(projectId); } catch { return null; }
