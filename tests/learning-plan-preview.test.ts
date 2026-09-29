@@ -8,7 +8,7 @@ import type { LearningPlanProposal } from "../src/learning/contracts.js";
 import { withDurableLearningPlanAdjustmentAcceptanceLock } from "../src/learning/plan-adjustment-acceptance-lock.js";
 import { withDurableLearningGoalLock } from "../src/learning/goal-lock.js";
 import { createLearningService } from "../src/learning/service.js";
-import { saveLearningPlanAdjustment, saveLearningPlanVersion } from "../src/learning/store.js";
+import { saveLearningPlanAdjustment, saveLearningPlanVersionUnlocked } from "../src/learning/store.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -107,7 +107,7 @@ test("learning plan version reads wait for the goal lock and reload current plan
   assert.equal(getSettled, false);
   assert.equal(listSettled, false);
 
-  await saveLearningPlanVersion(root, { ...preview.plan, status: "active", updatedAt: at });
+  await saveLearningPlanVersionUnlocked(root, { ...preview.plan, status: "active", updatedAt: at });
   releaseHolder();
   await lockHeld;
   assert.equal((await fetched)?.status, "active");
