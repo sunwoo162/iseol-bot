@@ -70,11 +70,19 @@ export function createPlatformUserService(root: string, options: { now?: () => s
 
     async getUser(userId: string): Promise<PlatformUserRecord | null> {
       try { assertIdentityId(userId); } catch { return null; }
-      return loadPlatformUser(root, userId);
+      return withDurablePlatformUserLock(root, userId, () => loadPlatformUser(root, userId), { waitForMs: 2_000 });
     },
 
     async listUsers(): Promise<PlatformUserRecord[]> {
-      return listPlatformUsers(root);
+      const candidates = await listPlatformUsers(root);
+      const current: PlatformUserRecord[] = [];
+      for (const candidate of candidates) {
+        await withDurablePlatformUserLock(root, candidate.id, async () => {
+          const user = await loadPlatformUser(root, candidate.id);
+          if (user?.id === candidate.id) current.push(user);
+        }, { waitForMs: 2_000 });
+      }
+      return current;
     },
 
     async findUserByEmail(email: string): Promise<PlatformUserRecord | null> {
