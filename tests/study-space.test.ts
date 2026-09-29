@@ -7,8 +7,10 @@ import type { Principal } from "../src/identity/contracts.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createTeamService } from "../src/teams/service.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
+import { withDurableStudySpaceLock } from "../src/study/space-lock.js";
 import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createStudyService } from "../src/study/service.js";
+import { saveStudySpace } from "../src/study/store.js";
 
 const at = "2026-09-27T14:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -199,4 +201,43 @@ test("study space reads re-check active membership after waiting for the Team me
   release();
   assert.equal(await reading, null);
   await holder;
+});
+
+test("study space reads wait for the space lock and reload current state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-study-space-read-state-lock-"));
+  const platformRoot = join(root, "platform");
+  const owner = principal("study-space-state-owner");
+  const teams = createTeamService(platformRoot, { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Study state lock team", description: "space state read recheck", kind: "study", visibility: "private", capacity: 3 });
+  const studies = createStudyService(join(platformRoot, "study"), { teamService: teams, now: () => at });
+  const space = await studies.createStudySpace(owner, { teamId: team.id, title: "State lock room", description: "space changes while reading" });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableStudySpaceLock(join(platformRoot, "study"), team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let getSettled = false;
+  let listSettled = false;
+  const fetched = studies.getStudySpace(owner, space.id).then((result) => {
+    getSettled = true;
+    return result;
+  });
+  const listed = studies.listStudySpaces(owner).then((result) => {
+    listSettled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(getSettled, false);
+  assert.equal(listSettled, false);
+
+  await saveStudySpace(join(platformRoot, "study"), { ...space, status: "archived", updatedAt: at });
+  release();
+  await holder;
+  assert.equal(await fetched, null);
+  assert.deepEqual(await listed, []);
 });
