@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Study Space read synchronization
+
+- Status: **B — Study Space list and detail reads now keep the canonical Team membership → Study space lock ordering and reload the current accessible space after waiting; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent Study Space archive or membership change cannot leave reads with an unlocked stale active projection.
+- Evidence: `src/study/service.ts`, `src/study/space-lock.ts`, `src/study/store.ts`, `src/teams/membership-lock.ts`, `tests/study-space.test.ts`.
+- TDD: RED reproduced Study Space get/list reads completing while the Study space lock was held; GREEN added the ordered read boundary and verified that an archived space is excluded after release.
+- Verification: focused Study/Team/Recruitment/Collaboration regression `26/26`; Iseol user-product `427/427`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes. A parallel root/browser attempt exposed two environment races; isolated reruns passed root `726/726` and browser E2E completely.
+- Implementation commit: `b8b9cff fix: synchronize study space reads`; merged by PR #80 with merge commit `d95379e`.
+- Boundary: same-host/shared-root Study Space read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Learning PlanVersion read synchronization
 
 - Status: **B — Learning PlanVersion lists and direct reads now acquire the canonical owner/goal lock before reloading owner-scoped plans; preview/adjustment writes share that lock, isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent plan preview or adjustment cannot leave PlanVersion reads with an unlocked stale state.
