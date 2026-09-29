@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable public portfolio read authorization rechecks
+
+- Status: **B — public portfolio reads now acquire the canonical per-entry lock and reload visibility before projecting evidence; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A private conversion that wins the entry lock while the public read is waiting can no longer leave a stale public entry visible.
+- Evidence: `src/portfolio/service.ts`, `src/portfolio/entry-lock.ts`, `src/portfolio/store.ts`, `tests/portfolio-public-api.test.ts`.
+- TDD: RED reproduced public get completing while the portfolio entry lock was held and private visibility persisted; GREEN wrapped public read projection in the per-entry lock and reloaded the latest record before returning evidence.
+- Verification: focused Portfolio suites `7/7`; user-product `394/394`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `267ac26 fix: serialize public portfolio reads`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root public portfolio entry read and visibility coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable own-profile read synchronization
 
 - Status: **B — own-profile reads now share the durable per-user profile lock with profile mutations; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A profile update that wins the lock while a self-read is waiting can no longer be followed by a stale pre-update projection.
