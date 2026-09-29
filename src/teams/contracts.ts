@@ -62,6 +62,8 @@ export type TeamService = {
   getTeam(principal: Principal, teamId: string): Promise<{ team: TeamRecord; members: TeamMembership[] } | null>;
   listMemberships(teamId: string): Promise<TeamMembership[]>;
   addMember(teamId: string, userId: string, role: TeamMemberRole, at?: string): Promise<TeamMembership>;
+  /** Use only while the caller already holds the canonical team membership lock. */
+  addMemberWithinMembershipLock(teamId: string, userId: string, role: TeamMemberRole, at?: string): Promise<TeamMembership>;
   addAiMember(principal: Principal, teamId: string, input: AiTeamMemberInput, at?: string): Promise<TeamMembership>;
   removeMember(principal: Principal, teamId: string, userId: string): Promise<TeamMembership>;
   removeAiMember(principal: Principal, teamId: string, agentId: string): Promise<TeamMembership>;

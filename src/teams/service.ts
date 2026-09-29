@@ -38,6 +38,20 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
     assertIdentityId(teamId);
     return isManagerByUser(teamId, principal.userId);
   };
+  const addMemberWithinMembershipLock = async (teamId: string, userId: string, role: TeamMemberRole, at = now()): Promise<TeamMembership> => {
+    assertIdentityId(teamId); assertIdentityId(userId); assertTimestamp(at, "membership timestamp");
+    if (!["owner", "admin", "member"].includes(role)) throw new Error("Invalid team member role");
+    const team = await loadTeam(root, teamId); if (!team || team.status !== "active") throw new Error("Team not found");
+    const existing = await getMembership(teamId, userId);
+    if (active(existing)) return existing;
+    const members = (await listMemberships(root, teamId)).filter((item) => item.status === "active");
+    if (members.length >= team.capacity) throw new Error("Team is full");
+    const previousJoinedAt = (existing as TeamMembership | null)?.joinedAt;
+    const membership: TeamMembership = { version: 1, id: `${teamId}:${userId}`, teamId, userId, memberType: "human", role, assignmentRole: role, capabilities: [], approvalScope: "suggestion-only", status: "active", joinedAt: previousJoinedAt ?? at, updatedAt: at };
+    await saveMembership(root, membership);
+    await saveTeam(root, { ...team, updatedAt: at });
+    return membership;
+  };
 
   return {
     async createTeam(principal, input: TeamInput) {
@@ -83,21 +97,9 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
     async listMemberships(teamId) { try { assertIdentityId(teamId); } catch { return []; } return (await listMemberships(root, teamId)).filter((item) => item.status === "active"); },
 
     async addMember(teamId, userId, role, at = now()) {
-      assertIdentityId(teamId); assertIdentityId(userId); assertTimestamp(at, "membership timestamp");
-      if (!["owner", "admin", "member"].includes(role)) throw new Error("Invalid team member role");
-      return withDurableTeamMembershipLock(root, teamId, async () => {
-        const team = await loadTeam(root, teamId); if (!team || team.status !== "active") throw new Error("Team not found");
-        const existing = await getMembership(teamId, userId);
-        if (active(existing)) return existing;
-        const members = (await listMemberships(root, teamId)).filter((item) => item.status === "active");
-        if (members.length >= team.capacity) throw new Error("Team is full");
-        const previousJoinedAt = (existing as TeamMembership | null)?.joinedAt;
-        const membership: TeamMembership = { version: 1, id: `${teamId}:${userId}`, teamId, userId, memberType: "human", role, assignmentRole: role, capabilities: [], approvalScope: "suggestion-only", status: "active", joinedAt: previousJoinedAt ?? at, updatedAt: at };
-        await saveMembership(root, membership);
-        await saveTeam(root, { ...team, updatedAt: at });
-        return membership;
-      }, { waitForMs: 2_000 });
+      return withDurableTeamMembershipLock(root, teamId, () => addMemberWithinMembershipLock(teamId, userId, role, at), { waitForMs: 2_000 });
     },
+    addMemberWithinMembershipLock,
 
     async addAiMember(principal, teamId, input, at = now()) {
       ensurePrincipal(principal);
