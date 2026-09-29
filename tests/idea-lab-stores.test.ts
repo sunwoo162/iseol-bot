@@ -29,6 +29,7 @@ import {
   appendIdeaLabCampaignEventOnce,
   listIdeaLabCampaignEvents,
 } from "../src/idea-lab/event-store.js";
+import { withDurableIdeaLabProductionLock } from "../src/idea-lab/production-lock.js";
 
 const NOW = "2026-09-08T12:00:00.000Z";
 function campaign(id = "camp-1"): IdeaLabCampaign {
@@ -120,6 +121,32 @@ test("campaign proposal and production stores round trip and list deterministica
     await savePrototypeProduction(root, { ...production("prod-a"), createdAt: "2026-09-08T10:00:00.000Z" });
     assert.equal((await loadPrototypeProduction(root, "prod-b"))?.runId, "run-prod-b");
     assert.deepEqual((await listPrototypeProductions(root)).map((item) => item.id), ["prod-a", "prod-b"]);
+  });
+});
+
+test("production listing waits for each durable production lock", async () => {
+  await withRoot(async (root) => {
+    const item = production();
+    await savePrototypeProduction(root, item);
+    let releaseHolder!: () => void;
+    const holderStarted = new Promise<void>((resolve) => {
+      void withDurableIdeaLabProductionLock(root, item.id, async () => {
+        resolve();
+        await new Promise<void>((release) => { releaseHolder = release; });
+      });
+    });
+    await holderStarted;
+
+    let settled = false;
+    const listing = listPrototypeProductions(root).then((value) => {
+      settled = true;
+      return value;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(settled, false);
+
+    releaseHolder();
+    assert.deepEqual((await listing).map((value) => value.id), [item.id]);
   });
 });
 
