@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { assertIdentityId } from "../identity/contracts.js";
 import type { CharacterRecord, WorldRecord } from "./contracts.js";
+import { withDurablePersonalWorldLock } from "./world-lock.js";
 
 function worldPath(root: string, userId: string): string {
   assertIdentityId(userId);
@@ -30,18 +31,34 @@ async function loadJson<T>(path: string): Promise<T | null> {
   }
 }
 
-export async function saveWorld(root: string, world: WorldRecord): Promise<void> {
+export async function saveWorldUnlocked(root: string, world: WorldRecord): Promise<void> {
   await saveJson(worldPath(root, world.userId), world);
 }
 
-export async function loadWorld(root: string, userId: string): Promise<WorldRecord | null> {
+export async function saveWorld(root: string, world: WorldRecord): Promise<void> {
+  await withDurablePersonalWorldLock(root, world.userId, () => saveWorldUnlocked(root, world), { waitForMs: 2_000 });
+}
+
+export async function loadWorldUnlocked(root: string, userId: string): Promise<WorldRecord | null> {
   return loadJson<WorldRecord>(worldPath(root, userId));
 }
 
-export async function saveCharacter(root: string, character: CharacterRecord): Promise<void> {
+export async function loadWorld(root: string, userId: string): Promise<WorldRecord | null> {
+  return withDurablePersonalWorldLock(root, userId, () => loadWorldUnlocked(root, userId), { waitForMs: 2_000 });
+}
+
+export async function saveCharacterUnlocked(root: string, character: CharacterRecord): Promise<void> {
   await saveJson(characterPath(root, character.userId), character);
 }
 
-export async function loadCharacter(root: string, userId: string): Promise<CharacterRecord | null> {
+export async function saveCharacter(root: string, character: CharacterRecord): Promise<void> {
+  await withDurablePersonalWorldLock(root, character.userId, () => saveCharacterUnlocked(root, character), { waitForMs: 2_000 });
+}
+
+export async function loadCharacterUnlocked(root: string, userId: string): Promise<CharacterRecord | null> {
   return loadJson<CharacterRecord>(characterPath(root, userId));
+}
+
+export async function loadCharacter(root: string, userId: string): Promise<CharacterRecord | null> {
+  return withDurablePersonalWorldLock(root, userId, () => loadCharacterUnlocked(root, userId), { waitForMs: 2_000 });
 }

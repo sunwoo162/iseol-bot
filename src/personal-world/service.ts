@@ -8,7 +8,7 @@ import type {
   WorldRecord,
 } from "./contracts.js";
 import { withDurablePersonalWorldLock } from "./world-lock.js";
-import { loadCharacter, loadWorld, saveCharacter, saveWorld } from "./store.js";
+import { loadCharacterUnlocked, loadWorldUnlocked, saveCharacterUnlocked, saveWorldUnlocked } from "./store.js";
 
 const CHARACTER_TYPES = new Set<CharacterType>(["a", "b", "c", "d"]);
 
@@ -48,10 +48,10 @@ function defaultCharacter(userId: string, character: CharacterType, at: string):
 }
 
 async function readWorld(root: string, userId: string, at: string): Promise<WorldRecord> {
-  const existing = await loadWorld(root, userId);
+  const existing = await loadWorldUnlocked(root, userId);
   if (existing) return existing;
   const world = defaultWorld(userId, at);
-  await saveWorld(root, world);
+  await saveWorldUnlocked(root, world);
   return world;
 }
 
@@ -77,7 +77,7 @@ export function createPersonalWorldService(root: string, options: { now?: () => 
       const at = now();
       assertTimestamp(at, "world timestamp");
       return withDurablePersonalWorldLock(root, principal.userId, async () => {
-        const current = await loadWorld(root, principal.userId) ?? defaultWorld(principal.userId, at);
+        const current = await loadWorldUnlocked(root, principal.userId) ?? defaultWorld(principal.userId, at);
         const next: WorldRecord = {
           ...current,
           ...(patch.displayName === undefined ? {} : { displayName: patch.displayName.trim() }),
@@ -88,9 +88,9 @@ export function createPersonalWorldService(root: string, options: { now?: () => 
           ...(patch.onboardingCompleted === undefined ? {} : { onboardingCompleted: patch.onboardingCompleted }),
           updatedAt: at,
         };
-        await saveWorld(root, next);
-        const character = await loadCharacter(root, principal.userId);
-        if (character) await saveCharacter(root, { ...character, character: next.character, updatedAt: at });
+        await saveWorldUnlocked(root, next);
+        const character = await loadCharacterUnlocked(root, principal.userId);
+        if (character) await saveCharacterUnlocked(root, { ...character, character: next.character, updatedAt: at });
         return next;
       }, { waitForMs: 2_000 });
     },
@@ -100,11 +100,11 @@ export function createPersonalWorldService(root: string, options: { now?: () => 
       const at = now();
       assertTimestamp(at, "character timestamp");
       return withDurablePersonalWorldLock(root, principal.userId, async () => {
-        const existing = await loadCharacter(root, principal.userId);
+        const existing = await loadCharacterUnlocked(root, principal.userId);
         if (existing) return existing;
         const world = await readWorld(root, principal.userId, at);
         const character = defaultCharacter(principal.userId, world.character, at);
-        await saveCharacter(root, character);
+        await saveCharacterUnlocked(root, character);
         return character;
       }, { waitForMs: 2_000 });
     },
@@ -122,15 +122,15 @@ export function createPersonalWorldService(root: string, options: { now?: () => 
       assertTimestamp(at, "character timestamp");
       return withDurablePersonalWorldLock(root, principal.userId, async () => {
         const world = await readWorld(root, principal.userId, at);
-        const current = await loadCharacter(root, principal.userId) ?? defaultCharacter(principal.userId, world.character, at);
+        const current = await loadCharacterUnlocked(root, principal.userId) ?? defaultCharacter(principal.userId, world.character, at);
         const next: CharacterRecord = {
           ...current,
           ...(patch.character === undefined ? {} : { character: patch.character }),
           ...(patch.appearance === undefined ? {} : { appearance: { ...current.appearance, ...patch.appearance } }),
           updatedAt: at,
         };
-        await saveCharacter(root, next);
-        if (world.character !== next.character) await saveWorld(root, { ...world, character: next.character, updatedAt: at });
+        await saveCharacterUnlocked(root, next);
+        if (world.character !== next.character) await saveWorldUnlocked(root, { ...world, character: next.character, updatedAt: at });
         return next;
       }, { waitForMs: 2_000 });
     },
