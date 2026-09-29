@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CodingAttempt, CodingAttemptInput, CodingExercise, CodingExerciseInput, CodingPracticeResult, GoalInterpretation, LearningAnswerReceipt, LearningContentRequest, LearningFeedback, LearningFeedbackDispute, LearningFeedbackDisputeResult, LearningFeedbackEvaluation, LearningFeedbackEvaluationInput, LearningGoal, LearningGoalInput, LearningGoalSessionInput, LearningLessonBlock, LearningLessonContent, LearningLessonInput, LearningPlanAdjustment, LearningPlanAdjustmentInput, LearningPlanAdjustmentResult, LearningPlanInput, LearningPlanPreview, LearningPlanProposal, LearningPlanVersion, LearningProgress, LearningProjectApplication, LearningProjectApplicationInput, LearningReport, LearningReportPeriod, LearningService, LearningServiceOptions, LearningSessionAction, LearningSessionActionInput, ReviewItemInput, CodeAnalysisInput, StudyAttemptInput, LearningPlan, LearningPlanDay, LearningSession, LearningToday, ReviewItem, CodeAnalysisResult } from "./contracts.js";
-import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listGoalInterpretationsUnlocked, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanVersions, listLearningPlanVersionsUnlocked, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningPlanVersionUnlocked, loadLearningReport, loadPlan, loadReview, loadSession, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveGoalInterpretationUnlocked, saveLearningPlanVersion, saveLearningPlanVersionUnlocked, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession } from "./store.js";
+import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listGoalInterpretationsUnlocked, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanVersions, listLearningPlanVersionsUnlocked, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningPlanVersionUnlocked, loadLearningReport, loadPlan, loadReview, loadSession, loadSessionUnlocked, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveGoalInterpretationUnlocked, saveLearningPlanVersion, saveLearningPlanVersionUnlocked, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession, saveSessionUnlocked } from "./store.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
 import { withDurableLearningProjectApplicationAcceptanceLock } from "./project-application-acceptance-lock.js";
@@ -781,7 +781,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       ensurePrincipal(principal);
       try { assertIdentityId(sessionId); } catch { throw new Error("Learning session not found"); }
       const reservation = await withSessionMutationLock(`${principal.userId}:${sessionId}`, () => withDurableLearningSessionLock(root, principal.userId, sessionId, async () => {
-        const session = await loadSession(root, principal.userId, sessionId);
+        const session = await loadSessionUnlocked(root, principal.userId, sessionId);
         if (!session || session.userId !== principal.userId) throw new Error("Learning session not found");
         if (!session.goalId || !session.planVersionId || !session.dayId) throw new Error("Learning goal session content requires an activated goal day");
         const plan = await loadLearningPlanVersion(root, principal.userId, session.planVersionId);
@@ -799,7 +799,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
           blocker: "local learning content Runtime is not configured", createdAt: at, updatedAt: at,
         };
         await saveLearningContentRequest(root, request);
-        await saveSession(root, nextSessionRevision(session, { contentStatus: "pending", contentRequestId: request.id }));
+        await saveSessionUnlocked(root, nextSessionRevision(session, { contentStatus: "pending", contentRequestId: request.id }));
         return { request, shouldDispatch: true as const, session, plan, day };
       }, { waitForMs: 2_000 }));
       if (!reservation.shouldDispatch || !options.contentDispatcher) return reservation.request;
@@ -838,7 +838,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
         const request = await loadLearningContentRequest(root, principal.userId, requestId);
         if (!request || request.userId !== principal.userId) throw new Error("Learning content request not found");
         if (request.state === "validated" && request.lesson) return request;
-        const session = await loadSession(root, principal.userId, request.sessionId);
+        const session = await loadSessionUnlocked(root, principal.userId, request.sessionId);
         const plan = await loadLearningPlanVersion(root, principal.userId, request.planVersionId);
         const day = plan?.days.find((candidate) => candidate.id === request.dayId);
         if (!session || session.userId !== principal.userId || !plan || plan.userId !== principal.userId || !day) throw new Error("Learning content source is no longer available");
@@ -851,7 +851,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
         };
         const completed: LearningContentRequest = { ...request, state: "validated", lesson, blocker: undefined, updatedAt: at };
         await saveLearningContentRequest(root, completed);
-        await saveSession(root, nextSessionRevision(session, { contentStatus: "ready", contentRequestId: request.id, contentId: lesson.id }));
+        await saveSessionUnlocked(root, nextSessionRevision(session, { contentStatus: "ready", contentRequestId: request.id, contentId: lesson.id }));
         return completed;
       }, { waitForMs: 2_000 }));
     },
@@ -1169,7 +1169,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const current: LearningSession[] = [];
       for (const candidate of candidates) {
         await withDurableLearningSessionLock(root, principal.userId, candidate.id, async () => {
-          const session = await loadSession(root, principal.userId, candidate.id);
+          const session = await loadSessionUnlocked(root, principal.userId, candidate.id);
           if (session?.userId === principal.userId) current.push(session);
         }, { waitForMs: 2_000 });
       }
@@ -1196,13 +1196,13 @@ export function createLearningService(root: string, options: LearningServiceOpti
       ensurePrincipal(principal);
       try { assertIdentityId(sessionId); } catch { return null; }
       return withSessionMutationLock(`${principal.userId}:${sessionId}`, () => withDurableLearningSessionLock(root, principal.userId, sessionId, async () => {
-        const session = await loadSession(root, principal.userId, sessionId);
+        const session = await loadSessionUnlocked(root, principal.userId, sessionId);
         if (!session || session.userId !== principal.userId) return null;
         assertExpectedSessionRevision(session, expectedRevision);
         if (session.status === "completed") return session;
         const at = now(); assertTimestamp(at, "learning resume timestamp");
         const resumed = nextSessionRevision(session, { resumedAt: at });
-        await saveSession(root, resumed);
+        await saveSessionUnlocked(root, resumed);
         return resumed;
       }));
     },
@@ -1211,13 +1211,13 @@ export function createLearningService(root: string, options: LearningServiceOpti
       ensurePrincipal(principal);
       try { assertIdentityId(sessionId); } catch { return null; }
       return withSessionMutationLock(`${principal.userId}:${sessionId}`, () => withDurableLearningSessionLock(root, principal.userId, sessionId, async () => {
-        const session = await loadSession(root, principal.userId, sessionId);
+        const session = await loadSessionUnlocked(root, principal.userId, sessionId);
         if (!session || session.userId !== principal.userId) return null;
         assertExpectedSessionRevision(session, expectedRevision);
         if (session.status === "completed") return session;
         const at = now(); assertTimestamp(at, "learning completion timestamp");
         const completed = nextSessionRevision(session, { status: "completed", completedAt: at });
-        await saveSession(root, completed);
+        await saveSessionUnlocked(root, completed);
         if (options.activityService) {
           const activity = await options.activityService.recordActivityEvent(principal, {
             sourceType: "learning-session",

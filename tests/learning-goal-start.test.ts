@@ -6,7 +6,7 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createLearningService } from "../src/learning/service.js";
 import { withDurableLearningSessionLock } from "../src/learning/session-lock.js";
-import { loadSession, saveSession } from "../src/learning/store.js";
+import { loadSessionUnlocked, saveSessionUnlocked } from "../src/learning/store.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -56,9 +56,9 @@ test("learning session lists wait for each durable session lock before projectin
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  const current = await loadSession(root, owner.userId, session.id);
+  const current = await loadSessionUnlocked(root, owner.userId, session.id);
   assert.ok(current);
-  await saveSession(root, { ...current, resumedAt: "2026-09-26T12:00:01.000Z", revision: current.revision + 1 });
+  await saveSessionUnlocked(root, { ...current, resumedAt: "2026-09-26T12:00:01.000Z", revision: current.revision + 1 });
   releaseHolder();
   await lockHeld;
   assert.equal((await read).find((item) => item.id === session.id)?.revision, session.revision + 1);
