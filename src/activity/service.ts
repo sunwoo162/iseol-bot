@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { ActivityEvent, ActivityEventInput, ActivityService } from "./contracts.js";
 import { withDurableActivityEventLock } from "./event-lock.js";
-import { listActivityEvents, loadActivityEvent, saveActivityEvent } from "./store.js";
+import { listActivityEventsUnlocked, loadActivityEventUnlocked, saveActivityEventUnlocked } from "./store.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
 
@@ -38,7 +38,7 @@ export function createActivityService(root: string, options: { now?: () => strin
       assertTimestamp(occurredAt, "activity occurrence timestamp");
       const id = eventId(principal.userId, input);
       return withDurableActivityEventLock(root, principal.userId, id, async () => {
-        const existing = await loadActivityEvent(root, principal.userId, id);
+        const existing = await loadActivityEventUnlocked(root, principal.userId, id);
         if (existing) {
           const sameIdentity = existing.userId === principal.userId
             && existing.sourceType === input.sourceType
@@ -69,18 +69,18 @@ export function createActivityService(root: string, options: { now?: () => strin
           createdAt: at,
           updatedAt: at,
         };
-        await saveActivityEvent(root, event);
+        await saveActivityEventUnlocked(root, event);
         return event;
       }, { waitForMs: 2_000 });
     },
 
     async listActivityEvents(principal): Promise<ActivityEvent[]> {
       ensurePrincipal(principal);
-      const candidates = await listActivityEvents(root, principal.userId);
+      const candidates = await listActivityEventsUnlocked(root, principal.userId);
       const current: ActivityEvent[] = [];
       for (const candidate of candidates) {
         await withDurableActivityEventLock(root, principal.userId, candidate.id, async () => {
-          const event = await loadActivityEvent(root, principal.userId, candidate.id);
+          const event = await loadActivityEventUnlocked(root, principal.userId, candidate.id);
           if (event?.userId === principal.userId) current.push(event);
         }, { waitForMs: 2_000 });
       }
@@ -91,7 +91,7 @@ export function createActivityService(root: string, options: { now?: () => strin
       ensurePrincipal(principal);
       try { assertIdentityId(eventIdValue); } catch { return null; }
       return withDurableActivityEventLock(root, principal.userId, eventIdValue, async () => {
-        const event = await loadActivityEvent(root, principal.userId, eventIdValue);
+        const event = await loadActivityEventUnlocked(root, principal.userId, eventIdValue);
         return event?.userId === principal.userId ? event : null;
       }, { waitForMs: 2_000 });
     },
@@ -101,11 +101,11 @@ export function createActivityService(root: string, options: { now?: () => strin
       assertIdentityId(eventIdValue);
       assertTimestamp(at, "activity retraction timestamp");
       return withDurableActivityEventLock(root, principal.userId, eventIdValue, async () => {
-        const event = await loadActivityEvent(root, principal.userId, eventIdValue);
+        const event = await loadActivityEventUnlocked(root, principal.userId, eventIdValue);
         if (!event || event.userId !== principal.userId) throw new Error("Activity event not found");
         if (event.status === "retracted") return event;
         const retracted: ActivityEvent = { ...event, status: "retracted", retractedAt: at, updatedAt: at };
-        await saveActivityEvent(root, retracted);
+        await saveActivityEventUnlocked(root, retracted);
         return retracted;
       }, { waitForMs: 2_000 });
     },
