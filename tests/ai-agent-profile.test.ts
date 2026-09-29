@@ -6,7 +6,7 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createAiAgentProfileService } from "../src/ai-agent/service.js";
 import { withDurableAiAgentProfileLock } from "../src/ai-agent/profile-lock.js";
-import { saveAiAgentProfile } from "../src/ai-agent/store.js";
+import { loadAiAgentProfile, saveAiAgentProfile, saveAiAgentProfileUnlocked } from "../src/ai-agent/store.js";
 
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
 
@@ -73,10 +73,50 @@ test("agent profile reads wait for the durable profile lock before projecting st
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  await saveAiAgentProfile(root, { ...profile, name: "잠금 해제 후 이름", updatedAt: "2026-09-29T12:00:01.000Z" });
+  await saveAiAgentProfileUnlocked(root, { ...profile, name: "잠금 해제 후 이름", updatedAt: "2026-09-29T12:00:01.000Z" });
   releaseHolder();
   await lockHeld;
   assert.equal((await read).name, "잠금 해제 후 이름");
+});
+
+test("public agent profile store reads and writes wait for the shared profile lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "npc-agent-profile-store-lock-"));
+  const owner = principal("profile-store-lock");
+  const service = createAiAgentProfileService(root, { now: () => "2026-09-29T12:00:00.000Z" });
+  const profile = await service.updateProfile(owner, { name: "기존 이름" });
+  const updated = { ...profile, name: "잠금 해제 후 이름", updatedAt: "2026-09-29T12:00:01.000Z" };
+  const holdProfileLock = async () => {
+    let release!: () => void;
+    let acquired!: () => void;
+    const acquiredPromise = new Promise<void>((resolve) => { acquired = resolve; });
+    const holder = withDurableAiAgentProfileLock(root, owner.userId, async () => {
+      acquired();
+      await new Promise<void>((resolve) => { release = resolve; });
+    }, { waitForMs: 0 });
+    await acquiredPromise;
+    return { holder, release };
+  };
+
+  const saveLock = await holdProfileLock();
+  let saveSettled = false;
+  const pendingSave = saveAiAgentProfile(root, updated).then(() => { saveSettled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(saveSettled, false);
+  saveLock.release();
+  await saveLock.holder;
+  await pendingSave;
+
+  const loadLock = await holdProfileLock();
+  let loadSettled = false;
+  const pendingLoad = loadAiAgentProfile(root, owner.userId).then((value) => {
+    loadSettled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(loadSettled, false);
+  loadLock.release();
+  await loadLock.holder;
+  assert.equal((await pendingLoad)?.name, "잠금 해제 후 이름");
 });
 
 test("agent profile rejects invalid names, oversized text, and unsafe avatar URLs", async () => {
