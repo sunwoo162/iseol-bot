@@ -357,9 +357,27 @@ export function createAiChatService(root: string, options: AiChatServiceOptions 
     }, { waitForMs: 2_000 });
   }
   return {
-    async listConversations(principal) { ensurePrincipal(principal); return (await listConversations(root, principal.userId)).filter((item) => item.userId === principal.userId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); },
+    async listConversations(principal) {
+      ensurePrincipal(principal);
+      const candidates = (await listConversations(root, principal.userId)).filter((item) => item.userId === principal.userId);
+      const current: AiChatConversation[] = [];
+      for (const candidate of candidates) {
+        await withDurableAiChatConversationLock(root, principal.userId, candidate.id, async () => {
+          const conversation = await loadConversation(root, principal.userId, candidate.id);
+          if (conversation?.userId === principal.userId) current.push(conversation);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    },
     async createConversation(principal, title) { ensurePrincipal(principal); const at = now(); assertTimestamp(at, "AI chat timestamp"); const conversation: AiChatConversation = { version: 1, id: `conversation-${randomUUID()}`, userId: principal.userId, title: text(title ?? "새 대화", "Conversation title", 200), messages: [], createdAt: at, updatedAt: at }; await saveConversation(root, conversation); return conversation; },
-    async getConversation(principal, conversationId) { ensurePrincipal(principal); assertIdentityId(conversationId); const conversation = await loadConversation(root, principal.userId, conversationId); return conversation?.userId === principal.userId ? conversation : null; },
+    async getConversation(principal, conversationId) {
+      ensurePrincipal(principal);
+      assertIdentityId(conversationId);
+      return withDurableAiChatConversationLock(root, principal.userId, conversationId, async () => {
+        const conversation = await loadConversation(root, principal.userId, conversationId);
+        return conversation?.userId === principal.userId ? conversation : null;
+      }, { waitForMs: 2_000 });
+    },
     async completeMessage(principal, conversationId, messageId, assistantContent) { return completeMessage(principal, conversationId, messageId, assistantContent); },
     async approveExecutionPlan(principal, conversationId, messageId) { return updateExecutionPlan(principal, conversationId, messageId, "approved"); },
     async rejectExecutionPlan(principal, conversationId, messageId) { return updateExecutionPlan(principal, conversationId, messageId, "rejected"); },
