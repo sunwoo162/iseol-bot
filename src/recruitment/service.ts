@@ -33,7 +33,7 @@ export function createRecruitmentService(root: string, options: RecruitmentServi
       const readPostContext = () => withDurableTeamMembershipLock(root, initialPost.teamId, async () => {
         const post = await loadPost(root, postId);
         if (!post) return null;
-        const canSeeApplications = await options.teamService.isManager(principal, post.teamId);
+        const canSeeApplications = await options.teamService.isManagerWithinMembershipLock(principal, post.teamId);
         if (!canSeeApplications && post.status !== "open") return null;
         return { post, canSeeApplications };
       }, { waitForMs: 2_000 });

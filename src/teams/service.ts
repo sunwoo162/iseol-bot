@@ -33,6 +33,11 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
     if (!team || team.status !== "active") return false;
     return team.visibility === "public" || active(await getMembership(teamId, principal.userId));
   };
+  const isManagerWithinMembershipLock = async (principal: Principal, teamId: string): Promise<boolean> => {
+    ensurePrincipal(principal);
+    assertIdentityId(teamId);
+    return isManagerByUser(teamId, principal.userId);
+  };
 
   return {
     async createTeam(principal, input: TeamInput) {
@@ -147,7 +152,12 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
       }, { waitForMs: 2_000 });
     },
 
-    async isManager(principal, teamId) { ensurePrincipal(principal); return isManagerByUser(teamId, principal.userId); },
+    async isManager(principal, teamId) {
+      ensurePrincipal(principal);
+      assertIdentityId(teamId);
+      return withDurableTeamMembershipLock(root, teamId, () => isManagerWithinMembershipLock(principal, teamId), { waitForMs: 2_000 });
+    },
+    isManagerWithinMembershipLock,
     async canAccess(principal, teamId) {
       ensurePrincipal(principal);
       assertIdentityId(teamId);

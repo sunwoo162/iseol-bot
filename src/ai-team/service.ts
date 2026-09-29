@@ -13,7 +13,7 @@ function ensurePrincipal(principal: Principal): void { assertIdentityId(principa
 function required(value: string, label: string, max: number): string { const result = value.trim(); if (!result || result.length > max) throw new Error(label + " is required"); return result; }
 function boundedCriteria(values: string[]): string[] { if (values.length > 8) throw new Error("AI team proposal has too many acceptance criteria"); return values.map((value) => required(value, "Acceptance criterion", 300)); }
 function validateDraft(draft: AiTeamProposalDraft): AiTeamProposalDraft { return { title: required(draft.title, "AI proposal title", 160), objective: required(draft.objective, "AI proposal objective", 4_000), acceptanceCriteria: boundedCriteria(draft.acceptanceCriteria), rationale: required(draft.rationale, "AI proposal rationale", 1_000) }; }
-async function projectAccess(options: AiTeamProposalServiceOptions, principal: Principal, projectId: string, manager = false): Promise<{ projectId: string; teamId: string; members: TeamMembership[] }> {
+async function projectAccess(options: AiTeamProposalServiceOptions, principal: Principal, projectId: string, manager = false, membershipLockHeld = false): Promise<{ projectId: string; teamId: string; members: TeamMembership[] }> {
   const view = await options.userProjectService.getProject(principal, projectId);
   if (!view) throw new Error("Project not found");
   const teamId = view.project.teamId;
@@ -21,7 +21,7 @@ async function projectAccess(options: AiTeamProposalServiceOptions, principal: P
   const members = await options.teamService.listMemberships(teamId);
   const human = members.find((member) => member.memberType === "human" && member.userId === principal.userId && member.status === "active");
   if (!human) throw new Error("Team member access required");
-  if (manager && !await options.teamService.isManager(principal, teamId)) throw new Error("Team manager access required");
+  if (manager && !(membershipLockHeld ? await options.teamService.isManagerWithinMembershipLock(principal, teamId) : await options.teamService.isManager(principal, teamId))) throw new Error("Team manager access required");
   return { projectId, teamId, members };
 }
 function aiAssignment(members: TeamMembership[], agentId: string): TeamMembership {
@@ -70,7 +70,7 @@ export function createAiTeamProposalService(options: AiTeamProposalServiceOption
     async acceptProposal(principal, projectId, proposalId) {
       ensurePrincipal(principal); assertIdentityId(projectId); assertIdentityId(proposalId); const initialContext = await projectAccess(options, principal, projectId, true); const initial = await loadAiTeamProposal(options.root, projectId, proposalId); if (!initial) throw new Error("AI team proposal not found");
       return withDurableTeamMembershipLock(teamMembershipRoot, initialContext.teamId, async () => {
-      await projectAccess(options, principal, projectId, true);
+      await projectAccess(options, principal, projectId, true, true);
       return withDurableAiTeamProposalDecisionLock(options.root, projectId, proposalId, async () => {
       const current = await loadAiTeamProposal(options.root, projectId, proposalId); if (!current) throw new Error("AI team proposal not found");
       if (current.status === "accepted" && current.workRequestId) { const view = await options.userProjectService.getProject(principal, projectId); const workRequest = view?.workRequests.find((item) => item.id === current.workRequestId); if (workRequest) return { proposal: current, workRequest }; throw new Error("Accepted AI proposal work request not found"); }
@@ -94,7 +94,7 @@ export function createAiTeamProposalService(options: AiTeamProposalServiceOption
     async rejectProposal(principal, projectId, proposalId) {
       ensurePrincipal(principal); assertIdentityId(projectId); assertIdentityId(proposalId); const initialContext = await projectAccess(options, principal, projectId, true); const initial = await loadAiTeamProposal(options.root, projectId, proposalId); if (!initial) throw new Error("AI team proposal not found");
       return withDurableTeamMembershipLock(teamMembershipRoot, initialContext.teamId, async () => {
-        await projectAccess(options, principal, projectId, true);
+        await projectAccess(options, principal, projectId, true, true);
         return withDurableAiTeamProposalDecisionLock(options.root, projectId, proposalId, async () => { const current = await loadAiTeamProposal(options.root, projectId, proposalId); if (!current) throw new Error("AI team proposal not found"); if (current.status === "rejected") return current; if (current.status !== "proposed") throw new Error("AI team proposal is " + current.status); const at = now(); assertTimestamp(at, "AI proposal rejection timestamp"); const proposal = { ...current, status: "rejected" as const, updatedAt: at }; await saveAiTeamProposal(options.root, proposal); return proposal; }, { waitForMs: 2_000 });
       }, { waitForMs: 2_000 });
     },

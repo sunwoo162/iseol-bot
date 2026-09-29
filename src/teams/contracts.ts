@@ -67,6 +67,8 @@ export type TeamService = {
   removeAiMember(principal: Principal, teamId: string, agentId: string): Promise<TeamMembership>;
   leaveTeam(principal: Principal, teamId: string): Promise<TeamMembership>;
   isManager(principal: Principal, teamId: string): Promise<boolean>;
+  /** Use only while the caller already holds the canonical team membership lock. */
+  isManagerWithinMembershipLock(principal: Principal, teamId: string): Promise<boolean>;
   canAccess(principal: Principal, teamId: string): Promise<boolean>;
   /** Use only while the caller already holds the canonical team membership lock. */
   canAccessWithinMembershipLock(principal: Principal, teamId: string): Promise<boolean>;

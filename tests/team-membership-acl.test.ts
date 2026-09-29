@@ -204,3 +204,30 @@ test("team access checks wait for the membership lock and re-check the viewer", 
   release();
   await Promise.all([holder, assert.doesNotReject(async () => assert.equal(await access, false))]);
 });
+
+test("team manager checks wait for the membership lock and re-check the viewer role", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-team-manager-read-lock-"));
+  const owner = principal("team-manager-read-owner");
+  const teams = createTeamService(root, { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Manager read team", description: "manager read recheck", kind: "project", visibility: "private", capacity: 3 });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(root, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const manager = teams.isManager(owner, team.id);
+  assert.equal(await Promise.race([
+    manager,
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]), false);
+  const membership = await loadMembership(root, team.id, owner.userId);
+  assert.ok(membership);
+  await saveMembership(root, { ...membership, role: "member", assignmentRole: "member", updatedAt: at });
+  release();
+  await Promise.all([holder, assert.doesNotReject(async () => assert.equal(await manager, false))]);
+});
