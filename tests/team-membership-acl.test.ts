@@ -148,3 +148,32 @@ test("team list reads re-check private membership after waiting for the lock", a
   assert.deepEqual(await reading, []);
   await holder;
 });
+
+test("team collaboration checks wait for the membership lock and re-check both members", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-team-collaboration-read-lock-"));
+  const owner = principal("team-collaboration-owner");
+  const member = principal("team-collaboration-member");
+  const teams = createTeamService(root, { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Collaboration read team", description: "collaboration read recheck", kind: "project", visibility: "public", capacity: 3 });
+  await teams.addMember(team.id, member.userId, "member");
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(root, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  const collaboration = teams.canCollaborate(owner.userId, member.userId);
+  assert.equal(await Promise.race([
+    collaboration,
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
+  ]), false);
+  const membership = await loadMembership(root, team.id, member.userId);
+  assert.ok(membership);
+  await saveMembership(root, { ...membership, status: "removed", updatedAt: at });
+  release();
+  await Promise.all([holder, assert.doesNotReject(async () => assert.equal(await collaboration, false))]);
+});

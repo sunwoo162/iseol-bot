@@ -146,8 +146,14 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
       assertIdentityId(userA); assertIdentityId(userB);
       const teams = await listTeams(root);
       for (const team of teams.filter((item) => item.status === "active")) {
-        const members = await listMemberships(root, team.id);
-        if (members.some((item) => item.memberType === "human" && item.userId === userA && item.status === "active") && members.some((item) => item.memberType === "human" && item.userId === userB && item.status === "active")) return true;
+        const collaborated = await withDurableTeamMembershipLock(root, team.id, async () => {
+          const current = await loadTeam(root, team.id);
+          if (!current || current.status !== "active") return false;
+          const members = await listMemberships(root, current.id);
+          return members.some((item) => item.memberType === "human" && item.userId === userA && item.status === "active")
+            && members.some((item) => item.memberType === "human" && item.userId === userB && item.status === "active");
+        }, { waitForMs: 2_000 });
+        if (collaborated) return true;
       }
       return false;
     },
