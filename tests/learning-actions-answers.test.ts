@@ -6,6 +6,8 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createLocalCodingSyntaxVerifier } from "../src/learning/local-coding-verifier.js";
 import { createLearningService } from "../src/learning/service.js";
+import { withDurableLearningActionLock } from "../src/learning/action-lock.js";
+import { saveLearningSessionAction } from "../src/learning/store.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -26,6 +28,29 @@ test("learning session actions are owner-bound, idempotent, and distinguish self
   await assert.rejects(() => service.recordLearningSessionAction(owner, session.id, { actionId: "understood-1", type: "self-report", contentRef: "other", question: "다른 기록" }), /conflict/i);
   assert.equal((await service.listLearningSessionActions(owner, session.id)).length, 2);
   await assert.rejects(() => service.recordLearningSessionAction(other, session.id, { actionId: "other", type: "self-report" }), /not found|forbidden/i);
+});
+
+test("learning session action lists wait for each durable action lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-action-read-lock-"));
+  const owner = principal("action-read-lock-owner");
+  const service = createLearningService(root, { now: () => at });
+  const plan = await service.createLearningPlan(owner, { title: "Action reads", description: "Action reads", goals: ["Practice"] });
+  const session = await service.startLearningSession(owner, plan.id);
+  const action = await service.recordLearningSessionAction(owner, session.id, { actionId: "read-lock-action", type: "self-report", question: "기존 질문" });
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableLearningActionLock(root, owner.userId, session.id, action.actionId, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let settled = false;
+  const read = service.listLearningSessionActions(owner, session.id).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await saveLearningSessionAction(root, { ...action, question: "잠금 해제 후 질문" });
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await read)[0]?.question, "잠금 해제 후 질문");
 });
 
 test("concurrent learning session actions across service instances remain one action", async () => {
