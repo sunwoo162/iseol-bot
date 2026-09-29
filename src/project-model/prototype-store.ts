@@ -25,7 +25,7 @@ export async function savePrototypeCandidate(
   await writeAtomic(prototypeFile(root, candidate.id), candidate);
 }
 
-export async function loadPrototypeCandidate(
+export async function loadPrototypeCandidateUnlocked(
   root: string,
   id: string,
 ): Promise<PrototypeCandidate | null> {
@@ -38,6 +38,13 @@ export async function loadPrototypeCandidate(
   }
 }
 
+export async function loadPrototypeCandidate(
+  root: string,
+  id: string,
+): Promise<PrototypeCandidate | null> {
+  return withDurablePrototypeLock(root, id, () => loadPrototypeCandidateUnlocked(root, id), { waitForMs: 2_000 });
+}
+
 export async function updatePrototypeCandidate(
   root: string,
   id: string,
@@ -45,7 +52,7 @@ export async function updatePrototypeCandidate(
   options: { rejectPromoted?: boolean; promotedError?: string; returnIfStatus?: PrototypeCandidate["status"] } = {},
 ): Promise<PrototypeCandidate | null> {
   return withDurablePrototypeLock(root, id, async () => {
-    const current = await loadPrototypeCandidate(root, id);
+    const current = await loadPrototypeCandidateUnlocked(root, id);
     if (!current) return null;
     if (options.rejectPromoted && current.status === "promoted") {
       throw new Error(options.promotedError ?? `Promoted prototype acceptance is immutable: ${id}`);
@@ -96,7 +103,7 @@ export async function listPrototypeCandidates(
     const candidate = await withDurablePrototypeLock(
       root,
       id,
-      () => loadPrototypeCandidate(root, id),
+      () => loadPrototypeCandidateUnlocked(root, id),
       { waitForMs: 2_000 },
     );
     if (candidate) candidates.push(candidate);
