@@ -10,7 +10,7 @@ function eventFile(root: string, campaignId: string): string {
   return resolve(ideaLabDirectory(root, "campaign-events"), `${campaignId}.jsonl`);
 }
 
-export async function listIdeaLabCampaignEvents(root: string, campaignId: string): Promise<IdeaLabCampaignEvent[]> {
+async function loadIdeaLabCampaignEventsUnlocked(root: string, campaignId: string): Promise<IdeaLabCampaignEvent[]> {
   const path = eventFile(root, campaignId);
   try {
     const content = await readFile(path, "utf8");
@@ -25,10 +25,19 @@ export async function listIdeaLabCampaignEvents(root: string, campaignId: string
   }
 }
 
+export async function listIdeaLabCampaignEvents(root: string, campaignId: string): Promise<IdeaLabCampaignEvent[]> {
+  return withDurableIdeaLabCampaignEventLock(
+    root,
+    campaignId,
+    () => loadIdeaLabCampaignEventsUnlocked(root, campaignId),
+    { waitForMs: 2_000 },
+  );
+}
+
 export async function appendIdeaLabCampaignEventOnce(root: string, event: IdeaLabCampaignEvent): Promise<boolean> {
   assertIdeaLabCampaignEvent(event);
   return withDurableIdeaLabCampaignEventLock(root, event.campaignId, async () => {
-    const existing = (await listIdeaLabCampaignEvents(root, event.campaignId)).find((item) => item.id === event.id);
+    const existing = (await loadIdeaLabCampaignEventsUnlocked(root, event.campaignId)).find((item) => item.id === event.id);
     if (existing) {
       const same = existing.campaignId === event.campaignId
         && existing.type === event.type

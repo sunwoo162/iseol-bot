@@ -20,6 +20,7 @@ import {
   saveIdeaLabCampaign,
 } from "../src/idea-lab/campaign-store.js";
 import { withDurableIdeaLabCampaignLock } from "../src/idea-lab/campaign-lock.js";
+import { withDurableIdeaLabCampaignEventLock } from "../src/idea-lab/event-lock.js";
 import { loadIdeaProposal, saveIdeaProposal } from "../src/idea-lab/proposal-store.js";
 import {
   listPrototypeProductions,
@@ -213,5 +214,38 @@ test("concurrent identical campaign event append-once calls remain one event", a
     ]);
     assert.deepEqual(results.sort(), [false, true]);
     assert.deepEqual(await listIdeaLabCampaignEvents(root, event.campaignId), [event]);
+  });
+});
+
+test("campaign event listing waits for the durable event lock", async () => {
+  await withRoot(async (root) => {
+    const event: IdeaLabCampaignEvent = {
+      version: 1,
+      id: "evt-list-lock",
+      campaignId: "camp-1",
+      type: "campaign-created",
+      at: NOW,
+      summary: "Created campaign",
+    };
+    await appendIdeaLabCampaignEventOnce(root, event);
+    let releaseHolder!: () => void;
+    const holderStarted = new Promise<void>((resolve) => {
+      void withDurableIdeaLabCampaignEventLock(root, event.campaignId, async () => {
+        resolve();
+        await new Promise<void>((release) => { releaseHolder = release; });
+      });
+    });
+    await holderStarted;
+
+    let settled = false;
+    const listing = listIdeaLabCampaignEvents(root, event.campaignId).then((value) => {
+      settled = true;
+      return value;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(settled, false);
+
+    releaseHolder();
+    assert.deepEqual(await listing, [event]);
   });
 });
