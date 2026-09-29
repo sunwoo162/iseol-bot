@@ -23,9 +23,10 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
     const team = await options.teamService.getTeam(principal, space.teamId);
     return team && isActiveHumanMember(team.members, principal.userId) ? space : null;
   };
-  const requireManager = async (principal: Principal, studySpaceId: string): Promise<StudySpace> => {
+  const requireManager = async (principal: Principal, studySpaceId: string, membershipLockHeld = false): Promise<StudySpace> => {
     const space = await loadAccessibleSpace(principal, studySpaceId);
-    if (!space || !await options.teamService.isManager(principal, space.teamId)) throw new Error("Study manager access required");
+    const manager = space && (membershipLockHeld ? await options.teamService.isManagerWithinMembershipLock(principal, space.teamId) : await options.teamService.isManager(principal, space.teamId));
+    if (!space || !manager) throw new Error("Study manager access required");
     return space;
   };
   const withAccessibleSpaceMembershipLock = async <T>(principal: Principal, studySpaceId: string, task: (space: StudySpace) => Promise<T>): Promise<T | null> => {
@@ -48,7 +49,7 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
       ensurePrincipal(principal); assertIdentityId(input.teamId);
       if (!await options.teamService.isManager(principal, input.teamId)) throw new Error("Study manager access required");
       return withTeamMembershipMutationLock(input.teamId, async () => {
-        if (!await options.teamService.isManager(principal, input.teamId)) throw new Error("Study manager access required");
+        if (!await options.teamService.isManagerWithinMembershipLock(principal, input.teamId)) throw new Error("Study manager access required");
         const team = await options.teamService.getTeam(principal, input.teamId);
         if (!team || team.team.kind !== "study") throw new Error("Study team required");
         return withDurableStudySpaceLock(root, input.teamId, async () => {
@@ -80,7 +81,7 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
     async addCurriculumLink(principal, studySpaceId, input) {
       const initialSpace = await requireManager(principal, studySpaceId);
       return withTeamMembershipMutationLock(initialSpace.teamId, async () => {
-        const space = await requireManager(principal, studySpaceId); if (!(input.kind === "learning-goal" || input.kind === "resource")) throw new Error("Invalid curriculum link kind");
+        const space = await requireManager(principal, studySpaceId, true); if (!(input.kind === "learning-goal" || input.kind === "resource")) throw new Error("Invalid curriculum link kind");
         const referenceId = required(input.referenceId, "Curriculum reference", 240); const label = required(input.label, "Curriculum label", 240);
         if (input.kind === "learning-goal") { if (!options.learningService) throw new Error("Learning service unavailable"); if (!await options.learningService.getLearningGoal(principal, referenceId)) throw new Error("Learning goal not found"); }
         const at = now(); assertTimestamp(at, "curriculum link timestamp"); const link: CurriculumLink = { version: 1, id: `curriculum-${randomUUID()}`, studySpaceId: space.id, kind: input.kind, referenceId, label, createdByUserId: principal.userId, createdAt: at }; await saveCurriculumLink(root, link); return link;
@@ -89,7 +90,7 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
     async createTask(principal, studySpaceId, input) {
       const initialSpace = await requireManager(principal, studySpaceId);
       return withTeamMembershipMutationLock(initialSpace.teamId, async () => {
-        const space = await requireManager(principal, studySpaceId); const title = required(input.title, "Study task title", 240); const instructions = required(input.instructions, "Study task instructions", 10_000);
+        const space = await requireManager(principal, studySpaceId, true); const title = required(input.title, "Study task title", 240); const instructions = required(input.instructions, "Study task instructions", 10_000);
         if (input.dueLocalDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(input.dueLocalDate)) throw new Error("Invalid task due date");
         const at = now(); assertTimestamp(at, "study task timestamp"); const task: StudyTask = { version: 1, id: `study-task-${randomUUID()}`, studySpaceId: space.id, createdByUserId: principal.userId, title, instructions, ...(input.dueLocalDate ? { dueLocalDate: input.dueLocalDate } : {}), status: "open", createdAt: at, updatedAt: at }; await saveStudyTask(root, task); return task;
       });
