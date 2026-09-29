@@ -466,6 +466,7 @@ async function handleBindProject(interaction: ChatInputCommandInteraction): Prom
         at,
       },
       {
+        workspaceRoot: modelRoot,
         findStoredProject: findProject,
         loadWorkspace: (id) => loadProjectWorkspace(modelRoot, id),
         createBinding: (input) => createDiscordProjectBinding(modelRoot, input),
