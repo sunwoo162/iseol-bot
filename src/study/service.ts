@@ -14,7 +14,7 @@ function isActiveHumanMember(members: Array<{ userId: string; memberType: string
 export function createStudyService(root: string, options: StudyServiceOptions): StudyService {
   const now = options.now ?? (() => new Date().toISOString());
   const teamMembershipRoot = options.teamMembershipRoot ?? dirname(root);
-  const withTeamMembershipMutationLock = <T>(teamId: string, task: () => Promise<T>): Promise<T> => withDurableTeamMembershipLock(teamMembershipRoot, teamId, task, { waitForMs: 2_000 });
+  const withTeamMembershipMutationLock = <T>(teamId: string, task: () => Promise<T>, waitForMs = 2_000): Promise<T> => withDurableTeamMembershipLock(teamMembershipRoot, teamId, task, { waitForMs });
   const loadAccessibleSpace = async (principal: Principal, studySpaceId: string, membershipLockHeld = false): Promise<StudySpace | null> => {
     ensurePrincipal(principal);
     try { assertIdentityId(studySpaceId); } catch { return null; }
@@ -102,7 +102,7 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
         return withDurableStudySubmissionLock(root, space.id, taskId, principal.userId, async () => {
           const task = await loadStudyTask(root, space.id, taskId); if (!task || task.status !== "open") throw new Error("Study task not found"); const previous = await loadTaskSubmission(root, space.id, task.id, principal.userId); const at = now(); assertTimestamp(at, "study submission timestamp"); const submission: StudyTaskSubmission = { version: 1, id: previous?.id ?? `submission-${randomUUID()}`, studySpaceId: space.id, taskId: task.id, userId: principal.userId, answer, status: input.status, createdAt: previous?.createdAt ?? at, updatedAt: at }; await saveTaskSubmission(root, submission); await options.activityService?.recordActivityEvent(principal, { sourceType: "study", sourceId: submission.id, eventType: "study.task.submission.saved", eventVersion: 1, actorType: "user", verificationStatus: "unverified", payload: { studySpaceId: space.id, taskId: task.id, submissionStatus: submission.status } }); return submission;
         }, { waitForMs: 2_000 });
-      });
+      }, 10_000);
     },
   };
 }

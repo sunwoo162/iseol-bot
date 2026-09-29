@@ -8,7 +8,7 @@ import { createActivityService } from "../src/activity/service.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createTeamService } from "../src/teams/service.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
-import { loadMembership, saveMembership } from "../src/teams/store.js";
+import { loadMembershipUnlocked, saveMembershipUnlocked } from "../src/teams/store.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 
 const at = "2026-09-25T12:00:00.000Z";
@@ -111,9 +111,9 @@ test("team membership mutations re-check manager authority after waiting for the
     addAi.then(() => true),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
   ]), false);
-  const currentOwner = await loadMembership(root, team.id, owner.userId);
+  const currentOwner = await loadMembershipUnlocked(root, team.id, owner.userId);
   assert.ok(currentOwner);
-  await saveMembership(root, { ...currentOwner, status: "removed", updatedAt: at });
+  await saveMembershipUnlocked(root, { ...currentOwner, status: "removed", updatedAt: at });
   release();
   await Promise.all([holder, assert.rejects(() => addAi, /manager/i)]);
   assert.equal((await teams.listMemberships(team.id)).some((member) => member.aiMemberId === "manager-lock-agent"), false);
@@ -141,9 +141,9 @@ test("team list reads re-check private membership after waiting for the lock", a
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  const membership = await loadMembership(root, team.id, owner.userId);
+  const membership = await loadMembershipUnlocked(root, team.id, owner.userId);
   assert.ok(membership);
-  await saveMembership(root, { ...membership, status: "removed", updatedAt: at });
+  await saveMembershipUnlocked(root, { ...membership, status: "removed", updatedAt: at });
   release();
   assert.deepEqual(await reading, []);
   await holder;
@@ -171,9 +171,9 @@ test("team get reads wait for the membership lock and re-check current membershi
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  const membership = await loadMembership(root, team.id, owner.userId);
+  const membership = await loadMembershipUnlocked(root, team.id, owner.userId);
   assert.ok(membership);
-  await saveMembership(root, { ...membership, status: "removed", updatedAt: at });
+  await saveMembershipUnlocked(root, { ...membership, status: "removed", updatedAt: at });
   release();
   assert.equal(await reading, null);
   await holder;
@@ -201,9 +201,9 @@ test("team membership list reads wait for the membership lock and reload current
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  const membership = await loadMembership(root, team.id, owner.userId);
+  const membership = await loadMembershipUnlocked(root, team.id, owner.userId);
   assert.ok(membership);
-  await saveMembership(root, { ...membership, status: "removed", updatedAt: at });
+  await saveMembershipUnlocked(root, { ...membership, status: "removed", updatedAt: at });
   release();
   assert.deepEqual(await reading, []);
   await holder;
@@ -231,9 +231,9 @@ test("team collaboration checks wait for the membership lock and re-check both m
     collaboration,
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
   ]), false);
-  const membership = await loadMembership(root, team.id, member.userId);
+  const membership = await loadMembershipUnlocked(root, team.id, member.userId);
   assert.ok(membership);
-  await saveMembership(root, { ...membership, status: "removed", updatedAt: at });
+  await saveMembershipUnlocked(root, { ...membership, status: "removed", updatedAt: at });
   release();
   await Promise.all([holder, assert.doesNotReject(async () => assert.equal(await collaboration, false))]);
 });
@@ -258,9 +258,9 @@ test("team access checks wait for the membership lock and re-check the viewer", 
     access,
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
   ]), false);
-  const membership = await loadMembership(root, team.id, owner.userId);
+  const membership = await loadMembershipUnlocked(root, team.id, owner.userId);
   assert.ok(membership);
-  await saveMembership(root, { ...membership, status: "removed", updatedAt: at });
+  await saveMembershipUnlocked(root, { ...membership, status: "removed", updatedAt: at });
   release();
   await Promise.all([holder, assert.doesNotReject(async () => assert.equal(await access, false))]);
 });
@@ -285,9 +285,9 @@ test("team manager checks wait for the membership lock and re-check the viewer r
     manager,
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
   ]), false);
-  const membership = await loadMembership(root, team.id, owner.userId);
+  const membership = await loadMembershipUnlocked(root, team.id, owner.userId);
   assert.ok(membership);
-  await saveMembership(root, { ...membership, role: "member", assignmentRole: "member", updatedAt: at });
+  await saveMembershipUnlocked(root, { ...membership, role: "member", assignmentRole: "member", updatedAt: at });
   release();
   await Promise.all([holder, assert.doesNotReject(async () => assert.equal(await manager, false))]);
 });

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import type { Principal } from "../src/identity/contracts.js";
 import { createTeamService } from "../src/teams/service.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
-import { loadMembership, saveMembership } from "../src/teams/store.js";
+import { loadMembershipUnlocked, saveMembershipUnlocked } from "../src/teams/store.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { createAiTeamProposalService } from "../src/ai-team/service.js";
 import { withDurableAiTeamProposalLock } from "../src/ai-team/proposal-lock.js";
@@ -190,12 +190,12 @@ test("AI team proposal requests re-check active membership after waiting for the
     request.then(() => true),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
   ]), false);
-  const currentOwner = await loadMembership(platform, team.id, owner.userId);
+  const currentOwner = await loadMembershipUnlocked(platform, team.id, owner.userId);
   assert.ok(currentOwner);
-  await saveMembership(platform, { ...currentOwner, status: "removed", updatedAt: at });
+  await saveMembershipUnlocked(platform, { ...currentOwner, status: "removed", updatedAt: at });
   release();
   await Promise.all([holder, assert.rejects(() => request, /team member|access/i)]);
-  await saveMembership(platform, { ...currentOwner, status: "active", updatedAt: at });
+  await saveMembershipUnlocked(platform, { ...currentOwner, status: "active", updatedAt: at });
   assert.deepEqual(await proposals.listProposals(owner, project.id), []);
 });
 
@@ -225,9 +225,9 @@ test("AI team proposal acceptance re-checks manager authority after waiting for 
     accept.then(() => true),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
   ]), false);
-  const currentOwner = await loadMembership(platform, team.id, owner.userId);
+  const currentOwner = await loadMembershipUnlocked(platform, team.id, owner.userId);
   assert.ok(currentOwner);
-  await saveMembership(platform, { ...currentOwner, status: "removed", updatedAt: at });
+  await saveMembershipUnlocked(platform, { ...currentOwner, status: "removed", updatedAt: at });
   release();
   await Promise.all([holder, assert.rejects(() => accept, /manager|access/i)]);
   assert.equal((await projects.getProject(owner, project.id))?.workRequests.length, 0);

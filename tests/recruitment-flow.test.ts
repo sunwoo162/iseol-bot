@@ -10,7 +10,7 @@ import { createRecruitmentService } from "../src/recruitment/service.js";
 import { withDurableRecruitmentReviewLock } from "../src/recruitment/review-lock.js";
 import { saveApplication, savePost } from "../src/recruitment/store.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
-import { loadMembership, saveMembership } from "../src/teams/store.js";
+import { loadMembershipUnlocked, saveMembershipUnlocked } from "../src/teams/store.js";
 import { createTeamService } from "../src/teams/service.js";
 import type { TeamService } from "../src/teams/contracts.js";
 
@@ -149,7 +149,7 @@ test("recruitment applications re-check post and team membership after waiting f
     apply.then(() => true),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
   ]), false);
-  await saveMembership(platform, { version: 1, id: `${team.id}:recruit-apply-applicant`, teamId: team.id, userId: "recruit-apply-applicant", memberType: "human", role: "member", assignmentRole: "member", capabilities: [], approvalScope: "suggestion-only", status: "active", joinedAt: at, updatedAt: at });
+  await saveMembershipUnlocked(platform, { version: 1, id: `${team.id}:recruit-apply-applicant`, teamId: team.id, userId: "recruit-apply-applicant", memberType: "human", role: "member", assignmentRole: "member", capabilities: [], approvalScope: "suggestion-only", status: "active", joinedAt: at, updatedAt: at });
   release();
   await Promise.all([holder, assert.rejects(() => apply, /already a team member/i)]);
   assert.equal((await recruitment.getPost(principal("recruit-apply-owner"), post.id))?.applications.length, 0);
@@ -182,9 +182,9 @@ test("recruitment post reads re-check manager access after waiting for the Team 
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  const membership = await loadMembership(platform, team.id, "recruit-read-owner");
+  const membership = await loadMembershipUnlocked(platform, team.id, "recruit-read-owner");
   assert.ok(membership);
-  await saveMembership(platform, { ...membership, status: "removed", updatedAt: at });
+  await saveMembershipUnlocked(platform, { ...membership, status: "removed", updatedAt: at });
   release();
   const result = await reading;
   assert.deepEqual(result?.applications, []);

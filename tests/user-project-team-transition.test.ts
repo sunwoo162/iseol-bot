@@ -10,7 +10,7 @@ import { createUserProjectService } from "../src/project-model/user-project-serv
 import { loadProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { withDurableProjectWorkspaceLock } from "../src/project-model/workspace-lock.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
-import { loadMembership, saveMembership } from "../src/teams/store.js";
+import { loadMembershipUnlocked, saveMembershipUnlocked } from "../src/teams/store.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -124,12 +124,12 @@ test("project team transition re-checks team access after waiting for the Team m
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  const membership = await loadMembership(platformRoot, team.id, "owner");
+  const membership = await loadMembershipUnlocked(platformRoot, team.id, "owner");
   assert.ok(membership);
-  await saveMembership(platformRoot, { ...membership, status: "removed" });
+  await saveMembershipUnlocked(platformRoot, { ...membership, status: "removed" });
   releaseHolder();
   await assert.rejects(() => transition, /Team access required/);
-  const current = await loadMembership(platformRoot, team.id, "owner");
+  const current = await loadMembershipUnlocked(platformRoot, team.id, "owner");
   assert.equal(current?.status, "removed");
   assert.equal((await projects.getProject(principal("owner"), project.id))?.project.teamMode, "solo");
 });

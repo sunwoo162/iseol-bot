@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import type { Principal } from "../src/identity/contracts.js";
 import { createTeamService } from "../src/teams/service.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
-import { loadMembership, saveMembership } from "../src/teams/store.js";
+import { loadMembershipUnlocked, saveMembershipUnlocked } from "../src/teams/store.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { createAiTeamDiscussionService } from "../src/ai-team/discussion-service.js";
 import { withDurableAiTeamDiscussionLock } from "../src/ai-team/discussion-lock.js";
@@ -210,11 +210,11 @@ test("AI team discussions re-check active membership after waiting for the Team 
     request.then(() => true),
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 40)),
   ]), false);
-  const currentOwner = await loadMembership(platform, team.id, owner.userId);
+  const currentOwner = await loadMembershipUnlocked(platform, team.id, owner.userId);
   assert.ok(currentOwner);
-  await saveMembership(platform, { ...currentOwner, status: "removed", updatedAt: at });
+  await saveMembershipUnlocked(platform, { ...currentOwner, status: "removed", updatedAt: at });
   release();
   await Promise.all([holder, assert.rejects(() => request, /team member|access/i)]);
-  await saveMembership(platform, { ...currentOwner, status: "active", updatedAt: at });
+  await saveMembershipUnlocked(platform, { ...currentOwner, status: "active", updatedAt: at });
   assert.deepEqual(await discussions.listDiscussions(owner, project.id), []);
 });
