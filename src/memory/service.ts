@@ -86,10 +86,16 @@ export function createMemoryService(root: string, options: { now?: () => string;
       return withDurableTeamMembershipLock(teamMembershipRoot, teamId, async () => {
         const memberships = await options.teamService!.listMemberships(teamId);
         if (!activeHumanMember(teamId, principal.userId, memberships)) return [];
-        return (await listAllMemories(root))
-          .filter((record) => sharedTeamIds(record).includes(teamId) && record.visibility === "private")
-          .map(withSharing)
-          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+        const current: MemoryRecord[] = [];
+        for (const candidate of await listAllMemories(root)) {
+          try { assertIdentityId(candidate.userId); assertIdentityId(candidate.id); } catch { continue; }
+          await withDurableMemoryLock(root, candidate.userId, candidate.id, async () => {
+            const record = await loadMemory(root, candidate.userId, candidate.id);
+            if (!record || record.visibility !== "private" || !sharedTeamIds(record).includes(teamId)) return;
+            current.push(withSharing(record));
+          }, { waitForMs: 2_000 });
+        }
+        return current.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
       }, { waitForMs: 2_000 });
     },
 

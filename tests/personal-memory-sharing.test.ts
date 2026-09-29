@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createMemoryService } from "../src/memory/service.js";
+import { withDurableMemoryLock } from "../src/memory/memory-lock.js";
+import { saveMemory } from "../src/memory/store.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
 import { createTeamService } from "../src/teams/service.js";
 import { loadMembership, saveMembership } from "../src/teams/store.js";
@@ -133,4 +135,39 @@ test("shared memory reads re-check active membership after waiting for the Team 
   await saveMembership(root, { ...membership, status: "removed" });
   releaseHolder();
   assert.deepEqual(await reading, []);
+});
+
+test("shared memory reads wait for the memory lock and reload current state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-memory-sharing-memory-lock-"));
+  const teams = createTeamService(root, { now: () => at });
+  const memory = createMemoryService(root, { now: () => at, teamService: teams });
+  const owner = principal("memory-share-memory-lock-owner");
+  const member = principal("memory-share-memory-lock-member");
+  const team = await teams.createTeam(owner, { name: "공유 메모리 잠금 팀", description: "메모리 read lock", kind: "project", visibility: "private", capacity: 4 });
+  await teams.addMember(team.id, member.userId, "member");
+  const record = await memory.appendPrivateMemory(owner, { kind: "private", content: "변경 전 공유 메모리입니다." });
+  const shared = await memory.updatePrivateMemorySharing(owner, record.id, [team.id]);
+  assert.ok(shared);
+
+  let releaseHolder!: () => void;
+  let signalStarted!: () => void;
+  const holderStarted = new Promise<void>((resolve) => { signalStarted = resolve; });
+  const holder = withDurableMemoryLock(root, owner.userId, record.id, async () => {
+    signalStarted();
+    await new Promise<void>((resolve) => { releaseHolder = resolve; });
+  }, { waitForMs: 0 });
+  await holderStarted;
+
+  let settled = false;
+  const reading = memory.listSharedMemories(member, team.id).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await saveMemory(root, { ...shared, content: "변경 후 공유 메모리입니다.", updatedAt: at });
+  releaseHolder();
+  await holder;
+  assert.deepEqual((await reading).map((item) => item.content), ["변경 후 공유 메모리입니다."]);
 });
