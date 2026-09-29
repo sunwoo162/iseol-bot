@@ -3639,3 +3639,23 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `cd3393e fix: serialize learning report reads`. Documentation commit follows this implementation commit.
 - Boundary: same-host/shared-root Learning report list read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable User Project list read synchronization
+
+- Status: **B — User Project lists now acquire each project workspace lock before reloading the visible project projection; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent project/team update can no longer leave the project list with an unlocked stale result.
+- Evidence: `src/project-model/user-project-service.ts`, `src/project-model/workspace-lock.ts`, `tests/user-project-execution.test.ts`.
+- TDD: RED reproduced the project list completing while the workspace lock was held; GREEN added the per-project lock/reload boundary and verified the visible project after release.
+- Verification: focused User Project suite `27/27`; Iseol user-product `418/418`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `72d2f15 fix: synchronize user project list reads`; merged by PR #61 with merge commit `5960b3a`.
+- Boundary: same-host/shared-root User Project list read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Learning due-review read synchronization
+
+- Status: **B — Due Learning review lists now acquire each durable review lock before reloading the due item projection; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent review completion can no longer leave the due-review list with an unlocked stale result.
+- Evidence: `src/learning/service.ts`, `src/learning/review-lock.ts`, `src/learning/store.ts`, `tests/learning-review-flow.test.ts`.
+- TDD: RED reproduced the due-review list completing while the review lock was held; GREEN added the per-item lock/reload boundary and verified the current due item after release.
+- Verification: focused Learning review suite `6/6`; Iseol user-product `419/419`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `a0ad4ec fix: synchronize due review reads`; merged by PR #62 with merge commit `adb0e63`.
+- Boundary: same-host/shared-root Learning due-review list read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
