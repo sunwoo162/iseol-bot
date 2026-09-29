@@ -9,11 +9,12 @@ import {
   savePrototypeCandidate,
   updatePrototypeCandidate,
 } from "../src/project-model/prototype-store.js";
-import { loadProjectWorkspace, saveProjectWorkspace } from "../src/project-model/workspace-store.js";
+import { listProjectWorkspaces, loadProjectWorkspace, saveProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { appendProjectHistoryEvent, appendProjectHistoryEventOnce, loadProjectHistory } from "../src/project-model/history-store.js";
 import { ensurePortfolioDocument, loadPortfolioDocument, savePortfolioDocument, updatePortfolioDocument } from "../src/project-model/portfolio-store.js";
 import { createPortfolioDocument } from "../src/project-model/portfolio-store.js";
 import { withDurablePortfolioLock } from "../src/project-model/portfolio-lock.js";
+import { withDurableProjectWorkspaceLock } from "../src/project-model/workspace-lock.js";
 
 function candidate(): PrototypeCandidate {
   return {
@@ -141,6 +142,30 @@ test("workspace store round trips and missing ids return null", async () => {
   assert.deepEqual(await loadProjectWorkspace(root, "project-prototype-001"), workspace());
   assert.equal(await loadProjectWorkspace(root, "project-missing"), null);
   assert.equal(await loadPrototypeCandidate(root, "prototype-missing"), null);
+});
+
+test("workspace listing waits for each durable Project Workspace lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-workspace-list-lock-"));
+  await saveProjectWorkspace(root, workspace());
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableProjectWorkspaceLock(root, workspace().id, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+
+  let settled = false;
+  const listing = listProjectWorkspaces(root).then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  releaseHolder();
+  assert.deepEqual((await listing).map((item) => item.id), [workspace().id]);
 });
 
 test("project history is append-only and reloads in order", async () => {

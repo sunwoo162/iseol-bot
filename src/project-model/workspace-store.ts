@@ -55,7 +55,12 @@ export async function listProjectWorkspaces(
     if (!entry.isDirectory()) continue;
     const id = entry.name;
     try { assertProjectModelId(id); } catch { continue; }
-    const workspace = await loadProjectWorkspace(root, id);
+    const workspace = await withDurableProjectWorkspaceLock(
+      root,
+      id,
+      () => loadProjectWorkspace(root, id),
+      { waitForMs: 2_000 },
+    );
     if (workspace) workspaces.push(workspace);
   }
   return workspaces.sort((a, b) =>
