@@ -3939,3 +3939,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `e159b46 fix: synchronize Discord project context reads`; merged by PR #118 with merge commit `aad71d0`.
 - Boundary: same-host/shared-root Discord Project context and dependent action-history read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: shared Discord progress event lock synchronization
+
+- Status: **B — direct progress-log delivery and adapter-backed Discord dispatch now share one project/event durable lock, while external delivery quality and live Runtime/provider execution remain unverified**. The two delivery paths converge on one durable event result instead of racing through separate lock files.
+- Evidence: `src/discord-project/progress-notifications.ts`, `src/discord-project/progress-notification-lock.ts`, `tests/discord-project-progress-notifications.test.ts`.
+- TDD: RED reproduced direct delivery appending while adapter dispatch was blocked in an external send; GREEN unified both paths on the shared lock and preserved `unknown` on lock contention.
+- Verification: Discord Project related regression `47/47`; serial full test suite `734/734`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `e76e343 fix: unify Discord progress event locks`; merged by PR #120 with merge commit `e8ba8f3`.
+- Boundary: same-host/shared-root Discord progress event delivery coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
