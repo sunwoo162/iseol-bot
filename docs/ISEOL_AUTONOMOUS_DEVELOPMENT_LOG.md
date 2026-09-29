@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable public portfolio list authorization rechecks
+
+- Status: **B — public portfolio lists now acquire each canonical per-entry lock and reload visibility before returning entries; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A private conversion that wins an entry lock while the public list is waiting can no longer leave a stale public entry in the list.
+- Evidence: `src/portfolio/service.ts`, `src/portfolio/entry-lock.ts`, `src/portfolio/store.ts`, `tests/portfolio-public-api.test.ts`.
+- TDD: RED reproduced the public list completing while the portfolio entry lock was held and private visibility persisted; GREEN added per-entry lock acquisition and latest-record visibility rechecks before list projection.
+- Verification: focused Portfolio suites `8/8`; user-product `395/395`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `2272813 fix: serialize public portfolio lists`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root public portfolio list and visibility coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable public portfolio read authorization rechecks
 
 - Status: **B — public portfolio reads now acquire the canonical per-entry lock and reload visibility before projecting evidence; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A private conversion that wins the entry lock while the public read is waiting can no longer leave a stale public entry visible.
