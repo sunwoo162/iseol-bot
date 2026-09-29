@@ -3563,3 +3563,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `ca8fa13 fix: serialize project reads`. Documentation commit follows this implementation commit.
 - Boundary: same-host/shared-root Project Workspace read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Learning session read synchronization
+
+- Status: **B — Learning session lists now acquire each canonical session lock before projecting the authenticated user's sessions; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent session resume/completion can no longer leave the session list with an unlocked stale projection.
+- Evidence: `src/learning/service.ts`, `src/learning/session-lock.ts`, `src/learning/store.ts`, `tests/learning-goal-start.test.ts`.
+- TDD: RED reproduced the session list completing while the session lock was held; GREEN added per-session lock/reload boundaries and verified the latest durable session after release.
+- Verification: focused Learning goal/session start `4/4`; Iseol user-product `410/410`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `0cb33b4 fix: serialize learning session reads`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Learning session list read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
