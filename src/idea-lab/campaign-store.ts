@@ -9,9 +9,18 @@ function campaignFile(root: string, id: string): string {
   return resolve(ideaLabDirectory(root, "campaigns"), `${id}.json`);
 }
 
-export async function saveIdeaLabCampaign(root: string, campaign: IdeaLabCampaign): Promise<void> {
+export async function saveIdeaLabCampaignUnlocked(root: string, campaign: IdeaLabCampaign): Promise<void> {
   assertIdeaLabCampaign(campaign);
   await writeIdeaLabJsonAtomic(campaignFile(root, campaign.id), campaign);
+}
+
+export async function saveIdeaLabCampaign(root: string, campaign: IdeaLabCampaign): Promise<void> {
+  return withDurableIdeaLabCampaignLock(
+    root,
+    campaign.id,
+    () => saveIdeaLabCampaignUnlocked(root, campaign),
+    { waitForMs: 2_000 },
+  );
 }
 
 export async function loadIdeaLabCampaignUnlocked(root: string, id: string): Promise<IdeaLabCampaign | null> {

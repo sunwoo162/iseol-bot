@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { IdeaLabCampaign } from "../idea-lab/contracts.js";
 import { assertIdeaLabId } from "../idea-lab/contracts.js";
 import { withDurableIdeaLabCampaignLock } from "../idea-lab/campaign-lock.js";
-import { loadIdeaLabCampaignUnlocked, saveIdeaLabCampaign } from "../idea-lab/campaign-store.js";
+import { loadIdeaLabCampaignUnlocked, saveIdeaLabCampaignUnlocked } from "../idea-lab/campaign-store.js";
 import { appendIdeaLabCampaignEventOnce } from "../idea-lab/event-store.js";
 
 export class WebIdeaLabActionError extends Error {
@@ -59,7 +59,7 @@ export async function createWebIdeaLabCampaign(options: CreateWebIdeaLabCampaign
       targetReadyCount, productionConcurrency, proposalIds: [], productionIds: [], status: "generating",
       createdAt: options.at, updatedAt: options.at,
     };
-    await saveIdeaLabCampaign(options.root, campaign);
+    await saveIdeaLabCampaignUnlocked(options.root, campaign);
     await appendIdeaLabCampaignEventOnce(options.root, {
       version: 1,
       id: `campaign-created-${id}`,
@@ -81,7 +81,7 @@ export async function cancelWebIdeaLabCampaign(root: string, campaignId: string,
     if (campaign.status === "complete") throw new WebIdeaLabActionError(409, `Completed Campaign cannot be cancelled: ${campaignId}`);
     const { blockerSummary: _ignoredBlocker, ...campaignWithoutBlocker } = campaign;
     const updated: IdeaLabCampaign = { ...campaignWithoutBlocker, status: "cancelled", updatedAt: at };
-    await saveIdeaLabCampaign(root, updated);
+    await saveIdeaLabCampaignUnlocked(root, updated);
     await appendIdeaLabCampaignEventOnce(root, {
       version: 1,
       id: `campaign-cancelled-${campaignId}`,

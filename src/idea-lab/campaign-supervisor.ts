@@ -1,5 +1,5 @@
 import type { IdeaLabCampaign, IdeaProposal, PrototypeProduction } from "./contracts.js";
-import { loadIdeaLabCampaignUnlocked, saveIdeaLabCampaign } from "./campaign-store.js";
+import { loadIdeaLabCampaignUnlocked, saveIdeaLabCampaignUnlocked } from "./campaign-store.js";
 import { loadIdeaProposal, saveIdeaProposal } from "./proposal-store.js";
 import { listPrototypeProductions, savePrototypeProduction } from "./production-store.js";
 import { appendIdeaLabCampaignEventOnce } from "./event-store.js";
@@ -95,7 +95,7 @@ async function blockCampaign(
     summary: blockerSummary,
   });
   const next = { ...campaign, status: "blocked" as const, blockerSummary, updatedAt: at };
-  await saveIdeaLabCampaign(input.root, next);
+  await saveIdeaLabCampaignUnlocked(input.root, next);
   return next;
 }
 
@@ -113,7 +113,7 @@ async function completeCampaign(
     summary: `Campaign reached ${campaign.targetReadyCount} READY prototypes`,
   });
   const next = { ...campaign, status: "complete" as const, blockerSummary: undefined, updatedAt: at };
-  await saveIdeaLabCampaign(input.root, next);
+  await saveIdeaLabCampaignUnlocked(input.root, next);
   return next;
 }
 
@@ -172,7 +172,7 @@ async function generateOneProposal(
     status: proposal.status === "accepted" ? "producing" as const : campaign.status,
     updatedAt: at,
   };
-  await saveIdeaLabCampaign(input.root, next);
+  await saveIdeaLabCampaignUnlocked(input.root, next);
   return next;
 }
 
@@ -212,7 +212,7 @@ async function createNextProduction(
       status: "producing" as const,
       updatedAt: at,
     };
-    await saveIdeaLabCampaign(input.root, next);
+    await saveIdeaLabCampaignUnlocked(input.root, next);
     return next;
   } catch (error) {
     if (error instanceof IdeaLabCampaignBlockedError) {
@@ -302,7 +302,7 @@ async function superviseIdeaLabCampaignUnlocked(
     const linkedIds = productions.map((item) => item.id).filter((id) => !campaign!.productionIds.includes(id));
     if (linkedIds.length > 0) {
       campaign = { ...campaign!, productionIds: [...campaign!.productionIds, ...linkedIds], updatedAt: (input.now ?? (() => new Date().toISOString()))() };
-      await saveIdeaLabCampaign(input.root, campaign);
+      await saveIdeaLabCampaignUnlocked(input.root, campaign);
     }
     const readyCount = productions.filter((item) => item.status === "ready").length;
     if (readyCount >= campaign.targetReadyCount) return completeCampaign(input, campaign);
