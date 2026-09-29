@@ -4099,3 +4099,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `cbd0138 fix: synchronize Idea Lab proposal reads`; merged by PR #150 with merge commit `a9eced6`.
 - Boundary: same-host/shared-root Idea Lab Proposal document read/write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Idea Lab Production document write synchronization
+
+- Status: **B — Idea Lab Production public writes now wait on the canonical durable Production lock, while live Runtime/provider execution remains unverified**. runtime driver writes use an internal unlocked helper after acquiring the same lock; Campaign supervisor result saves use the public boundary.
+- Evidence: `src/idea-lab/production-store.ts`, `src/idea-lab/production-lock.ts`, `src/idea-lab/production-runtime-driver.ts`, `tests/idea-lab-stores.test.ts`.
+- TDD: RED reproduced Production writes completing while the Production lock was held; GREEN added the locked public write, fixed runtime driver reentrancy through an unlocked helper, and preserved bounded EPERM retry.
+- Verification: Idea Lab store/supervisor/runtime/e2e/Web focused regression `69/69`; serial full test suite `750/750`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `901b39a fix: synchronize Idea Lab production writes`; merged by PR #152 with merge commit `1ad9238`.
+- Boundary: same-host/shared-root Idea Lab Production document write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
