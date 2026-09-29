@@ -10,7 +10,7 @@ import { assertIdentityId, assertTimestamp, type Principal } from "../identity/c
 import { assertScopeAccess } from "../access/authorization.js";
 import type { PlatformUserInput, PlatformUserRecord, PlatformUserService } from "./contracts.js";
 import { withDurablePlatformUserLock } from "./user-lock.js";
-import { listPlatformUsers, loadPasswordCredential, loadPlatformUser, savePasswordCredential, savePlatformUser } from "./store.js";
+import { listPlatformUsersUnlocked, loadPasswordCredential, loadPasswordCredentialUnlocked, loadPlatformUser, loadPlatformUserUnlocked, savePasswordCredentialUnlocked, savePlatformUserUnlocked } from "./store.js";
 
 function validEmail(email: string): boolean {
   return email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -42,7 +42,7 @@ export function createPlatformUserService(root: string, options: { now?: () => s
       return withDurablePlatformUserLock(root, id, async () => {
         const at = now();
         assertTimestamp(at, "user timestamp");
-        const existing = await loadPlatformUser(root, id);
+        const existing = await loadPlatformUserUnlocked(root, id);
         if (existing) {
           if (existing.email !== input.email || existing.displayName !== input.displayName || existing.timezone !== input.timezone) {
             throw new Error("Platform user already exists with different data");
@@ -59,10 +59,10 @@ export function createPlatformUserService(root: string, options: { now?: () => s
           createdAt: at,
           updatedAt: at,
         };
-        await savePlatformUser(root, user);
+        await savePlatformUserUnlocked(root, user);
         if (input.password !== undefined) {
           const salt = randomBytes(16);
-          await savePasswordCredential(root, id, { version: 1, salt: salt.toString("base64"), hash: passwordHash(input.password, salt).toString("base64"), createdAt: at });
+          await savePasswordCredentialUnlocked(root, id, { version: 1, salt: salt.toString("base64"), hash: passwordHash(input.password, salt).toString("base64"), createdAt: at });
         }
         return user;
       }, { waitForMs: 2_000 });
@@ -70,15 +70,15 @@ export function createPlatformUserService(root: string, options: { now?: () => s
 
     async getUser(userId: string): Promise<PlatformUserRecord | null> {
       try { assertIdentityId(userId); } catch { return null; }
-      return withDurablePlatformUserLock(root, userId, () => loadPlatformUser(root, userId), { waitForMs: 2_000 });
+      return withDurablePlatformUserLock(root, userId, () => loadPlatformUserUnlocked(root, userId), { waitForMs: 2_000 });
     },
 
     async listUsers(): Promise<PlatformUserRecord[]> {
-      const candidates = await listPlatformUsers(root);
+      const candidates = await listPlatformUsersUnlocked(root);
       const current: PlatformUserRecord[] = [];
       for (const candidate of candidates) {
         await withDurablePlatformUserLock(root, candidate.id, async () => {
-          const user = await loadPlatformUser(root, candidate.id);
+          const user = await loadPlatformUserUnlocked(root, candidate.id);
           if (user?.id === candidate.id) current.push(user);
         }, { waitForMs: 2_000 });
       }
@@ -88,9 +88,9 @@ export function createPlatformUserService(root: string, options: { now?: () => s
     async findUserByEmail(email: string): Promise<PlatformUserRecord | null> {
       const normalized = email.trim().toLowerCase();
       if (!validEmail(normalized)) return null;
-      const candidates = await listPlatformUsers(root);
+      const candidates = await listPlatformUsersUnlocked(root);
       for (const candidate of candidates) {
-        const user = await withDurablePlatformUserLock(root, candidate.id, () => loadPlatformUser(root, candidate.id), { waitForMs: 2_000 });
+        const user = await withDurablePlatformUserLock(root, candidate.id, () => loadPlatformUserUnlocked(root, candidate.id), { waitForMs: 2_000 });
         if (user?.email.trim().toLowerCase() === normalized) return user;
       }
       return null;
@@ -116,8 +116,8 @@ export function createPlatformUserService(root: string, options: { now?: () => s
       if (!validPassword(currentPassword)) throw new Error("Current password is invalid");
       if (!validPassword(newPassword)) throw new Error("Password must be between 8 and 256 characters");
       await withDurablePlatformUserLock(root, principal.userId, async () => {
-        const user = await loadPlatformUser(root, principal.userId);
-        const credential = user ? await loadPasswordCredential(root, user.id) : null;
+        const user = await loadPlatformUserUnlocked(root, principal.userId);
+        const credential = user ? await loadPasswordCredentialUnlocked(root, user.id) : null;
         if (!user || !credential || credential.version !== 1) throw new Error("Current password is invalid");
         try {
           const salt = Buffer.from(credential.salt, "base64");
@@ -131,7 +131,7 @@ export function createPlatformUserService(root: string, options: { now?: () => s
         const at = now();
         assertTimestamp(at, "password timestamp");
         const salt = randomBytes(16);
-        await savePasswordCredential(root, user.id, { version: 1, salt: salt.toString("base64"), hash: passwordHash(newPassword, salt).toString("base64"), createdAt: at });
+        await savePasswordCredentialUnlocked(root, user.id, { version: 1, salt: salt.toString("base64"), hash: passwordHash(newPassword, salt).toString("base64"), createdAt: at });
         await revokeSessionsForUser(root, user.id, at);
       }, { waitForMs: 2_000 });
     },
