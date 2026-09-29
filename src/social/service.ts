@@ -101,7 +101,14 @@ export function createSocialService(root: string, options: SocialServiceOptions)
     },
     async listFriends(principal) {
       ensurePrincipal(principal); const requests = await listFriendRequests(root); const friends: PublicProfile[] = [];
-      for (const request of requests.filter((item) => item.status === "accepted" && (item.requesterUserId === principal.userId || item.targetUserId === principal.userId))) { const other = request.requesterUserId === principal.userId ? request.targetUserId : request.requesterUserId; if (await isBlocked(principal.userId, other)) continue; const profile = await profileFor(other); if (profile) friends.push(profile); }
+      for (const request of requests.filter((item) => item.status === "accepted" && (item.requesterUserId === principal.userId || item.targetUserId === principal.userId))) {
+        const other = request.requesterUserId === principal.userId ? request.targetUserId : request.requesterUserId;
+        const profile = await withDurableSocialBlockLock(root, principal.userId, other, async () => {
+          if (await isBlocked(principal.userId, other)) return null;
+          return profileFor(other);
+        }, { waitForMs: 2_000 });
+        if (profile) friends.push(profile);
+      }
       return friends.sort((a, b) => a.displayName.localeCompare(b.displayName));
     },
     async createFriendRequest(principal, targetUserId) {
