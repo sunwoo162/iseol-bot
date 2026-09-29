@@ -53,9 +53,26 @@ export async function listLearningGoals(root: string, userId: string): Promise<L
   }
   return result;
 }
-export const saveGoalInterpretation = (root: string, value: GoalInterpretation) => saveJson(pathFor(root, value.userId, "interpretations", value.id), value);
-export const loadGoalInterpretation = (root: string, userId: string, id: string) => loadJson<GoalInterpretation>(pathFor(root, userId, "interpretations", id));
-export const listGoalInterpretations = (root: string, userId: string) => listJson<GoalInterpretation>(root, userId, "interpretations");
+export const saveGoalInterpretationUnlocked = (root: string, value: GoalInterpretation) => saveJson(pathFor(root, value.userId, "interpretations", value.id), value);
+export const saveGoalInterpretation = (root: string, value: GoalInterpretation) => withDurableLearningGoalLock(root, value.userId, value.goalId, () => saveGoalInterpretationUnlocked(root, value), { waitForMs: 2_000 });
+export const loadGoalInterpretationUnlocked = (root: string, userId: string, id: string) => loadJson<GoalInterpretation>(pathFor(root, userId, "interpretations", id));
+export async function loadGoalInterpretation(root: string, userId: string, id: string): Promise<GoalInterpretation | null> {
+  const candidate = await loadGoalInterpretationUnlocked(root, userId, id);
+  return candidate ? withDurableLearningGoalLock(root, userId, candidate.goalId, () => loadGoalInterpretationUnlocked(root, userId, id), { waitForMs: 2_000 }) : null;
+}
+export async function listGoalInterpretationsUnlocked(root: string, userId: string): Promise<GoalInterpretation[]> { return listJson<GoalInterpretation>(root, userId, "interpretations"); }
+export async function listGoalInterpretations(root: string, userId: string): Promise<GoalInterpretation[]> {
+  const candidates = await listGoalInterpretationsUnlocked(root, userId);
+  const result: GoalInterpretation[] = [];
+  for (const candidate of candidates) {
+    try { assertIdentityId(candidate.id); assertIdentityId(candidate.goalId); } catch { continue; }
+    await withDurableLearningGoalLock(root, userId, candidate.goalId, async () => {
+      const current = await loadGoalInterpretationUnlocked(root, userId, candidate.id);
+      if (current?.userId === userId && current.id === candidate.id && current.goalId === candidate.goalId) result.push(current);
+    }, { waitForMs: 2_000 });
+  }
+  return result;
+}
 export const saveLearningPlanVersionUnlocked = (root: string, value: LearningPlanVersion) => saveJson(pathFor(root, value.userId, "plan-versions", value.id), value);
 export const saveLearningPlanVersion = (root: string, value: LearningPlanVersion) => withDurableLearningGoalLock(root, value.userId, value.goalId, () => saveLearningPlanVersionUnlocked(root, value), { waitForMs: 2_000 });
 export const loadLearningPlanVersionUnlocked = (root: string, userId: string, id: string) => loadJson<LearningPlanVersion>(pathFor(root, userId, "plan-versions", id));
