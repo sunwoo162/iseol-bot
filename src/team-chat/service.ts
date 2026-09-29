@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { TeamChatService, TeamChatServiceOptions, TeamMessage } from "./contracts.js";
 import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
-import { listTeamMessages, saveTeamMessage } from "./store.js";
+import { listTeamMessagesUnlocked, saveTeamMessageUnlocked } from "./store.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
 function requiredBody(body: string): string {
@@ -25,7 +25,7 @@ export function createTeamChatService(root: string, options: TeamChatServiceOpti
     async listMessages(principal, teamId) {
       return withDurableTeamMembershipLock(root, teamId, async () => {
         await requireMember(principal, teamId);
-        return (await listTeamMessages(root, teamId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+        return (await listTeamMessagesUnlocked(root, teamId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
       }, { waitForMs: 2_000 });
     },
     async sendMessage(principal, teamId, body) {
@@ -34,7 +34,7 @@ export function createTeamChatService(root: string, options: TeamChatServiceOpti
         const at = now();
         assertTimestamp(at, "team message timestamp");
         const message: TeamMessage = { version: 1, id: `team-message-${randomUUID()}`, teamId, senderUserId: principal.userId, body: requiredBody(body), createdAt: at };
-        await saveTeamMessage(root, message);
+        await saveTeamMessageUnlocked(root, message);
         await options.activityService?.recordActivityEvent(principal, { sourceType: "team-chat", sourceId: message.id, eventType: "team.message.sent", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { teamId } });
         if (options.notificationService) {
           for (const member of view.members) {
