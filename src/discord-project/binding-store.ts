@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { assertProjectModelId } from "../project-model/contracts.js";
 import type { DiscordProjectBinding } from "./contracts.js";
+import { withDurableDiscordProjectBindingLock } from "./binding-lock.js";
 
 export type CreateDiscordProjectBindingInput = {
   guildId: string;
@@ -53,31 +54,39 @@ export async function createDiscordProjectBinding(
 ): Promise<DiscordProjectBinding> {
   assertProjectModelId(input.projectId);
   assertProjectModelId(input.defaultNodeId);
-  const path = bindingFile(root, input.guildId, input.storedProjectId);
-  const existing = await readBinding(path);
-  if (existing) {
-    if (
-      existing.projectId !== input.projectId
-      || existing.defaultNodeId !== input.defaultNodeId
-    ) {
-      throw new Error(
-        `Discord project binding already exists; explicit rebind required: ${input.storedProjectId}`,
-      );
-    }
-    return existing;
-  }
+  return withDurableDiscordProjectBindingLock(
+    root,
+    input.guildId,
+    input.storedProjectId,
+    async () => {
+      const path = bindingFile(root, input.guildId, input.storedProjectId);
+      const existing = await readBinding(path);
+      if (existing) {
+        if (
+          existing.projectId !== input.projectId
+          || existing.defaultNodeId !== input.defaultNodeId
+        ) {
+          throw new Error(
+            `Discord project binding already exists; explicit rebind required: ${input.storedProjectId}`,
+          );
+        }
+        return existing;
+      }
 
-  const binding: DiscordProjectBinding = {
-    version: 1,
-    guildId: input.guildId,
-    storedProjectId: input.storedProjectId,
-    projectId: input.projectId,
-    defaultNodeId: input.defaultNodeId,
-    createdAt: input.at,
-    updatedAt: input.at,
-  };
-  await writeBinding(path, binding);
-  return binding;
+      const binding: DiscordProjectBinding = {
+        version: 1,
+        guildId: input.guildId,
+        storedProjectId: input.storedProjectId,
+        projectId: input.projectId,
+        defaultNodeId: input.defaultNodeId,
+        createdAt: input.at,
+        updatedAt: input.at,
+      };
+      await writeBinding(path, binding);
+      return binding;
+    },
+    { waitForMs: 2_000 },
+  );
 }
 
 export async function deleteDiscordProjectBinding(
@@ -85,12 +94,20 @@ export async function deleteDiscordProjectBinding(
   guildId: string,
   storedProjectId: string,
 ): Promise<boolean> {
-  const path = bindingFile(root, guildId, storedProjectId);
-  try {
-    await unlink(path);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
-  }
+  return withDurableDiscordProjectBindingLock(
+    root,
+    guildId,
+    storedProjectId,
+    async () => {
+      const path = bindingFile(root, guildId, storedProjectId);
+      try {
+        await unlink(path);
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      }
+    },
+    { waitForMs: 2_000 },
+  );
 }
