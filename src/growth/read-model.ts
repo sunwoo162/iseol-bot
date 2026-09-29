@@ -46,6 +46,35 @@ function achievementsFor(entries: GrowthLedgerEntry[]): GrowthAchievement[] {
   });
 }
 
+async function readLockedGrowthEntries(root: string, userId: string, candidates: GrowthLedgerEntry[]): Promise<GrowthLedgerEntry[]> {
+  const idsByEvent = new Map<string, Set<string>>();
+  for (const candidate of candidates) {
+    if (candidate.userId !== userId) continue;
+    try {
+      assertIdentityId(candidate.id);
+      assertIdentityId(candidate.eventId);
+    } catch {
+      continue;
+    }
+    const ids = idsByEvent.get(candidate.eventId) ?? new Set<string>();
+    ids.add(candidate.id);
+    idsByEvent.set(candidate.eventId, ids);
+  }
+
+  const entries: GrowthLedgerEntry[] = [];
+  for (const [eventId, ids] of idsByEvent) {
+    const refreshed = await withDurableGrowthProjectionLock(root, userId, eventId, async () => {
+      const loaded = await Promise.all([...ids].map((entryId) => loadGrowthEntry(root, userId, entryId)));
+      return loaded.filter((entry): entry is GrowthLedgerEntry => {
+        if (!entry) return false;
+        return entry.userId === userId && entry.eventId === eventId;
+      });
+    }, { waitForMs: 2_000 });
+    entries.push(...refreshed);
+  }
+  return entries;
+}
+
 export function createGrowthService(root: string, options: GrowthServiceOptions = {}): GrowthService {
   const now = options.now ?? (() => new Date().toISOString());
   return {
@@ -101,7 +130,8 @@ export function createGrowthService(root: string, options: GrowthServiceOptions 
 
     async getGrowthSnapshot(principal): Promise<GrowthSnapshot> {
       ensurePrincipal(principal);
-      const entries = await listGrowthEntries(root, principal.userId);
+      const candidates = await listGrowthEntries(root, principal.userId);
+      const entries = await readLockedGrowthEntries(root, principal.userId, candidates);
       const stats = { development: 0, learning: 0, collaboration: 0, consistency: 0 } as GrowthSnapshot["stats"];
       const actorBreakdown = { user: 0, ai: 0, system: 0 } as GrowthSnapshot["actorBreakdown"];
       const eventIds = new Set<string>();
