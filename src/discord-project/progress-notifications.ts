@@ -1,7 +1,5 @@
-import { appendFile, mkdir, open, readFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { removeOwnedLock } from "../lock-utils.js";
 import { assertProjectModelId } from "../project-model/contracts.js";
 import { withDurableDiscordProgressNotificationLock } from "./progress-notification-lock.js";
 
@@ -100,38 +98,38 @@ export async function dispatchProgressNotification(
   if (!notification.projectId) return { status: "failed", notification };
   const path = notificationFile(root, notification.projectId);
   await mkdir(dirname(path), { recursive: true });
-  const lockPath = `${path}.${notification.eventId}.dispatch-lock`;
-  let lock;
-  try { lock = await open(lockPath, "wx"); } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return { status: "unknown", notification };
-    throw error;
-  }
-  const token = randomUUID();
   try {
-  await lock.writeFile(JSON.stringify({ version: 1, pid: process.pid, token, createdAt: new Date().toISOString() }), "utf8");
-  let records: Array<{ eventId?: string; status?: string; messageId?: string }> = [];
-  try {
-    records = (await readFile(path, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { eventId?: string; status?: string; messageId?: string });
+    return await withDurableDiscordProgressNotificationLock(
+      root,
+      notification.projectId,
+      notification.eventId,
+      async () => {
+        let records: Array<{ eventId?: string; status?: string; messageId?: string }> = [];
+        try {
+          records = (await readFile(path, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { eventId?: string; status?: string; messageId?: string });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+        const prior = records.find((record) => record.eventId === notification.eventId);
+        if (prior?.status === "accepted" || (!prior?.status && prior)) return { status: "duplicate", notification, ...(prior.messageId ? { messageId: prior.messageId } : {}) };
+        if (prior?.status === "unknown") return { status: "unknown", notification };
+        try {
+          const result = await adapter.send(notification);
+          if (!result.accepted) {
+            await appendFile(path, `${JSON.stringify({ ...notification, status: "failed" })}\n`, "utf8");
+            return { status: "failed", notification };
+          }
+          await appendFile(path, `${JSON.stringify({ ...notification, status: "accepted", ...(result.messageId ? { messageId: result.messageId } : {}) })}\n`, "utf8");
+          return { status: "accepted", notification, ...(result.messageId ? { messageId: result.messageId } : {}) };
+        } catch {
+          await appendFile(path, `${JSON.stringify({ ...notification, status: "unknown" })}\n`, "utf8");
+          return { status: "unknown", notification };
+        }
+      },
+      { waitForMs: 0 },
+    );
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  const prior = records.find((record) => record.eventId === notification.eventId);
-  if (prior?.status === "accepted" || (!prior?.status && prior)) return { status: "duplicate", notification, ...(prior.messageId ? { messageId: prior.messageId } : {}) };
-  if (prior?.status === "unknown") return { status: "unknown", notification };
-  try {
-    const result = await adapter.send(notification);
-    if (!result.accepted) {
-      await appendFile(path, `${JSON.stringify({ ...notification, status: "failed" })}\n`, "utf8");
-      return { status: "failed", notification };
-    }
-    await appendFile(path, `${JSON.stringify({ ...notification, status: "accepted", ...(result.messageId ? { messageId: result.messageId } : {}) })}\n`, "utf8");
-    return { status: "accepted", notification, ...(result.messageId ? { messageId: result.messageId } : {}) };
-  } catch {
-    await appendFile(path, `${JSON.stringify({ ...notification, status: "unknown" })}\n`, "utf8");
-    return { status: "unknown", notification };
-  }
-  } finally {
-    await lock.close();
-    await removeOwnedLock(lockPath, token);
+    if (error instanceof Error && /concurrency conflict/i.test(error.message)) return { status: "unknown", notification };
+    throw error;
   }
 }
