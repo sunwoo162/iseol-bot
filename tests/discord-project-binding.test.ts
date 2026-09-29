@@ -14,6 +14,7 @@ import {
   deleteDiscordProjectBinding,
   loadDiscordProjectBinding,
 } from "../src/discord-project/binding-store.js";
+import { withDurableDiscordProjectBindingLock } from "../src/discord-project/binding-lock.js";
 
 function storedProject(): StoredProject {
   return {
@@ -103,5 +104,43 @@ test("binding rejects conflicting rebinds and unsafe ids", async () => {
   await assert.rejects(
     loadDiscordProjectBinding(root, "../escape", "legacy-001"),
     /invalid/i,
+  );
+});
+
+test("binding creation waits for the durable binding lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-discord-binding-"));
+  const input = {
+    guildId: "1234567890",
+    storedProjectId: "legacy-001",
+    projectId: "project-a",
+    defaultNodeId: "root",
+    at: "2026-09-07T12:00:00.000Z",
+  } as const;
+  let acquired!: () => void;
+  let release!: () => void;
+  const lockAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const lockReleased = new Promise<void>((resolve) => { release = resolve; });
+  const holder = withDurableDiscordProjectBindingLock(
+    root,
+    input.guildId,
+    input.storedProjectId,
+    async () => {
+      acquired();
+      await lockReleased;
+    },
+  );
+  await lockAcquired;
+
+  let completed = false;
+  const creating = createDiscordProjectBinding(root, input).finally(() => { completed = true; });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(completed, false);
+
+  release();
+  const created = await creating;
+  await holder;
+  assert.deepEqual(
+    await loadDiscordProjectBinding(root, input.guildId, input.storedProjectId),
+    created,
   );
 });
