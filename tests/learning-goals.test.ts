@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createLearningService } from "../src/learning/service.js";
+import { saveLearningGoal } from "../src/learning/store.js";
+import { withDurableLearningGoalLock } from "../src/learning/goal-lock.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -42,4 +44,46 @@ test("learning goals reject impossible or past target dates", async () => {
   await assert.rejects(() => service.createLearningGoal(principal("user-a"), { subjectText: "TypeScript", duration: { targetDate: "2026-09-25" }, dailyMinutes: 60 }), /duration/i);
   const goal = await service.createLearningGoal(principal("user-a"), { subjectText: "TypeScript", duration: { targetDate: "2026-09-27" }, dailyMinutes: 60 });
   assert.deepEqual(goal.input.duration, { targetDate: "2026-09-27" });
+});
+
+test("learning goal reads wait for the durable goal lock and reload current state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-goal-read-lock-"));
+  const owner = principal("learning-goal-read-lock-owner");
+  const service = createLearningService(root, { now: () => at });
+  const goal = await service.createLearningGoal(owner, {
+    subjectText: "TypeScript generics",
+    duration: { days: 30 },
+    dailyMinutes: 60,
+  });
+
+  let releaseHolder!: () => void;
+  let lockAcquired!: () => void;
+  const acquired = new Promise<void>((resolve) => { lockAcquired = resolve; });
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableLearningGoalLock(root, owner.userId, goal.id, async () => {
+    lockAcquired();
+    await holderReleased;
+  }, { waitForMs: 0 });
+  await acquired;
+
+  let getSettled = false;
+  let listSettled = false;
+  const fetched = service.getLearningGoal(owner, goal.id).then((result) => {
+    getSettled = true;
+    return result;
+  });
+  const listed = service.listLearningGoals(owner).then((result) => {
+    listSettled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(getSettled, false);
+  assert.equal(listSettled, false);
+
+  const updated = { ...goal, status: "paused" as const, revision: 2, updatedAt: at };
+  await saveLearningGoal(root, updated);
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await fetched)?.status, "paused");
+  assert.equal((await listed)[0]?.status, "paused");
 });
