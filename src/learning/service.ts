@@ -996,9 +996,16 @@ export function createLearningService(root: string, options: LearningServiceOpti
       try { assertIdentityId(sessionId); } catch { return []; }
       const session = await loadSession(root, principal.userId, sessionId);
       if (!session || session.userId !== principal.userId) return [];
-      return (await listLearningAnswerReceipts(root, principal.userId))
-        .filter((answer) => answer.userId === principal.userId && answer.sessionId === session.id)
-        .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+      const candidates = (await listLearningAnswerReceipts(root, principal.userId))
+        .filter((answer) => answer.userId === principal.userId && answer.sessionId === session.id);
+      const current: LearningAnswerReceipt[] = [];
+      for (const candidate of candidates) {
+        await withDurableLearningAnswerLock(root, principal.userId, session.id, candidate.attemptId, async () => {
+          const answer = await loadLearningAnswerReceipt(root, principal.userId, candidate.id);
+          if (answer?.userId === principal.userId && answer.sessionId === session.id) current.push(answer);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
     },
 
     async completeLearningFeedback(principal, feedbackId, input): Promise<LearningFeedback> {

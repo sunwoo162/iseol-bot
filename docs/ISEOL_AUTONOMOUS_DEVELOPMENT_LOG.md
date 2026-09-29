@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Learning answer list read synchronization
+
+- Status: **B — Learning answer lists now acquire each answer lock before reloading the receipt projection; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent answer submission/feedback update can no longer leave the answer list with an unlocked stale result.
+- Evidence: `src/learning/service.ts`, `src/learning/answer-lock.ts`, `src/learning/store.ts`, `tests/learning-actions-answers.test.ts`.
+- TDD: RED reproduced the answer list completing while the answer lock was held; GREEN added the per-answer lock/reload boundary and verified the latest durable response after release.
+- Verification: focused Learning actions/answers suite `12/12`; Iseol user-product `414/414`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root Learning answer list read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Community like read snapshots
 
 - Status: **B — Community post views now snapshot `likeCount` and `viewerLiked` under the same durable viewer-like lock used by mutations; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A like toggle cannot be observed as a mixed count/viewer state while the post projection is reading.

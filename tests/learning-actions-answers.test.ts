@@ -7,8 +7,9 @@ import type { Principal } from "../src/identity/contracts.js";
 import { createLocalCodingSyntaxVerifier } from "../src/learning/local-coding-verifier.js";
 import { createLearningService } from "../src/learning/service.js";
 import { withDurableLearningActionLock } from "../src/learning/action-lock.js";
+import { withDurableLearningAnswerLock } from "../src/learning/answer-lock.js";
 import { withDurableLearningFeedbackCompletionLock } from "../src/learning/feedback-completion-lock.js";
-import { saveLearningFeedback, saveLearningSessionAction } from "../src/learning/store.js";
+import { saveLearningAnswerReceipt, saveLearningFeedback, saveLearningSessionAction } from "../src/learning/store.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -117,6 +118,31 @@ test("learning answer feedback reads wait for the durable feedback completion lo
   releaseHolder();
   await lockHeld;
   assert.equal((await read)?.blocker, "잠금 해제 후 피드백");
+});
+
+test("learning answer lists wait for each durable answer lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-answer-read-lock-"));
+  const owner = principal("answer-read-lock-owner");
+  const service = createLearningService(root, { now: () => at });
+  const plan = await service.createLearningPlan(owner, { title: "Answer reads", description: "Answer reads", goals: ["Practice"] });
+  const session = await service.startLearningSession(owner, plan.id);
+  const exercise = await service.createCodingExercise(owner, { sessionId: session.id, title: "Identity", prompt: "Write identity", language: "typescript", estimatedMinutes: 10 });
+  const attempt = await service.submitCodingAttempt(owner, { exerciseId: exercise.id, clientRequestId: "answer-read-attempt", response: "const answer = 1;" });
+  const answer = await service.submitLearningAnswer(owner, session.id, { exerciseId: exercise.id, attemptId: attempt.attempt.id, response: attempt.attempt.response, artifactRefs: [] });
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableLearningAnswerLock(root, owner.userId, session.id, answer.attemptId, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let settled = false;
+  const read = service.listLearningAnswers(owner, session.id).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await saveLearningAnswerReceipt(root, { ...answer, response: "잠금 해제 후 답변" });
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await read)[0]?.response, "잠금 해제 후 답변");
 });
 
 test("learning answer receipts retain verifier artifact references even when the client sends no extra files", async () => {
