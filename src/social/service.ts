@@ -124,7 +124,13 @@ export function createSocialService(root: string, options: SocialServiceOptions)
     },
     async listIncomingFriendRequests(principal) {
       ensurePrincipal(principal); const requests = await listFriendRequests(root); const result: Array<FriendRequest & { requester: PublicProfile | null }> = [];
-      for (const request of requests.filter((item) => item.targetUserId === principal.userId && item.status === "pending")) { if (await isBlocked(principal.userId, request.requesterUserId)) continue; result.push({ ...request, requester: await profileFor(request.requesterUserId) }); }
+      for (const request of requests.filter((item) => item.targetUserId === principal.userId && item.status === "pending")) {
+        const visible = await withDurableSocialBlockLock(root, principal.userId, request.requesterUserId, async () => {
+          if (await isBlocked(principal.userId, request.requesterUserId)) return null;
+          return { ...request, requester: await profileFor(request.requesterUserId) };
+        }, { waitForMs: 2_000 });
+        if (visible) result.push(visible);
+      }
       return result.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     },
     async respondToFriendRequest(principal, requestId, action) {
