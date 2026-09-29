@@ -103,7 +103,7 @@ export function createSocialService(root: string, options: SocialServiceOptions)
           ? await profileFor(user.id)
           : await withDurableSocialBlockLock(root, principal.userId, user.id, async () => {
               if (await isBlocked(principal.userId, user.id)) return null;
-              return profileFor(user.id);
+              return withDurableSocialProfileLock(root, user.id, () => profileFor(user.id), { waitForMs: 2_000 });
             }, { waitForMs: 2_000 });
         if (!profile || (profile.visibility !== "public" && profile.userId !== principal.userId)) continue;
         if (!query || `${profile.displayName} ${profile.handle} ${profile.skills.join(" ")}`.toLowerCase().includes(query)) profiles.push(profile);

@@ -295,6 +295,36 @@ test("profile list reads re-check social block state after waiting for the pair 
   await holder;
 });
 
+test("profile list reads re-check visibility after waiting for the profile lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-profile-list-visibility-read-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  for (const id of ["profile-list-visibility-viewer", "profile-list-visibility-target"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const social = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+  const target = await social.updateProfile(principal("profile-list-visibility-target"), { handle: "profile-list-visibility-target", visibility: "public" });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableSocialProfileLock(platformRoot, target.userId, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = social.listProfiles(principal("profile-list-visibility-viewer"), "profile-list-visibility-target").then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await saveProfile(platformRoot, { ...target, visibility: "private", updatedAt: "2026-09-27T15:00:01.000Z" });
+  release();
+  assert.deepEqual(await reading, []);
+  await holder;
+});
+
 test("block list reads re-check block state after waiting for the pair lock", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-social-block-list-read-lock-"));
   const platformRoot = join(root, "platform");
