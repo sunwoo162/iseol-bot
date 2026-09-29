@@ -28,6 +28,16 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
     if (!space || !await options.teamService.isManager(principal, space.teamId)) throw new Error("Study manager access required");
     return space;
   };
+  const withAccessibleSpaceMembershipLock = async <T>(principal: Principal, studySpaceId: string, task: (space: StudySpace) => Promise<T>): Promise<T | null> => {
+    ensurePrincipal(principal);
+    try { assertIdentityId(studySpaceId); } catch { return null; }
+    const initial = await loadStudySpace(root, studySpaceId);
+    if (!initial || initial.status !== "active") return null;
+    return withDurableTeamMembershipLock(teamMembershipRoot, initial.teamId, async () => {
+      const space = await loadAccessibleSpace(principal, studySpaceId);
+      return space ? task(space) : null;
+    }, { waitForMs: 2_000 });
+  };
 
   return {
     async createStudySpace(principal, input) {
@@ -49,16 +59,16 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
       });
     },
     async listStudySpaces(principal) {
-      ensurePrincipal(principal); const spaces = await listStudySpaces(root); const visible: StudySpace[] = [];
-      for (const space of spaces.filter((item) => item.status === "active")) if (await loadAccessibleSpace(principal, space.id)) visible.push(space);
+      ensurePrincipal(principal); const spaces = await listStudySpaces(root); const visible = (await Promise.all(spaces.filter((item) => item.status === "active").map((space) => withAccessibleSpaceMembershipLock(principal, space.id, async (accessible) => accessible)))).filter((space): space is StudySpace => Boolean(space));
       return visible.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
     },
     async getStudySpace(principal, studySpaceId) {
-      const space = await loadAccessibleSpace(principal, studySpaceId); if (!space) return null;
-      const [curriculumLinks, tasks] = await Promise.all([listCurriculumLinks(root, space.id), listStudyTasks(root, space.id)]);
-      const mySubmissions: StudyTaskSubmission[] = [];
-      for (const task of tasks) { const submission = await loadTaskSubmission(root, space.id, task.id, principal.userId); if (submission) mySubmissions.push(submission); }
-      return { space, curriculumLinks: curriculumLinks.sort((a, b) => a.createdAt.localeCompare(b.createdAt)), tasks: tasks.sort((a, b) => a.createdAt.localeCompare(b.createdAt)), mySubmissions: mySubmissions.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)) };
+      return withAccessibleSpaceMembershipLock(principal, studySpaceId, async (space) => {
+        const [curriculumLinks, tasks] = await Promise.all([listCurriculumLinks(root, space.id), listStudyTasks(root, space.id)]);
+        const mySubmissions: StudyTaskSubmission[] = [];
+        for (const task of tasks) { const submission = await loadTaskSubmission(root, space.id, task.id, principal.userId); if (submission) mySubmissions.push(submission); }
+        return { space, curriculumLinks: curriculumLinks.sort((a, b) => a.createdAt.localeCompare(b.createdAt)), tasks: tasks.sort((a, b) => a.createdAt.localeCompare(b.createdAt)), mySubmissions: mySubmissions.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)) };
+      });
     },
     async addCurriculumLink(principal, studySpaceId, input) {
       const initialSpace = await requireManager(principal, studySpaceId);

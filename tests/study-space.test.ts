@@ -166,3 +166,37 @@ test("study submissions re-check active membership after waiting for the Team me
   await Promise.all([holder, assert.rejects(() => submit, /study space/i)]);
   assert.deepEqual((await studies.getStudySpace(principal("study-submission-owner"), space.id))?.mySubmissions, []);
 });
+
+test("study space reads re-check active membership after waiting for the Team membership lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-study-read-lock-"));
+  const platformRoot = join(root, "platform");
+  const teams = createTeamService(platformRoot, { now: () => at });
+  const owner = principal("study-read-lock-owner");
+  const team = await teams.createTeam(owner, { name: "Study read lock team", description: "read access recheck", kind: "study", visibility: "private", capacity: 3 });
+  const studies = createStudyService(join(platformRoot, "study"), { teamService: teams, now: () => at });
+  const space = await studies.createStudySpace(owner, { teamId: team.id, title: "Read lock room", description: "membership changes while reading" });
+  await studies.createTask(owner, space.id, { title: "Read lock task", instructions: "Only active members may read" });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(platformRoot, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = studies.getStudySpace(owner, space.id).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  const membership = await loadMembership(platformRoot, team.id, owner.userId);
+  assert.ok(membership);
+  await saveMembership(platformRoot, { ...membership, status: "removed", updatedAt: at });
+  release();
+  assert.equal(await reading, null);
+  await holder;
+});
