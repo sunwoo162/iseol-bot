@@ -55,7 +55,18 @@ export function createAiTeamProposalService(options: AiTeamProposalServiceOption
         }, { waitForMs: 2_000 });
       }, { waitForMs: 2_000 });
     },
-    async listProposals(principal, projectId) { ensurePrincipal(principal); await projectAccess(options, principal, projectId); return listAiTeamProposals(options.root, projectId); },
+    async listProposals(principal, projectId) {
+      ensurePrincipal(principal); await projectAccess(options, principal, projectId);
+      const candidates = await listAiTeamProposals(options.root, projectId);
+      const current: AiTeamProposal[] = [];
+      for (const candidate of candidates) {
+        await withDurableAiTeamProposalLock(options.root, projectId, candidate.requestId, async () => {
+          const proposal = await loadAiTeamProposal(options.root, projectId, candidate.id);
+          if (proposal?.projectId === projectId) current.push(proposal);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    },
     async acceptProposal(principal, projectId, proposalId) {
       ensurePrincipal(principal); assertIdentityId(projectId); assertIdentityId(proposalId); const initialContext = await projectAccess(options, principal, projectId, true); const initial = await loadAiTeamProposal(options.root, projectId, proposalId); if (!initial) throw new Error("AI team proposal not found");
       return withDurableTeamMembershipLock(teamMembershipRoot, initialContext.teamId, async () => {

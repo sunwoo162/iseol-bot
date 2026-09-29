@@ -9,6 +9,8 @@ import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
 import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { createAiTeamProposalService } from "../src/ai-team/service.js";
+import { withDurableAiTeamProposalLock } from "../src/ai-team/proposal-lock.js";
+import { saveAiTeamProposal } from "../src/ai-team/store.js";
 
 const at = "2026-09-27T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `session-${userId}`, roles: ["user"] }; }
@@ -40,6 +42,32 @@ test("AI team proposals require a bounded assigned capability and human acceptan
   assert.equal(repeated.workRequest.id, accepted.workRequest.id);
   const reloaded = createAiTeamProposalService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at });
   assert.equal((await reloaded.listProposals(owner, project.id))[0]?.status, "accepted");
+});
+
+test("AI team proposal lists wait for each durable proposal lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-proposal-read-lock-"));
+  const owner = principal("proposal-read-lock-owner");
+  const teams = createTeamService(join(root, "platform"), { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Proposal read lock team", description: "read synchronization", kind: "project", visibility: "private", capacity: 3 });
+  await teams.addAiMember(owner, team.id, { agentId: "planner", assignmentRole: "planner", capabilities: ["task.propose"], approvalScope: "suggestion-only" }, at);
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const project = await projects.createProject(owner, { name: "Proposal read project", objective: "serialize proposal reads", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
+  const proposals = createAiTeamProposalService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher: async () => ({ status: "proposed" as const, draft: { title: "기존 제목", objective: "기존 목표", acceptanceCriteria: ["기존 조건"], rationale: "기존 근거" } }) });
+  const proposal = await proposals.requestProposal(owner, project.id, { agentId: "planner", requestId: "proposal-read-lock" });
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableAiTeamProposalLock(join(root, "ai-team"), project.id, proposal.requestId, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let settled = false;
+  const read = proposals.listProposals(owner, project.id).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await saveAiTeamProposal(join(root, "ai-team"), { ...proposal, title: "잠금 해제 후 제목", updatedAt: "2026-09-27T12:00:01.000Z" });
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await read)[0]?.title, "잠금 해제 후 제목");
 });
 
 test("AI team proposal without a local dispatcher is durable waiting and does not fabricate a task", async () => {
