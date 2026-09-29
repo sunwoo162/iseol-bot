@@ -3889,3 +3889,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `a60efce fix: synchronize team membership reads`; merged by PR #106 with merge commit `7326a67`.
 - Boundary: same-host/shared-root Team membership list authorization reads and dependent lock-order integration only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Discord Project binding read synchronization
+
+- Status: **B — Discord Project binding reads now wait for the same durable lock used by binding creation/deletion, preserving fail-closed context and progress resolution while live Runtime/provider execution remains unverified**. A read waiting behind a binding mutation cannot return an unlocked stale value.
+- Evidence: `src/discord-project/binding-store.ts`, `src/discord-project/binding-lock.ts`, `src/discord-project/context-resolver.ts`, `src/discord-project/progress-discord-adapter.ts`, `tests/discord-project-binding.test.ts`.
+- TDD: RED reproduced `loadDiscordProjectBinding` completing while the binding lock was held; GREEN made the public read path wait for the shared lock and verified the binding after release.
+- Verification: Discord Project related regression `42/42`; full test suite `729/729`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `eb75546 fix: synchronize Discord project binding reads`; merged by PR #110 with merge commit `616c3f6`.
+- Boundary: same-host/shared-root Discord Project binding read/write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
