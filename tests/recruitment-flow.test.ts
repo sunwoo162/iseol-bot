@@ -12,6 +12,7 @@ import { saveApplication, savePost } from "../src/recruitment/store.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
 import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createTeamService } from "../src/teams/service.js";
+import type { TeamService } from "../src/teams/contracts.js";
 
 const at = "2026-09-25T12:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -85,6 +86,43 @@ test("concurrent recruitment application decisions keep one terminal review", as
   assert.equal(results.filter((result) => result.status === "rejected" && /not found|pending|review/i.test(String(result.reason))).length, 1);
   const stored = (await firstService.getPost(principal("recruit-review-owner"), post.id))?.applications[0];
   assert.ok(stored?.status === "accepted" || stored?.status === "rejected");
+});
+
+test("recruitment review uses Team lock-held manager and member boundaries", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-recruitment-review-team-lock-"));
+  const teams = createTeamService(root, { now: () => at });
+  const calls: string[] = [];
+  const lockAwareBase = teams as TeamService & { addMemberWithinMembershipLock: typeof teams.addMember };
+  const guardedTeams = {
+    ...teams,
+    async isManager(principalArg: Principal, teamId: string) {
+      calls.push("public-manager");
+      return teams.isManager(principalArg, teamId);
+    },
+    async isManagerWithinMembershipLock(principalArg: Principal, teamId: string) {
+      calls.push("lock-held-manager");
+      return lockAwareBase.isManagerWithinMembershipLock(principalArg, teamId);
+    },
+    async addMember(teamId: string, userId: string, role: Parameters<TeamService["addMember"]>[2], atArg?: string) {
+      calls.push("public-add");
+      return teams.addMember(teamId, userId, role, atArg);
+    },
+    async addMemberWithinMembershipLock(teamId: string, userId: string, role: Parameters<TeamService["addMember"]>[2], atArg?: string) {
+      calls.push("lock-held-add");
+      return lockAwareBase.addMemberWithinMembershipLock(teamId, userId, role, atArg);
+    },
+  };
+  const recruitment = createRecruitmentService(root, { teamService: guardedTeams, now: () => at });
+  const owner = principal("recruit-review-lock-owner");
+  const applicant = principal("recruit-review-lock-applicant");
+  const team = await teams.createTeam(owner, { name: "Review lock team", description: "lock-held review boundaries", kind: "project", visibility: "public", capacity: 3 });
+  const post = await recruitment.createPost(owner, { teamId: team.id, kind: "project", title: "Review lock post", description: "lock-held review", roles: ["member"], tags: [] });
+  const application = (await recruitment.apply(applicant, post.id, "Please review me.")).application;
+  calls.length = 0;
+
+  await recruitment.reviewApplication(owner, application.id, "accept");
+
+  assert.deepEqual(calls, ["lock-held-manager", "lock-held-add"]);
 });
 
 test("recruitment applications re-check post and team membership after waiting for the Team lock", async () => {
