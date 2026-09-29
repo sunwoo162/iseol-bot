@@ -6,6 +6,7 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createActivityService } from "../src/activity/service.js";
 import { createLearningService } from "../src/learning/service.js";
+import { withDurableLearningReviewLock } from "../src/learning/review-lock.js";
 
 const at = "2026-09-25T12:00:00.000Z";
 function principal(userId: string, timezone?: string): Principal & { timezone?: string } { return { userId, sessionId: `${userId}-session`, roles: ["user"], ...(timezone ? { timezone } : {}) }; }
@@ -68,6 +69,32 @@ test("review items schedule the next review durably", async () => {
   assert.equal(events[0]?.verificationStatus, "verified");
   assert.equal(events[0]?.actorType, "user");
   assert.equal(events[0]?.payload.quality, 5);
+});
+
+test("due review lists wait for each durable review lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-review-read-lock-"));
+  const owner = principal("review-read-lock-owner");
+  const service = createLearningService(root, { now: () => at });
+  const item = await service.createReviewItem(owner, {
+    sourceType: "learning-session",
+    sourceId: "session-read-lock",
+    prompt: "Wait for the review lock",
+    answer: "Read the durable item after the lock is released.",
+    dueAt: at,
+  });
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableLearningReviewLock(root, owner.userId, item.id, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let settled = false;
+  const read = service.listDueReviewItems(owner, "2026-09-26T00:00:00.000Z").then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  releaseHolder();
+  await lockHeld;
+  assert.deepEqual((await read).map((candidate) => candidate.id), [item.id]);
 });
 
 test("local code analysis is persisted with explicit provenance and no external call", async () => {

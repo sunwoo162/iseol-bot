@@ -1271,9 +1271,16 @@ export function createLearningService(root: string, options: LearningServiceOpti
 
     async listDueReviewItems(principal, at) {
       ensurePrincipal(principal); assertTimestamp(at, "review query timestamp");
-      return (await listReviews(root, principal.userId))
-        .filter((item) => item.userId === principal.userId && Date.parse(item.dueAt) <= Date.parse(at))
-        .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+      const candidates = (await listReviews(root, principal.userId))
+        .filter((item) => item.userId === principal.userId && Date.parse(item.dueAt) <= Date.parse(at));
+      const current: ReviewItem[] = [];
+      for (const candidate of candidates) {
+        await withDurableLearningReviewLock(root, principal.userId, candidate.id, async () => {
+          const item = await loadReview(root, principal.userId, candidate.id);
+          if (item?.userId === principal.userId && Date.parse(item.dueAt) <= Date.parse(at)) current.push(item);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => a.dueAt.localeCompare(b.dueAt));
     },
 
     async reviewItem(principal, itemId, input) {
