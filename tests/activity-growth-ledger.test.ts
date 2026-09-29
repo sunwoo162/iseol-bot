@@ -6,6 +6,8 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createActivityService } from "../src/activity/service.js";
 import { createGrowthService } from "../src/growth/read-model.js";
+import { saveGrowthEntry } from "../src/growth/ledger.js";
+import { withDurableGrowthProjectionLock } from "../src/growth/projection-lock.js";
 import { withDurableActivityEventLock } from "../src/activity/event-lock.js";
 import { removeOwnedLock } from "../src/lock-utils.js";
 
@@ -154,4 +156,44 @@ test("activity event reads wait for the durable event lock before projecting sta
   await lockHeld;
   assert.deepEqual((await listed).map((candidate) => candidate.id), [event.id]);
   assert.equal((await fetched)?.id, event.id);
+});
+
+test("growth snapshots wait for the event lock and reload the latest durable entry", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-growth-read-lock-"));
+  const owner = principal("growth-read-lock-owner");
+  const service = createActivityService(root, { now: () => at });
+  const growth = createGrowthService(root, { now: () => at });
+  const event = await service.recordActivityEvent(owner, {
+    sourceType: "test",
+    sourceId: "growth-read-lock",
+    eventType: "learning.session.completed",
+    eventVersion: 1,
+    actorType: "user",
+    verificationStatus: "verified",
+  });
+  const entry = await growth.applyGrowthProjection(event);
+  assert.ok(entry);
+
+  let releaseHolder!: () => void;
+  let lockAcquired!: () => void;
+  const acquired = new Promise<void>((resolve) => { lockAcquired = resolve; });
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableGrowthProjectionLock(root, owner.userId, event.id, async () => {
+    lockAcquired();
+    await holderReleased;
+  }, { waitForMs: 0 });
+  await acquired;
+
+  let settled = false;
+  const snapshot = growth.getGrowthSnapshot(owner).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await saveGrowthEntry(root, { ...entry, xpDelta: 200, statDelta: 200 });
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await snapshot).xp, 200);
 });
