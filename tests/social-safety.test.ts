@@ -205,6 +205,38 @@ test("friend list reads re-check friendship state after waiting for the pair loc
   await holder;
 });
 
+test("friend list reads wait for the friend's profile lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-friends-profile-read-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  for (const id of ["friends-profile-read-a", "friends-profile-read-b"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const social = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+  const target = await social.updateProfile(principal("friends-profile-read-b"), { handle: "before" });
+  await social.createFriendRequest(principal("friends-profile-read-a"), "friends-profile-read-b");
+  await social.respondToFriendRequest(principal("friends-profile-read-b"), "friend-friends-profile-read-a-friends-profile-read-b", "accept");
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableSocialProfileLock(platformRoot, target.userId, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = social.listFriends(principal("friends-profile-read-a")).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await saveProfile(platformRoot, { ...target, handle: "after", updatedAt: "2026-09-27T15:00:01.000Z" });
+  release();
+  assert.equal((await reading)[0]?.handle, "after");
+  await holder;
+});
+
 test("incoming friend request reads re-check social block state after waiting for the pair lock", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-social-incoming-read-lock-"));
   const platformRoot = join(root, "platform");

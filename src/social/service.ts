@@ -119,7 +119,7 @@ export function createSocialService(root: string, options: SocialServiceOptions)
           return withDurableFriendRequestLock(root, request.id, async () => {
             const current = await loadFriendRequest(root, request.id);
             if (!current || current.status !== "accepted" || current.requesterUserId !== request.requesterUserId || current.targetUserId !== request.targetUserId) return null;
-            return profileFor(other);
+            return withDurableSocialProfileLock(root, other, () => profileFor(other), { waitForMs: 2_000 });
           }, { waitForMs: 2_000 });
         }, { waitForMs: 2_000 });
         if (profile) friends.push(profile);
