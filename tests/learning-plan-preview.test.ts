@@ -6,8 +6,9 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import type { LearningPlanProposal } from "../src/learning/contracts.js";
 import { withDurableLearningPlanAdjustmentAcceptanceLock } from "../src/learning/plan-adjustment-acceptance-lock.js";
+import { withDurableLearningGoalLock } from "../src/learning/goal-lock.js";
 import { createLearningService } from "../src/learning/service.js";
-import { saveLearningPlanAdjustment } from "../src/learning/store.js";
+import { saveLearningPlanAdjustment, saveLearningPlanVersion } from "../src/learning/store.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -73,6 +74,44 @@ test("target-date goals produce one local calendar day when the date is today an
   assert.equal(preview.plan.days.length, 1);
   assert.equal(await service.getLearningPlanVersion(other, goal.id, preview.plan.id), null);
   assert.deepEqual(await service.listLearningPlanVersions(owner, goal.id), [preview.plan]);
+});
+
+test("learning plan version reads wait for the goal lock and reload current plan state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-plan-read-lock-"));
+  const owner = principal("learning-plan-read-lock-owner");
+  const service = createLearningService(root, { now: () => at });
+  const goal = await service.createLearningGoal(owner, { subjectText: "TypeScript", duration: { days: 3 }, dailyMinutes: 30 });
+  const preview = await service.createLearningPlanPreview(owner, goal.id);
+
+  let releaseHolder!: () => void;
+  let lockAcquired!: () => void;
+  const acquired = new Promise<void>((resolve) => { lockAcquired = resolve; });
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableLearningGoalLock(root, owner.userId, goal.id, async () => {
+    lockAcquired();
+    await holderReleased;
+  }, { waitForMs: 0 });
+  await acquired;
+
+  let getSettled = false;
+  let listSettled = false;
+  const fetched = service.getLearningPlanVersion(owner, goal.id, preview.plan.id).then((result) => {
+    getSettled = true;
+    return result;
+  });
+  const listed = service.listLearningPlanVersions(owner, goal.id).then((result) => {
+    listSettled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(getSettled, false);
+  assert.equal(listSettled, false);
+
+  await saveLearningPlanVersion(root, { ...preview.plan, status: "active", updatedAt: at });
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await fetched)?.status, "active");
+  assert.equal((await listed)[0]?.status, "active");
 });
 
 test("an explicitly configured local plan Runtime proposal is validated, persisted, and idempotent", async () => {
