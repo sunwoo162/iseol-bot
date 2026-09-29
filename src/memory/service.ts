@@ -67,11 +67,16 @@ export function createMemoryService(root: string, options: { now?: () => string;
       ensurePrincipal(principal);
       const search = query.search?.trim().toLowerCase();
       const limit = Math.max(1, Math.min(500, Math.floor(query.limit ?? 100)));
-      const records = (await listMemories(root, principal.userId))
-        .filter((record) => record.userId === principal.userId && record.visibility === "private")
-        .filter((record) => !search || `${record.kind} ${record.content} ${record.source ?? ""}`.toLowerCase().includes(search))
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-      return records.slice(0, limit).map(withSharing);
+      const current: MemoryRecord[] = [];
+      for (const candidate of await listMemories(root, principal.userId)) {
+        try { assertIdentityId(candidate.id); } catch { continue; }
+        await withDurableMemoryLock(root, principal.userId, candidate.id, async () => {
+          const record = await loadMemory(root, principal.userId, candidate.id);
+          if (!record || record.userId !== principal.userId || record.visibility !== "private") return;
+          if (!search || `${record.kind} ${record.content} ${record.source ?? ""}`.toLowerCase().includes(search)) current.push(record);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit).map(withSharing);
     },
 
     async listSharedMemories(principal, teamId): Promise<MemoryRecord[]> {
