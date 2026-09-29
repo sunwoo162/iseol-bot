@@ -5,7 +5,7 @@ import { loadHarnessRun } from "../harness/run-store.js";
 import { appendProjectHistoryEventOnce } from "./history-store.js";
 import { attachRunToProjectTreeNode } from "./project-tree.js";
 import { findProjectTreeNode } from "./project-tree.js";
-import { loadProjectWorkspace, saveProjectWorkspace } from "./workspace-store.js";
+import { loadProjectWorkspace, loadProjectWorkspaceUnlocked, saveProjectWorkspace } from "./workspace-store.js";
 import { withDurableProjectWorkspaceLock } from "./workspace-lock.js";
 
 export type ProjectExecutionPreparation = {
@@ -58,7 +58,7 @@ async function reconcileProjectWorkspaceRunUnlocked(
   if (run.request.projectId !== projectId) {
     throw new Error(`Harness Run project identity does not match: ${runId}`);
   }
-  const workspace = await loadProjectWorkspace(root, projectId);
+  const workspace = await loadProjectWorkspaceUnlocked(root, projectId);
   if (!workspace) throw new Error(`Project workspace not found: ${projectId}`);
   const rootNode = workspace.tree.find((node) => node.kind === "root");
   if (!rootNode) throw new Error("Project workspace root node is required before attaching a Run");

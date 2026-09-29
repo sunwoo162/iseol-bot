@@ -67,6 +67,8 @@ test("project reads wait for the durable workspace lock before projecting state"
   const options = { platformRoot: join(root, "platform"), projectModelRoot: join(root, "project-model"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, now: () => at };
   const service = createUserProjectService(options);
   const project = await service.createProject(owner, { name: "기존 프로젝트", objective: "read synchronization", purpose: "rapid-prototype", teamMode: "solo" });
+  const workspace = await loadProjectWorkspace(options.projectModelRoot, project.id);
+  assert.ok(workspace);
   let releaseHolder!: () => void;
   const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
   const lockHeld = withDurableProjectWorkspaceLock(options.projectModelRoot, project.id, async () => holderReleased, { waitForMs: 0 });
@@ -77,8 +79,6 @@ test("project reads wait for the durable workspace lock before projecting state"
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  const workspace = await loadProjectWorkspace(options.projectModelRoot, project.id);
-  assert.ok(workspace);
   await saveProjectWorkspace(options.projectModelRoot, { ...workspace, name: "잠금 해제 후 프로젝트", updatedAt: "2026-09-25T12:00:01.000Z" });
   releaseHolder();
   await lockHeld;
