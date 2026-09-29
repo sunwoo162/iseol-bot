@@ -505,7 +505,15 @@ export function createLearningService(root: string, options: LearningServiceOpti
       ensurePrincipal(principal);
       const goal = await loadOwnerGoal(root, principal, goalId);
       if (!goal) return [];
-      return (await listLearningPlanAdjustments(root, principal.userId)).filter((adjustment) => adjustment.userId === principal.userId && adjustment.goalId === goal.id).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      const candidates = (await listLearningPlanAdjustments(root, principal.userId)).filter((adjustment) => adjustment.userId === principal.userId && adjustment.goalId === goal.id);
+      const current: LearningPlanAdjustment[] = [];
+      for (const candidate of candidates) {
+        await withDurableLearningPlanAdjustmentAcceptanceLock(root, principal.userId, goal.id, candidate.id, async () => {
+          const adjustment = await loadLearningPlanAdjustment(root, principal.userId, candidate.id);
+          if (adjustment?.userId === principal.userId && adjustment.goalId === goal.id) current.push(adjustment);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     },
 
     async acceptLearningPlanAdjustment(principal, goalId, adjustmentId): Promise<LearningPlanAdjustmentResult> {

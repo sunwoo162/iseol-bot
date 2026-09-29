@@ -5,7 +5,9 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import type { LearningPlanProposal } from "../src/learning/contracts.js";
+import { withDurableLearningPlanAdjustmentAcceptanceLock } from "../src/learning/plan-adjustment-acceptance-lock.js";
 import { createLearningService } from "../src/learning/service.js";
+import { saveLearningPlanAdjustment } from "../src/learning/store.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -198,6 +200,31 @@ test("plan adjustment rejects another user's plan, stale revisions, and no-op ch
   await assert.rejects(() => service.createLearningPlanAdjustment(other, goal.id, { basePlanVersionId: preview.plan.id, reason: "blocked", dailyMinutes: 15 }), /not found/i);
   await assert.rejects(() => service.createLearningPlanAdjustment(owner, goal.id, { basePlanVersionId: preview.plan.id, expectedGoalRevision: 1, reason: "blocked", dailyMinutes: 15 }), /conflict/i);
   await assert.rejects(() => service.createLearningPlanAdjustment(owner, goal.id, { basePlanVersionId: preview.plan.id, reason: "blocked", dailyMinutes: 20 }), /change|same|adjust/i);
+});
+
+test("learning plan adjustment lists wait for each durable acceptance lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-plan-adjustment-read-lock-"));
+  const owner = principal("adjustment-read-lock-owner");
+  const service = createLearningService(root, { now: () => at });
+  const goal = await service.createLearningGoal(owner, { subjectText: "Adjustment reads", duration: { days: 2 }, dailyMinutes: 20 });
+  const preview = await service.createLearningPlanPreview(owner, goal.id, goal.revision);
+  const adjustment = await service.createLearningPlanAdjustment(owner, goal.id, {
+    basePlanVersionId: preview.plan.id, expectedGoalRevision: preview.goal.revision, reason: "changed-time", dailyMinutes: 15,
+  });
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableLearningPlanAdjustmentAcceptanceLock(root, owner.userId, goal.id, adjustment.id, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let settled = false;
+  const read = service.listLearningPlanAdjustments(owner, goal.id).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await saveLearningPlanAdjustment(root, { ...adjustment, note: "잠금 해제 후 조정" });
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await read)[0]?.note, "잠금 해제 후 조정");
 });
 
 test("concurrent learning plan adjustments across service instances remain one draft", async () => {

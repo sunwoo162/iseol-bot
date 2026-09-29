@@ -2295,6 +2295,15 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Learning plan adjustment read synchronization
+
+- Status: **B — Learning plan adjustment lists now acquire each adjustment acceptance lock before reloading the projection; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent plan adjustment acceptance can no longer leave the adjustment list with an unlocked stale result.
+- Evidence: `src/learning/service.ts`, `src/learning/plan-adjustment-acceptance-lock.ts`, `src/learning/store.ts`, `tests/learning-plan-preview.test.ts`.
+- TDD: RED reproduced the adjustment list completing while the acceptance lock was held; GREEN added the per-adjustment lock/reload boundary and verified the latest durable note after release.
+- Verification: focused Learning plan suite `10/10`; Iseol user-product `415/415`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Boundary: same-host/shared-root Learning plan adjustment list read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Learning answer list read synchronization
 
 - Status: **B — Learning answer lists now acquire each answer lock before reloading the receipt projection; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent answer submission/feedback update can no longer leave the answer list with an unlocked stale result.
