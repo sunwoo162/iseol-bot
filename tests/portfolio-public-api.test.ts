@@ -9,7 +9,7 @@ import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { createPortfolioService } from "../src/portfolio/service.js";
 import { withDurablePortfolioEntryLock } from "../src/portfolio/entry-lock.js";
-import { savePortfolioEntry } from "../src/portfolio/store.js";
+import { savePortfolioEntryUnlocked } from "../src/portfolio/store.js";
 import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
 
 test("public portfolio API exposes only public or unlisted entries without a session", async () => {
@@ -63,7 +63,7 @@ test("public portfolio reads re-check visibility after waiting for the entry loc
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await savePortfolioEntry(platformRoot, { ...entry, visibility: "private", updatedAt: "2026-09-26T12:00:01.000Z" });
+  await savePortfolioEntryUnlocked(platformRoot, { ...entry, visibility: "private", updatedAt: "2026-09-26T12:00:01.000Z" });
   release();
   assert.equal(await reading, null);
   await holder;
@@ -97,7 +97,7 @@ test("public portfolio lists re-check visibility after waiting for each entry lo
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await savePortfolioEntry(platformRoot, { ...entry, visibility: "private", updatedAt: "2026-09-26T12:00:01.000Z" });
+  await savePortfolioEntryUnlocked(platformRoot, { ...entry, visibility: "private", updatedAt: "2026-09-26T12:00:01.000Z" });
   release();
   assert.deepEqual(await reading, []);
   await holder;
