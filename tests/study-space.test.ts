@@ -8,9 +8,10 @@ import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createTeamService } from "../src/teams/service.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
 import { withDurableStudySpaceLock } from "../src/study/space-lock.js";
+import { withDurableStudySubmissionLock } from "../src/study/submission-lock.js";
 import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createStudyService } from "../src/study/service.js";
-import { saveStudySpace } from "../src/study/store.js";
+import { saveStudySpace, saveTaskSubmission } from "../src/study/store.js";
 
 const at = "2026-09-27T14:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -240,4 +241,40 @@ test("study space reads wait for the space lock and reload current state", async
   await holder;
   assert.equal(await fetched, null);
   assert.deepEqual(await listed, []);
+});
+
+test("study space reads wait for each personal submission lock and reload current state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-study-submission-read-lock-"));
+  const platformRoot = join(root, "platform");
+  const owner = principal("study-submission-read-owner");
+  const member = principal("study-submission-read-member");
+  const teams = createTeamService(platformRoot, { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Study submission read team", description: "submission projection recheck", kind: "study", visibility: "private", capacity: 3 });
+  await teams.addMember(team.id, member.userId, "member", at);
+  const studies = createStudyService(join(platformRoot, "study"), { teamService: teams, now: () => at });
+  const space = await studies.createStudySpace(owner, { teamId: team.id, title: "Submission lock room", description: "personal answers re-read" });
+  const task = await studies.createTask(owner, space.id, { title: "Explain locks", instructions: "Describe the read boundary" });
+  const submission = await studies.saveTaskSubmission(member, space.id, task.id, { answer: "Before", status: "draft" });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableStudySubmissionLock(join(platformRoot, "study"), space.id, task.id, member.userId, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = studies.getStudySpace(member, space.id).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await saveTaskSubmission(join(platformRoot, "study"), { ...submission, answer: "After", updatedAt: at });
+  release();
+  await holder;
+  assert.equal((await reading)?.mySubmissions[0]?.answer, "After");
 });

@@ -70,7 +70,10 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
       return withAccessibleSpaceMembershipLock(principal, studySpaceId, async (space) => {
         const [curriculumLinks, tasks] = await Promise.all([listCurriculumLinks(root, space.id), listStudyTasks(root, space.id)]);
         const mySubmissions: StudyTaskSubmission[] = [];
-        for (const task of tasks) { const submission = await loadTaskSubmission(root, space.id, task.id, principal.userId); if (submission) mySubmissions.push(submission); }
+        for (const task of tasks) {
+          const submission = await withDurableStudySubmissionLock(root, space.id, task.id, principal.userId, () => loadTaskSubmission(root, space.id, task.id, principal.userId), { waitForMs: 2_000 });
+          if (submission) mySubmissions.push(submission);
+        }
         return { space, curriculumLinks: curriculumLinks.sort((a, b) => a.createdAt.localeCompare(b.createdAt)), tasks: tasks.sort((a, b) => a.createdAt.localeCompare(b.createdAt)), mySubmissions: mySubmissions.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)) };
       });
     },
