@@ -75,13 +75,22 @@ export function createPortfolioDocument(draft: PortfolioDraft, at = draft.genera
   };
 }
 
-export async function loadPortfolioDocument(root: string, projectId: string): Promise<StoredPortfolioDocument | null> {
+async function loadPortfolioDocumentUnlocked(root: string, projectId: string): Promise<StoredPortfolioDocument | null> {
   const path = portfolioFile(root, projectId);
   try { return JSON.parse(await readFile(path, "utf8")) as StoredPortfolioDocument; }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function loadPortfolioDocument(root: string, projectId: string): Promise<StoredPortfolioDocument | null> {
+  return withDurablePortfolioLock(
+    root,
+    projectId,
+    () => loadPortfolioDocumentUnlocked(root, projectId),
+    { waitForMs: 2_000 },
+  );
 }
 
 export async function savePortfolioDocument(root: string, document: StoredPortfolioDocument): Promise<void> {
@@ -99,7 +108,7 @@ export async function savePortfolioDocument(root: string, document: StoredPortfo
 
 export async function ensurePortfolioDocument(root: string, draft: PortfolioDraft, at = new Date().toISOString()): Promise<StoredPortfolioDocument> {
   return withDurablePortfolioLock(root, draft.projectId, async () => {
-    const existing = await loadPortfolioDocument(root, draft.projectId);
+    const existing = await loadPortfolioDocumentUnlocked(root, draft.projectId);
     if (existing) return existing;
     const created = createPortfolioDocument(draft, at);
     await savePortfolioDocument(root, created);
@@ -114,7 +123,7 @@ export async function updatePortfolioDocument(
   at = new Date().toISOString(),
 ): Promise<StoredPortfolioDocument> {
   return withDurablePortfolioLock(root, projectId, async () => {
-    const current = await loadPortfolioDocument(root, projectId);
+    const current = await loadPortfolioDocumentUnlocked(root, projectId);
     if (!current) throw new Error(`Portfolio document not found: ${projectId}`);
     if (input.sections !== undefined && !Array.isArray(input.sections)) throw new Error("Invalid portfolio sections");
     const requestedSections = input.sections ?? [];

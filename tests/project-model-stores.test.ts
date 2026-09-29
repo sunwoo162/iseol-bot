@@ -162,6 +162,41 @@ test("portfolio document creation waits for the durable portfolio lock", async (
   assert.equal((await creation).projectId, draft.projectId);
 });
 
+test("portfolio document reads wait for the durable portfolio lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-portfolio-read-lock-"));
+  const document = createPortfolioDocument({
+    version: 1,
+    projectId: "project-prototype-001",
+    generatedAt: "2026-09-07T01:00:00.000Z",
+    overview: "Overview",
+    features: [],
+    technology: [],
+    troubleshooting: [],
+    claims: [],
+    readme: "# Project",
+  });
+  await savePortfolioDocument(root, document);
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurablePortfolioLock(root, document.projectId, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+
+  let settled = false;
+  const reading = loadPortfolioDocument(root, document.projectId).then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  releaseHolder();
+  assert.equal((await reading)?.projectId, document.projectId);
+});
+
 test("workspace store round trips and missing ids return null", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-project-model-"));
   await saveProjectWorkspace(root, workspace());
