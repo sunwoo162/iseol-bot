@@ -2385,6 +2385,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root recruitment application and Team membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Personal Memory sharing authorization rechecks
+
+- Status: **B — Personal Memory sharing now acquires the canonical Team membership lock for every selected team and rechecks active human membership immediately before persistence; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A membership removal or status change that wins the lock while sharing is waiting can no longer leave a stale team grant on the private memory.
+- Evidence: `src/memory/service.ts`, `src/memory/memory-lock.ts`, `src/teams/membership-lock.ts`, `tests/personal-memory-sharing.test.ts`, and the existing Personal AI context/privacy coverage.
+- TDD: RED held the Team membership lock, started a memory-sharing mutation, removed the owner while it waited, and showed the old memory-only lock path persisting the grant; GREEN added sorted Team-lock acquisition for multi-team sharing and moved membership rechecks plus the memory write inside that boundary.
+- Verification: focused Memory/Personal AI `25/25`; user-product `382/382`; serial root `726/726`; backend `tsc` build, user UI build, isolated browser E2E, and `git diff --check` all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: follows as `fix: serialize personal memory sharing under team locks`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root Personal Memory sharing and Team membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Project Team transition authorization rechecks
 
 - Status: **B — user Project Team transitions now share the canonical Team membership lock and recheck target-team access after waiting; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A membership removal or status change that wins the lock while a project is waiting can no longer be bypassed by a stale pre-lock access result.
