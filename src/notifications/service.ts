@@ -36,9 +36,17 @@ export function createNotificationService(root: string, options: { now?: () => s
   return {
     async listNotifications(principal, listOptions = {}) {
       ensurePrincipal(principal);
-      const all = (await listNotifications(root, principal.userId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+      const candidates = await listNotifications(root, principal.userId);
+      const all: UserNotification[] = [];
+      for (const candidate of candidates) {
+        await withNotificationLock(`${principal.userId}:notification:${candidate.id}`, async () => {
+          const current = await loadNotification(root, principal.userId, candidate.id);
+          if (current?.userId === principal.userId) all.push(current);
+        });
+      }
+      all.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
       return {
-      notifications: listOptions.unreadOnly ? all.filter((item) => !item.readAt) : all,
+        notifications: listOptions.unreadOnly ? all.filter((item) => !item.readAt) : all,
         unreadCount: all.filter((item) => !item.readAt).length,
       };
     },
