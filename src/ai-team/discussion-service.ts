@@ -4,7 +4,7 @@ import { assertIdentityId, assertTimestamp, type Principal } from "../identity/c
 import type { TeamCapability, TeamMembership } from "../teams/contracts.js";
 import type { AiTeamDiscussion, AiTeamDiscussionResult, AiTeamDiscussionService, AiTeamDiscussionServiceOptions } from "./contracts.js";
 import { withDurableAiTeamDiscussionLock } from "./discussion-lock.js";
-import { listAiTeamDiscussions, saveAiTeamDiscussion } from "./discussion-store.js";
+import { listAiTeamDiscussions, loadAiTeamDiscussion, saveAiTeamDiscussion } from "./discussion-store.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
 
@@ -69,6 +69,17 @@ export function createAiTeamDiscussionService(options: AiTeamDiscussionServiceOp
       }, { waitForMs: 2_000 });
       }, { waitForMs: 2_000 });
     },
-    async listDiscussions(principal, projectId) { ensurePrincipal(principal); assertIdentityId(projectId); await projectAccess(options, principal, projectId); return listAiTeamDiscussions(options.root, projectId); },
+    async listDiscussions(principal, projectId) {
+      ensurePrincipal(principal); assertIdentityId(projectId); await projectAccess(options, principal, projectId);
+      const candidates = await listAiTeamDiscussions(options.root, projectId);
+      const current: AiTeamDiscussion[] = [];
+      for (const candidate of candidates) {
+        await withDurableAiTeamDiscussionLock(options.root, projectId, candidate.requestId, async () => {
+          const discussion = await loadAiTeamDiscussion(options.root, projectId, candidate.id);
+          if (discussion?.projectId === projectId) current.push(discussion);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    },
   };
 }

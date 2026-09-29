@@ -9,6 +9,8 @@ import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
 import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { createAiTeamDiscussionService } from "../src/ai-team/discussion-service.js";
+import { withDurableAiTeamDiscussionLock } from "../src/ai-team/discussion-lock.js";
+import { saveAiTeamDiscussion } from "../src/ai-team/discussion-store.js";
 import { createAiTeamProposalService } from "../src/ai-team/service.js";
 import { createUserRuntimeDispatchGate } from "../src/runtime/user-runtime-dispatch-gate.js";
 
@@ -32,6 +34,32 @@ test("AI team technical discussions persist a bounded Runtime answer without cre
   assert.equal((await projects.getProject(owner, project.id))?.workRequests.length, 0);
   const reloaded = createAiTeamDiscussionService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at });
   assert.equal((await reloaded.listDiscussions(owner, project.id))[0]?.id, discussion.id);
+});
+
+test("AI team discussion lists wait for each durable discussion lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-discussion-read-lock-"));
+  const owner = principal("discussion-read-lock-owner");
+  const teams = createTeamService(join(root, "platform"), { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Discussion read lock team", description: "read synchronization", kind: "project", visibility: "private", capacity: 3 });
+  await teams.addAiMember(owner, team.id, { agentId: "architect", assignmentRole: "architecture", capabilities: ["discussion.propose"], approvalScope: "suggestion-only" }, at);
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), now: () => at });
+  const project = await projects.createProject(owner, { name: "Discussion read project", objective: "serialize discussion reads", purpose: "rapid-prototype", teamMode: "mixed", teamId: team.id });
+  const discussions = createAiTeamDiscussionService({ root: join(root, "ai-team"), teamService: teams, userProjectService: projects, now: () => at, dispatcher: async () => ({ status: "completed" as const, answer: "기존 답변", keyPoints: [], alternatives: [], risks: [] }) });
+  const discussion = await discussions.requestDiscussion(owner, project.id, { agentId: "architect", requestId: "discussion-read-lock", question: "기존 질문" });
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableAiTeamDiscussionLock(join(root, "ai-team"), project.id, discussion.requestId, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let settled = false;
+  const read = discussions.listDiscussions(owner, project.id).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await saveAiTeamDiscussion(join(root, "ai-team"), { ...discussion, question: "잠금 해제 후 질문", updatedAt: "2026-09-27T14:00:01.000Z" });
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await read)[0]?.question, "잠금 해제 후 질문");
 });
 
 test("AI team discussion without a local dispatcher stays durably waiting and membership is enforced", async () => {

@@ -19,6 +19,7 @@ function validate(value: AiTeamDiscussion): void {
 }
 async function loadAt(path: string): Promise<AiTeamDiscussion | null> { try { const value = JSON.parse(await readFile(path, "utf8")) as AiTeamDiscussion; validate(value); return value; } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; } }
 export async function saveAiTeamDiscussion(root: string, discussion: AiTeamDiscussion): Promise<void> { validate(discussion); const path = file(root, discussion.projectId, discussion.id); await mkdir(dirname(path), { recursive: true }); const temp = `${path}.${process.pid}.${randomUUID()}.tmp`; await writeFile(temp, JSON.stringify(discussion, null, 2), "utf8"); await rename(temp, path); }
+export async function loadAiTeamDiscussion(root: string, projectId: string, discussionId: string): Promise<AiTeamDiscussion | null> { return loadAt(file(root, projectId, discussionId)); }
 export async function listAiTeamDiscussions(root: string, projectId: string): Promise<AiTeamDiscussion[]> {
   assertIdentityId(projectId); let names: string[]; try { names = await readdir(resolve(root, "discussions", projectId)); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
   const result: AiTeamDiscussion[] = []; for (const name of names.filter((item) => item.endsWith(".json"))) { const value = await loadAt(resolve(root, "discussions", projectId, name)); if (value) result.push(value); }
