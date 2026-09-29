@@ -3679,3 +3679,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `0f501ae fix: synchronize recruitment post reads`; merged by PR #66 with merge commit `dbbd5ce`.
 - Boundary: same-host/shared-root Recruitment post read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable private Memory read synchronization
+
+- Status: **B — private Memory lists now acquire the canonical owner/memory lock before reloading records; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent memory edit or deletion cannot leave a private memory list with an unlocked stale result.
+- Evidence: `src/memory/service.ts`, `src/memory/memory-lock.ts`, `src/memory/store.ts`, `tests/personal-memory-isolation.test.ts`.
+- TDD: RED reproduced the private memory list completing while the memory lock was held; GREEN added per-memory lock/reload boundaries, skipped malformed identities fail-closed, and verified the latest durable content after release.
+- Verification: focused Memory isolation/sharing suite `10/10`; Iseol user-product `422/422`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `ec634f5 fix: synchronize private memory reads`; merged by PR #68 with merge commit `d806ee2`.
+- Boundary: same-host/shared-root private Memory list read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
