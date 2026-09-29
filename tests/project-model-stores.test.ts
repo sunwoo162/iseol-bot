@@ -254,6 +254,30 @@ test("workspace listing waits for each durable Project Workspace lock", async ()
   assert.deepEqual((await listing).map((item) => item.id), [workspace().id]);
 });
 
+test("workspace reads wait for the durable Project Workspace lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-workspace-read-lock-"));
+  await saveProjectWorkspace(root, workspace());
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableProjectWorkspaceLock(root, workspace().id, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+
+  let settled = false;
+  const reading = loadProjectWorkspace(root, workspace().id).then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  releaseHolder();
+  assert.equal((await reading)?.id, workspace().id);
+});
+
 test("project history is append-only and reloads in order", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-project-model-"));
   const first: ProjectHistoryEvent = {

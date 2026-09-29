@@ -18,7 +18,7 @@ import { addProjectTreeNode } from "./project-tree.js";
 import { selectProjectEvidence } from "./evidence-service.js";
 import { projectLifecycleFromEvidence, type ProjectLifecycleView } from "./lifecycle.js";
 import { loadProjectHistory } from "./history-store.js";
-import { loadProjectWorkspace, saveProjectWorkspace } from "./workspace-store.js";
+import { loadProjectWorkspace, loadProjectWorkspaceUnlocked, saveProjectWorkspace } from "./workspace-store.js";
 import { missingProjectRunObservation, projectRunObservation, runtimeObservationStatus, type UserProjectRunObservation } from "./run-observability.js";
 import { listUserProjectWorkspaceFiles, readUserProjectWorkspaceFile, type UserProjectWorkspaceFilePreview, type UserProjectWorkspaceFiles } from "./workspace-files.js";
 import { withDurableProjectScheduleLock } from "./schedule-lock.js";
@@ -233,7 +233,7 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
           const at = now(); assertTimestamp(at, "project timestamp");
           const next: UserProject = { ...current, teamMode: input.teamMode, ...(nextTeamId ? { teamId: nextTeamId } : {}), updatedAt: at };
           if (!nextTeamId) delete next.teamId;
-          const workspace = await loadProjectWorkspace(options.projectModelRoot, projectId);
+          const workspace = await loadProjectWorkspaceUnlocked(options.projectModelRoot, projectId);
           if (!workspace || workspace.ownerUserId !== principal.userId) throw new Error("Project workspace not found");
           await saveJson(projectPath(options.platformRoot, principal.userId, projectId), next);
           const nextWorkspace: ProjectWorkspace = { ...workspace, ...(nextTeamId ? { teamId: nextTeamId } : {}), updatedAt: at };
@@ -252,7 +252,7 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
       return withDurableProjectWorkspaceLock(options.projectModelRoot, projectId, async () => {
       const project = (await listVisibleProjects(options.platformRoot, principal, options.canAccessTeam)).find((item) => item.id === projectId) ?? null;
       if (!project) return null;
-      const workspace = await loadProjectWorkspace(options.projectModelRoot, project.id);
+      const workspace = await loadProjectWorkspaceUnlocked(options.projectModelRoot, project.id);
       if (!workspace || workspace.ownerUserId !== project.ownerUserId || (project.teamId && workspace.teamId !== project.teamId)) return null;
       const workspaceFiles = await listUserProjectWorkspaceFiles(project.workspaceRoot);
       const storedWorkRequests = await listProjectWorkRequests(options.projectModelRoot, project.id);
@@ -341,7 +341,7 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
         const request = result.request.nodeId
           ? result.request
           : await updateProjectWorkRequest(options.projectModelRoot, projectId, result.request.id, { nodeId }, at) ?? result.request;
-        const workspace = await loadProjectWorkspace(options.projectModelRoot, projectId);
+        const workspace = await loadProjectWorkspaceUnlocked(options.projectModelRoot, projectId);
         if (!workspace || workspace.ownerUserId !== view.project.ownerUserId) throw new Error("Project workspace not found");
         if (!workspace.tree.some((node) => node.id === nodeId)) {
           const rootNode = workspace.tree.find((node) => node.kind === "root");

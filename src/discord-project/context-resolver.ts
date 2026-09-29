@@ -1,5 +1,5 @@
-import { resolveProjectWorkContext } from "../project-model/work-context.js";
-import { loadProjectWorkspace } from "../project-model/workspace-store.js";
+import { resolveProjectWorkContext, resolveProjectWorkContextUnlocked } from "../project-model/work-context.js";
+import { loadProjectWorkspace, loadProjectWorkspaceUnlocked } from "../project-model/workspace-store.js";
 import { withDurableProjectWorkspaceLock } from "../project-model/workspace-lock.js";
 import {
   resolveProjectContext,
@@ -48,7 +48,7 @@ export async function resolveDiscordProjectContext(
   }
 
   const resolveBound = async (): Promise<DiscordProjectContext> => {
-    const workspace = await loadProjectWorkspace(input.modelRoot, binding.projectId);
+    const workspace = await (input.workspaceRoot ? loadProjectWorkspaceUnlocked : loadProjectWorkspace)(input.modelRoot, binding.projectId);
     if (!workspace) {
       return {
         legacy,
@@ -59,7 +59,7 @@ export async function resolveDiscordProjectContext(
     }
 
     const nodeId = input.nodeId ?? binding.defaultNodeId;
-    const work = await resolveProjectWorkContext({
+    const work = await (input.workspaceRoot ? resolveProjectWorkContextUnlocked : resolveProjectWorkContext)({
       modelRoot: input.modelRoot,
       projectId: binding.projectId,
       nodeId,

@@ -1,6 +1,6 @@
 import type { ProjectWorkContext } from "./contracts.js";
 import { findProjectTreeNode } from "./project-tree.js";
-import { loadProjectWorkspace } from "./workspace-store.js";
+import { loadProjectWorkspace, loadProjectWorkspaceUnlocked } from "./workspace-store.js";
 
 export type ResolveProjectWorkContextInput = {
   modelRoot: string;
@@ -9,10 +9,10 @@ export type ResolveProjectWorkContextInput = {
   runId?: string;
 };
 
-export async function resolveProjectWorkContext(
+function resolveProjectWorkContextFromWorkspace(
   input: ResolveProjectWorkContextInput,
-): Promise<ProjectWorkContext | null> {
-  const workspace = await loadProjectWorkspace(input.modelRoot, input.projectId);
+  workspace: Awaited<ReturnType<typeof loadProjectWorkspaceUnlocked>>,
+): ProjectWorkContext | null {
   if (!workspace) return null;
 
   if (!input.nodeId) {
@@ -30,4 +30,22 @@ export async function resolveProjectWorkContext(
     nodeId: node.id,
     ...(input.runId === undefined ? {} : { runId: input.runId }),
   };
+}
+
+export async function resolveProjectWorkContextUnlocked(
+  input: ResolveProjectWorkContextInput,
+): Promise<ProjectWorkContext | null> {
+  return resolveProjectWorkContextFromWorkspace(
+    input,
+    await loadProjectWorkspaceUnlocked(input.modelRoot, input.projectId),
+  );
+}
+
+export async function resolveProjectWorkContext(
+  input: ResolveProjectWorkContextInput,
+): Promise<ProjectWorkContext | null> {
+  return resolveProjectWorkContextFromWorkspace(
+    input,
+    await loadProjectWorkspace(input.modelRoot, input.projectId),
+  );
 }

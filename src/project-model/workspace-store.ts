@@ -25,7 +25,7 @@ export async function saveProjectWorkspace(
   await rename(temp, path);
 }
 
-export async function loadProjectWorkspace(
+export async function loadProjectWorkspaceUnlocked(
   root: string,
   id: string,
 ): Promise<ProjectWorkspace | null> {
@@ -36,6 +36,18 @@ export async function loadProjectWorkspace(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function loadProjectWorkspace(
+  root: string,
+  id: string,
+): Promise<ProjectWorkspace | null> {
+  return withDurableProjectWorkspaceLock(
+    root,
+    id,
+    () => loadProjectWorkspaceUnlocked(root, id),
+    { waitForMs: 2_000 },
+  );
 }
 
 export async function listProjectWorkspaces(
@@ -58,7 +70,7 @@ export async function listProjectWorkspaces(
     const workspace = await withDurableProjectWorkspaceLock(
       root,
       id,
-      () => loadProjectWorkspace(root, id),
+      () => loadProjectWorkspaceUnlocked(root, id),
       { waitForMs: 2_000 },
     );
     if (workspace) workspaces.push(workspace);
@@ -76,7 +88,7 @@ export async function setProjectPurpose(
   source: "user" | "default" = "user",
 ): Promise<ProjectWorkspace> {
   return withDurableProjectWorkspaceLock(root, projectId, async () => {
-    const workspace = await loadProjectWorkspace(root, projectId);
+    const workspace = await loadProjectWorkspaceUnlocked(root, projectId);
     if (!workspace) throw new Error(`Project workspace not found: ${projectId}`);
     const next: ProjectWorkspace = {
       ...workspace,
