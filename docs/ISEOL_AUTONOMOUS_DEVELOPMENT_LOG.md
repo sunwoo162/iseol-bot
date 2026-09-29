@@ -2305,6 +2305,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root Discord Project binding 생성/삭제 mutation coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Idea Lab Campaign document write synchronization
+
+- Status: **B — Idea Lab Campaign public writes now wait on the canonical durable Campaign lock, while live Runtime/provider execution remains unverified**. supervisor and Web action writes use an internal unlocked helper after acquiring the same lock.
+- Evidence: `src/idea-lab/campaign-store.ts`, `src/idea-lab/campaign-lock.ts`, `src/idea-lab/campaign-supervisor.ts`, `src/web-control-plane/idea-lab-actions.ts`, `tests/idea-lab-stores.test.ts`.
+- TDD: RED reproduced Campaign writes completing while the Campaign lock was held; GREEN added the locked public write, fixed supervisor/Web action reentrancy, and preserved bounded EPERM retry.
+- Verification: Idea Lab store/supervisor/Web/runtime/e2e focused regression `48/48`; serial full test suite `751/751`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `b8eae6a fix: synchronize Idea Lab campaign writes`; merged by PR #154 with merge commit `ae40328`.
+- Boundary: same-host/shared-root Idea Lab Campaign document write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Study submission read synchronization
 
 - Status: **B — Study Space detail reads now keep the canonical Team membership → Study space → personal Submission lock order and reload each task answer before projection; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent personal answer save cannot leave a member with an unlocked stale submission in the Study Space view.
