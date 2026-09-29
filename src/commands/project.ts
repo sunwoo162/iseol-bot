@@ -516,6 +516,7 @@ async function handleProjectStatus(interaction: ChatInputCommandInteraction): Pr
     }
     const view = await buildDiscordProjectStatus(context, {
       workspaceRoot: modelRoot,
+      runRoot: iseolRunRoot(),
       loadWorkspace: (id) => loadProjectWorkspace(modelRoot, id),
       loadRun: (id) => loadHarnessRun(iseolRunRoot(), id),
     });

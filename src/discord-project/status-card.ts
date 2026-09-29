@@ -1,4 +1,5 @@
 import type { HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
+import { withDurableHarnessRunLock } from "../harness/run-lock.js";
 import type { ProjectWorkspace } from "../project-model/contracts.js";
 import { withDurableProjectWorkspaceLock } from "../project-model/workspace-lock.js";
 import type { DiscordProjectContext } from "./contracts.js";
@@ -19,6 +20,7 @@ export type DiscordProjectStatusView = {
 
 export type DiscordProjectStatusDependencies = {
   workspaceRoot?: string;
+  runRoot?: string;
   loadWorkspace(projectId: string): Promise<ProjectWorkspace | null>;
   loadRun(runId: string): Promise<HarnessRuntimeRunEnvelope | null>;
 };
@@ -63,7 +65,9 @@ async function buildDiscordProjectStatusUnlocked(
   }
   const runs: DiscordProjectStatusView["workspace"]["runs"] = [];
   for (const runId of node.runIds) {
-    const run = await deps.loadRun(runId);
+    const run = deps.runRoot
+      ? await withDurableHarnessRunLock(deps.runRoot, runId, () => deps.loadRun(runId), { waitForMs: 2_000 })
+      : await deps.loadRun(runId);
     if (!run) continue;
     runs.push({ runId, stage: run.state.stage, status: run.state.status, updatedAt: run.updatedAt });
   }
