@@ -3719,3 +3719,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `f6a9345 fix: synchronize growth snapshot reads`; merged by PR #74 with merge commit `5dbd3bc`.
 - Boundary: same-host/shared-root Growth snapshot read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Learning Goal read synchronization
+
+- Status: **B — Learning Goal reads now acquire the canonical owner/goal lock before reloading projections, and plan preview/adjustment acceptance share that lock before Goal updates; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent plan transition cannot leave Goal reads with an unlocked stale state.
+- Evidence: `src/learning/goal-lock.ts`, `src/learning/service.ts`, `src/learning/store.ts`, `tests/learning-goals.test.ts`.
+- TDD: RED reproduced Goal get/list reads completing while the Goal lock was held; GREEN added the durable lock/reload boundary, dead-owner cleanup, and verified the latest paused Goal after release.
+- Verification: focused Learning goal/plan/progress/today regression `27/27`; Iseol user-product `425/425`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `2ff5117 fix: synchronize learning goal reads`; merged by PR #76 with merge commit `d58a6af`.
+- Boundary: same-host/shared-root Learning Goal read and Goal-update coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
