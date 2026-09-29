@@ -8,7 +8,7 @@ import { createPlatformUserService } from "../src/platform-user/service.js";
 import { withDurableSocialBlockLock } from "../src/social/block-lock.js";
 import { withDurableSocialProfileLock } from "../src/social/profile-lock.js";
 import { createSocialService } from "../src/social/service.js";
-import { saveBlock, saveFriendRequest, saveProfile } from "../src/social/store.js";
+import { saveBlockUnlocked, saveFriendRequestUnlocked, saveProfileUnlocked } from "../src/social/store.js";
 
 const at = "2026-09-27T15:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -107,7 +107,7 @@ test("public profile reads re-check social block state after waiting for the pai
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveBlock(platformRoot, { version: 1, id: "block-profile-read-viewer-profile-read-target", blockerUserId: "profile-read-viewer", blockedUserId: "profile-read-target", status: "active", createdAt: at, updatedAt: at });
+  await saveBlockUnlocked(platformRoot, { version: 1, id: "block-profile-read-viewer-profile-read-target", blockerUserId: "profile-read-viewer", blockedUserId: "profile-read-target", status: "active", createdAt: at, updatedAt: at });
   release();
   assert.equal(await reading, null);
   await holder;
@@ -137,7 +137,7 @@ test("public profile reads re-check visibility after waiting for the profile loc
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveProfile(platformRoot, { ...target, visibility: "private", updatedAt: "2026-09-27T15:00:01.000Z" });
+  await saveProfileUnlocked(platformRoot, { ...target, visibility: "private", updatedAt: "2026-09-27T15:00:01.000Z" });
   release();
   assert.equal(await reading, null);
   await holder;
@@ -168,7 +168,7 @@ test("friend list reads re-check social block state after waiting for the pair l
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveBlock(platformRoot, { version: 1, id: "block-friends-read-a-friends-read-b", blockerUserId: "friends-read-a", blockedUserId: "friends-read-b", status: "active", createdAt: at, updatedAt: at });
+  await saveBlockUnlocked(platformRoot, { version: 1, id: "block-friends-read-a-friends-read-b", blockerUserId: "friends-read-a", blockedUserId: "friends-read-b", status: "active", createdAt: at, updatedAt: at });
   release();
   assert.deepEqual(await reading, []);
   await holder;
@@ -199,7 +199,7 @@ test("friend list reads re-check friendship state after waiting for the pair loc
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveFriendRequest(platformRoot, { version: 1, id: "friend-friends-request-read-a-friends-request-read-b", requesterUserId: "friends-request-read-a", targetUserId: "friends-request-read-b", status: "rejected", createdAt: at, updatedAt: "2026-09-27T15:00:01.000Z" });
+  await saveFriendRequestUnlocked(platformRoot, { version: 1, id: "friend-friends-request-read-a-friends-request-read-b", requesterUserId: "friends-request-read-a", targetUserId: "friends-request-read-b", status: "rejected", createdAt: at, updatedAt: "2026-09-27T15:00:01.000Z" });
   release();
   assert.deepEqual(await reading, []);
   await holder;
@@ -231,7 +231,7 @@ test("friend list reads wait for the friend's profile lock before projecting sta
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveProfile(platformRoot, { ...target, handle: "after", updatedAt: "2026-09-27T15:00:01.000Z" });
+  await saveProfileUnlocked(platformRoot, { ...target, handle: "after", updatedAt: "2026-09-27T15:00:01.000Z" });
   release();
   assert.equal((await reading)[0]?.handle, "after");
   await holder;
@@ -261,7 +261,7 @@ test("incoming friend request reads re-check social block state after waiting fo
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveBlock(platformRoot, { version: 1, id: "block-incoming-read-target-incoming-read-requester", blockerUserId: "incoming-read-target", blockedUserId: "incoming-read-requester", status: "active", createdAt: at, updatedAt: at });
+  await saveBlockUnlocked(platformRoot, { version: 1, id: "block-incoming-read-target-incoming-read-requester", blockerUserId: "incoming-read-target", blockedUserId: "incoming-read-requester", status: "active", createdAt: at, updatedAt: at });
   release();
   assert.deepEqual(await reading, []);
   await holder;
@@ -291,7 +291,7 @@ test("incoming friend request reads re-check request state after waiting for the
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveFriendRequest(platformRoot, { ...request.request, status: "accepted", updatedAt: "2026-09-27T15:00:01.000Z" });
+  await saveFriendRequestUnlocked(platformRoot, { ...request.request, status: "accepted", updatedAt: "2026-09-27T15:00:01.000Z" });
   release();
   assert.deepEqual(await reading, []);
   await holder;
@@ -322,7 +322,7 @@ test("incoming friend request reads wait for the requester's profile lock before
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveProfile(platformRoot, { ...requester, handle: "after", updatedAt: "2026-09-27T15:00:01.000Z" });
+  await saveProfileUnlocked(platformRoot, { ...requester, handle: "after", updatedAt: "2026-09-27T15:00:01.000Z" });
   release();
   assert.equal((await reading)[0]?.requester?.handle, "after");
   await holder;
@@ -352,7 +352,7 @@ test("profile list reads re-check social block state after waiting for the pair 
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveBlock(platformRoot, { version: 1, id: "block-profile-list-viewer-profile-list-target", blockerUserId: "profile-list-viewer", blockedUserId: "profile-list-target", status: "active", createdAt: at, updatedAt: at });
+  await saveBlockUnlocked(platformRoot, { version: 1, id: "block-profile-list-viewer-profile-list-target", blockerUserId: "profile-list-viewer", blockedUserId: "profile-list-target", status: "active", createdAt: at, updatedAt: at });
   release();
   assert.deepEqual(await reading, []);
   await holder;
@@ -382,7 +382,7 @@ test("profile list reads re-check visibility after waiting for the profile lock"
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveProfile(platformRoot, { ...target, visibility: "private", updatedAt: "2026-09-27T15:00:01.000Z" });
+  await saveProfileUnlocked(platformRoot, { ...target, visibility: "private", updatedAt: "2026-09-27T15:00:01.000Z" });
   release();
   assert.deepEqual(await reading, []);
   await holder;
@@ -412,7 +412,7 @@ test("block list reads re-check block state after waiting for the pair lock", as
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveBlock(platformRoot, { version: 1, id: "block-block-list-owner-block-list-target", blockerUserId: "block-list-owner", blockedUserId: "block-list-target", status: "removed", createdAt: at, updatedAt: at });
+  await saveBlockUnlocked(platformRoot, { version: 1, id: "block-block-list-owner-block-list-target", blockerUserId: "block-list-owner", blockedUserId: "block-list-target", status: "removed", createdAt: at, updatedAt: at });
   release();
   assert.deepEqual(await reading, []);
   await holder;
@@ -442,7 +442,7 @@ test("own profile reads wait for the durable profile lock before projecting stat
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveProfile(platformRoot, { version: 1, userId: "own-profile-read", handle: "after", bio: "", skills: [], visibility: "public", createdAt: at, updatedAt: at });
+  await saveProfileUnlocked(platformRoot, { version: 1, userId: "own-profile-read", handle: "after", bio: "", skills: [], visibility: "public", createdAt: at, updatedAt: at });
   release();
   assert.equal((await reading)?.handle, "after");
   await holder;
@@ -472,7 +472,7 @@ test("own profile list reads wait for the durable profile lock before projecting
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveProfile(platformRoot, { version: 1, userId: "own-profile-list-read", handle: "after", bio: "", skills: [], visibility: "private", createdAt: at, updatedAt: "2026-09-27T15:00:01.000Z" });
+  await saveProfileUnlocked(platformRoot, { version: 1, userId: "own-profile-list-read", handle: "after", bio: "", skills: [], visibility: "private", createdAt: at, updatedAt: "2026-09-27T15:00:01.000Z" });
   release();
   assert.equal((await reading)[0]?.handle, "after");
   await holder;
