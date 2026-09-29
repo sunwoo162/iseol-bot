@@ -3969,3 +3969,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `73cfb76 fix: synchronize project workspace list reads`; merged by PR #124 with merge commit `3654e08`.
 - Boundary: same-host/shared-root Project Workspace list read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Prototype list read synchronization
+
+- Status: **B — Prototype candidate list reads now wait on each candidate's canonical durable lock before loading its record, while live Runtime/provider execution remains unverified**. Read-only listings use the same per-Prototype boundary as candidate mutations.
+- Evidence: `src/project-model/prototype-store.ts`, `src/project-model/prototype-lock.ts`, `tests/project-model-stores.test.ts`.
+- TDD: RED reproduced `listPrototypeCandidates` completing while a Prototype lock was held; GREEN validated filename-derived safe ids, loaded candidates through the durable lock, and verified the listing after release while preserving deterministic sorting and non-json filtering.
+- Verification: Project model store regression `11/11`; serial full test suite `737/737`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `0ee9c03 fix: synchronize prototype list reads`; merged by PR #126 with merge commit `fa2369e`.
+- Boundary: same-host/shared-root Prototype candidate list read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
