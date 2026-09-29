@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ProjectWorkspace } from "../src/project-model/contracts.js";
 import type { StoredProject } from "../src/services/projects.js";
 import { projectCommand } from "../src/commands/project.js";
@@ -8,6 +11,7 @@ import {
   discordProjectBindingHistoryFact,
   listDiscordProjectBindingChoices,
 } from "../src/discord-project/project-command-actions.js";
+import { withDurableProjectWorkspaceLock } from "../src/project-model/workspace-lock.js";
 
 const storedProject: StoredProject = {
   id: "legacy-1",
@@ -90,6 +94,36 @@ test("same bind is idempotent while conflicting bind errors are preserved", asyn
     ),
     /rebind/i,
   );
+});
+
+test("binding waits for the Project Workspace lock before validating and writing", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "iseol-discord-bind-"));
+  let acquired!: () => void;
+  let release!: () => void;
+  const lockAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const lockReleased = new Promise<void>((resolve) => { release = resolve; });
+  const holder = withDurableProjectWorkspaceLock(workspaceRoot, "project-1", async () => {
+    acquired();
+    await lockReleased;
+  });
+  await lockAcquired;
+
+  let completed = false;
+  const binding = bindDiscordProjectWorkspace(
+    { guildId: "guild-1", storedProjectId: "legacy-1", projectId: "project-1", at: "2026-09-08T00:00:00.000Z" },
+    {
+      workspaceRoot,
+      findStoredProject: async () => storedProject,
+      loadWorkspace: async () => workspace(),
+      createBinding: async (input) => ({ version: 1 as const, ...input, createdAt: input.at, updatedAt: input.at }),
+    },
+  ).finally(() => { completed = true; });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(completed, false);
+
+  release();
+  assert.equal((await binding).defaultNodeId, "root");
+  await holder;
 });
 
 test("project command preserves create/delete and adds bind/status", () => {
