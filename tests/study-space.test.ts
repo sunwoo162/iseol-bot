@@ -11,7 +11,7 @@ import { withDurableStudySpaceLock } from "../src/study/space-lock.js";
 import { withDurableStudySubmissionLock } from "../src/study/submission-lock.js";
 import { loadMembershipUnlocked, saveMembershipUnlocked } from "../src/teams/store.js";
 import { createStudyService } from "../src/study/service.js";
-import { saveStudySpace, saveTaskSubmissionUnlocked } from "../src/study/store.js";
+import { saveStudySpaceUnlocked, saveTaskSubmissionUnlocked } from "../src/study/store.js";
 
 const at = "2026-09-27T14:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -236,7 +236,7 @@ test("study space reads wait for the space lock and reload current state", async
   assert.equal(getSettled, false);
   assert.equal(listSettled, false);
 
-  await saveStudySpace(join(platformRoot, "study"), { ...space, status: "archived", updatedAt: at });
+  await saveStudySpaceUnlocked(join(platformRoot, "study"), { ...space, status: "archived", updatedAt: at });
   release();
   await holder;
   assert.equal(await fetched, null);
