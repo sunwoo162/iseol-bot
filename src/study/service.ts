@@ -35,7 +35,11 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
     if (!initial || initial.status !== "active") return null;
     return withDurableTeamMembershipLock(teamMembershipRoot, initial.teamId, async () => {
       const space = await loadAccessibleSpace(principal, studySpaceId);
-      return space ? task(space) : null;
+      if (!space) return null;
+      return withDurableStudySpaceLock(root, space.teamId, async () => {
+        const current = await loadAccessibleSpace(principal, studySpaceId);
+        return current ? task(current) : null;
+      }, { waitForMs: 2_000 });
     }, { waitForMs: 2_000 });
   };
 
