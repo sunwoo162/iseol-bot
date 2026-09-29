@@ -7,6 +7,7 @@ import { createIntegrationService } from "../src/integrations/service.js";
 import { withDurableIntegrationDeliveryLock } from "../src/integrations/delivery-lock.js";
 import type { IntegrationDeliveryInput, IntegrationProvider } from "../src/integrations/contracts.js";
 import type { Principal } from "../src/identity/contracts.js";
+import { saveIntegrationDelivery } from "../src/integrations/store.js";
 
 function principal(userId: string): Principal {
   return { userId, sessionId: `session-${userId}`, roles: ["user"] };
@@ -108,6 +109,33 @@ test("delivery dispatch waits for the durable cross-service lock", async () => {
     ]), false);
     release();
     await Promise.all([holder, dispatch]);
+  });
+});
+
+test("delivery lists wait for the durable delivery lock and reload current state", async () => {
+  await withRoot(async (root) => {
+    const service = createIntegrationService(root);
+    const queued = await service.enqueueDelivery(principal("user-a"), input());
+    let release!: () => void;
+    let acquired!: () => void;
+    const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+    const holder = withDurableIntegrationDeliveryLock(root, "user-a", queued.id, async () => {
+      acquired();
+      await new Promise<void>((resolve) => { release = resolve; });
+    }, { waitForMs: 0 });
+    await holderAcquired;
+
+    let settled = false;
+    const listing = service.listDeliveries(principal("user-a")).then((result) => {
+      settled = true;
+      return result;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(settled, false);
+    await saveIntegrationDelivery(root, { ...queued, state: "blocked", reason: "user-opt-in-required", updatedAt: "2026-09-25T12:00:01.000Z" });
+    release();
+    assert.equal((await listing)[0]?.state, "blocked");
+    await holder;
   });
 });
 

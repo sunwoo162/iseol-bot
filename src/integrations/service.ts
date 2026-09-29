@@ -137,7 +137,15 @@ export function createIntegrationService(root: string, options: IntegrationServi
 
     async listDeliveries(principal) {
       ensurePrincipal(principal);
-      return (await listIntegrationDeliveries(root, principal.userId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+      const current: IntegrationDelivery[] = [];
+      for (const candidate of await listIntegrationDeliveries(root, principal.userId)) {
+        try { assertIdentityId(candidate.id); } catch { continue; }
+        await withDurableIntegrationDeliveryLock(root, principal.userId, candidate.id, async () => {
+          const delivery = await loadIntegrationDelivery(root, principal.userId, candidate.id);
+          if (delivery?.userId === principal.userId) current.push(delivery);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
     },
   };
 }
