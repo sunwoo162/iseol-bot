@@ -205,6 +205,32 @@ test("production reads wait for the durable production lock", async () => {
   });
 });
 
+test("production writes wait for the durable production lock", async () => {
+  await withRoot(async (root) => {
+    const item = production();
+    await savePrototypeProduction(root, item);
+    let releaseHolder!: () => void;
+    const holderStarted = new Promise<void>((resolve) => {
+      void withDurableIdeaLabProductionLock(root, item.id, async () => {
+        resolve();
+        await new Promise<void>((release) => { releaseHolder = release; });
+      });
+    });
+    await holderStarted;
+
+    let settled = false;
+    const writing = savePrototypeProduction(root, { ...item, status: "running" }).then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(settled, false);
+
+    releaseHolder();
+    await writing;
+    assert.equal((await loadPrototypeProduction(root, item.id))?.status, "running");
+  });
+});
+
 test("campaign listing waits for each durable campaign lock", async () => {
   await withRoot(async (root) => {
     const item = campaign();

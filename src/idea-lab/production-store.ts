@@ -9,9 +9,18 @@ function productionFile(root: string, id: string): string {
   return resolve(ideaLabDirectory(root, "productions"), `${id}.json`);
 }
 
-export async function savePrototypeProduction(root: string, production: PrototypeProduction): Promise<void> {
+export async function savePrototypeProductionUnlocked(root: string, production: PrototypeProduction): Promise<void> {
   assertPrototypeProduction(production);
   await writeIdeaLabJsonAtomic(productionFile(root, production.id), production);
+}
+
+export async function savePrototypeProduction(root: string, production: PrototypeProduction): Promise<void> {
+  return withDurableIdeaLabProductionLock(
+    root,
+    production.id,
+    () => savePrototypeProductionUnlocked(root, production),
+    { waitForMs: 2_000 },
+  );
 }
 
 export async function loadPrototypeProductionUnlocked(root: string, id: string): Promise<PrototypeProduction | null> {
