@@ -110,6 +110,30 @@ test("prototype listing waits for each durable prototype lock", async () => {
   assert.deepEqual((await listing).map((item) => item.id), [candidate().id]);
 });
 
+test("prototype reads wait for the durable prototype lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-prototype-read-lock-"));
+  await savePrototypeCandidate(root, candidate());
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurablePrototypeLock(root, candidate().id, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+
+  let settled = false;
+  const reading = loadPrototypeCandidate(root, candidate().id).then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  releaseHolder();
+  assert.equal((await reading)?.id, candidate().id);
+});
+
 test("concurrent portfolio document patches preserve disjoint sections", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-portfolio-lock-"));
   const document = createPortfolioDocument({
