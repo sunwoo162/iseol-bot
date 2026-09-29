@@ -47,7 +47,7 @@ test("agent profile API reports unavailable when the profile service is not wire
   const root = await mkdtemp(join(tmpdir(), "npc-agent-profile-api-"));
   const users = createPlatformUserService(join(root, "platform"));
   const user = await users.createUser({ id: "agent-api-missing", email: "agent-api-missing@example.com", displayName: "Missing", timezone: "Asia/Seoul" });
-  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-28T12:00:00.000Z" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: new Date(Date.now() + 60 * 60 * 1_000).toISOString() });
   const server = await startWebControlPlaneServer({ host: "127.0.0.1", port: 0, token: "operator-only", modelRoot: join(root, "model"), harnessRoot: join(root, "runs"), webRoot: join(root, "web"), userService: users });
   const address = server.address() as AddressInfo;
   try {
