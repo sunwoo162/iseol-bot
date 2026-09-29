@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable public profile visibility rechecks
+
+- Status: **B — public profile reads for other users now acquire the social pair lock and canonical profile lock before projecting visibility; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A private conversion that wins the profile lock while the read is waiting can no longer leave a stale public profile visible.
+- Evidence: `src/social/service.ts`, `src/social/block-lock.ts`, `src/social/profile-lock.ts`, `src/social/store.ts`, `tests/social-safety.test.ts`.
+- TDD: RED reproduced a public profile read completing while the target profile lock was held and private visibility persisted; GREEN added the pair → profile lock boundary before profile projection.
+- Verification: focused Social safety/messaging/API/profile suites `23/23`; Iseol user-product `399/399`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: `d44cb7c fix: serialize public profile reads`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root public profile visibility/read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable incoming friend-request state rechecks
 
 - Status: **B — incoming friend-request reads now reacquire the canonical friend-request lock inside the social pair lock and reload request status before exposing a pending request; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A request accepted while the list is waiting can no longer remain visible as pending.

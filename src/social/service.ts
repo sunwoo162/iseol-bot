@@ -94,7 +94,7 @@ export function createSocialService(root: string, options: SocialServiceOptions)
       };
       return userId === principal.userId
         ? withDurableSocialProfileLock(root, principal.userId, read, { waitForMs: 2_000 })
-        : withDurableSocialBlockLock(root, principal.userId, userId, read, { waitForMs: 2_000 });
+        : withDurableSocialBlockLock(root, principal.userId, userId, () => withDurableSocialProfileLock(root, userId, read, { waitForMs: 2_000 }), { waitForMs: 2_000 });
     },
     async listProfiles(principal, search = "") {
       ensurePrincipal(principal); const users = await options.platformUserService.listUsers(); const query = search.trim().toLowerCase(); const profiles: PublicProfile[] = [];
