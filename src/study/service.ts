@@ -5,7 +5,7 @@ import type { CurriculumLink, StudyService, StudyServiceOptions, StudySpace, Stu
 import { withDurableStudySubmissionLock } from "./submission-lock.js";
 import { withDurableStudySpaceLock } from "./space-lock.js";
 import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
-import { listCurriculumLinks, listStudySpaces, listStudyTasks, loadStudySpace, loadStudyTask, loadTaskSubmission, saveCurriculumLink, saveStudySpace, saveStudyTask, saveTaskSubmission } from "./store.js";
+import { listCurriculumLinks, listStudySpaces, listStudyTasks, loadStudySpace, loadStudyTask, loadTaskSubmission, loadTaskSubmissionUnlocked, saveCurriculumLink, saveStudySpace, saveStudyTask, saveTaskSubmission, saveTaskSubmissionUnlocked } from "./store.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
 function required(value: string, label: string, max: number): string { const trimmed = value.trim(); if (!trimmed || trimmed.length > max) throw new Error(`${label} is required`); return trimmed; }
@@ -72,7 +72,7 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
         const [curriculumLinks, tasks] = await Promise.all([listCurriculumLinks(root, space.id), listStudyTasks(root, space.id)]);
         const mySubmissions: StudyTaskSubmission[] = [];
         for (const task of tasks) {
-          const submission = await withDurableStudySubmissionLock(root, space.id, task.id, principal.userId, () => loadTaskSubmission(root, space.id, task.id, principal.userId), { waitForMs: 2_000 });
+          const submission = await withDurableStudySubmissionLock(root, space.id, task.id, principal.userId, () => loadTaskSubmissionUnlocked(root, space.id, task.id, principal.userId), { waitForMs: 2_000 });
           if (submission) mySubmissions.push(submission);
         }
         return { space, curriculumLinks: curriculumLinks.sort((a, b) => a.createdAt.localeCompare(b.createdAt)), tasks: tasks.sort((a, b) => a.createdAt.localeCompare(b.createdAt)), mySubmissions: mySubmissions.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)) };
@@ -100,7 +100,7 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
       return withTeamMembershipMutationLock(initialSpace.teamId, async () => {
         const space = await loadAccessibleSpace(principal, studySpaceId, true); if (!space) throw new Error("Study space not found");
         return withDurableStudySubmissionLock(root, space.id, taskId, principal.userId, async () => {
-          const task = await loadStudyTask(root, space.id, taskId); if (!task || task.status !== "open") throw new Error("Study task not found"); const previous = await loadTaskSubmission(root, space.id, task.id, principal.userId); const at = now(); assertTimestamp(at, "study submission timestamp"); const submission: StudyTaskSubmission = { version: 1, id: previous?.id ?? `submission-${randomUUID()}`, studySpaceId: space.id, taskId: task.id, userId: principal.userId, answer, status: input.status, createdAt: previous?.createdAt ?? at, updatedAt: at }; await saveTaskSubmission(root, submission); await options.activityService?.recordActivityEvent(principal, { sourceType: "study", sourceId: submission.id, eventType: "study.task.submission.saved", eventVersion: 1, actorType: "user", verificationStatus: "unverified", payload: { studySpaceId: space.id, taskId: task.id, submissionStatus: submission.status } }); return submission;
+          const task = await loadStudyTask(root, space.id, taskId); if (!task || task.status !== "open") throw new Error("Study task not found"); const previous = await loadTaskSubmissionUnlocked(root, space.id, task.id, principal.userId); const at = now(); assertTimestamp(at, "study submission timestamp"); const submission: StudyTaskSubmission = { version: 1, id: previous?.id ?? `submission-${randomUUID()}`, studySpaceId: space.id, taskId: task.id, userId: principal.userId, answer, status: input.status, createdAt: previous?.createdAt ?? at, updatedAt: at }; await saveTaskSubmissionUnlocked(root, submission); await options.activityService?.recordActivityEvent(principal, { sourceType: "study", sourceId: submission.id, eventType: "study.task.submission.saved", eventVersion: 1, actorType: "user", verificationStatus: "unverified", payload: { studySpaceId: space.id, taskId: task.id, submissionStatus: submission.status } }); return submission;
         }, { waitForMs: 2_000 });
       }, 10_000);
     },
