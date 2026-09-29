@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createLearningService } from "../src/learning/service.js";
+import { withDurableLearningSessionLock } from "../src/learning/session-lock.js";
+import { loadSession, saveSession } from "../src/learning/store.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -35,6 +37,31 @@ test("a local-template plan can be activated into an owner-bound day session wit
   const resumed = await restarted.resumeLearningSession(owner, session.id, session.revision);
   assert.equal(resumed?.status, "active");
   assert.equal(resumed?.revision, session.revision + 1);
+});
+
+test("learning session lists wait for each durable session lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-session-read-lock-"));
+  const owner = principal("learning-session-read-lock-owner");
+  const service = createLearningService(root, { now: () => at });
+  const goal = await service.createLearningGoal(owner, { subjectText: "TypeScript", duration: { days: 2 }, dailyMinutes: 20 });
+  const preview = await service.createLearningPlanPreview(owner, goal.id, goal.revision);
+  const session = await service.startLearningGoalSession(owner, goal.id, { planVersionId: preview.plan.id, dayId: preview.plan.days[0]!.id, expectedRevision: preview.goal.revision });
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableLearningSessionLock(root, owner.userId, session.id, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let settled = false;
+  const read = service.listLearningSessions(owner).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  const current = await loadSession(root, owner.userId, session.id);
+  assert.ok(current);
+  await saveSession(root, { ...current, resumedAt: "2026-09-26T12:00:01.000Z", revision: current.revision + 1 });
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await read).find((item) => item.id === session.id)?.revision, session.revision + 1);
 });
 
 test("goal session start rejects stale revisions, foreign plan versions, and unknown days", async () => {

@@ -1110,9 +1110,15 @@ export function createLearningService(root: string, options: LearningServiceOpti
 
     async listLearningSessions(principal) {
       ensurePrincipal(principal);
-      return (await listSessions(root, principal.userId))
-        .filter((session) => session.userId === principal.userId)
-        .sort((a, b) => b.resumedAt.localeCompare(a.resumedAt));
+      const candidates = (await listSessions(root, principal.userId)).filter((session) => session.userId === principal.userId);
+      const current: LearningSession[] = [];
+      for (const candidate of candidates) {
+        await withDurableLearningSessionLock(root, principal.userId, candidate.id, async () => {
+          const session = await loadSession(root, principal.userId, candidate.id);
+          if (session?.userId === principal.userId) current.push(session);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => b.resumedAt.localeCompare(a.resumedAt));
     },
 
     async startLearningSession(principal, planId): Promise<LearningSession> {
