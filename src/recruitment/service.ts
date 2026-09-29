@@ -15,11 +15,24 @@ export function createRecruitmentService(root: string, options: RecruitmentServi
     async createPost(principal, input: RecruitmentInput) {
       ensurePrincipal(principal); if (!["project", "study"].includes(input.kind)) throw new Error("Invalid recruitment kind"); if (!await options.teamService.isManager(principal, input.teamId)) throw new Error("Team manager access required"); const at = now(); assertTimestamp(at, "recruitment timestamp"); const post: RecruitmentPost = { version: 1, id: `recruit-${randomUUID()}`, teamId: input.teamId, authorUserId: principal.userId, kind: input.kind, title: required(input.title, "Recruitment title", 200), description: required(input.description, "Recruitment description", 5_000), roles: input.roles.map((role) => required(role, "Recruitment role", 120)).slice(0, 32), tags: input.tags.map((tag) => required(tag, "Recruitment tag", 80)).slice(0, 32), status: "open", createdAt: at, updatedAt: at }; await savePost(root, post); await options.activityService?.recordActivityEvent(principal, { sourceType: "recruitment", sourceId: post.id, eventType: "recruitment.post.created", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { teamId: post.teamId, kind: post.kind } }); return post;
     },
-    async listPosts(principal, kind) { ensurePrincipal(principal); return (await listPosts(root)).filter((post) => post.status === "open" && (!kind || post.kind === kind)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); },
+    async listPosts(principal, kind) {
+      ensurePrincipal(principal);
+      const candidates = await listPosts(root);
+      const current: RecruitmentPost[] = [];
+      for (const candidate of candidates) {
+        await withDurableTeamMembershipLock(root, candidate.teamId, async () => {
+          const post = await loadPost(root, candidate.id);
+          if (post?.status === "open" && (!kind || post.kind === kind)) current.push(post);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    },
     async getPost(principal, postId) {
       ensurePrincipal(principal); try { assertIdentityId(postId); } catch { return null; }
-      const post = await loadPost(root, postId); if (!post) return null;
-      return withDurableTeamMembershipLock(root, post.teamId, async () => {
+      const initialPost = await loadPost(root, postId); if (!initialPost) return null;
+      return withDurableTeamMembershipLock(root, initialPost.teamId, async () => {
+        const post = await loadPost(root, postId);
+        if (!post) return null;
         const canSeeApplications = await options.teamService.isManager(principal, post.teamId);
         if (!canSeeApplications && post.status !== "open") return null;
         return { post, applications: canSeeApplications ? (await listApplications(root)).filter((item) => item.postId === post.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : [] };
