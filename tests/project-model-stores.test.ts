@@ -12,6 +12,7 @@ import {
 } from "../src/project-model/prototype-store.js";
 import { listProjectWorkspaces, loadProjectWorkspace, saveProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { appendProjectHistoryEvent, appendProjectHistoryEventOnce, loadProjectHistory } from "../src/project-model/history-store.js";
+import { withDurableProjectHistoryLock } from "../src/project-model/history-lock.js";
 import { ensurePortfolioDocument, loadPortfolioDocument, savePortfolioDocument, updatePortfolioDocument } from "../src/project-model/portfolio-store.js";
 import { createPortfolioDocument } from "../src/project-model/portfolio-store.js";
 import { withDurablePortfolioLock } from "../src/project-model/portfolio-lock.js";
@@ -252,6 +253,38 @@ test("project history is append-only and reloads in order", async () => {
   await appendProjectHistoryEvent(root, first);
   await appendProjectHistoryEvent(root, second);
   assert.deepEqual(await loadProjectHistory(root, "project-prototype-001"), [first, second]);
+});
+
+test("project history reads wait for the durable history lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-history-read-lock-"));
+  const event: ProjectHistoryEvent = {
+    version: 1,
+    id: "event-read-lock",
+    projectId: "project-prototype-001",
+    type: "project-promoted",
+    at: "2026-09-07T01:00:00.000Z",
+    summary: "Promoted",
+  };
+  await appendProjectHistoryEventOnce(root, event);
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableProjectHistoryLock(root, event.projectId, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+
+  let settled = false;
+  const reading = loadProjectHistory(root, event.projectId).then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  releaseHolder();
+  assert.deepEqual(await reading, [event]);
 });
 
 test("concurrent identical project history append-once calls remain one event", async () => {

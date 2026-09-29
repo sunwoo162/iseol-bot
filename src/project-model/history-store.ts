@@ -9,7 +9,7 @@ function historyFile(root: string, projectId: string): string {
   return resolve(root, "projects", projectId, "history.jsonl");
 }
 
-export async function appendProjectHistoryEvent(
+async function appendProjectHistoryEventUnlocked(
   root: string,
   event: ProjectHistoryEvent,
 ): Promise<void> {
@@ -19,7 +19,14 @@ export async function appendProjectHistoryEvent(
   await appendFile(path, `${JSON.stringify(event)}\n`, "utf8");
 }
 
-export async function loadProjectHistory(
+export async function appendProjectHistoryEvent(
+  root: string,
+  event: ProjectHistoryEvent,
+): Promise<void> {
+  await withDurableProjectHistoryLock(root, event.projectId, () => appendProjectHistoryEventUnlocked(root, event), { waitForMs: 2_000 });
+}
+
+async function loadProjectHistoryUnlocked(
   root: string,
   projectId: string,
 ): Promise<ProjectHistoryEvent[]> {
@@ -36,12 +43,19 @@ export async function loadProjectHistory(
   }
 }
 
+export async function loadProjectHistory(
+  root: string,
+  projectId: string,
+): Promise<ProjectHistoryEvent[]> {
+  return withDurableProjectHistoryLock(root, projectId, () => loadProjectHistoryUnlocked(root, projectId), { waitForMs: 2_000 });
+}
+
 export async function appendProjectHistoryEventOnce(
   root: string,
   event: ProjectHistoryEvent,
 ): Promise<boolean> {
   return withDurableProjectHistoryLock(root, event.projectId, async () => {
-    const existing = (await loadProjectHistory(root, event.projectId))
+    const existing = (await loadProjectHistoryUnlocked(root, event.projectId))
       .find((item) => item.id === event.id);
     if (existing) {
       const sameIdentity = existing.projectId === event.projectId
@@ -59,7 +73,7 @@ export async function appendProjectHistoryEventOnce(
       }
       return false;
     }
-    await appendProjectHistoryEvent(root, event);
+    await appendProjectHistoryEventUnlocked(root, event);
     return true;
   }, { waitForMs: 2_000 });
 }
