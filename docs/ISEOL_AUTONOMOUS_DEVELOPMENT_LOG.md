@@ -4069,3 +4069,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `0ba5b14 fix: synchronize Idea Lab production reads`; merged by PR #144 with merge commit `db5cd327`.
 - Boundary: same-host/shared-root Idea Lab Production document read/mutation coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Project Work Request document read synchronization
+
+- Status: **B — Project Work Request public reads now wait on the canonical per-record durable lock, while live Runtime/provider execution remains unverified**. list reads use an internal unlocked helper after acquiring each record lock.
+- Evidence: `src/project-model/work-request.ts`, `src/project-model/work-request-lock.ts`, `tests/project-work-request.test.ts`.
+- TDD: RED reproduced `loadProjectWorkRequest` completing while its `record:<id>` lock was held; GREEN added the locked public read, preserved list/save/idempotency/claim/update/reconciliation boundaries, and added the record-read regression.
+- Verification: Work Request + Web Control Plane focused regression `33/33`; serial full test suite `747/747`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `5a9aa10 fix: synchronize work request reads`; merged by PR #146 with merge commit `b569e4e`.
+- Boundary: same-host/shared-root Project Work Request document read/write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
