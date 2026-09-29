@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CodingAttempt, CodingAttemptInput, CodingExercise, CodingExerciseInput, CodingPracticeResult, GoalInterpretation, LearningAnswerReceipt, LearningContentRequest, LearningFeedback, LearningFeedbackDispute, LearningFeedbackDisputeResult, LearningFeedbackEvaluation, LearningFeedbackEvaluationInput, LearningGoal, LearningGoalInput, LearningGoalSessionInput, LearningLessonBlock, LearningLessonContent, LearningLessonInput, LearningPlanAdjustment, LearningPlanAdjustmentInput, LearningPlanAdjustmentResult, LearningPlanInput, LearningPlanPreview, LearningPlanProposal, LearningPlanVersion, LearningProgress, LearningProjectApplication, LearningProjectApplicationInput, LearningReport, LearningReportPeriod, LearningService, LearningServiceOptions, LearningSessionAction, LearningSessionActionInput, ReviewItemInput, CodeAnalysisInput, StudyAttemptInput, LearningPlan, LearningPlanDay, LearningSession, LearningToday, ReviewItem, CodeAnalysisResult } from "./contracts.js";
-import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoals, listLearningPlanAdjustments, listLearningPlanVersions, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningReport, loadPlan, loadReview, loadSession, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveLearningGoal, saveLearningPlanVersion, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession } from "./store.js";
+import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listLearningAnswerReceipts, listLearningContentRequests, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanVersions, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listPlans, listReviews, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningContentRequest, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningReport, loadPlan, loadReview, loadSession, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningContentRequest, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveGoalInterpretation, saveLearningPlanVersion, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession } from "./store.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
 import { withDurableLearningProjectApplicationAcceptanceLock } from "./project-application-acceptance-lock.js";
@@ -52,9 +52,9 @@ function reportPeriod(input: { period: LearningReportPeriod }): LearningReportPe
   return { from: start, to: end, kind: input.period.kind };
 }
 function inReportPeriod(date: string, period: LearningReportPeriod): boolean { return date >= period.from && date <= period.to; }
-async function loadOwnerGoal(root: string, principal: Principal, goalId: string): Promise<LearningGoal | null> {
+async function loadOwnerGoal(root: string, principal: Principal, goalId: string, goalLockHeld = false): Promise<LearningGoal | null> {
   try { assertIdentityId(goalId); } catch { return null; }
-  const goal = await loadLearningGoal(root, principal.userId, goalId);
+  const goal = goalLockHeld ? await loadLearningGoalUnlocked(root, principal.userId, goalId) : await loadLearningGoal(root, principal.userId, goalId);
   return goal?.userId === principal.userId ? goal : null;
 }
 function nonEmpty(value: string, label: string, max = 500): string {
@@ -386,12 +386,12 @@ export function createLearningService(root: string, options: LearningServiceOpti
 
     async listLearningGoals(principal) {
       ensurePrincipal(principal);
-      const candidates = (await listLearningGoals(root, principal.userId)).filter((goal) => goal.userId === principal.userId);
+      const candidates = (await listLearningGoalsUnlocked(root, principal.userId)).filter((goal) => goal.userId === principal.userId);
       const current: LearningGoal[] = [];
       for (const candidate of candidates) {
         try { assertIdentityId(candidate.id); } catch { continue; }
         await withDurableLearningGoalLock(root, principal.userId, candidate.id, async () => {
-          const goal = await loadLearningGoal(root, principal.userId, candidate.id);
+          const goal = await loadLearningGoalUnlocked(root, principal.userId, candidate.id);
           if (goal?.userId === principal.userId) current.push(goal);
         }, { waitForMs: 2_000 });
       }
@@ -401,16 +401,16 @@ export function createLearningService(root: string, options: LearningServiceOpti
     async getLearningGoal(principal, goalId) {
       ensurePrincipal(principal);
       try { assertIdentityId(goalId); } catch { return null; }
-      return withDurableLearningGoalLock(root, principal.userId, goalId, () => loadOwnerGoal(root, principal, goalId), { waitForMs: 2_000 });
+      return withDurableLearningGoalLock(root, principal.userId, goalId, () => loadOwnerGoal(root, principal, goalId, true), { waitForMs: 2_000 });
     },
 
     async createLearningPlanPreview(principal, goalId, expectedRevision): Promise<LearningPlanPreview> {
       ensurePrincipal(principal);
-      const initialGoal = await withDurableLearningGoalLock(root, principal.userId, goalId, () => loadOwnerGoal(root, principal, goalId), { waitForMs: 2_000 });
+      const initialGoal = await withDurableLearningGoalLock(root, principal.userId, goalId, () => loadOwnerGoal(root, principal, goalId, true), { waitForMs: 2_000 });
       if (!initialGoal) throw new Error("Learning goal not found");
       if (expectedRevision !== undefined && expectedRevision !== initialGoal.revision) throw new Error("Learning goal revision conflict");
       return withDurableLearningPlanPreviewLock(root, principal.userId, goalId, () => withDurableLearningGoalLock(root, principal.userId, goalId, async () => {
-      const goal = await loadOwnerGoal(root, principal, goalId);
+      const goal = await loadOwnerGoal(root, principal, goalId, true);
       if (!goal) throw new Error("Learning goal not found");
       const existing = (await listLearningPlanVersions(root, principal.userId))
         .filter((plan) => plan.goalId === goal.id && plan.inputRevision === (goal.status === "preview-ready" ? goal.revision - 1 : goal.revision))
@@ -440,7 +440,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
         const plan = previewFromProposal(goal, at, proposal, planId, interpretation.id, timezone);
         await saveLearningPlanVersion(root, plan);
         const updatedGoal: LearningGoal = { ...goal, status: "preview-ready", revision: goal.revision + 1, updatedAt: at };
-        await saveLearningGoal(root, updatedGoal);
+        await saveLearningGoalUnlocked(root, updatedGoal);
         return { goal: updatedGoal, interpretation, plan, created: true };
       }
       const interpretation: GoalInterpretation = {
@@ -455,7 +455,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const plan = previewFor(goal, at, interpretation, "learning-plan-version-" + randomUUID(), principalTimezone(principal));
       await saveLearningPlanVersion(root, plan);
       const updatedGoal: LearningGoal = { ...goal, status: "preview-ready", revision: goal.revision + 1, updatedAt: at };
-      await saveLearningGoal(root, updatedGoal);
+      await saveLearningGoalUnlocked(root, updatedGoal);
       return { goal: updatedGoal, interpretation, plan, created: true };
       }, { waitForMs: 2_000 }), { waitForMs: 2_000 });
     },
@@ -530,7 +530,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
     async acceptLearningPlanAdjustment(principal, goalId, adjustmentId): Promise<LearningPlanAdjustmentResult> {
       ensurePrincipal(principal);
       return withDurableLearningPlanAdjustmentAcceptanceLock(root, principal.userId, goalId, adjustmentId, () => withDurableLearningGoalLock(root, principal.userId, goalId, async () => {
-      const goal = await loadOwnerGoal(root, principal, goalId);
+      const goal = await loadOwnerGoal(root, principal, goalId, true);
       if (!goal) throw new Error("Learning goal not found");
       try { assertIdentityId(adjustmentId); } catch { throw new Error("Learning plan adjustment not found"); }
       const adjustment = await loadLearningPlanAdjustment(root, principal.userId, adjustmentId);
@@ -553,7 +553,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const plan = adjustedPlanFrom(basePlan, updatedGoal, adjustment, planId, at, principalTimezone(principal));
       await saveLearningPlanVersion(root, { ...basePlan, status: "superseded", updatedAt: at });
       await saveLearningPlanVersion(root, plan);
-      await saveLearningGoal(root, updatedGoal);
+      await saveLearningGoalUnlocked(root, updatedGoal);
       const accepted: LearningPlanAdjustment = { ...adjustment, status: "accepted", acceptedPlanVersionId: plan.id, updatedAt: at };
       await saveLearningPlanAdjustment(root, accepted);
       return { adjustment: accepted, goal: updatedGoal, plan };
@@ -564,7 +564,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       ensurePrincipal(principal);
       try { assertIdentityId(goalId); } catch { return []; }
       return withDurableLearningGoalLock(root, principal.userId, goalId, async () => {
-        const goal = await loadOwnerGoal(root, principal, goalId);
+        const goal = await loadOwnerGoal(root, principal, goalId, true);
         if (!goal) return [];
         return (await listLearningPlanVersions(root, principal.userId)).filter((plan) => plan.userId === principal.userId && plan.goalId === goal.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       }, { waitForMs: 2_000 });
@@ -574,7 +574,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       ensurePrincipal(principal);
       try { assertIdentityId(goalId); assertIdentityId(versionId); } catch { return null; }
       return withDurableLearningGoalLock(root, principal.userId, goalId, async () => {
-        const goal = await loadOwnerGoal(root, principal, goalId);
+        const goal = await loadOwnerGoal(root, principal, goalId, true);
         if (!goal) return null;
         const plan = await loadLearningPlanVersion(root, principal.userId, versionId);
         return plan?.userId === principal.userId && plan.goalId === goal.id ? plan : null;
