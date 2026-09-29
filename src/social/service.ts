@@ -142,7 +142,11 @@ export function createSocialService(root: string, options: SocialServiceOptions)
       for (const request of requests.filter((item) => item.targetUserId === principal.userId && item.status === "pending")) {
         const visible = await withDurableSocialBlockLock(root, principal.userId, request.requesterUserId, async () => {
           if (await isBlocked(principal.userId, request.requesterUserId)) return null;
-          return { ...request, requester: await profileFor(request.requesterUserId) };
+          return withDurableFriendRequestLock(root, request.id, async () => {
+            const current = await loadFriendRequest(root, request.id);
+            if (!current || current.status !== "pending" || current.requesterUserId !== request.requesterUserId || current.targetUserId !== principal.userId) return null;
+            return { ...current, requester: await profileFor(current.requesterUserId) };
+          }, { waitForMs: 2_000 });
         }, { waitForMs: 2_000 });
         if (visible) result.push(visible);
       }

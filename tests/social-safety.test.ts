@@ -205,6 +205,36 @@ test("incoming friend request reads re-check social block state after waiting fo
   await holder;
 });
 
+test("incoming friend request reads re-check request state after waiting for the pair lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-social-incoming-request-read-lock-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  for (const id of ["incoming-request-state-requester", "incoming-request-state-target"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const social = createSocialService(platformRoot, { platformUserService: users, now: () => at });
+  const request = await social.createFriendRequest(principal("incoming-request-state-requester"), "incoming-request-state-target");
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableSocialBlockLock(platformRoot, "incoming-request-state-target", "incoming-request-state-requester", async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = social.listIncomingFriendRequests(principal("incoming-request-state-target")).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  await saveFriendRequest(platformRoot, { ...request.request, status: "accepted", updatedAt: "2026-09-27T15:00:01.000Z" });
+  release();
+  assert.deepEqual(await reading, []);
+  await holder;
+});
+
 test("profile list reads re-check social block state after waiting for the pair lock", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-social-profile-list-read-lock-"));
   const platformRoot = join(root, "platform");
