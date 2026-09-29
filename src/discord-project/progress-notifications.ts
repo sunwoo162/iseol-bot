@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { removeOwnedLock } from "../lock-utils.js";
 import { assertProjectModelId } from "../project-model/contracts.js";
+import { withDurableDiscordProgressNotificationLock } from "./progress-notification-lock.js";
 
 export type ProgressNotificationEvent = {
   id: string;
@@ -65,17 +66,25 @@ export function formatProgressNotification(event: ProgressNotificationEvent): Di
 
 export async function deliverProgressNotification(root: string, notification: DiscordProgressNotification): Promise<boolean> {
   if (!notification.projectId) return false;
-  const path = notificationFile(root, notification.projectId);
-  await mkdir(dirname(path), { recursive: true });
-  let existing: Array<{ eventId?: string }> = [];
-  try {
-    existing = (await readFile(path, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { eventId?: string });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  if (existing.some((item) => item.eventId === notification.eventId)) return false;
-  await appendFile(path, `${JSON.stringify(notification)}\n`, "utf8");
-  return true;
+  return withDurableDiscordProgressNotificationLock(
+    root,
+    notification.projectId,
+    notification.eventId,
+    async () => {
+      const path = notificationFile(root, notification.projectId!);
+      await mkdir(dirname(path), { recursive: true });
+      let existing: Array<{ eventId?: string }> = [];
+      try {
+        existing = (await readFile(path, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as { eventId?: string });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      if (existing.some((item) => item.eventId === notification.eventId)) return false;
+      await appendFile(path, `${JSON.stringify(notification)}\n`, "utf8");
+      return true;
+    },
+    { waitForMs: 2_000 },
+  );
 }
 
 /**
