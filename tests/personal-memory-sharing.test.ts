@@ -101,3 +101,36 @@ test("memory sharing re-checks active membership after waiting for the Team lock
   await assert.rejects(() => sharing, /active team member/i);
   assert.deepEqual((await memory.listPrivateMemories(owner, {}))[0]?.sharedTeamIds, []);
 });
+
+test("shared memory reads re-check active membership after waiting for the Team lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-memory-sharing-read-lock-"));
+  const teams = createTeamService(root, { now: () => at });
+  const memory = createMemoryService(root, { now: () => at, teamService: teams });
+  const owner = principal("memory-share-read-owner");
+  const member = principal("memory-share-read-member");
+  const team = await teams.createTeam(owner, { name: "공유 읽기 팀", description: "읽기 권한 재검증", kind: "project", visibility: "private", capacity: 4 });
+  await teams.addMember(team.id, member.userId, "member");
+  const record = await memory.appendPrivateMemory(owner, { kind: "private", content: "읽기 권한도 멤버십 스냅샷이 필요합니다." });
+  await memory.updatePrivateMemorySharing(owner, record.id, [team.id]);
+
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableTeamMembershipLock(root, team.id, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    }, { waitForMs: 2_000 });
+  });
+  await holderStarted;
+  let settled = false;
+  const reading = memory.listSharedMemories(member, team.id).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  const membership = await loadMembership(root, team.id, member.userId);
+  assert.ok(membership);
+  await saveMembership(root, { ...membership, status: "removed" });
+  releaseHolder();
+  assert.deepEqual(await reading, []);
+});

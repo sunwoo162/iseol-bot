@@ -78,12 +78,14 @@ export function createMemoryService(root: string, options: { now?: () => string;
       ensurePrincipal(principal);
       assertIdentityId(teamId);
       if (!options.teamService) return [];
-      const memberships = await options.teamService.listMemberships(teamId);
-      if (!activeHumanMember(teamId, principal.userId, memberships)) return [];
-      return (await listAllMemories(root))
-        .filter((record) => sharedTeamIds(record).includes(teamId) && record.visibility === "private")
-        .map(withSharing)
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+      return withDurableTeamMembershipLock(teamMembershipRoot, teamId, async () => {
+        const memberships = await options.teamService!.listMemberships(teamId);
+        if (!activeHumanMember(teamId, principal.userId, memberships)) return [];
+        return (await listAllMemories(root))
+          .filter((record) => sharedTeamIds(record).includes(teamId) && record.visibility === "private")
+          .map(withSharing)
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+      }, { waitForMs: 2_000 });
     },
 
     async updatePrivateMemory(principal, memoryId, patch: MemoryPatch): Promise<MemoryRecord | null> {
