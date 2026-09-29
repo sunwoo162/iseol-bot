@@ -894,7 +894,17 @@ export function createLearningService(root: string, options: LearningServiceOpti
       try { assertIdentityId(sessionId); } catch { return []; }
       const session = await loadSession(root, principal.userId, sessionId);
       if (!session || session.userId !== principal.userId) return [];
-      return (await listLearningSessionActions(root, principal.userId)).filter((action) => action.sessionId === session.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const candidates = (await listLearningSessionActions(root, principal.userId)).filter((action) => action.sessionId === session.id);
+      const current: LearningSessionAction[] = [];
+      for (const candidate of candidates) {
+        await withDurableLearningActionLock(root, principal.userId, session.id, candidate.actionId, async () => {
+          await withDurableLearningActionLock(root, principal.userId, session.id, candidate.id, async () => {
+            const action = (await listLearningSessionActions(root, principal.userId)).find((item) => item.id === candidate.id);
+            if (action?.userId === principal.userId && action.sessionId === session.id) current.push(action);
+          }, { waitForMs: 2_000 });
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     },
 
     async submitLearningAnswer(principal, sessionId, input): Promise<LearningAnswerReceipt> {
