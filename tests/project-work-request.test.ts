@@ -8,6 +8,7 @@ import {
   createProjectWorkRequest,
   executeProjectWorkRequest,
   inspectProjectWorkRequest,
+  loadProjectWorkRequest,
   reconcileProjectWorkRequest,
   scheduleProjectWorkRequests,
   listProjectWorkRequests,
@@ -68,6 +69,30 @@ test("work request listing waits for the canonical record lock", async () => {
 
   releaseHolder();
   assert.deepEqual((await listing).map((item) => item.id), ["work-record"]);
+});
+
+test("work request reads wait for the canonical record lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-request-read-lock-"));
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Build profile", objective: "Implement profile", idempotencyKey: "profile-read", at, id: "work-read" });
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableProjectWorkRequestLock(root, "project-1", "record:work-read", async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    });
+  });
+  await holderStarted;
+
+  let settled = false;
+  const reading = loadProjectWorkRequest(root, "project-1", "work-read").then((value) => {
+    settled = true;
+    return value;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  releaseHolder();
+  assert.equal((await reading)?.id, "work-read");
 });
 
 test("concurrent work request creation converges on one identity across service boundaries", async () => {
