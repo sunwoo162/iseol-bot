@@ -5,6 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createLearningService } from "../src/learning/service.js";
+import { withDurableLearningReportLock } from "../src/learning/report-lock.js";
+import { saveLearningReport } from "../src/learning/store.js";
 
 const at = "2026-09-27T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -37,6 +39,29 @@ test("learning report separates evidence-backed outcomes, self-reports, and rema
   const restarted = createLearningService(root, { now: () => at }) as typeof service & { listLearningReports: (principal: Principal, goalId: string) => Promise<any[]> };
   assert.equal((await restarted.listLearningReports(owner, goal.id)).length, 1);
   await assert.rejects(() => reportService.createLearningReport(owner, goal.id, { period: { from: "2026-09-28", to: "2026-09-27", kind: "custom" } }), /period/i);
+});
+
+test("learning report lists wait for each durable report lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-report-read-lock-"));
+  const owner = principal("report-read-lock-owner");
+  const service = createLearningService(root, { now: () => at });
+  const goal = await service.createLearningGoal(owner, { subjectText: "Report reads", duration: { days: 2 }, dailyMinutes: 20 });
+  const report = await service.createLearningReport(owner, goal.id, { period: { from: "2026-09-27", to: "2026-09-27", kind: "weekly" } });
+  const periodKey = JSON.stringify(report.report.period);
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableLearningReportLock(root, owner.userId, goal.id, periodKey, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let settled = false;
+  const read = service.listLearningReports(owner, goal.id).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await saveLearningReport(root, { ...report.report, summary: "잠금 해제 후 리포트", updatedAt: "2026-09-27T12:00:01.000Z" });
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await read)[0]?.summary, "잠금 해제 후 리포트");
 });
 
 test("learning report preserves coding practice as unverified evidence", async () => {
