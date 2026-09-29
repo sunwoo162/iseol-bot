@@ -88,4 +88,5 @@ export const saveLearningLink = (root: string, value: LearningLink) => saveJson(
 export const loadLearningLink = (root: string, userId: string, id: string) => loadJson<LearningLink>(pathFor(root, userId, "links", id));
 export const listLearningLinks = (root: string, userId: string) => listJson<LearningLink>(root, userId, "links");
 export const saveLearningReport = (root: string, value: LearningReport) => saveJson(pathFor(root, value.userId, "reports", value.id), value);
+export const loadLearningReport = (root: string, userId: string, id: string) => loadJson<LearningReport>(pathFor(root, userId, "reports", id));
 export const listLearningReports = (root: string, userId: string) => listJson<LearningReport>(root, userId, "reports");
