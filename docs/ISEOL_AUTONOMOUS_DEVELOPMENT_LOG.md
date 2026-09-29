@@ -2385,6 +2385,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root recruitment application and Team membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable AI Team membership authorization rechecks
+
+- Status: **B — AI Team proposal/discussion requests and proposal manager decisions now share the canonical Team membership lock and recheck active membership or manager authority after waiting; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A Team membership removal or status change that wins the lock while an AI Team mutation is waiting can no longer be bypassed by stale pre-lock authorization.
+- Evidence: `src/ai-team/contracts.ts`, `src/ai-team/service.ts`, `src/ai-team/discussion-service.ts`, `src/ai-team/proposal-lock.ts`, `src/ai-team/proposal-decision-lock.ts`, `src/ai-team/discussion-lock.ts`, `src/teams/membership-lock.ts`, `tests/ai-team-proposals.test.ts`, and `tests/ai-team-discussion.test.ts`.
+- TDD: RED held the Team membership lock, removed the owner while proposal request or acceptance waited, and showed the stale pre-lock path proceeding; GREEN added Team-lock wrappers and inside-lock project/member/manager rechecks. Discussion requests use the same boundary.
+- Verification: focused AI Team proposal/discussion/API `13/13`; user-product `381/381`; serial root `726/726`; backend `tsc` build, user UI build, isolated browser E2E, and `git diff --check` all passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes.
+- Implementation commit: follows as `fix: recheck ai team authority under team lock`. Documentation commit follows this implementation commit.
+- Boundary: same-host/shared-root AI Team membership authorization coordination only; no external provider/connector delivery, distributed locking, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Harness Run pause and resume synchronization
 
 - Status: **B — user-owned Harness Run pause/resume transitions now hold the Run mutation lock across read, compare-save, event, and checkpoint projection; isolated product behavior remains verified, while live Runtime/Agent execution remains unverified**.
