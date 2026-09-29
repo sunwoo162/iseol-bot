@@ -91,8 +91,15 @@ export async function listPrototypeCandidates(
 
   const candidates: PrototypeCandidate[] = [];
   for (const name of names.filter((entry) => entry.endsWith(".json")).sort()) {
-    const content = await readFile(resolve(directory, name), "utf8");
-    candidates.push(JSON.parse(content) as PrototypeCandidate);
+    const id = name.slice(0, -".json".length);
+    assertProjectModelId(id);
+    const candidate = await withDurablePrototypeLock(
+      root,
+      id,
+      () => loadPrototypeCandidate(root, id),
+      { waitForMs: 2_000 },
+    );
+    if (candidate) candidates.push(candidate);
   }
   return candidates.sort((a, b) =>
     a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
