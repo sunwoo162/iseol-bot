@@ -19,7 +19,7 @@ import type { IdeaProposal, PrototypeProduction } from "./contracts.js";
 import type { ProductionAdvanceResult } from "./campaign-supervisor.js";
 import type { PrototypeDeployAdapter, PrototypeDeploymentReceipt } from "./deploy-adapter.js";
 import { deployPrototypeProduction, materializePrototypeCandidate, verifyPrototypeProductionDeployment } from "./production-service.js";
-import { loadPrototypeProduction, savePrototypeProduction } from "./production-store.js";
+import { loadPrototypeProductionUnlocked as loadPrototypeProduction, savePrototypeProduction } from "./production-store.js";
 import { withDurableIdeaLabProductionLock } from "./production-lock.js";
 import { loadIdeaProposal } from "./proposal-store.js";
 import type { IdeaLabRuntimeConfig, IdeaLabRuntimeRoots } from "./runtime-config.js";
