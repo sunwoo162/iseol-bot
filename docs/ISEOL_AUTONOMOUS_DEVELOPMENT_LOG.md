@@ -4009,3 +4009,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `3463c63 fix: synchronize Idea Lab campaign event reads`; merged by PR #132 with merge commit `2d68f3c`.
 - Boundary: same-host/shared-root Idea Lab Campaign event log read/write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Project Work Request record read synchronization
+
+- Status: **B — Project Work Request saves and list reads now share a canonical per-record durable lock, while live Runtime/provider execution remains unverified**. Idempotency, update, and reconciliation locks remain separate outer coordination boundaries.
+- Evidence: `src/project-model/work-request.ts`, `src/project-model/work-request-lock.ts`, `tests/project-work-request.test.ts`.
+- TDD: RED reproduced `listProjectWorkRequests` completing while a `record:<id>` lock was held; GREEN made atomic saves and per-record list loads share that lock while preserving existing idempotency/update/reconciliation behavior.
+- Verification: Work Request regression `17/17`; serial full test suite `741/741`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `97c6522 fix: synchronize work request record reads`; merged by PR #134 with merge commit `a518806`.
+- Boundary: same-host/shared-root Project Work Request record read/write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
