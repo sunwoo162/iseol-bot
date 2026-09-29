@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { AchievementNotificationInput, AiCompletionNotificationInput, CommunityCommentNotificationInput, DirectMessageNotificationInput, NotificationService, NotificationStreamEvent, NotificationStreamListener, TeamInviteNotificationInput, TeamMessageNotificationInput, UserNotification } from "./contracts.js";
 import { withDurableNotificationLock } from "./notification-lock.js";
-import { listNotifications, listStreamEvents as listStoredStreamEvents, loadNotification, saveNotification, saveStreamEvent } from "./store.js";
+import { listNotificationsUnlocked, listStreamEvents as listStoredStreamEvents, loadNotificationUnlocked, saveNotification, saveNotificationUnlocked, saveStreamEvent } from "./store.js";
 
 function ensurePrincipal(principal: Principal): void {
   assertIdentityId(principal.userId);
@@ -36,11 +36,11 @@ export function createNotificationService(root: string, options: { now?: () => s
   return {
     async listNotifications(principal, listOptions = {}) {
       ensurePrincipal(principal);
-      const candidates = await listNotifications(root, principal.userId);
+      const candidates = await listNotificationsUnlocked(root, principal.userId);
       const all: UserNotification[] = [];
       for (const candidate of candidates) {
         await withNotificationLock(`${principal.userId}:notification:${candidate.id}`, async () => {
-          const current = await loadNotification(root, principal.userId, candidate.id);
+          const current = await loadNotificationUnlocked(root, principal.userId, candidate.id);
           if (current?.userId === principal.userId) all.push(current);
         });
       }
@@ -60,13 +60,13 @@ export function createNotificationService(root: string, options: { now?: () => s
       ensurePrincipal(principal);
       assertIdentityId(notificationId);
       return withNotificationLock(`${principal.userId}:notification:${notificationId}`, async () => {
-        const current = await loadNotification(root, principal.userId, notificationId);
+        const current = await loadNotificationUnlocked(root, principal.userId, notificationId);
         if (!current || current.userId !== principal.userId) throw new Error("Notification not found");
         if (current.readAt) return current;
         const at = now();
         assertTimestamp(at, "notification timestamp");
         const next: UserNotification = { ...current, readAt: at, updatedAt: at };
-        await saveNotification(root, next);
+        await saveNotificationUnlocked(root, next);
         await publish(principal.userId, "read", next.id, at);
         return next;
       });
@@ -89,7 +89,7 @@ export function createNotificationService(root: string, options: { now?: () => s
       assertIdentityId(input.commentId);
       assertIdentityId(input.actorUserId);
       return withNotificationLock(`${input.userId}:community-comment:${input.commentId}`, async () => {
-        const existing = (await listNotifications(root, input.userId)).find((item) => item.source.type === "community-comment" && item.source.id === input.commentId);
+        const existing = (await listNotificationsUnlocked(root, input.userId)).find((item) => item.source.type === "community-comment" && item.source.id === input.commentId);
         if (existing) return existing;
         const at = input.createdAt ?? now();
         assertTimestamp(at, "notification timestamp");
@@ -116,7 +116,7 @@ export function createNotificationService(root: string, options: { now?: () => s
       assertIdentityId(input.messageId);
       assertIdentityId(input.actorUserId);
       return withNotificationLock(`${input.userId}:team-message:${input.messageId}`, async () => {
-        const existing = (await listNotifications(root, input.userId)).find((item) => item.source.type === "team-message" && item.source.id === input.messageId);
+        const existing = (await listNotificationsUnlocked(root, input.userId)).find((item) => item.source.type === "team-message" && item.source.id === input.messageId);
         if (existing) return existing;
         const at = input.createdAt ?? now();
         assertTimestamp(at, "notification timestamp");
@@ -143,7 +143,7 @@ export function createNotificationService(root: string, options: { now?: () => s
       assertIdentityId(input.actorUserId);
       assertIdentityId(input.conversationUserId);
       return withNotificationLock(`${input.userId}:direct-message:${input.messageId}`, async () => {
-        const existing = (await listNotifications(root, input.userId)).find((item) => item.source.type === "direct-message" && item.source.id === input.messageId);
+        const existing = (await listNotificationsUnlocked(root, input.userId)).find((item) => item.source.type === "direct-message" && item.source.id === input.messageId);
         if (existing) return existing;
         const at = input.createdAt ?? now();
         assertTimestamp(at, "notification timestamp");
@@ -169,7 +169,7 @@ export function createNotificationService(root: string, options: { now?: () => s
       assertIdentityId(input.conversationId);
       assertIdentityId(input.messageId);
       return withNotificationLock(`${input.userId}:ai-completion:${input.messageId}`, async () => {
-        const existing = (await listNotifications(root, input.userId)).find((item) => item.source.type === "ai-completion" && item.source.id === input.messageId);
+        const existing = (await listNotificationsUnlocked(root, input.userId)).find((item) => item.source.type === "ai-completion" && item.source.id === input.messageId);
         if (existing) return existing;
         const at = input.createdAt ?? now();
         assertTimestamp(at, "notification timestamp");
@@ -196,7 +196,7 @@ export function createNotificationService(root: string, options: { now?: () => s
       assertIdentityId(input.applicationId);
       assertIdentityId(input.actorUserId);
       return withNotificationLock(`${input.userId}:team-invite:${input.applicationId}`, async () => {
-        const existing = (await listNotifications(root, input.userId)).find((item) => item.source.type === "team-invite" && item.source.id === input.applicationId);
+        const existing = (await listNotificationsUnlocked(root, input.userId)).find((item) => item.source.type === "team-invite" && item.source.id === input.applicationId);
         if (existing) return existing;
         const at = input.createdAt ?? now();
         assertTimestamp(at, "notification timestamp");
@@ -222,7 +222,7 @@ export function createNotificationService(root: string, options: { now?: () => s
       assertIdentityId(input.achievementId);
       assertIdentityId(input.evidenceEventId);
       return withNotificationLock(`${input.userId}:achievement:${input.achievementId}`, async () => {
-        const existing = (await listNotifications(root, input.userId)).find((item) => item.source.type === "achievement" && item.source.id === input.achievementId);
+        const existing = (await listNotificationsUnlocked(root, input.userId)).find((item) => item.source.type === "achievement" && item.source.id === input.achievementId);
         if (existing) return existing;
         const at = input.createdAt ?? now();
         assertTimestamp(at, "notification timestamp");
