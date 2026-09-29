@@ -2305,6 +2305,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root Discord Project binding 생성/삭제 mutation coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Personal Memory document synchronization
+
+- Status: **B — Personal Memory public reads, writes, lists, and deletes now coordinate through canonical per-memory locks, while live Runtime/provider execution remains unverified**. private/shared projections use unlocked helpers after acquiring the same memory lock.
+- Evidence: `src/memory/store.ts`, `src/memory/memory-lock.ts`, `src/memory/service.ts`, `tests/personal-memory-isolation.test.ts`, `tests/personal-memory-sharing.test.ts`.
+- TDD: RED reproduced public Memory access completing while the per-memory lock was held; GREEN added locked public store boundaries, fixed private/shared/update/delete reentrancy, and preserved bounded lock waiting.
+- Verification: Personal Memory isolation/sharing focused regression `11/11`; serial full test suite `752/752`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `f644546 fix: synchronize memory document store`; merged by PR #160 with merge commit `c872f4b`.
+- Boundary: same-host/shared-root Personal Memory document coordination and existing team-sharing ACL only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable AI Team Proposal/Discussion document synchronization
 
 - Status: **B — AI Team Proposal and Discussion public stores now coordinate reads and writes through canonical requestId locks, while live Runtime/provider execution remains unverified**. service request/list paths use internal unlocked helpers after acquiring the same lock.
