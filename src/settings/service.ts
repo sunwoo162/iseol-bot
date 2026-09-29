@@ -1,7 +1,7 @@
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { SettingsService, UserSettings, UserSettingsPatch } from "./contracts.js";
 import { withDurableSettingsLock } from "./settings-lock.js";
-import { loadSettings, saveSettings } from "./store.js";
+import { loadSettingsUnlocked, saveSettingsUnlocked } from "./store.js";
 
 const defaults: Omit<UserSettings, "version" | "userId" | "createdAt" | "updatedAt"> = {
   aiAccess: { memory: true, projectFiles: true, learningHistory: true, activityTimeline: true, teamDocs: false },
@@ -23,7 +23,7 @@ function booleanPatch<T extends Record<string, boolean>>(current: T, patch: Part
 export function createSettingsService(root: string, options: { now?: () => string } = {}): SettingsService {
   const now = options.now ?? (() => new Date().toISOString());
   async function readSettings(principal: Principal): Promise<UserSettings> {
-    const existing = await loadSettings(root, principal.userId);
+    const existing = await loadSettingsUnlocked(root, principal.userId);
     if (existing && existing.userId === principal.userId) {
       const normalized: UserSettings = {
         ...existing,
@@ -33,13 +33,13 @@ export function createSettingsService(root: string, options: { now?: () => strin
         privacy: { ...defaults.privacy, ...existing.privacy },
         integrations: { ...defaults.integrations, ...existing.integrations },
       };
-      if (JSON.stringify(normalized) !== JSON.stringify(existing)) await saveSettings(root, normalized);
+      if (JSON.stringify(normalized) !== JSON.stringify(existing)) await saveSettingsUnlocked(root, normalized);
       return normalized;
     }
     const at = now();
     assertTimestamp(at, "settings timestamp");
     const created: UserSettings = { version: 1, userId: principal.userId, ...defaults, createdAt: at, updatedAt: at };
-    await saveSettings(root, created);
+    await saveSettingsUnlocked(root, created);
     return created;
   }
   return {
@@ -63,7 +63,7 @@ export function createSettingsService(root: string, options: { now?: () => strin
           integrations: booleanPatch(current.integrations, patch.integrations, "integration"),
           updatedAt: at,
         };
-        await saveSettings(root, next);
+        await saveSettingsUnlocked(root, next);
         return next;
       }, { waitForMs: 2_000 });
     },
