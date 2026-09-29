@@ -64,7 +64,7 @@ export function createRecruitmentService(root: string, options: RecruitmentServi
       return withDurableTeamMembershipLock(root, initialPost.teamId, async () => withDurableRecruitmentApplicationLock(root, postId, principal.userId, async () => {
         const post = await loadPost(root, postId);
         if (!post || post.status !== "open") throw new Error("Recruitment post not found");
-        const team = await options.teamService.getTeam(principal, post.teamId);
+        const team = await options.teamService.getTeamWithinMembershipLock(principal, post.teamId);
         if (team?.members.some((member) => member.userId === principal.userId)) throw new Error("Already a team member");
         const existing = (await listApplications(root)).find((item) => item.postId === postId && item.applicantUserId === principal.userId && ["pending", "accepted"].includes(item.status));
         if (existing) return { application: existing, created: false };

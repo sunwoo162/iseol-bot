@@ -52,6 +52,15 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
     await saveTeam(root, { ...team, updatedAt: at });
     return membership;
   };
+  const getTeamWithinMembershipLock = async (principal: Principal, teamId: string): Promise<{ team: TeamRecord; members: TeamMembership[] } | null> => {
+    ensurePrincipal(principal);
+    assertIdentityId(teamId);
+    const team = await loadTeam(root, teamId);
+    if (!team || team.status !== "active") return null;
+    const membership = await getMembership(teamId, principal.userId);
+    if (team.visibility === "private" && !active(membership)) return null;
+    return { team, members: (await listMemberships(root, teamId)).filter((item) => item.status === "active").sort((a, b) => a.joinedAt.localeCompare(b.joinedAt)) };
+  };
 
   return {
     async createTeam(principal, input: TeamInput) {
@@ -87,12 +96,9 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
     async getTeam(principal, teamId) {
       ensurePrincipal(principal);
       try { assertIdentityId(teamId); } catch { return null; }
-      const team = await loadTeam(root, teamId);
-      if (!team || team.status !== "active") return null;
-      const membership = await getMembership(teamId, principal.userId);
-      if (team.visibility === "private" && !active(membership)) return null;
-      return { team, members: (await listMemberships(root, teamId)).filter((item) => item.status === "active").sort((a, b) => a.joinedAt.localeCompare(b.joinedAt)) };
+      return withDurableTeamMembershipLock(root, teamId, () => getTeamWithinMembershipLock(principal, teamId), { waitForMs: 2_000 });
     },
+    getTeamWithinMembershipLock,
 
     async listMemberships(teamId) { try { assertIdentityId(teamId); } catch { return []; } return (await listMemberships(root, teamId)).filter((item) => item.status === "active"); },
 

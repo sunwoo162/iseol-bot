@@ -16,7 +16,7 @@ export function createTeamChatService(root: string, options: TeamChatServiceOpti
   const requireMember = async (principal: Principal, teamId: string) => {
     ensurePrincipal(principal);
     assertIdentityId(teamId);
-    const view = await options.teamService.getTeam(principal, teamId);
+    const view = await options.teamService.getTeamWithinMembershipLock(principal, teamId);
     if (!view || !view.members.some((member) => member.memberType === "human" && member.userId === principal.userId && member.status === "active")) throw new Error("Team chat membership required");
     return view;
   };
