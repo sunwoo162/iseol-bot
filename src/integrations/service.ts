@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import { INTEGRATION_PROVIDERS, type IntegrationAdapter, type IntegrationDelivery, type IntegrationDeliveryInput, type IntegrationProvider, type IntegrationService } from "./contracts.js";
 import { withDurableIntegrationDeliveryLock } from "./delivery-lock.js";
-import { listIntegrationDeliveries, loadIntegrationDelivery, saveIntegrationDelivery } from "./store.js";
+import { listIntegrationDeliveriesUnlocked, loadIntegrationDeliveryUnlocked, saveIntegrationDeliveryUnlocked } from "./store.js";
 
 type IntegrationServiceOptions = {
   now?: () => string;
@@ -67,7 +67,7 @@ export function createIntegrationService(root: string, options: IntegrationServi
       assertTimestamp(at, "integration delivery timestamp");
       const id = `integration-delivery-${identity(principal.userId, input)}`;
       return withDeliveryLock(`${principal.userId}:${id}`, () => withDurableIntegrationDeliveryLock(root, principal.userId, id, async () => {
-        const existing = await loadIntegrationDelivery(root, principal.userId, id);
+        const existing = await loadIntegrationDeliveryUnlocked(root, principal.userId, id);
         if (existing) {
           if (!sameInput(existing, input)) throw new Error("Delivery identity conflict");
           return existing;
@@ -87,7 +87,7 @@ export function createIntegrationService(root: string, options: IntegrationServi
           createdAt: at,
           updatedAt: at,
         };
-        await saveIntegrationDelivery(root, delivery);
+        await saveIntegrationDeliveryUnlocked(root, delivery);
         return delivery;
       }, { waitForMs: 2_000 }));
     },
@@ -96,20 +96,20 @@ export function createIntegrationService(root: string, options: IntegrationServi
       ensurePrincipal(principal);
       assertIdentityId(deliveryId);
       return withDeliveryLock(`${principal.userId}:${deliveryId}`, () => withDurableIntegrationDeliveryLock(root, principal.userId, deliveryId, async () => {
-        const current = await loadIntegrationDelivery(root, principal.userId, deliveryId);
+        const current = await loadIntegrationDeliveryUnlocked(root, principal.userId, deliveryId);
         if (!current || current.userId !== principal.userId) throw new Error("Delivery not found");
         if (current.state !== "queued") return current;
         const at = now();
         assertTimestamp(at, "integration delivery timestamp");
         if (!await isOptedIn(principal.userId, current.provider)) {
           const blocked: IntegrationDelivery = { ...current, state: "blocked", reason: "user-opt-in-required", updatedAt: at };
-          await saveIntegrationDelivery(root, blocked);
+          await saveIntegrationDeliveryUnlocked(root, blocked);
           return blocked;
         }
         const adapter = adapters[current.provider];
         if (!adapter) {
           const unavailable: IntegrationDelivery = { ...current, state: "not-configured", reason: "provider-adapter-unconfigured", updatedAt: at };
-          await saveIntegrationDelivery(root, unavailable);
+          await saveIntegrationDeliveryUnlocked(root, unavailable);
           return unavailable;
         }
         const attempting: IntegrationDelivery = { ...current, attempts: current.attempts + 1, updatedAt: at };
@@ -119,17 +119,17 @@ export function createIntegrationService(root: string, options: IntegrationServi
             if (!result.externalRef.trim() || result.externalRef.length > 300 || /[\u0000-\u001f\u007f]/.test(result.externalRef)) throw new Error("Invalid provider reference");
             const delivered: IntegrationDelivery = { ...attempting, state: "delivered", externalRef: result.externalRef, updatedAt: now() };
             assertTimestamp(delivered.updatedAt, "integration delivery timestamp");
-            await saveIntegrationDelivery(root, delivered);
+            await saveIntegrationDeliveryUnlocked(root, delivered);
             return delivered;
           }
           const unknown: IntegrationDelivery = { ...attempting, state: "unknown", reason: "provider-error", updatedAt: now() };
           assertTimestamp(unknown.updatedAt, "integration delivery timestamp");
-          await saveIntegrationDelivery(root, unknown);
+          await saveIntegrationDeliveryUnlocked(root, unknown);
           return unknown;
         } catch {
           const unknown: IntegrationDelivery = { ...attempting, state: "unknown", reason: "provider-error", updatedAt: now() };
           assertTimestamp(unknown.updatedAt, "integration delivery timestamp");
-          await saveIntegrationDelivery(root, unknown);
+          await saveIntegrationDeliveryUnlocked(root, unknown);
           return unknown;
         }
       }, { waitForMs: 2_000 }));
@@ -138,10 +138,10 @@ export function createIntegrationService(root: string, options: IntegrationServi
     async listDeliveries(principal) {
       ensurePrincipal(principal);
       const current: IntegrationDelivery[] = [];
-      for (const candidate of await listIntegrationDeliveries(root, principal.userId)) {
+      for (const candidate of await listIntegrationDeliveriesUnlocked(root, principal.userId)) {
         try { assertIdentityId(candidate.id); } catch { continue; }
         await withDurableIntegrationDeliveryLock(root, principal.userId, candidate.id, async () => {
-          const delivery = await loadIntegrationDelivery(root, principal.userId, candidate.id);
+          const delivery = await loadIntegrationDeliveryUnlocked(root, principal.userId, candidate.id);
           if (delivery?.userId === principal.userId) current.push(delivery);
         }, { waitForMs: 2_000 });
       }
