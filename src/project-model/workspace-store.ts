@@ -13,7 +13,7 @@ function workspaceFile(root: string, id: string): string {
   return resolve(root, "projects", id, "project.json");
 }
 
-export async function saveProjectWorkspace(
+export async function saveProjectWorkspaceUnlocked(
   root: string,
   workspace: ProjectWorkspace,
 ): Promise<void> {
@@ -23,6 +23,18 @@ export async function saveProjectWorkspace(
   const temp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
   await writeFile(temp, JSON.stringify(workspace, null, 2), "utf8");
   await rename(temp, path);
+}
+
+export async function saveProjectWorkspace(
+  root: string,
+  workspace: ProjectWorkspace,
+): Promise<void> {
+  return withDurableProjectWorkspaceLock(
+    root,
+    workspace.id,
+    () => saveProjectWorkspaceUnlocked(root, workspace),
+    { waitForMs: 2_000 },
+  );
 }
 
 export async function loadProjectWorkspaceUnlocked(
@@ -95,7 +107,7 @@ export async function setProjectPurpose(
       purposeSelection: { version: 1, purpose: profile.purpose, selectedAt, source, profile },
       updatedAt: selectedAt,
     };
-    await saveProjectWorkspace(root, next);
+    await saveProjectWorkspaceUnlocked(root, next);
     await appendProjectHistoryEventOnce(root, {
       version: 1,
       id: `purpose-${projectId}-${profile.purpose}-${selectedAt}`,
