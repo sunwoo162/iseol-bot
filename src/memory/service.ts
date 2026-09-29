@@ -84,7 +84,7 @@ export function createMemoryService(root: string, options: { now?: () => string;
       assertIdentityId(teamId);
       if (!options.teamService) return [];
       return withDurableTeamMembershipLock(teamMembershipRoot, teamId, async () => {
-        const memberships = await options.teamService!.listMemberships(teamId);
+        const memberships = await options.teamService!.listMembershipsWithinMembershipLock(teamId);
         if (!activeHumanMember(teamId, principal.userId, memberships)) return [];
         const current: MemoryRecord[] = [];
         for (const candidate of await listAllMemories(root)) {
@@ -136,7 +136,7 @@ export function createMemoryService(root: string, options: { now?: () => string;
         if (nextTeamIds.length > 0) {
           if (!options.teamService) throw new Error("Memory sharing is unavailable");
           for (const teamId of nextTeamIds) {
-            const memberships = await options.teamService.listMemberships(teamId);
+            const memberships = await options.teamService.listMembershipsWithinMembershipLock(teamId);
             if (!activeHumanMember(teamId, principal.userId, memberships)) throw new Error("Active team member access is required for memory sharing");
           }
         }
