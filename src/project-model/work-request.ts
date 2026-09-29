@@ -78,7 +78,7 @@ export async function saveProjectWorkRequest(root: string, request: ProjectWorkR
   }), { waitForMs: 2_000 });
 }
 
-export async function loadProjectWorkRequest(root: string, projectId: string, id: string): Promise<ProjectWorkRequest | null> {
+export async function loadProjectWorkRequestUnlocked(root: string, projectId: string, id: string): Promise<ProjectWorkRequest | null> {
   try {
     const request = JSON.parse(await readFile(requestFile(root, projectId, id), "utf8")) as ProjectWorkRequest;
     validate(request);
@@ -87,6 +87,16 @@ export async function loadProjectWorkRequest(root: string, projectId: string, id
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function loadProjectWorkRequest(root: string, projectId: string, id: string): Promise<ProjectWorkRequest | null> {
+  return withDurableProjectWorkRequestLock(
+    root,
+    projectId,
+    `record:${id}`,
+    () => loadProjectWorkRequestUnlocked(root, projectId, id),
+    { waitForMs: 2_000 },
+  );
 }
 
 export async function listProjectWorkRequests(root: string, projectId: string): Promise<ProjectWorkRequest[]> {
@@ -104,7 +114,7 @@ export async function listProjectWorkRequests(root: string, projectId: string): 
       root,
       projectId,
       `record:${id}`,
-      () => loadProjectWorkRequest(root, projectId, id),
+      () => loadProjectWorkRequestUnlocked(root, projectId, id),
       { waitForMs: 2_000 },
     );
     if (request) result.push(request);
