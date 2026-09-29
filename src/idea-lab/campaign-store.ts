@@ -14,10 +14,14 @@ export async function saveIdeaLabCampaign(root: string, campaign: IdeaLabCampaig
   await writeIdeaLabJsonAtomic(campaignFile(root, campaign.id), campaign);
 }
 
-export async function loadIdeaLabCampaign(root: string, id: string): Promise<IdeaLabCampaign | null> {
+export async function loadIdeaLabCampaignUnlocked(root: string, id: string): Promise<IdeaLabCampaign | null> {
   const value = await readIdeaLabJson<IdeaLabCampaign>(campaignFile(root, id));
   if (value) assertIdeaLabCampaign(value);
   return value;
+}
+
+export async function loadIdeaLabCampaign(root: string, id: string): Promise<IdeaLabCampaign | null> {
+  return withDurableIdeaLabCampaignLock(root, id, () => loadIdeaLabCampaignUnlocked(root, id), { waitForMs: 2_000 });
 }
 
 export async function listIdeaLabCampaigns(root: string): Promise<IdeaLabCampaign[]> {
@@ -29,7 +33,7 @@ export async function listIdeaLabCampaigns(root: string): Promise<IdeaLabCampaig
     const campaign = await withDurableIdeaLabCampaignLock(
       root,
       id,
-      () => loadIdeaLabCampaign(root, id),
+      () => loadIdeaLabCampaignUnlocked(root, id),
       { waitForMs: 2_000 },
     );
     if (campaign) campaigns.push(campaign);

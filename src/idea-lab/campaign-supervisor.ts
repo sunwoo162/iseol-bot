@@ -1,5 +1,5 @@
 import type { IdeaLabCampaign, IdeaProposal, PrototypeProduction } from "./contracts.js";
-import { loadIdeaLabCampaign, saveIdeaLabCampaign } from "./campaign-store.js";
+import { loadIdeaLabCampaignUnlocked, saveIdeaLabCampaign } from "./campaign-store.js";
 import { loadIdeaProposal, saveIdeaProposal } from "./proposal-store.js";
 import { listPrototypeProductions, savePrototypeProduction } from "./production-store.js";
 import { appendIdeaLabCampaignEventOnce } from "./event-store.js";
@@ -290,7 +290,7 @@ async function superviseIdeaLabCampaignUnlocked(
   if (!Number.isInteger(proposalAttemptBudget) || proposalAttemptBudget <= 0) {
     throw new Error("Idea Lab proposalAttemptBudget must be positive");
   }
-  let campaign = await loadIdeaLabCampaign(input.root, input.campaignId);
+  let campaign = await loadIdeaLabCampaignUnlocked(input.root, input.campaignId);
   if (!campaign) throw new Error(`Idea Lab Campaign not found: ${input.campaignId}`);
   if (campaign.status === "complete" || campaign.status === "cancelled") return campaign;
   if (campaign.status === "blocked") return campaign;
@@ -321,7 +321,7 @@ async function superviseIdeaLabCampaignUnlocked(
       const advanced = await advanceOneProduction(input, campaign, active[0]!);
       steps += 1;
       if (advanced.blockedCampaign) return advanced.blockedCampaign;
-      campaign = (await loadIdeaLabCampaign(input.root, campaign.id))!;
+      campaign = (await loadIdeaLabCampaignUnlocked(input.root, campaign.id))!;
       if (advanced.directive === "yield") return campaign;
       continue;
     }
