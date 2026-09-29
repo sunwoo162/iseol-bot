@@ -2295,6 +2295,16 @@ This log records implementation and verification facts without secrets. It does 
 - Remaining boundary: this is a same-host/shared-root lock only; it does not claim a database/cross-machine coordinator, external push/provider delivery, provider-side exactly-once semantics, weekly digest scheduling, final approved design-source completeness, or AI Broadcast Room implementation.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable Platform User read synchronization
+
+- Status: **B — Platform User direct and list reads now acquire the canonical per-user lock before reloading owner-scoped profiles; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent profile update cannot leave user reads with an unlocked stale projection.
+- Evidence: `src/platform-user/service.ts`, `src/platform-user/user-lock.ts`, `src/platform-user/store.ts`, `tests/platform-user-isolation.test.ts`.
+- TDD: RED reproduced Platform User get/list reads completing while the user lock was held; GREEN added per-user lock/reload boundaries and verified the latest durable display name after release.
+- Verification: focused Platform User/auth/identity regression `21/21`; Iseol user-product `428/428`; serial root `726/726`; backend `tsc` build, user UI build, `git diff --check`, and isolated browser E2E passed. Browser coverage retained two-account isolation and responsive `[390,768,1024,1440]` coverage across `13` routes. A parallel root/browser attempt exposed one environment race; isolated root/browser reruns passed `726/726` and browser E2E completely.
+- Implementation commit: `cde49f0 fix: synchronize platform user reads`; merged by PR #82 with merge commit `6b52cde`.
+- Boundary: same-host/shared-root Platform User profile read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Study Space read synchronization
 
 - Status: **B — Study Space list and detail reads now keep the canonical Team membership → Study space lock ordering and reload the current accessible space after waiting; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent Study Space archive or membership change cannot leave reads with an unlocked stale active projection.
