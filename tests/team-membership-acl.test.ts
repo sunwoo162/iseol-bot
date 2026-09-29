@@ -118,3 +118,33 @@ test("team membership mutations re-check manager authority after waiting for the
   await Promise.all([holder, assert.rejects(() => addAi, /manager/i)]);
   assert.equal((await teams.listMemberships(team.id)).some((member) => member.aiMemberId === "manager-lock-agent"), false);
 });
+
+test("team list reads re-check private membership after waiting for the lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-team-list-read-lock-"));
+  const owner = principal("team-list-read-owner");
+  const teams = createTeamService(root, { now: () => at });
+  const team = await teams.createTeam(owner, { name: "List read team", description: "membership read recheck", kind: "project", visibility: "private", capacity: 3 });
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableTeamMembershipLock(root, team.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = teams.listTeams(owner).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  const membership = await loadMembership(root, team.id, owner.userId);
+  assert.ok(membership);
+  await saveMembership(root, { ...membership, status: "removed", updatedAt: at });
+  release();
+  assert.deepEqual(await reading, []);
+  await holder;
+});

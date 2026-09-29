@@ -46,9 +46,14 @@ export function createTeamService(root: string, options: TeamServiceOptions = {}
       const teams = await listTeams(root);
       const result: TeamListItem[] = [];
       for (const team of teams) {
-        if (team.status !== "active") continue;
-        const membership = await getMembership(team.id, principal.userId);
-        if (team.visibility === "public" || active(membership)) result.push({ ...team, ...(membership?.status === "active" ? { viewerRole: membership.role } : {}) });
+        const visible = await withDurableTeamMembershipLock(root, team.id, async () => {
+          const current = await loadTeam(root, team.id);
+          if (!current || current.status !== "active") return null;
+          const membership = await getMembership(current.id, principal.userId);
+          if (current.visibility !== "public" && !active(membership)) return null;
+          return { ...current, ...(membership?.status === "active" ? { viewerRole: membership.role } : {}) };
+        }, { waitForMs: 2_000 });
+        if (visible) result.push(visible);
       }
       return result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
     },
