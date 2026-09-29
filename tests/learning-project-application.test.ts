@@ -5,7 +5,9 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import type { UserProjectService } from "../src/project-model/user-project-service.js";
+import { withDurableLearningProjectApplicationAcceptanceLock } from "../src/learning/project-application-acceptance-lock.js";
 import { createLearningService } from "../src/learning/service.js";
+import { saveLearningProjectApplication } from "../src/learning/store.js";
 
 const at = "2026-09-27T18:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -63,6 +65,33 @@ test("learning project application fails closed for inaccessible projects and re
   await assert.rejects(() => service.createLearningProjectApplication(owner, goal.id, { projectId: "project-1", proposal: { title: "완료된 배포", objective: "push and deploy the finished work", acceptanceCriteria: ["done"], tests: ["pass"], estimatedEffort: 10 }, learningEvidenceRefs: [], requiredPermissions: [], actorAssignments: { human: "owner" } }), /project|execution|claim/i);
   const foreign = principal("foreign");
   await assert.rejects(() => service.createLearningProjectApplication(foreign, goal.id, { projectId: "project-1", proposal: { title: "연결", objective: "연결", acceptanceCriteria: ["확인"], tests: ["확인"], estimatedEffort: 10 }, learningEvidenceRefs: [], requiredPermissions: [], actorAssignments: { human: "owner" } }), /goal|not found/i);
+});
+
+test("learning project application lists wait for each durable acceptance lock before projecting state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-project-application-read-lock-"));
+  const owner = principal("learning-application-read-lock-owner");
+  const projects = projectStub(owner.userId, "project-1", []);
+  const service = createLearningService(root, { now: () => at, userProjectService: projects });
+  const goal = await service.createLearningGoal(owner, { subjectText: "Application reads", duration: { days: 2 }, dailyMinutes: 20 });
+  const proposal = await service.createLearningProjectApplication(owner, goal.id, {
+    projectId: "project-1",
+    proposal: { title: "Application", objective: "Read application state", acceptanceCriteria: ["one"], tests: ["one"], estimatedEffort: 10 },
+    learningEvidenceRefs: ["goal:" + goal.id], requiredPermissions: ["project.read"], actorAssignments: { human: "owner" },
+  });
+  let releaseHolder!: () => void;
+  const holderReleased = new Promise<void>((resolve) => { releaseHolder = resolve; });
+  const lockHeld = withDurableLearningProjectApplicationAcceptanceLock(root, owner.userId, goal.id, proposal.proposal.id, async () => holderReleased, { waitForMs: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  let settled = false;
+  const read = service.listLearningProjectApplications(owner, goal.id).then((result) => { settled = true; return result; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await saveLearningProjectApplication(root, { ...proposal.proposal, actorAssignments: { human: "updated-owner" } });
+  releaseHolder();
+  await lockHeld;
+  assert.equal((await read)[0]?.actorAssignments.human, "updated-owner");
 });
 
 test("concurrent learning project applications across service instances remain one proposal", async () => {
