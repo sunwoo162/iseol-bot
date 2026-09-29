@@ -5,6 +5,7 @@ import { assertIdentityId } from "../identity/contracts.js";
 import { renameWithTransientRetry } from "../desktop-agent/atomic-file.js";
 import type { CodeAnalysisResult, CodingAttempt, CodingExercise, GoalInterpretation, LearningAnswerReceipt, LearningContentRequest, LearningFeedback, LearningFeedbackDispute, LearningGoal, LearningLink, LearningPlan, LearningPlanAdjustment, LearningPlanVersion, LearningProjectApplication, LearningReport, LearningSession, LearningSessionAction, ReviewItem, StudyAttempt } from "./contracts.js";
 import { withDurableLearningGoalLock } from "./goal-lock.js";
+import { withDurableLearningSessionLock } from "./session-lock.js";
 
 type LearningKind = "goals" | "plans" | "plan-versions" | "interpretations" | "sessions" | "attempts" | "reviews" | "analyses" | "coding-exercises" | "coding-attempts" | "content-requests" | "actions" | "answers" | "feedback" | "disputes" | "adjustments" | "project-proposals" | "links" | "reports";
 function directory(root: string, userId: string, kind: LearningKind): string { assertIdentityId(userId); return resolve(root, "users", userId, "learning", kind); }
@@ -96,17 +97,34 @@ export async function listLearningPlanVersions(root: string, userId: string): Pr
 export const saveLearningPlanAdjustment = (root: string, value: LearningPlanAdjustment) => saveJson(pathFor(root, value.userId, "adjustments", value.id), value);
 export const loadLearningPlanAdjustment = (root: string, userId: string, id: string) => loadJson<LearningPlanAdjustment>(pathFor(root, userId, "adjustments", id));
 export const listLearningPlanAdjustments = (root: string, userId: string) => listJson<LearningPlanAdjustment>(root, userId, "adjustments");
-export const saveSession = (root: string, value: LearningSession) => saveJson(pathFor(root, value.userId, "sessions", value.id), value);
+export const saveSessionUnlocked = (root: string, value: LearningSession) => saveJson(pathFor(root, value.userId, "sessions", value.id), value);
+export const saveSession = (root: string, value: LearningSession) => withDurableLearningSessionLock(root, value.userId, value.id, () => saveSessionUnlocked(root, value), { waitForMs: 2_000 });
 function normalizeSession(value: LearningSession): LearningSession {
   const revision = Number.isInteger(value.revision) && value.revision >= 1 ? value.revision : 1;
   return { ...value, revision };
 }
-export async function loadSession(root: string, userId: string, id: string): Promise<LearningSession | null> {
+export async function loadSessionUnlocked(root: string, userId: string, id: string): Promise<LearningSession | null> {
   const value = await loadJson<LearningSession>(pathFor(root, userId, "sessions", id));
   return value ? normalizeSession(value) : null;
 }
-export async function listSessions(root: string, userId: string): Promise<LearningSession[]> {
+export async function loadSession(root: string, userId: string, id: string): Promise<LearningSession | null> {
+  const candidate = await loadSessionUnlocked(root, userId, id);
+  return candidate ? withDurableLearningSessionLock(root, userId, id, () => loadSessionUnlocked(root, userId, id), { waitForMs: 2_000 }) : null;
+}
+export async function listSessionsUnlocked(root: string, userId: string): Promise<LearningSession[]> {
   return (await listJson<LearningSession>(root, userId, "sessions")).map(normalizeSession);
+}
+export async function listSessions(root: string, userId: string): Promise<LearningSession[]> {
+  const candidates = await listSessionsUnlocked(root, userId);
+  const result: LearningSession[] = [];
+  for (const candidate of candidates) {
+    try { assertIdentityId(candidate.id); } catch { continue; }
+    await withDurableLearningSessionLock(root, userId, candidate.id, async () => {
+      const current = await loadSessionUnlocked(root, userId, candidate.id);
+      if (current?.userId === userId && current.id === candidate.id) result.push(current);
+    }, { waitForMs: 2_000 });
+  }
+  return result;
 }
 export const saveLearningContentRequest = (root: string, value: LearningContentRequest) => saveJson(pathFor(root, value.userId, "content-requests", value.id), value);
 export const loadLearningContentRequest = (root: string, userId: string, id: string) => loadJson<LearningContentRequest>(pathFor(root, userId, "content-requests", id));

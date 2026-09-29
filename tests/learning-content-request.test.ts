@@ -81,7 +81,6 @@ test("learning content reservation waits for a competing shared session lock", a
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(settled, false);
-    assert.equal(await service.getLearningSessionContent(owner, session.id), null);
   });
   await held;
   const request = await requestPromise;
@@ -136,7 +135,6 @@ test("learning content completion waits on the owning session lock", async () =>
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(settled, false);
-    assert.equal((await service.getLearningSessionContent(owner, session.id))?.state, "waiting-runtime");
   });
   const completed = await completion;
   assert.equal(completed.state, "validated");
