@@ -2315,6 +2315,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root recruitment application read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable notification list read synchronization
+
+- Status: **B — Notification list reads now acquire each notification's canonical identity lock before reloading the owner-scoped record; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. A concurrent mark-read operation cannot leave an authenticated inbox with an unlocked stale unread projection.
+- Evidence: `src/notifications/service.ts`, `src/notifications/notification-lock.ts`, `src/notifications/store.ts`, `tests/user-notifications.test.ts`, `tests/user-notifications-api.test.ts`, `tests/user-notifications-stream.test.ts`.
+- TDD: RED reproduced notification list reads completing while the notification identity lock was held; GREEN added per-notification lock/reload coordination and verified the latest `readAt` state after release.
+- Verification: notification/API/SSE focused regression `15/15`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `be27505 fix: synchronize notification list reads`; merged by PR #94 with merge commit `f71bc60`.
+- Boundary: same-host/shared-root notification list read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, push, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable shared memory lock-order alignment
 
 - Status: **B — Shared memory read and write paths now use one canonical Team membership → Memory lock order; isolated product behavior remains verified, while live Runtime/provider execution remains unverified**. The read hardening from PR #86 no longer has an inverse write order that could deadlock cross-service sharing operations.
