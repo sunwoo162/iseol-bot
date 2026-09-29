@@ -10,7 +10,7 @@ import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { createAiTeamDiscussionService } from "../src/ai-team/discussion-service.js";
 import { withDurableAiTeamDiscussionLock } from "../src/ai-team/discussion-lock.js";
-import { saveAiTeamDiscussion } from "../src/ai-team/discussion-store.js";
+import { loadAiTeamDiscussion, saveAiTeamDiscussion, saveAiTeamDiscussionUnlocked } from "../src/ai-team/discussion-store.js";
 import { createAiTeamProposalService } from "../src/ai-team/service.js";
 import { createUserRuntimeDispatchGate } from "../src/runtime/user-runtime-dispatch-gate.js";
 
@@ -56,10 +56,40 @@ test("AI team discussion lists wait for each durable discussion lock before proj
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  await saveAiTeamDiscussion(join(root, "ai-team"), { ...discussion, question: "잠금 해제 후 질문", updatedAt: "2026-09-27T14:00:01.000Z" });
+  await saveAiTeamDiscussionUnlocked(join(root, "ai-team"), { ...discussion, question: "잠금 해제 후 질문", updatedAt: "2026-09-27T14:00:01.000Z" });
   releaseHolder();
   await lockHeld;
   assert.equal((await read)[0]?.question, "잠금 해제 후 질문");
+
+  let releaseWriteHolder!: () => void;
+  const writeHolderStarted = new Promise<void>((resolve) => {
+    void withDurableAiTeamDiscussionLock(join(root, "ai-team"), project.id, discussion.requestId, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseWriteHolder = release; });
+    });
+  });
+  await writeHolderStarted;
+  let writeSettled = false;
+  const writing = saveAiTeamDiscussion(join(root, "ai-team"), { ...discussion, question: "공개 저장 대기 후 질문", updatedAt: "2026-09-27T14:00:02.000Z" }).then(() => { writeSettled = true; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(writeSettled, false);
+  releaseWriteHolder();
+  await writing;
+
+  let releaseReadHolder!: () => void;
+  const readHolderStarted = new Promise<void>((resolve) => {
+    void withDurableAiTeamDiscussionLock(join(root, "ai-team"), project.id, discussion.requestId, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseReadHolder = release; });
+    });
+  });
+  await readHolderStarted;
+  let directReadSettled = false;
+  const directRead = loadAiTeamDiscussion(join(root, "ai-team"), project.id, discussion.id).then((value) => { directReadSettled = true; return value; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(directReadSettled, false);
+  releaseReadHolder();
+  assert.equal((await directRead)?.question, "공개 저장 대기 후 질문");
 });
 
 test("AI team discussion without a local dispatcher stays durably waiting and membership is enforced", async () => {
