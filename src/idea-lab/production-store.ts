@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import type { PrototypeProduction } from "./contracts.js";
 import { assertIdeaLabId, assertPrototypeProduction } from "./contracts.js";
+import { withDurableIdeaLabProductionLock } from "./production-lock.js";
 import { ideaLabDirectory, listIdeaLabJsonFiles, readIdeaLabJson, writeIdeaLabJsonAtomic } from "./store-utils.js";
 
 function productionFile(root: string, id: string): string {
@@ -23,7 +24,14 @@ export async function listPrototypeProductions(root: string): Promise<PrototypeP
   const directory = ideaLabDirectory(root, "productions");
   const productions: PrototypeProduction[] = [];
   for (const name of await listIdeaLabJsonFiles(directory)) {
-    const production = await loadPrototypeProduction(root, name.slice(0, -5));
+    const id = name.slice(0, -5);
+    assertIdeaLabId(id);
+    const production = await withDurableIdeaLabProductionLock(
+      root,
+      id,
+      () => loadPrototypeProduction(root, id),
+      { waitForMs: 2_000 },
+    );
     if (production) productions.push(production);
   }
   return productions.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));

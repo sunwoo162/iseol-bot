@@ -54,7 +54,8 @@ export async function withDurableIdeaLabProductionLock<T>(
   while (true) {
     try { handle = await open(path, "wx"); break; }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EEXIST" && code !== "EPERM") throw error;
       if (await removeDeadOwnerLock(path)) continue;
       if (waitForMs <= 0 || Date.now() >= deadline) throw new Error("Idea Lab production mutation conflict");
       await new Promise((resolve) => setTimeout(resolve, Math.min(pollIntervalMs, Math.max(1, deadline - Date.now()))));
