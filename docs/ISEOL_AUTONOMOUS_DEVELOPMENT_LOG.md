@@ -3919,3 +3919,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `15bc1f3 fix: synchronize Discord project status reads`; merged by PR #114 with merge commit `f02d20e`.
 - Boundary: same-host/shared-root Discord Project status read coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-29 continuation: durable Discord Project bind validation synchronization
+
+- Status: **B — Discord Project bind now keeps active Workspace/root validation and binding creation inside the canonical Workspace lock, while live Runtime/provider execution remains unverified**. A Workspace transition cannot race the bind command between validation and binding write.
+- Evidence: `src/discord-project/project-command-actions.ts`, `src/commands/project.ts`, `src/project-model/workspace-lock.ts`, `tests/discord-project-command-actions.test.ts`.
+- TDD: RED reproduced bind completion while the Project Workspace lock was held; GREEN added the optional workspace-root lock boundary, wired the real command root, and verified binding only proceeds after release.
+- Verification: Discord Project related regression `45/45`; serial full test suite `732/732`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `06823c3 fix: synchronize Discord project binding validation`; merged by PR #116 with merge commit `a494bcd`.
+- Boundary: same-host/shared-root Discord Project bind validation and binding-write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
