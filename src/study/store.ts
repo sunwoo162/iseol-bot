@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { assertIdentityId } from "../identity/contracts.js";
 import type { CurriculumLink, StudySpace, StudyTask, StudyTaskSubmission } from "./contracts.js";
+import { withDurableStudySubmissionLock } from "./submission-lock.js";
 
 function studyPath(root: string, studySpaceId: string): string { assertIdentityId(studySpaceId); return resolve(root, "studies", studySpaceId, "study.json"); }
 function linkPath(root: string, studySpaceId: string, linkId: string): string { assertIdentityId(studySpaceId); assertIdentityId(linkId); return resolve(root, "studies", studySpaceId, "curriculum-links", `${linkId}.json`); }
@@ -44,5 +45,7 @@ export const listCurriculumLinks = (root: string, studySpaceId: string) => listJ
 export const saveStudyTask = (root: string, value: StudyTask) => saveJson(taskPath(root, value.studySpaceId, value.id), value);
 export const loadStudyTask = (root: string, studySpaceId: string, taskId: string) => loadJson<StudyTask>(taskPath(root, studySpaceId, taskId));
 export const listStudyTasks = (root: string, studySpaceId: string) => listJson<StudyTask>(resolve(root, "studies", studySpaceId, "tasks"));
-export const saveTaskSubmission = (root: string, value: StudyTaskSubmission) => saveJson(submissionPath(root, value.studySpaceId, value.taskId, value.userId), value);
-export const loadTaskSubmission = (root: string, studySpaceId: string, taskId: string, userId: string) => loadJson<StudyTaskSubmission>(submissionPath(root, studySpaceId, taskId, userId));
+export const saveTaskSubmissionUnlocked = (root: string, value: StudyTaskSubmission) => saveJson(submissionPath(root, value.studySpaceId, value.taskId, value.userId), value);
+export const saveTaskSubmission = (root: string, value: StudyTaskSubmission) => withDurableStudySubmissionLock(root, value.studySpaceId, value.taskId, value.userId, () => saveTaskSubmissionUnlocked(root, value), { waitForMs: 2_000 });
+export const loadTaskSubmissionUnlocked = (root: string, studySpaceId: string, taskId: string, userId: string) => loadJson<StudyTaskSubmission>(submissionPath(root, studySpaceId, taskId, userId));
+export const loadTaskSubmission = (root: string, studySpaceId: string, taskId: string, userId: string) => withDurableStudySubmissionLock(root, studySpaceId, taskId, userId, () => loadTaskSubmissionUnlocked(root, studySpaceId, taskId, userId), { waitForMs: 2_000 });

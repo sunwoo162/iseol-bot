@@ -11,7 +11,7 @@ import { withDurableStudySpaceLock } from "../src/study/space-lock.js";
 import { withDurableStudySubmissionLock } from "../src/study/submission-lock.js";
 import { loadMembershipUnlocked, saveMembershipUnlocked } from "../src/teams/store.js";
 import { createStudyService } from "../src/study/service.js";
-import { saveStudySpace, saveTaskSubmission } from "../src/study/store.js";
+import { saveStudySpace, saveTaskSubmissionUnlocked } from "../src/study/store.js";
 
 const at = "2026-09-27T14:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -273,7 +273,7 @@ test("study space reads wait for each personal submission lock and reload curren
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  await saveTaskSubmission(join(platformRoot, "study"), { ...submission, answer: "After", updatedAt: at });
+  await saveTaskSubmissionUnlocked(join(platformRoot, "study"), { ...submission, answer: "After", updatedAt: at });
   release();
   await holder;
   assert.equal((await reading)?.mySubmissions[0]?.answer, "After");
