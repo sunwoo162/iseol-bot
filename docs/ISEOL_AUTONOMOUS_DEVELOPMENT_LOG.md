@@ -2305,6 +2305,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root Discord Project binding 생성/삭제 mutation coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-29 continuation: durable AI Team Proposal/Discussion document synchronization
+
+- Status: **B — AI Team Proposal and Discussion public stores now coordinate reads and writes through canonical requestId locks, while live Runtime/provider execution remains unverified**. service request/list paths use internal unlocked helpers after acquiring the same lock.
+- Evidence: `src/ai-team/store.ts`, `src/ai-team/discussion-store.ts`, `src/ai-team/proposal-lock.ts`, `src/ai-team/discussion-lock.ts`, `src/ai-team/service.ts`, `src/ai-team/discussion-service.ts`, `tests/ai-team-proposals.test.ts`, `tests/ai-team-discussion.test.ts`.
+- TDD: RED reproduced public Proposal/Discussion store access completing while the request lock was held; GREEN added locked public read/write/list boundaries, fixed request/list projection reentrancy, and preserved bounded EPERM retry.
+- Verification: AI Team Proposal/Discussion focused regression `13/13`; serial full test suite `752/752` on rerun after one non-reproduced flaky first run; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `567acc9 fix: synchronize AI team document stores`; merged by PR #158 with merge commit `7d323f9`.
+- Boundary: same-host/shared-root AI Team Proposal/Discussion document coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-29 continuation: durable Project Workspace document write synchronization
 
 - Status: **B — Project Workspace public writes now wait on the canonical durable Workspace lock, while live Runtime/provider execution remains unverified**. purpose/team/task/Run attachment paths use an internal unlocked helper after acquiring the same lock.
