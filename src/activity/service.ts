@@ -76,14 +76,24 @@ export function createActivityService(root: string, options: { now?: () => strin
 
     async listActivityEvents(principal): Promise<ActivityEvent[]> {
       ensurePrincipal(principal);
-      return (await listActivityEvents(root, principal.userId)).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
+      const candidates = await listActivityEvents(root, principal.userId);
+      const current: ActivityEvent[] = [];
+      for (const candidate of candidates) {
+        await withDurableActivityEventLock(root, principal.userId, candidate.id, async () => {
+          const event = await loadActivityEvent(root, principal.userId, candidate.id);
+          if (event?.userId === principal.userId) current.push(event);
+        }, { waitForMs: 2_000 });
+      }
+      return current.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
     },
 
     async getActivityEvent(principal, eventIdValue): Promise<ActivityEvent | null> {
       ensurePrincipal(principal);
       try { assertIdentityId(eventIdValue); } catch { return null; }
-      const event = await loadActivityEvent(root, principal.userId, eventIdValue);
-      return event?.userId === principal.userId ? event : null;
+      return withDurableActivityEventLock(root, principal.userId, eventIdValue, async () => {
+        const event = await loadActivityEvent(root, principal.userId, eventIdValue);
+        return event?.userId === principal.userId ? event : null;
+      }, { waitForMs: 2_000 });
     },
 
     async retractActivityEvent(principal, eventIdValue, at = now()): Promise<ActivityEvent> {
