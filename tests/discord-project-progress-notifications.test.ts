@@ -75,3 +75,31 @@ test("direct progress delivery waits for the durable event lock", async () => {
   assert.equal(await delivering, true);
   await holder;
 });
+
+test("direct delivery and adapter dispatch share one event lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-discord-concurrent-"));
+  const notification = formatProgressNotification({ id: "evt-shared", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "done" })!;
+  let sendStarted!: () => void;
+  let releaseSend!: () => void;
+  const started = new Promise<void>((resolve) => { sendStarted = resolve; });
+  const sendReleased = new Promise<void>((resolve) => { releaseSend = resolve; });
+  const dispatching = dispatchProgressNotification(root, notification, {
+    send: async () => {
+      sendStarted();
+      await sendReleased;
+      return { accepted: true, messageId: "message-shared" };
+    },
+  });
+  await started;
+
+  let completed = false;
+  const delivering = deliverProgressNotification(root, notification).finally(() => { completed = true; });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(completed, false);
+
+  releaseSend();
+  assert.equal((await dispatching).status, "accepted");
+  assert.equal(await delivering, false);
+  const file = await readFile(join(root, "discord-notifications", "project-1", "delivered.jsonl"), "utf8");
+  assert.equal(file.trim().split(/\r?\n/).length, 1);
+});
