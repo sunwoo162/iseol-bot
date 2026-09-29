@@ -7,7 +7,8 @@ import type { Principal } from "../src/identity/contracts.js";
 import { createActivityService } from "../src/activity/service.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createRecruitmentService } from "../src/recruitment/service.js";
-import { savePost } from "../src/recruitment/store.js";
+import { withDurableRecruitmentReviewLock } from "../src/recruitment/review-lock.js";
+import { saveApplication, savePost } from "../src/recruitment/store.js";
 import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
 import { loadMembership, saveMembership } from "../src/teams/store.js";
 import { createTeamService } from "../src/teams/service.js";
@@ -180,4 +181,38 @@ test("recruitment post lists wait for the Team lock and reload current status", 
   release();
   assert.deepEqual(await listing, []);
   await holder;
+});
+
+test("recruitment post reads wait for each application review lock and reload current state", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-recruitment-application-read-lock-"));
+  const platform = join(root, "platform");
+  const users = createPlatformUserService(platform, { now: () => at });
+  for (const id of ["recruit-application-read-owner", "recruit-application-read-applicant"]) await users.createUser({ id, email: `${id}@example.com`, displayName: id, timezone: "Asia/Seoul" });
+  const teams = createTeamService(platform, { now: () => at });
+  const recruitment = createRecruitmentService(platform, { teamService: teams, now: () => at });
+  const team = await teams.createTeam(principal("recruit-application-read-owner"), { name: "Application read team", description: "reload review state", kind: "project", visibility: "public", capacity: 3 });
+  const post = await recruitment.createPost(principal("recruit-application-read-owner"), { teamId: team.id, kind: "project", title: "Application read post", description: "reload applications", roles: ["member"], tags: [] });
+  const application = (await recruitment.apply(principal("recruit-application-read-applicant"), post.id, "Please review me.")).application;
+
+  let release!: () => void;
+  let acquired!: () => void;
+  const holderAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const holder = withDurableRecruitmentReviewLock(platform, application.id, async () => {
+    acquired();
+    await new Promise<void>((resolve) => { release = resolve; });
+  }, { waitForMs: 0 });
+  await holderAcquired;
+
+  let settled = false;
+  const reading = recruitment.getPost(principal("recruit-application-read-owner"), post.id).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+
+  await saveApplication(platform, { ...application, status: "accepted", updatedAt: at });
+  release();
+  await holder;
+  assert.equal((await reading)?.applications[0]?.status, "accepted");
 });

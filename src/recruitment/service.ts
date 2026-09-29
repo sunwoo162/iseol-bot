@@ -30,13 +30,30 @@ export function createRecruitmentService(root: string, options: RecruitmentServi
     async getPost(principal, postId) {
       ensurePrincipal(principal); try { assertIdentityId(postId); } catch { return null; }
       const initialPost = await loadPost(root, postId); if (!initialPost) return null;
-      return withDurableTeamMembershipLock(root, initialPost.teamId, async () => {
+      const readPostContext = () => withDurableTeamMembershipLock(root, initialPost.teamId, async () => {
         const post = await loadPost(root, postId);
         if (!post) return null;
         const canSeeApplications = await options.teamService.isManager(principal, post.teamId);
         if (!canSeeApplications && post.status !== "open") return null;
-        return { post, applications: canSeeApplications ? (await listApplications(root)).filter((item) => item.postId === post.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : [] };
+        return { post, canSeeApplications };
       }, { waitForMs: 2_000 });
+      const initialContext = await readPostContext();
+      if (!initialContext || !initialContext.canSeeApplications) return initialContext ? { post: initialContext.post, applications: [] } : null;
+      const candidates = (await listApplications(root)).filter((item) => item.postId === initialContext.post.id);
+      const applications = [] as NonNullable<Awaited<ReturnType<typeof loadApplication>>>[];
+      for (const candidate of candidates) {
+        const current = await withDurableRecruitmentReviewLock(root, candidate.id, async () => {
+          const context = await readPostContext();
+          if (!context || !context.canSeeApplications) return null;
+          const application = await loadApplication(root, candidate.id);
+          if (!application || application.postId !== context.post.id) return null;
+          return application;
+        }, { waitForMs: 2_000 });
+        if (current) applications.push(current);
+      }
+      const finalContext = await readPostContext();
+      if (!finalContext) return null;
+      return { post: finalContext.post, applications: finalContext.canSeeApplications ? applications.sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : [] };
     },
     async apply(principal, postId, message) {
       ensurePrincipal(principal);
