@@ -13,7 +13,7 @@ import { createSettingsService } from "../src/settings/service.js";
 import { createSocialService } from "../src/social/service.js";
 import { createTeamChatService } from "../src/team-chat/service.js";
 import { createTeamService } from "../src/teams/service.js";
-import { saveNotification } from "../src/notifications/store.js";
+import { loadNotification, saveNotification, saveNotificationUnlocked, saveStreamEvent } from "../src/notifications/store.js";
 
 const at = "2026-09-27T13:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -142,12 +142,82 @@ test("notification list waits for each durable identity lock and reloads current
 
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveNotification(root, { ...created, readAt: at, updatedAt: at });
+  await saveNotificationUnlocked(root, { ...created, readAt: at, updatedAt: at });
   await handle.close();
   await unlink(lockPath);
   const listed = await pending;
   assert.equal(listed.unreadCount, 0);
   assert.equal(listed.notifications[0]?.readAt, at);
+});
+
+test("public notification store reads and writes wait for the identity lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-notification-store-lock-"));
+  const userId = "notification-store-lock-owner";
+  const notifications = createNotificationService(root, { now: () => at });
+  const created = await notifications.createDirectMessageNotification({ userId, messageId: "store-lock-message", actorUserId: "store-lock-sender", conversationUserId: "store-lock-sender" });
+  const lockKey = `${userId}:notification:${created.id}`;
+  const lockPath = join(root, ".locks", "notifications", `${createHash("sha256").update(lockKey).digest("hex")}.lock`);
+  await mkdir(dirname(lockPath), { recursive: true });
+  const handle = await open(lockPath, "wx");
+  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token: "test-store-lock", createdAt: at }), "utf8");
+  let saveSettled = false;
+  const pendingSave = saveNotification(root, { ...created, readAt: at, updatedAt: at }).then(() => { saveSettled = true; });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(saveSettled, false);
+  await handle.close();
+  await unlink(lockPath);
+  await pendingSave;
+
+  const readHandle = await open(lockPath, "wx");
+  await readHandle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token: "test-store-read-lock", createdAt: at }), "utf8");
+  let loadSettled = false;
+  const pendingLoad = loadNotification(root, userId, created.id).then((value) => {
+    loadSettled = true;
+    return value;
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(loadSettled, false);
+  await readHandle.close();
+  await unlink(lockPath);
+  assert.equal((await pendingLoad)?.readAt, at);
+});
+
+test("public stream event store reads and writes wait for the event lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-notification-stream-store-lock-"));
+  const userId = "notification-stream-store-lock-owner";
+  const notifications = createNotificationService(root, { now: () => at });
+  await notifications.createDirectMessageNotification({ userId, messageId: "stream-store-lock-message", actorUserId: "stream-store-lock-sender", conversationUserId: "stream-store-lock-sender" });
+  const event = (await notifications.listStreamEvents(userId))[0]!;
+  const lockKey = `${userId}:stream-event:${event.id}`;
+  const lockPath = join(root, ".locks", "notifications", `${createHash("sha256").update(lockKey).digest("hex")}.lock`);
+  await mkdir(dirname(lockPath), { recursive: true });
+  const handle = await open(lockPath, "wx");
+  await handle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token: "test-stream-store-lock", createdAt: at }), "utf8");
+  const updatedEvent = { ...event, occurredAt: "2026-09-27T13:01:00.000Z" };
+  let saveSettled = false;
+  const pendingSave = saveStreamEvent(root, userId, updatedEvent).then(() => { saveSettled = true; });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(saveSettled, false);
+  await handle.close();
+  await unlink(lockPath);
+  await pendingSave;
+
+  const listHandle = await open(lockPath, "wx");
+  await listHandle.writeFile(JSON.stringify({ version: 1, pid: process.pid, token: "test-stream-list-lock", createdAt: at }), "utf8");
+  let listSettled = false;
+  const pendingList = notifications.listStreamEvents(userId).then((value) => {
+    listSettled = true;
+    return value;
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(listSettled, false);
+  await listHandle.close();
+  await unlink(lockPath);
+  assert.equal((await pendingList)[0]?.occurredAt, updatedEvent.occurredAt);
 });
 
 test("community comment notifications are bounded and idempotent by comment identity", async () => {
