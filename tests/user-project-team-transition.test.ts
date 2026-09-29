@@ -9,6 +9,8 @@ import { createTeamService } from "../src/teams/service.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { loadProjectWorkspace } from "../src/project-model/workspace-store.js";
 import { withDurableProjectWorkspaceLock } from "../src/project-model/workspace-lock.js";
+import { withDurableTeamMembershipLock } from "../src/teams/membership-lock.js";
+import { loadMembership, saveMembership } from "../src/teams/store.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -85,4 +87,46 @@ test("project team transition waits for the durable Workspace mutation lock", as
   const updated = await transition;
   assert.equal(updated.teamMode, "human");
   assert.equal(updated.teamId, team.id);
+});
+
+test("project team transition re-checks team access after waiting for the Team membership lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-project-team-membership-lock-"));
+  const platformRoot = join(root, "platform");
+  const projectModelRoot = join(root, "project-model");
+  const teams = createTeamService(platformRoot, { now: () => at });
+  const team = await teams.createTeam(principal("owner"), { name: "Membership race", description: "access recheck", kind: "project", visibility: "private", capacity: 4 });
+  await teams.addMember(team.id, "owner", "owner");
+  const options = {
+    platformRoot,
+    projectModelRoot,
+    projectHarnessRoot: join(root, "runs"),
+    iseolRoot: root,
+    canAccessTeam: async (viewer: Principal, teamId: string) => teams.canAccess(viewer, teamId),
+    now: () => at,
+  };
+  const projects = createUserProjectService(options);
+  const project = await projects.createProject(principal("owner"), { name: "Membership transition", objective: "recheck team access", purpose: "rapid-prototype", teamMode: "solo" });
+  let releaseHolder!: () => void;
+  const holderStarted = new Promise<void>((resolve) => {
+    void withDurableTeamMembershipLock(platformRoot, team.id, async () => {
+      resolve();
+      await new Promise<void>((release) => { releaseHolder = release; });
+    }, { waitForMs: 2_000 });
+  });
+  await holderStarted;
+  let settled = false;
+  const transition = projects.updateProjectTeam(principal("owner"), project.id, { teamMode: "human", teamId: team.id }).then((result) => {
+    settled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(settled, false);
+  const membership = await loadMembership(platformRoot, team.id, "owner");
+  assert.ok(membership);
+  await saveMembership(platformRoot, { ...membership, status: "removed" });
+  releaseHolder();
+  await assert.rejects(() => transition, /Team access required/);
+  const current = await loadMembership(platformRoot, team.id, "owner");
+  assert.equal(current?.status, "removed");
+  assert.equal((await projects.getProject(principal("owner"), project.id))?.project.teamMode, "solo");
 });

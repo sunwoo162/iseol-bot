@@ -24,6 +24,7 @@ import { listUserProjectWorkspaceFiles, readUserProjectWorkspaceFile, type UserP
 import { withDurableProjectScheduleLock } from "./schedule-lock.js";
 import { withDurableProjectWorkRequestRunLock } from "./work-request-lock.js";
 import { withDurableProjectWorkspaceLock } from "./workspace-lock.js";
+import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
 import type { ActivityService } from "../activity/contracts.js";
 import type { GrowthService } from "../growth/contracts.js";
 import type { SettingsService } from "../settings/contracts.js";
@@ -68,7 +69,7 @@ export type UserProjectService = {
   updateProjectTeam(principal: Principal, projectId: string, input: { teamMode: UserProjectTeamMode; teamId?: string }): Promise<UserProject>;
 };
 
-export type UserProjectServiceOptions = { platformRoot: string; projectModelRoot: string; projectHarnessRoot: string; iseolRoot: string; canAccessTeam?: (principal: Principal, teamId: string) => Promise<boolean>; activityService?: ActivityService; growthService?: GrowthService; settingsService?: SettingsService; now?: () => string };
+export type UserProjectServiceOptions = { platformRoot: string; projectModelRoot: string; projectHarnessRoot: string; iseolRoot: string; teamMembershipRoot?: string; canAccessTeam?: (principal: Principal, teamId: string) => Promise<boolean>; activityService?: ActivityService; growthService?: GrowthService; settingsService?: SettingsService; now?: () => string };
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
 function required(value: string, label: string, max: number): string { const trimmed = value.trim(); if (!trimmed || trimmed.length > max) throw new Error(`${label} is required`); return trimmed; }
@@ -144,6 +145,8 @@ function initialWorkspace(project: UserProject, at: string): ProjectWorkspace {
 
 export function createUserProjectService(options: UserProjectServiceOptions): UserProjectService {
   const now = options.now ?? (() => new Date().toISOString());
+  const teamMembershipRoot = options.teamMembershipRoot ?? options.platformRoot;
+  const withTeamMembershipMutationLock = <T>(teamId: string, task: () => Promise<T>): Promise<T> => withDurableTeamMembershipLock(teamMembershipRoot, teamId, task, { waitForMs: 2_000 });
   const projectScheduleLocks = new Map<string, Promise<void>>();
   const withProjectScheduleLock = async <T>(projectId: string, operation: () => Promise<T>): Promise<T> => {
     const previous = projectScheduleLocks.get(projectId) ?? Promise.resolve();
@@ -179,43 +182,49 @@ export function createUserProjectService(options: UserProjectServiceOptions): Us
         createdAt: at,
         updatedAt: at,
       };
-      if (teamId && (!options.canAccessTeam || !await options.canAccessTeam(principal, teamId))) throw new Error("Team access required for team project");
-      await mkdir(project.workspaceRoot, { recursive: true });
-      await saveJson(projectPath(options.platformRoot, principal.userId, project.id), project);
-      await saveProjectWorkspace(options.projectModelRoot, initialWorkspace(project, at));
-      await options.activityService?.recordActivityEvent(principal, {
-        sourceType: "project",
-        sourceId: project.id,
-        eventType: "project.created",
-        eventVersion: 1,
-        actorType: "user",
-        verificationStatus: "unverified",
-        payload: { projectId: project.id, purpose: project.purpose, teamMode: project.teamMode },
-        occurredAt: at,
-      });
-      return project;
+      const persistProject = async () => {
+        if (teamId && (!options.canAccessTeam || !await options.canAccessTeam(principal, teamId))) throw new Error("Team access required for team project");
+        await mkdir(project.workspaceRoot, { recursive: true });
+        await saveJson(projectPath(options.platformRoot, principal.userId, project.id), project);
+        await saveProjectWorkspace(options.projectModelRoot, initialWorkspace(project, at));
+        await options.activityService?.recordActivityEvent(principal, {
+          sourceType: "project",
+          sourceId: project.id,
+          eventType: "project.created",
+          eventVersion: 1,
+          actorType: "user",
+          verificationStatus: "unverified",
+          payload: { projectId: project.id, purpose: project.purpose, teamMode: project.teamMode },
+          occurredAt: at,
+        });
+        return project;
+      };
+      return teamId ? withTeamMembershipMutationLock(teamId, persistProject) : persistProject();
     },
     async updateProjectTeam(principal, projectId, input) {
       ensurePrincipal(principal); assertIdentityId(projectId);
       return withDurableProjectWorkspaceLock(options.projectModelRoot, projectId, async () => {
         if (!["solo", "ai", "human", "mixed"].includes(input.teamMode)) throw new Error("Invalid project team mode");
-        const current = await loadJson<UserProject>(projectPath(options.platformRoot, principal.userId, projectId));
-        if (!current || current.ownerUserId !== principal.userId || current.status !== "active") throw new Error("Project not found");
         const nextTeamId = input.teamMode === "human" || input.teamMode === "mixed"
           ? required(input.teamId ?? "", "Team id", 128)
           : undefined;
-        if (nextTeamId && (!options.canAccessTeam || !await options.canAccessTeam(principal, nextTeamId))) throw new Error("Team access required for team project");
-        const at = now(); assertTimestamp(at, "project timestamp");
-        const next: UserProject = { ...current, teamMode: input.teamMode, ...(nextTeamId ? { teamId: nextTeamId } : {}), updatedAt: at };
-        if (!nextTeamId) delete next.teamId;
-        const workspace = await loadProjectWorkspace(options.projectModelRoot, projectId);
-        if (!workspace || workspace.ownerUserId !== principal.userId) throw new Error("Project workspace not found");
-        await saveJson(projectPath(options.platformRoot, principal.userId, projectId), next);
-        const nextWorkspace: ProjectWorkspace = { ...workspace, ...(nextTeamId ? { teamId: nextTeamId } : {}), updatedAt: at };
-        if (!nextTeamId) delete nextWorkspace.teamId;
-        await saveProjectWorkspace(options.projectModelRoot, nextWorkspace);
-        if (options.activityService) await options.activityService.recordActivityEvent(principal, { sourceType: "project", sourceId: `${projectId}:team:${randomUUID()}`, eventType: "project.team.changed", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { projectId, teamMode: input.teamMode, changedToTeam: Boolean(nextTeamId) }, occurredAt: at });
-        return next;
+        const mutate = async () => {
+          const current = await loadJson<UserProject>(projectPath(options.platformRoot, principal.userId, projectId));
+          if (!current || current.ownerUserId !== principal.userId || current.status !== "active") throw new Error("Project not found");
+          if (nextTeamId && (!options.canAccessTeam || !await options.canAccessTeam(principal, nextTeamId))) throw new Error("Team access required for team project");
+          const at = now(); assertTimestamp(at, "project timestamp");
+          const next: UserProject = { ...current, teamMode: input.teamMode, ...(nextTeamId ? { teamId: nextTeamId } : {}), updatedAt: at };
+          if (!nextTeamId) delete next.teamId;
+          const workspace = await loadProjectWorkspace(options.projectModelRoot, projectId);
+          if (!workspace || workspace.ownerUserId !== principal.userId) throw new Error("Project workspace not found");
+          await saveJson(projectPath(options.platformRoot, principal.userId, projectId), next);
+          const nextWorkspace: ProjectWorkspace = { ...workspace, ...(nextTeamId ? { teamId: nextTeamId } : {}), updatedAt: at };
+          if (!nextTeamId) delete nextWorkspace.teamId;
+          await saveProjectWorkspace(options.projectModelRoot, nextWorkspace);
+          if (options.activityService) await options.activityService.recordActivityEvent(principal, { sourceType: "project", sourceId: `${projectId}:team:${randomUUID()}`, eventType: "project.team.changed", eventVersion: 1, actorType: "user", verificationStatus: "verified", payload: { projectId, teamMode: input.teamMode, changedToTeam: Boolean(nextTeamId) }, occurredAt: at });
+          return next;
+        };
+        return nextTeamId ? withTeamMembershipMutationLock(nextTeamId, mutate) : mutate();
       }, { waitForMs: 2_000 });
     },
     async listProjects(principal) { ensurePrincipal(principal); return listVisibleProjects(options.platformRoot, principal, options.canAccessTeam); },
