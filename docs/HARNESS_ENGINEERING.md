@@ -287,3 +287,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Calendar modal event deletion removes the matching local mapping after the external event deletion succeeds.
 - Matching is scoped by `projectId`, `calendarId`, and `eventId`, so shared event IDs across projects cannot remove unrelated mappings.
 - Mapping cleanup remains under the Calendar state store's durable file lock and leaves other events untouched.
+
+## Guild reset Calendar mapping cleanup
+
+- `!관리자권한초기화` clears local Calendar mappings for projects removed with the guild after the guild lifecycle lock is released.
+- Cleanup is scoped to the removed project IDs, so Calendar mappings for other guilds and projects remain intact.
+- Calendar cleanup failures are reported through the reset summary warnings without reversing the guild reset lock order.
