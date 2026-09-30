@@ -30,6 +30,7 @@ function stringValue(body: Record<string, unknown>, key: string): string | null 
 }
 
 function decodePathValue(value: string): string | null {
+  if (/%(?:2f|5c)/i.test(value)) return null;
   try {
     const decoded = decodeURIComponent(value);
     return decoded || null;

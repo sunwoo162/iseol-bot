@@ -44,6 +44,10 @@ test("learning goal API stores the required input and does not expose another us
     assert.equal(malformedReportGoal.status, 404);
     const malformedProposalId = await fetch(`${url}/api/user/learning/goals/${encodeURIComponent(goal.id)}/project-proposals/%E0%A4%A/accept`, { method: "POST", headers: headersA, body: "{}" });
     assert.equal(malformedProposalId.status, 404);
+    const encodedSlashPlanPreview = await fetch(`${url}/api/user/learning/goals/${goal.id}%2Fplan-preview`, { method: "POST", headers: headersA, body: JSON.stringify({ expectedRevision: goal.revision }) });
+    assert.equal(encodedSlashPlanPreview.status, 404);
+    const encodedSlashPlanList = await fetch(`${url}/api/user/learning/goals/${goal.id}%2Fplans`, { headers: headersA });
+    assert.equal(encodedSlashPlanList.status, 404);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
