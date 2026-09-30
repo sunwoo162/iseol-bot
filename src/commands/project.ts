@@ -15,7 +15,7 @@ import { resolve } from "node:path";
 import { config } from "../config.js";
 import { createDiscordProjectBinding, deleteDiscordProjectBinding } from "../discord-project/binding-store.js";
 import { resolveDiscordProjectContext } from "../discord-project/context-resolver.js";
-import { bindDiscordProjectWorkspace, discordProjectBindingHistoryFact, listDiscordProjectBindingChoices } from "../discord-project/project-command-actions.js";
+import { bindDiscordProjectWorkspace, discordProjectBindingHistoryFact, listDiscordProjectBindingChoices, withStoredProjectLifecycleLock } from "../discord-project/project-command-actions.js";
 import { buildDiscordProjectStatus } from "../discord-project/status-card.js";
 import { recordStoredProjectAction } from "../discord-project/history-recorder.js";
 import { loadHarnessRunUnlocked } from "../harness/run-store.js";
@@ -483,6 +483,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
 
 async function handleBindProject(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.guildId) return;
+  const guildId = interaction.guildId;
   await interaction.deferReply({ ephemeral: true });
   const storedProjectId = interaction.options.getString("project", true).trim();
   const projectId = interaction.options.getString("workspace", true).trim();
@@ -490,32 +491,46 @@ async function handleBindProject(interaction: ChatInputCommandInteraction): Prom
   try {
     const at = new Date().toISOString();
     const modelRoot = iseolModelRoot();
-    const binding = await bindDiscordProjectWorkspace(
+    const binding = await withStoredProjectLifecycleLock(
+      { guildId, storedProjectId },
       {
-        guildId: interaction.guildId,
-        storedProjectId,
-        projectId,
-        at,
-      },
-      {
-        workspaceRoot: modelRoot,
         findStoredProject: findProject,
-        loadWorkspace: (id) => loadProjectWorkspace(modelRoot, id),
-        createBinding: (input) => createDiscordProjectBinding(modelRoot, input),
+        withLifecycleLock: (task) => withProjectDeleteLock(guildId, storedProjectId, task),
+      },
+      async () => {
+        const created = await bindDiscordProjectWorkspace(
+          {
+            guildId,
+            storedProjectId,
+            projectId,
+            at,
+          },
+          {
+            workspaceRoot: modelRoot,
+            findStoredProject: findProject,
+            loadWorkspace: (id) => loadProjectWorkspace(modelRoot, id),
+            createBinding: (input) => createDiscordProjectBinding(modelRoot, input),
+          },
+        );
+        try {
+          await recordStoredProjectAction({
+            modelRoot,
+            bindingRoot: modelRoot,
+            workspaceRoot: modelRoot,
+            guildId,
+            storedProjectId,
+            fact: discordProjectBindingHistoryFact(created),
+            at,
+          });
+        } catch (historyError) {
+          console.warn(`Discord project binding history record failed (${storedProjectId})`, historyError);
+        }
+        return created;
       },
     );
-    try {
-      await recordStoredProjectAction({
-        modelRoot,
-        bindingRoot: modelRoot,
-        workspaceRoot: modelRoot,
-        guildId: interaction.guildId,
-        storedProjectId,
-        fact: discordProjectBindingHistoryFact(binding),
-        at,
-      });
-    } catch (historyError) {
-      console.warn(`Discord project binding history record failed (${storedProjectId})`, historyError);
+    if (!binding) {
+      await interaction.editReply("❌ 프로젝트 정보를 찾을 수 없습니다.");
+      return;
     }
     await interaction.editReply(`✅ **${binding.projectId}** Project Workspace에 연결했습니다.`);
   } catch (error) {
@@ -530,52 +545,63 @@ function integrationMark(value: boolean): string {
 
 async function handleProjectStatus(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.guildId) return;
+  const guildId = interaction.guildId;
   await interaction.deferReply({ ephemeral: true });
   const storedProjectId = interaction.options.getString("project", true).trim();
   const modelRoot = iseolModelRoot();
 
   try {
-    const context = await resolveDiscordProjectContext({
-      modelRoot,
-      bindingRoot: modelRoot,
-      workspaceRoot: modelRoot,
-      guildId: interaction.guildId,
-      storedProjectId,
-    });
-    if (!context) {
+    const embed = await withStoredProjectLifecycleLock(
+      { guildId, storedProjectId },
+      {
+        findStoredProject: findProject,
+        withLifecycleLock: (task) => withProjectDeleteLock(guildId, storedProjectId, task),
+      },
+      async () => {
+        const context = await resolveDiscordProjectContext({
+          modelRoot,
+          bindingRoot: modelRoot,
+          workspaceRoot: modelRoot,
+          guildId,
+          storedProjectId,
+        });
+        if (!context) return null;
+        const view = await buildDiscordProjectStatus(context, {
+          workspaceRoot: modelRoot,
+          runRoot: iseolRunRoot(),
+          loadWorkspace: (id) => loadProjectWorkspace(modelRoot, id),
+          loadRun: (id) => loadHarnessRunUnlocked(iseolRunRoot(), id),
+        });
+        const workspaceText = view.workspace.state === "unbound"
+          ? "Project Workspace 연결 필요"
+          : view.workspace.state === "stale"
+            ? `⚠️ stale binding\n${view.workspace.reason ?? "연결 정보를 확인해주세요."}`
+            : [
+                `**${view.workspace.projectName}** · ${view.workspace.projectStatus}`,
+                view.workspace.node ? `Node: **${view.workspace.node.title}** · ${view.workspace.node.status}` : null,
+                view.workspace.runs.length
+                  ? view.workspace.runs.map((run) => `Run \`${run.runId}\` · ${run.stage}/${run.status}`).join("\n")
+                  : "Attached Run 없음",
+                view.workspace.deploymentUrl ? `[Genesis Deploy](${view.workspace.deploymentUrl})` : null,
+              ].filter(Boolean).join("\n");
+
+        return new EmbedBuilder()
+          .setTitle(`📦 ${view.legacy.name}`)
+          .addFields(
+            { name: "Frontend", value: view.legacy.frontend },
+            { name: "Backend", value: view.legacy.backend },
+            {
+              name: "Integrations",
+              value: `Calendar ${integrationMark(view.integrations.calendar)} · Figma ${integrationMark(view.integrations.figma)} · Notion ${integrationMark(view.integrations.notion)}`,
+            },
+            { name: "Project Workspace", value: workspaceText.slice(0, 1024) },
+          );
+      },
+    );
+    if (!embed) {
       await interaction.editReply("❌ 프로젝트 정보를 찾을 수 없습니다.");
       return;
     }
-    const view = await buildDiscordProjectStatus(context, {
-      workspaceRoot: modelRoot,
-      runRoot: iseolRunRoot(),
-      loadWorkspace: (id) => loadProjectWorkspace(modelRoot, id),
-      loadRun: (id) => loadHarnessRunUnlocked(iseolRunRoot(), id),
-    });
-    const workspaceText = view.workspace.state === "unbound"
-      ? "Project Workspace 연결 필요"
-      : view.workspace.state === "stale"
-        ? `⚠️ stale binding\n${view.workspace.reason ?? "연결 정보를 확인해주세요."}`
-        : [
-            `**${view.workspace.projectName}** · ${view.workspace.projectStatus}`,
-            view.workspace.node ? `Node: **${view.workspace.node.title}** · ${view.workspace.node.status}` : null,
-            view.workspace.runs.length
-              ? view.workspace.runs.map((run) => `Run \`${run.runId}\` · ${run.stage}/${run.status}`).join("\n")
-              : "Attached Run 없음",
-            view.workspace.deploymentUrl ? `[Genesis Deploy](${view.workspace.deploymentUrl})` : null,
-          ].filter(Boolean).join("\n");
-
-    const embed = new EmbedBuilder()
-      .setTitle(`📦 ${view.legacy.name}`)
-      .addFields(
-        { name: "Frontend", value: view.legacy.frontend },
-        { name: "Backend", value: view.legacy.backend },
-        {
-          name: "Integrations",
-          value: `Calendar ${integrationMark(view.integrations.calendar)} · Figma ${integrationMark(view.integrations.figma)} · Notion ${integrationMark(view.integrations.notion)}`,
-        },
-        { name: "Project Workspace", value: workspaceText.slice(0, 1024) },
-      );
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

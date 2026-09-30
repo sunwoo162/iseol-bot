@@ -6,6 +6,22 @@ import type { StoredProjectActionFact } from "./history-recorder.js";
 
 export type ProjectChoice = { name: string; value: string };
 
+export async function withStoredProjectLifecycleLock<T>(
+  input: { guildId: string; storedProjectId: string },
+  deps: {
+    findStoredProject(id: string): Promise<StoredProject | null>;
+    withLifecycleLock?<R>(task: () => Promise<R>): Promise<R>;
+  },
+  task: (storedProject: StoredProject) => Promise<T>,
+): Promise<T | undefined> {
+  const run = async (): Promise<T | undefined> => {
+    const storedProject = await deps.findStoredProject(input.storedProjectId);
+    if (!storedProject || storedProject.guildId !== input.guildId) return undefined;
+    return task(storedProject);
+  };
+  return deps.withLifecycleLock ? deps.withLifecycleLock(run) : run();
+}
+
 export async function listDiscordProjectBindingChoices(
   guildId: string,
   deps: {
