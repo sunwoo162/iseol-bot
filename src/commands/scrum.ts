@@ -325,74 +325,82 @@ async function handleWriteScrum(interaction: ChatInputCommandInteraction): Promi
     return;
   }
 
-  const scrumChannel = await findDailyScrumChannel(interaction.guild, project);
-  if (!scrumChannel) {
-    await interaction.editReply("❌ 이 프로젝트에는 데일리 스크럼 채널이 없습니다. 채널 관리 권한이 있는 사용자가 `/scrum create`로 먼저 생성해주세요.");
-    return;
-  }
-
-  const now = new Date();
-  const today = seoulDateKey(now);
-  const todo = interaction.options.getString("todo", true).trim();
-  const did = interaction.options.getString("did")?.trim() ?? "";
-  const existing = await getDailyScrumRecord(project.id, interaction.user.id, today);
-
-  const embed = new EmbedBuilder()
-    .setAuthor({
-      name: interaction.user.globalName ?? interaction.user.username,
-      iconURL: interaction.user.displayAvatarURL(),
-    })
-    .setTitle(`📋 ${today} 데일리 스크럼`)
-    .setFooter({ text: project.name })
-    .setTimestamp(now);
-
-  if (did) {
-    embed.addFields({
-      name: "✅ DID",
-      value: formatScrumItems(did).slice(0, 1024),
-    });
-  }
-
-  embed.addFields({
-    name: "🎯 TODO",
-    value: formatScrumItems(todo).slice(0, 1024),
-  });
-
-  let messageId = existing?.messageId ?? "";
-  let channelId = existing?.channelId ?? scrumChannel.id;
-  let updatedExisting = false;
-
-  if (existing?.messageId && existing.channelId === scrumChannel.id) {
-    const previousMessage = await scrumChannel.messages.fetch(existing.messageId).catch(() => null);
-    if (previousMessage) {
-      await previousMessage.edit({ embeds: [embed] });
-      messageId = previousMessage.id;
-      channelId = scrumChannel.id;
-      updatedExisting = true;
+  await withProjectDeleteLock(project.guildId, project.id, async () => {
+    const current = await findProject(project.id);
+    if (!current) {
+      await interaction.editReply("❌ 이설로 생성한 프로젝트를 찾을 수 없습니다.");
+      return;
     }
-  }
 
-  if (!updatedExisting) {
-    const message = await scrumChannel.send({ embeds: [embed] });
-    messageId = message.id;
-    channelId = scrumChannel.id;
-  }
+    const scrumChannel = await findDailyScrumChannel(interaction.guild!, current);
+    if (!scrumChannel) {
+      await interaction.editReply("❌ 이 프로젝트에는 데일리 스크럼 채널이 없습니다. 채널 관리 권한이 있는 사용자가 `/scrum create`로 먼저 생성해주세요.");
+      return;
+    }
 
-  await saveDailyScrumRecord({
-    guildId: interaction.guild.id,
-    projectId: project.id,
-    userId: interaction.user.id,
-    date: today,
-    todo,
-    did,
-    channelId,
-    messageId,
-    updatedAt: now.toISOString(),
+    const now = new Date();
+    const today = seoulDateKey(now);
+    const todo = interaction.options.getString("todo", true).trim();
+    const did = interaction.options.getString("did")?.trim() ?? "";
+    const existing = await getDailyScrumRecord(current.id, interaction.user.id, today);
+
+    const embed = new EmbedBuilder()
+      .setAuthor({
+        name: interaction.user.globalName ?? interaction.user.username,
+        iconURL: interaction.user.displayAvatarURL(),
+      })
+      .setTitle(`📋 ${today} 데일리 스크럼`)
+      .setFooter({ text: current.name })
+      .setTimestamp(now);
+
+    if (did) {
+      embed.addFields({
+        name: "✅ DID",
+        value: formatScrumItems(did).slice(0, 1024),
+      });
+    }
+
+    embed.addFields({
+      name: "🎯 TODO",
+      value: formatScrumItems(todo).slice(0, 1024),
+    });
+
+    let messageId = existing?.messageId ?? "";
+    let channelId = existing?.channelId ?? scrumChannel.id;
+    let updatedExisting = false;
+
+    if (existing?.messageId && existing.channelId === scrumChannel.id) {
+      const previousMessage = await scrumChannel.messages.fetch(existing.messageId).catch(() => null);
+      if (previousMessage) {
+        await previousMessage.edit({ embeds: [embed] });
+        messageId = previousMessage.id;
+        channelId = scrumChannel.id;
+        updatedExisting = true;
+      }
+    }
+
+    if (!updatedExisting) {
+      const message = await scrumChannel.send({ embeds: [embed] });
+      messageId = message.id;
+      channelId = scrumChannel.id;
+    }
+
+    await saveDailyScrumRecord({
+      guildId: interaction.guild!.id,
+      projectId: current.id,
+      userId: interaction.user.id,
+      date: today,
+      todo,
+      did,
+      channelId,
+      messageId,
+      updatedAt: now.toISOString(),
+    });
+
+    await interaction.editReply(
+      `${updatedExisting ? "✅ 오늘 스크럼을 수정했습니다." : "✅ 오늘 스크럼을 기록했습니다."}\n<#${scrumChannel.id}>`,
+    );
   });
-
-  await interaction.editReply(
-    `${updatedExisting ? "✅ 오늘 스크럼을 수정했습니다." : "✅ 오늘 스크럼을 기록했습니다."}\n<#${scrumChannel.id}>`,
-  );
 }
 
 export async function handleScrumCommand(interaction: ChatInputCommandInteraction): Promise<void> {
