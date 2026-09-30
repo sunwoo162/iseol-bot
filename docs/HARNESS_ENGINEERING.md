@@ -251,3 +251,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `!관리자권한초기화` removes valid Discord↔Project Workspace binding files only from the target guild directory, using each binding's durable lock.
 - Binding files for other guilds remain untouched, and deleted binding counts are included in the reset's stored-record total and operator report.
 - Missing binding directories and invalid filenames fail closed without broadening cleanup beyond the validated guild-scoped path.
+
+## Project Workspace progress notification lifecycle synchronization
+
+- Project Workspace Discord progress notifications resolve a stored project binding under the project deletion lock and re-read the project before resolving log channels.
+- The lifecycle guard remains held through the Discord channel send, so a stale progress event cannot publish to a deleted project's log channel.
+- Missing bindings, deleted projects, and deleted channels fail closed without accepting a Discord delivery.
