@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { assertProjectModelId } from "../project-model/contracts.js";
 import type { DiscordProjectBinding } from "./contracts.js";
@@ -116,4 +116,25 @@ export async function deleteDiscordProjectBinding(
     },
     { waitForMs: 2_000 },
   );
+}
+
+export async function deleteDiscordProjectBindingsForGuild(root: string, guildId: string): Promise<number> {
+  assertProjectModelId(guildId);
+  const directory = resolve(root, "discord-project-bindings", guildId);
+  let entries;
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+    throw error;
+  }
+
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const storedProjectId = entry.name.slice(0, -".json".length);
+    try { assertProjectModelId(storedProjectId); } catch { continue; }
+    if (await deleteDiscordProjectBinding(root, guildId, storedProjectId)) removed += 1;
+  }
+  return removed;
 }
