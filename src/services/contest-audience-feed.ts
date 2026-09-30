@@ -164,39 +164,42 @@ async function ensureContestCategory(guild: Guild): Promise<string> {
 export async function createContestAudienceFeed(
   guild: Guild,
   audienceFilter: ContestAudienceFilter,
+  store = defaultContestAudienceFeedStore,
 ): Promise<{ state: ContestAudienceFeedState; created: boolean }> {
-  const existing = await findContestAudienceFeed(guild.id, audienceFilter);
-  if (existing) {
-    const channel = await guild.channels.fetch(existing.channelId).catch(() => null);
-    if (channel instanceof TextChannel) return { state: existing, created: false };
-  }
+  return store.withDeliveryLock(guild.id, audienceFilter, async () => {
+    const existing = await store.find(guild.id, audienceFilter);
+    if (existing) {
+      const channel = await guild.channels.fetch(existing.channelId).catch(() => null);
+      if (channel instanceof TextChannel) return { state: existing, created: false };
+    }
 
-  const categoryId = await ensureContestCategory(guild);
-  const label = contestAudienceFilterLabel(audienceFilter);
-  const channel = await guild.channels.create({
-    name: channelName(audienceFilter),
-    type: ChannelType.GuildText,
-    parent: categoryId,
-    reason: `${label} 대상 IT 공모전 자동 게시 채널 생성`,
+    const categoryId = await ensureContestCategory(guild);
+    const label = contestAudienceFilterLabel(audienceFilter);
+    const channel = await guild.channels.create({
+      name: channelName(audienceFilter),
+      type: ChannelType.GuildText,
+      parent: categoryId,
+      reason: `${label} 대상 IT 공모전 자동 게시 채널 생성`,
+    });
+
+    const state: ContestAudienceFeedState = {
+      guildId: guild.id,
+      categoryId,
+      channelId: channel.id,
+      audienceFilter,
+      postedKeys: [],
+      createdAt: new Date().toISOString(),
+    };
+    await store.save(state);
+
+    await channel.send({
+      embeds: [new EmbedBuilder()
+        .setTitle(`🏆 ${label} 대상 IT 공모전`)
+        .setDescription(`이설이가 진행 중인 **웹/모바일/IT 공모전** 중 참가대상이 **${label}** 조건에 맞는 공모전만 이 채널에 올립니다.\n현재 공모전을 바로 가져오고 이후 **1시간마다** 새 공모전을 확인합니다. 과반수 투표가 모이면 기존 공모전 기능과 동일하게 준비 공간을 생성할 수 있습니다.`)],
+    });
+
+    return { state, created: true };
   });
-
-  const state: ContestAudienceFeedState = {
-    guildId: guild.id,
-    categoryId,
-    channelId: channel.id,
-    audienceFilter,
-    postedKeys: [],
-    createdAt: new Date().toISOString(),
-  };
-  await saveState(state);
-
-  await channel.send({
-    embeds: [new EmbedBuilder()
-      .setTitle(`🏆 ${label} 대상 IT 공모전`)
-      .setDescription(`이설이가 진행 중인 **웹/모바일/IT 공모전** 중 참가대상이 **${label}** 조건에 맞는 공모전만 이 채널에 올립니다.\n현재 공모전을 바로 가져오고 이후 **1시간마다** 새 공모전을 확인합니다. 과반수 투표가 모이면 기존 공모전 기능과 동일하게 준비 공간을 생성할 수 있습니다.`)],
-  });
-
-  return { state, created: true };
 }
 
 function normalizeTitle(value: string): string {

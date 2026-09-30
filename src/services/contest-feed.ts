@@ -552,46 +552,48 @@ function deadlineReminderEmbed(vote: ContestVote, majority: number): EmbedBuilde
         : `제출 마감이 **${label}**로 임박했습니다. 참여할 사람은 아래 투표 버튼을 눌러주세요.`);
 }
 
-export async function createContestFeed(guild: Guild): Promise<ContestFeedState> {
-  const existing = await findContestFeed(guild.id);
-  if (existing) return existing;
+export async function createContestFeed(guild: Guild, store = defaultContestFeedStore): Promise<ContestFeedState> {
+  return store.withDeliveryLock(guild.id, async () => {
+    const existing = await store.find(guild.id);
+    if (existing) return existing;
 
-  const category = await guild.channels.create({
-    name: "🏆 공모전",
-    type: ChannelType.GuildCategory,
-    reason: "IT 공모전 자동 수집 공간 생성",
+    const category = await guild.channels.create({
+      name: "🏆 공모전",
+      type: ChannelType.GuildCategory,
+      reason: "IT 공모전 자동 수집 공간 생성",
+    });
+
+    try {
+      const channel = await guild.channels.create({
+        name: "📢・공모전",
+        type: ChannelType.GuildText,
+        parent: category.id,
+        reason: "IT 공모전 자동 게시 채널 생성",
+      });
+
+      const state: ContestFeedState = {
+        guildId: guild.id,
+        categoryId: category.id,
+        channelId: channel.id,
+        postedKeys: [],
+        remindedKeys: [],
+        audienceFilter: "all",
+        createdAt: new Date().toISOString(),
+      };
+      await store.save(state);
+
+      await channel.send({
+        embeds: [new EmbedBuilder()
+          .setTitle("🏆 IT 공모전 자동 수집")
+          .setDescription("이설이가 여러 공모전 사이트를 주기적으로 확인하고, 새 웹/모바일/IT 공모전만 이 채널에 올립니다.\n\n같은 공모전은 중복 제거하며 과반수 투표가 모이면 별도 준비 공간을 자동으로 생성합니다. 제출 마감이 D-10 이하가 되면 해당 공모전을 한 번 더 알려드립니다. `/contest filter`로 참가대상 필터를 설정할 수 있습니다.")],
+      });
+
+      return state;
+    } catch (error) {
+      await category.delete("공모전 피드 생성 실패 롤백").catch(() => undefined);
+      throw error;
+    }
   });
-
-  try {
-    const channel = await guild.channels.create({
-      name: "📢・공모전",
-      type: ChannelType.GuildText,
-      parent: category.id,
-      reason: "IT 공모전 자동 게시 채널 생성",
-    });
-
-    const state: ContestFeedState = {
-      guildId: guild.id,
-      categoryId: category.id,
-      channelId: channel.id,
-      postedKeys: [],
-      remindedKeys: [],
-      audienceFilter: "all",
-      createdAt: new Date().toISOString(),
-    };
-    await saveContestFeed(state);
-
-    await channel.send({
-      embeds: [new EmbedBuilder()
-        .setTitle("🏆 IT 공모전 자동 수집")
-        .setDescription("이설이가 여러 공모전 사이트를 주기적으로 확인하고, 새 웹/모바일/IT 공모전만 이 채널에 올립니다.\n\n같은 공모전은 중복 제거하며 과반수 투표가 모이면 별도 준비 공간을 자동으로 생성합니다. 제출 마감이 D-10 이하가 되면 해당 공모전을 한 번 더 알려드립니다. `/contest filter`로 참가대상 필터를 설정할 수 있습니다.")],
-    });
-
-    return state;
-  } catch (error) {
-    await category.delete("공모전 피드 생성 실패 롤백").catch(() => undefined);
-    throw error;
-  }
 }
 
 async function publishContest(channel: TextChannel, contest: Contest, eligibleVoterIds: string[]): Promise<ContestVote> {
