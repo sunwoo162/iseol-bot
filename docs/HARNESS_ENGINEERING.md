@@ -179,3 +179,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `/scrum write` shares the project deletion lock keyed by guild and project ID before reading the daily-scrum channel or record state.
 - The command re-reads the project after acquiring the lifecycle lock and exits before message delivery or record persistence when deletion has already completed.
 - Existing message edits, new message sends, and daily-scrum record saves remain inside the same lifecycle critical section, preventing stale writes for a removed project.
+
+## Daily scrum reminder synchronization
+
+- The background daily reminder keeps its once-per-project-and-date delivery lock and also acquires the project deletion lock keyed by guild and project ID.
+- It re-reads the project after acquiring the lifecycle lock and skips channel lookup, reminder delivery, and reminder-date persistence when deletion has already completed.
+- A live project may finish one reminder before deletion enters the critical section, but stale reminder snapshots cannot create post-deletion Discord or store side effects.
