@@ -8,7 +8,7 @@ import { createActivityService } from "../src/activity/service.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createSocialService } from "../src/social/service.js";
 import { withDurableSocialBlockLock } from "../src/social/block-lock.js";
-import { saveBlock } from "../src/social/store.js";
+import { saveBlockUnlocked } from "../src/social/store.js";
 
 const at = "2026-09-25T12:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -135,7 +135,7 @@ test("direct message reads re-check social block state after waiting for the pai
   });
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
-  await saveBlock(platformRoot, { version: 1, id: "block-message-read-b-message-read-a", blockerUserId: "message-read-b", blockedUserId: "message-read-a", status: "active", createdAt: at, updatedAt: at });
+  await saveBlockUnlocked(platformRoot, { version: 1, id: "block-message-read-b-message-read-a", blockerUserId: "message-read-b", blockedUserId: "message-read-a", status: "active", createdAt: at, updatedAt: at });
   release();
   await assert.rejects(() => reading, /blocked/i);
   await holder;

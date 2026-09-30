@@ -2,7 +2,7 @@ import { assertIdentityId, assertTimestamp, type Principal } from "../identity/c
 import type { ActivityEvent } from "../activity/contracts.js";
 import type { GrowthAchievement, GrowthLedgerEntry, GrowthService, GrowthServiceOptions, GrowthSnapshot } from "./contracts.js";
 import { withDurableGrowthProjectionLock } from "./projection-lock.js";
-import { growthProjection, listGrowthEntries, loadGrowthEntry, saveGrowthEntry } from "./ledger.js";
+import { growthProjection, listGrowthEntries, listGrowthEntriesUnlocked, loadGrowthEntryUnlocked, saveGrowthEntryUnlocked } from "./ledger.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
 
@@ -64,7 +64,7 @@ async function readLockedGrowthEntries(root: string, userId: string, candidates:
   const entries: GrowthLedgerEntry[] = [];
   for (const [eventId, ids] of idsByEvent) {
     const refreshed = await withDurableGrowthProjectionLock(root, userId, eventId, async () => {
-      const loaded = await Promise.all([...ids].map((entryId) => loadGrowthEntry(root, userId, entryId)));
+      const loaded = await Promise.all([...ids].map((entryId) => loadGrowthEntryUnlocked(root, userId, entryId)));
       return loaded.filter((entry): entry is GrowthLedgerEntry => {
         if (!entry) return false;
         return entry.userId === userId && entry.eventId === eventId;
@@ -86,14 +86,14 @@ export function createGrowthService(root: string, options: GrowthServiceOptions 
       const activeId = `growth-${event.id}-active`;
       return withDurableGrowthProjectionLock(root, event.userId, event.id, async () => {
         if (event.status === "active") {
-          const existing = await loadGrowthEntry(root, event.userId, activeId);
+          const existing = await loadGrowthEntryUnlocked(root, event.userId, activeId);
           if (existing) return existing;
-          const beforeEntries = await listGrowthEntries(root, event.userId);
+          const beforeEntries = await listGrowthEntriesUnlocked(root, event.userId);
           const beforeAchievements = achievementsFor(beforeEntries);
           const at = now();
           assertTimestamp(at, "growth timestamp");
           const entry: GrowthLedgerEntry = { version: 1, id: activeId, userId: event.userId, eventId: event.id, actorType: event.actorType, xpDelta: projection.xpDelta, stat: projection.stat, statDelta: projection.xpDelta, createdAt: at };
-          await saveGrowthEntry(root, entry);
+          await saveGrowthEntryUnlocked(root, entry);
           if (options.notificationService) {
             let enabled = !options.settingsService;
             if (options.settingsService) {
@@ -115,15 +115,15 @@ export function createGrowthService(root: string, options: GrowthServiceOptions 
           }
           return entry;
         }
-        const active = await loadGrowthEntry(root, event.userId, activeId);
+        const active = await loadGrowthEntryUnlocked(root, event.userId, activeId);
         if (!active) return null;
         const correctionId = `growth-${event.id}-retracted`;
-        const existingCorrection = await loadGrowthEntry(root, event.userId, correctionId);
+        const existingCorrection = await loadGrowthEntryUnlocked(root, event.userId, correctionId);
         if (existingCorrection) return existingCorrection;
         const at = now();
         assertTimestamp(at, "growth correction timestamp");
         const correction: GrowthLedgerEntry = { ...active, id: correctionId, xpDelta: -active.xpDelta, statDelta: -active.statDelta, createdAt: at };
-        await saveGrowthEntry(root, correction);
+        await saveGrowthEntryUnlocked(root, correction);
         return correction;
       }, { waitForMs: 2_000 });
     },
