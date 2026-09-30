@@ -14,6 +14,7 @@ const DATA_FILES = [
   "data/music-playlists.json",
   "data/voice-study-time.json",
   "data/daily-scrum.json",
+  "data/github-users.json",
   "data/calendar-state.json",
   "data/github-commit-feed.json",
   "data/github-automation-polling.json",
@@ -76,7 +77,7 @@ test("guild reset waits for a concurrent project deletion before fetching channe
   }
 });
 
-test("guild reset clears project-scoped polling and Calendar state for removed projects", async () => {
+test("guild reset clears project-scoped polling, Calendar state, and GitHub account links for removed projects", async () => {
   const previous = new Map<string, Buffer>();
   for (const file of DATA_FILES) {
     try { previous.set(file, await readFile(file)); } catch { /* test creates the file */ }
@@ -111,6 +112,10 @@ test("guild reset clears project-scoped polling and Calendar state for removed p
       { externalKey: `${project.id}:iseol/frontend:issue:1`, projectId: project.id, calendarId: "guild-reset-calendar", eventId: "deleted-event", source: "issue" },
       { externalKey: "active-project:iseol/frontend:issue:2", projectId: "active-project", calendarId: "active-calendar", eventId: "active-event", source: "issue" },
     ], null, 2), "utf8");
+    await writeFile("data/github-users.json", JSON.stringify([
+      { guildId: project.guildId, discordUserId: "deleted-user", githubLogin: "deleted-login", connectedAt: "2026-09-30T00:00:00.000Z" },
+      { guildId: "other-guild", discordUserId: "active-user", githubLogin: "active-login", connectedAt: "2026-09-30T00:00:00.000Z" },
+    ], null, 2), "utf8");
 
     const summary = await resetGuildState(guild);
     assert.equal(summary.warnings.length, 0);
@@ -122,6 +127,9 @@ test("guild reset clears project-scoped polling and Calendar state for removed p
     });
     assert.deepEqual(JSON.parse(await readFile("data/calendar-state.json", "utf8")), [
       { externalKey: "active-project:iseol/frontend:issue:2", projectId: "active-project", calendarId: "active-calendar", eventId: "active-event", source: "issue" },
+    ]);
+    assert.deepEqual(JSON.parse(await readFile("data/github-users.json", "utf8")), [
+      { guildId: "other-guild", discordUserId: "active-user", githubLogin: "active-login", connectedAt: "2026-09-30T00:00:00.000Z" },
     ]);
   } finally {
     for (const file of DATA_FILES) {
