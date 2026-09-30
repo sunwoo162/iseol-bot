@@ -73,3 +73,9 @@ export class CalendarStateStore {
     }, { waitForMs: 2_000 });
   }
 }
+
+const defaultCalendarStateStore = new CalendarStateStore();
+
+export function clearCalendarProjectState(projectId: string): Promise<number> {
+  return defaultCalendarStateStore.removeProject(projectId);
+}
