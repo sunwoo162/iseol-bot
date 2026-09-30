@@ -305,3 +305,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Web and operator bearer tokens in the Control Plane UI are stored only in `sessionStorage` and remain scoped to the current browser tab.
 - On startup, legacy `localStorage` token keys are removed without being read or migrated; token values are never copied into durable server state.
 - Static and Chromium acceptance tests verify token separation, legacy cleanup, and the existing authenticated Web and operator flows.
+
+## Guild reset GitHub account link cleanup
+
+- `!관리자권한초기화` removes GitHub account links scoped to the reset guild under the account-link store's durable file lock.
+- Links for other guilds remain intact, and the removed-link count is included in the reset's cleared-record summary.
+- The guild reset integration test verifies target/other guild isolation in `data/github-users.json`.
