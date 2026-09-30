@@ -2191,9 +2191,9 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 
 ## 2026-10-01 continuation: collaboration malformed-path boundary
 
-- Authenticated collaboration routes now fail closed when a team, recruitment, or social path contains malformed percent-encoding. The shared `idAfter` decoder catches `URIError` and leaves the route unmatched, producing bounded `404` responses instead of translating a malformed URL into a generic collaboration `409`.
-- Evidence: `src/collaboration-router.ts`, `tests/collaboration-api.test.ts`, and `tests/social-safety-api.test.ts`. RED regressions observed `409 !== 404` for malformed team, block, and friend-request paths plus `405 !== 404` for a malformed recruitment path; GREEN coverage verifies the shared decoder and recruitment missing-path branch while normal collaboration flows remain intact.
-- Boundary: this change only hardens path decoding at the collaboration router boundary; service authorization, membership, social ACL, recruitment state, and team-chat behavior are unchanged.
+- Authenticated collaboration routes now fail closed when a team, recruitment, or social path contains malformed percent-encoding or encoded separators. Raw backslashes are rejected against the normalized collaboration prefix before route matching or mutation.
+- Evidence: `src/collaboration-router.ts`, `src/web-control-plane/server.ts`, and `tests/collaboration-api.test.ts`. RED coverage observed `503 !== 404` for an encoded team separator; GREEN coverage preserves query-bearing team reads, rejects encoded team/recruitment/social separators, verifies a real Node HTTP raw-backslash request, and keeps normal collaboration flows intact.
+- Boundary: this change only hardens collaboration route decoding and HTTP normalization; service authorization, membership, social ACL, recruitment state, and team-chat behavior are unchanged.
 
 ## 2026-10-01 continuation: learning malformed-path boundary
 

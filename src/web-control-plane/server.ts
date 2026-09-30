@@ -260,6 +260,11 @@ async function handleRequest(
     sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "AI chat route not found" });
     return;
   }
+  const isCollaborationPath = ["/api/user/teams", "/api/user/recruitment", "/api/user/social"].some((prefix) => url.pathname === prefix || url.pathname.startsWith(`${prefix}/`));
+  if (isCollaborationPath && rawPathname.includes("\\")) {
+    sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "collaboration route not found" });
+    return;
+  }
   if (url.pathname === "/api/events") {
     if (req.method !== "GET") {
       res.writeHead(405, { allow: "GET" }).end("method not allowed");

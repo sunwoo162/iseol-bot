@@ -11,19 +11,26 @@ function response(status: number, body: unknown): UserResponse { return { status
 function bearer(headers: Record<string, string | undefined>): string | null { const value = headers.authorization; return value?.startsWith("Bearer ") ? value.slice("Bearer ".length).trim() || null : null; }
 function objectBody(body: unknown): Record<string, unknown> | null { return body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : null; }
 function stringValue(body: Record<string, unknown> | null, key: string): string | null { return typeof body?.[key] === "string" && (body[key] as string).trim() ? body[key] as string : null; }
-function idAfter(pathname: string, prefix: string): string | null {
-  if (!pathname.startsWith(prefix)) return null;
+function decodePathValue(value: string): string | null {
+  if (/%(?:2f|5c)/i.test(value)) return null;
   try {
-    const value = decodeURIComponent(pathname.slice(prefix.length));
-    return value || null;
+    const decoded = decodeURIComponent(value);
+    return decoded || null;
   } catch {
     return null;
   }
+}
+function idAfter(pathname: string, prefix: string): string | null {
+  if (!pathname.startsWith(prefix)) return null;
+  return decodePathValue(pathname.slice(prefix.length));
 }
 function errorResponse(error: unknown): UserResponse { const message = error instanceof Error ? error.message : "collaboration request failed"; if (/not found/i.test(message)) return response(404, { error: message }); if (/access|required|requires|invalid|cannot|already|blocked/i.test(message)) return response(/access|manager|member|messaging|requires|blocked/i.test(message) ? 403 : 400, { error: message }); return response(409, { error: message }); }
 
 export async function routeCollaborationRequest(request: UserRequest, services: CollaborationRouteServices): Promise<UserResponse> {
   const url = new URL(request.path, "http://iseol.local");
+  const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
+  const isCollaborationPath = ["/api/user/teams", "/api/user/recruitment", "/api/user/social"].some((prefix) => url.pathname === prefix || url.pathname.startsWith(`${prefix}/`));
+  if (isCollaborationPath && rawPathname.includes("\\")) return response(404, { error: "collaboration route not found" });
   const token = bearer(request.headers); const principal = token ? await services.platformUserService.resolveAuthenticatedPrincipal(token) : null;
   if (!principal) return response(401, { error: "authentication required" });
   try {
