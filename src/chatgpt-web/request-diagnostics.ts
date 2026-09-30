@@ -1,5 +1,6 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { withDurableFileStateLock } from "../services/file-state-lock.js";
 
 export type RequestDiagnosticStage =
   | "request-reserved"
@@ -95,8 +96,10 @@ export function createRequestDiagnosticStore(
     record(event) {
       const persisted: RequestDiagnosticEvent = { version: 1, ...event, at: event.at || now() };
       return serialized(path, async () => {
-        await mkdir(dirname(path), { recursive: true });
-        await appendFile(path, `${JSON.stringify(persisted)}\n`, "utf8");
+        await withDurableFileStateLock(path, async () => {
+          await mkdir(dirname(path), { recursive: true });
+          await appendFile(path, `${JSON.stringify(persisted)}\n`, "utf8");
+        }, { waitForMs: 2_000 });
       });
     },
   };
@@ -111,19 +114,24 @@ export function createResponseReadDiagnosticStore(
     record(event) {
       const persisted: ResponseReadDiagnosticEvent = { version: 1, type: "response-read-stage", ...event, at: event.at || now() };
       return serialized(path, async () => {
-        await mkdir(dirname(path), { recursive: true });
-        await appendFile(path, `${JSON.stringify(persisted)}\n`, "utf8");
+        await withDurableFileStateLock(path, async () => {
+          await mkdir(dirname(path), { recursive: true });
+          await appendFile(path, `${JSON.stringify(persisted)}\n`, "utf8");
+        }, { waitForMs: 2_000 });
       });
     },
   };
 }
 
 export async function readRequestDiagnosticEvents(root: string): Promise<RequestDiagnosticEvent[]> {
-  try {
-    const content = await readFile(fileFor(root), "utf8");
-    return content.split("\n").filter(Boolean).map((line) => JSON.parse(line) as RequestDiagnosticEvent);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
-  }
+  const path = fileFor(root);
+  return withDurableFileStateLock(path, async () => {
+    try {
+      const content = await readFile(path, "utf8");
+      return content.split("\n").filter(Boolean).map((line) => JSON.parse(line) as RequestDiagnosticEvent);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+  }, { waitForMs: 2_000 });
 }
