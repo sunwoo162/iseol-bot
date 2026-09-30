@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { withDurableFileStateLock } from "./file-state-lock.js";
@@ -12,6 +13,17 @@ function repositoryStateKey(projectId: string, repository: string): string {
 
 export class GitHubAutomationPollStateStore {
   constructor(private readonly file = resolve(process.cwd(), "data", "github-automation-polling.json")) {}
+
+  async withSyncLock<T>(task: () => Promise<T>): Promise<T> {
+    const digest = createHash("sha256")
+      .update(`${this.file}:github-automation-sync`)
+      .digest("hex");
+    return withDurableFileStateLock(
+      `${this.file}.sync.${digest}`,
+      task,
+      { waitForMs: 60_000 },
+    );
+  }
 
   private async read(): Promise<GitHubAutomationPollState> {
     try {

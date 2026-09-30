@@ -115,12 +115,14 @@ async function syncMilestones(
   await pollState.setMilestones(project.id, fullName, next);
 }
 
-export async function syncGitHubAutomationPolling(client: Client): Promise<void> {
+async function syncGitHubAutomationPollingUnlocked(
+  client: Client,
+  pollState: GitHubAutomationPollStateStore,
+): Promise<void> {
   const calendarEnabled = Boolean(config.googleClientId && config.googleClientSecret && config.googleRefreshToken);
   const source = new GitHubAutomationSource(config.githubToken);
   const github = new GitHubWebhookService(config.githubToken);
   const reviewer = new GitHubReviewService(config.githubToken);
-  const pollState = new GitHubAutomationPollStateStore();
   const schedule = calendarEnabled
     ? new GitHubScheduleSyncService(
         new GoogleCalendarService(config.googleClientId, config.googleClientSecret, config.googleRefreshToken, config.googleRedirectUri),
@@ -160,6 +162,11 @@ export async function syncGitHubAutomationPolling(client: Client): Promise<void>
   }
 
   if (schedule) await pollState.retainRepositories(activeKeys);
+}
+
+export async function syncGitHubAutomationPolling(client: Client): Promise<void> {
+  const pollState = new GitHubAutomationPollStateStore();
+  await pollState.withSyncLock(() => syncGitHubAutomationPollingUnlocked(client, pollState));
 }
 
 export function startGitHubAutomationPolling(client: Client): NodeJS.Timeout {
