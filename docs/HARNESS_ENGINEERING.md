@@ -131,3 +131,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `ProjectStore.save` enforces one NFKC-normalized, case-insensitive project name per guild inside the durable file mutation lock.
 - A duplicate name is rejected before the record is persisted, while the same name remains valid in a different guild.
 - This storage invariant complements the `/project create` lifecycle lock and protects alternate callers that bypass the Discord command.
+
+## Deterministic full-suite execution
+
+- The default `npm test` command runs the complete test list with `--test-concurrency=1`.
+- This keeps Windows/Desktop Agent integration tests from contending for shared process, socket, and temporary-file resources.
+- Focused tests may still opt into their own concurrency when their fixtures are isolated, but the repository-wide gate remains deterministic.
