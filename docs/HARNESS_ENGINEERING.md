@@ -185,3 +185,9 @@ The effective Run policy is the ordered combination of this global document and 
 - The background daily reminder keeps its once-per-project-and-date delivery lock and also acquires the project deletion lock keyed by guild and project ID.
 - It re-reads the project after acquiring the lifecycle lock and skips channel lookup, reminder delivery, and reminder-date persistence when deletion has already completed.
 - A live project may finish one reminder before deletion enters the critical section, but stale reminder snapshots cannot create post-deletion Discord or store side effects.
+
+## Contest guild delivery synchronization
+
+- Base contest polling, audience-specific polling, and `/contest repost` share a guild-scoped durable delivery lock.
+- The shared lock is nested outside each feed's own delivery/state lock, so independent audience state remains isolated while Discord publication is serialized per guild.
+- Manual reposts cannot publish concurrently with scheduled feed polling for the same guild, preventing duplicate contest messages and vote records from overlapping publisher paths.
