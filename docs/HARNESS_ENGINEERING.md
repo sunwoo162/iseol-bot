@@ -257,3 +257,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Project Workspace Discord progress notifications resolve a stored project binding under the project deletion lock and re-read the project before resolving log channels.
 - The lifecycle guard remains held through the Discord channel send, so a stale progress event cannot publish to a deleted project's log channel.
 - Missing bindings, deleted projects, and deleted channels fail closed without accepting a Discord delivery.
+
+## GitHub commit feed state lifecycle synchronization
+
+- GitHub commit feed cursor state is retained only for project/repository keys whose project lifecycle pass was admitted under the project deletion lock.
+- If a project is deleted while polling waits for its lifecycle lock, the skipped project key is excluded from the final durable state replacement instead of being restored from the initial snapshot.
+- This keeps deleted project cursor state from surviving a concurrent polling cycle or being reused by later reconciliation.
