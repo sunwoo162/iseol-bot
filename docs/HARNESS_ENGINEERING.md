@@ -293,3 +293,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `!관리자권한초기화` clears local Calendar mappings for projects removed with the guild after the guild lifecycle lock is released.
 - Cleanup is scoped to the removed project IDs, so Calendar mappings for other guilds and projects remain intact.
 - Calendar cleanup failures are reported through the reset summary warnings without reversing the guild reset lock order.
+
+## Discord progress bridge journal replay
+
+- The Discord progress bridge subscribes before replaying the durable Web Product event journal, so events published during replay are not lost.
+- Replay and live events for the same Project are delivered through a project-scoped queue before entering the durable notification journal lock.
+- Restart replay relies on the durable delivery record to suppress already accepted events while allowing events that were not delivered before shutdown to recover.
