@@ -125,3 +125,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `/project create` uses a durable lock keyed by the guild and the NFKC-normalized, case-insensitive project name.
 - After acquiring the lock, the command re-reads the project store and Discord categories before creating the category, preventing duplicate project spaces across bot processes.
 - The lock remains held through category/channel setup, integration side effects, and project persistence so a concurrent request cannot begin the same external setup from an old snapshot.
+
+## Project name uniqueness invariant
+
+- `ProjectStore.save` enforces one NFKC-normalized, case-insensitive project name per guild inside the durable file mutation lock.
+- A duplicate name is rejected before the record is persisted, while the same name remains valid in a different guild.
+- This storage invariant complements the `/project create` lifecycle lock and protects alternate callers that bypass the Discord command.
