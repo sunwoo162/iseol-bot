@@ -7,6 +7,7 @@ import type { CodeAnalysisResult, CodingAttempt, CodingExercise, GoalInterpretat
 import { withDurableLearningGoalLock } from "./goal-lock.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningActionLock } from "./action-lock.js";
+import { withDurableLearningAnswerLock } from "./answer-lock.js";
 
 type LearningKind = "goals" | "plans" | "plan-versions" | "interpretations" | "sessions" | "attempts" | "reviews" | "analyses" | "coding-exercises" | "coding-attempts" | "content-requests" | "actions" | "answers" | "feedback" | "disputes" | "adjustments" | "project-proposals" | "links" | "reports";
 function directory(root: string, userId: string, kind: LearningKind): string { assertIdentityId(userId); return resolve(root, "users", userId, "learning", kind); }
@@ -165,9 +166,26 @@ export async function listLearningSessionActions(root: string, userId: string): 
   }
   return result;
 }
-export const saveLearningAnswerReceipt = (root: string, value: LearningAnswerReceipt) => saveJson(pathFor(root, value.userId, "answers", value.id), value);
-export const loadLearningAnswerReceipt = (root: string, userId: string, id: string) => loadJson<LearningAnswerReceipt>(pathFor(root, userId, "answers", id));
-export const listLearningAnswerReceipts = (root: string, userId: string) => listJson<LearningAnswerReceipt>(root, userId, "answers");
+export const saveLearningAnswerReceiptUnlocked = (root: string, value: LearningAnswerReceipt) => saveJson(pathFor(root, value.userId, "answers", value.id), value);
+export const saveLearningAnswerReceipt = (root: string, value: LearningAnswerReceipt) => withDurableLearningAnswerLock(root, value.userId, value.sessionId, value.attemptId, () => saveLearningAnswerReceiptUnlocked(root, value), { waitForMs: 2_000 });
+export const loadLearningAnswerReceiptUnlocked = (root: string, userId: string, id: string) => loadJson<LearningAnswerReceipt>(pathFor(root, userId, "answers", id));
+export async function loadLearningAnswerReceipt(root: string, userId: string, id: string): Promise<LearningAnswerReceipt | null> {
+  const candidate = await loadLearningAnswerReceiptUnlocked(root, userId, id);
+  return candidate ? withDurableLearningAnswerLock(root, userId, candidate.sessionId, candidate.attemptId, () => loadLearningAnswerReceiptUnlocked(root, userId, id), { waitForMs: 2_000 }) : null;
+}
+export const listLearningAnswerReceiptsUnlocked = (root: string, userId: string) => listJson<LearningAnswerReceipt>(root, userId, "answers");
+export async function listLearningAnswerReceipts(root: string, userId: string): Promise<LearningAnswerReceipt[]> {
+  const candidates = await listLearningAnswerReceiptsUnlocked(root, userId);
+  const result: LearningAnswerReceipt[] = [];
+  for (const candidate of candidates) {
+    try { assertIdentityId(candidate.id); assertIdentityId(candidate.sessionId); assertIdentityId(candidate.attemptId); } catch { continue; }
+    await withDurableLearningAnswerLock(root, userId, candidate.sessionId, candidate.attemptId, async () => {
+      const current = await loadLearningAnswerReceiptUnlocked(root, userId, candidate.id);
+      if (current?.userId === userId && current.id === candidate.id && current.sessionId === candidate.sessionId && current.attemptId === candidate.attemptId) result.push(current);
+    }, { waitForMs: 2_000 });
+  }
+  return result;
+}
 export const saveLearningFeedback = (root: string, value: LearningFeedback) => saveJson(pathFor(root, value.userId, "feedback", value.id), value);
 export const loadLearningFeedback = (root: string, userId: string, id: string) => loadJson<LearningFeedback>(pathFor(root, userId, "feedback", id));
 export const listLearningFeedback = (root: string, userId: string) => listJson<LearningFeedback>(root, userId, "feedback");
