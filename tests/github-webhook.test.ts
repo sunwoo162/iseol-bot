@@ -34,6 +34,11 @@ test("github repository identities reject malformed and path-like input", () => 
     repo: "iseol",
     url: "https://github.com/openai/iseol",
   });
+  assert.deepEqual(parseGitHubRepository("github/.github"), {
+    owner: "github",
+    repo: ".github",
+    url: "https://github.com/github/.github",
+  });
 
   for (const value of [
     "https://github.com/openai/%E0%A4%A",
