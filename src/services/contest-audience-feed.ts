@@ -27,6 +27,7 @@ import {
 } from "./contest-votes.js";
 import { resolveContestDeadline, seoulDateKey } from "./contest-time.js";
 import { listActiveItContests, type Contest } from "./contests.js";
+import { withDiscordChannelEnsureLock } from "./discord-channel-ensure-lock.js";
 import { withDurableFileStateLock } from "./file-state-lock.js";
 
 const DATA_FILE = resolve(process.cwd(), "data", "contest-audience-feeds.json");
@@ -142,23 +143,31 @@ function channelName(filter: ContestAudienceFilter): string {
 }
 
 async function ensureContestCategory(guild: Guild): Promise<string> {
-  const baseFeed = await findContestFeed(guild.id);
-  if (baseFeed) {
-    const category = await guild.channels.fetch(baseFeed.categoryId).catch(() => null);
-    if (category?.type === ChannelType.GuildCategory) return category.id;
-  }
+  return withDiscordChannelEnsureLock(`contest-audience-category:${guild.id}`, async () => {
+    const baseFeed = await findContestFeed(guild.id);
+    if (baseFeed) {
+      const category = await guild.channels.fetch(baseFeed.categoryId).catch(() => null);
+      if (category?.type === ChannelType.GuildCategory) return category.id;
+    }
 
-  const cached = guild.channels.cache.find((channel) =>
-    channel.type === ChannelType.GuildCategory && channel.name === "🏆 공모전",
-  );
-  if (cached) return cached.id;
+    const cached = guild.channels.cache.find((channel) =>
+      channel.type === ChannelType.GuildCategory && channel.name === "🏆 공모전",
+    );
+    if (cached) return cached.id;
 
-  const category = await guild.channels.create({
-    name: "🏆 공모전",
-    type: ChannelType.GuildCategory,
-    reason: "참가대상별 IT 공모전 채널 생성",
+    const fetched = await guild.channels.fetch().catch(() => null);
+    const existing = fetched?.find((channel) =>
+      channel?.type === ChannelType.GuildCategory && channel.name === "🏆 공모전",
+    );
+    if (existing) return existing.id;
+
+    const category = await guild.channels.create({
+      name: "🏆 공모전",
+      type: ChannelType.GuildCategory,
+      reason: "참가대상별 IT 공모전 채널 생성",
+    });
+    return category.id;
   });
-  return category.id;
 }
 
 export async function createContestAudienceFeed(
