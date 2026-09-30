@@ -107,3 +107,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Project discussion and contest preparation announcement channel repair use a shared durable ensure-lock helper.
 - The lock scope is the owning guild and category, so a retry or second bot process re-fetches channels after waiting and only creates missing channels.
 - Different categories remain independent, while the check, Discord channel creation, and position adjustment for one category are serialized.
+
+## Contest vote finalization synchronization
+
+- Contest vote handling uses a durable lock keyed by vote ID in addition to the local in-process duplicate-click guard.
+- The lock covers the fresh vote read, majority decision, preparation-room channel creation, vote-state update, and related Discord notifications.
+- A worker waiting behind another process therefore observes the finalized vote before attempting another preparation-room side effect.
