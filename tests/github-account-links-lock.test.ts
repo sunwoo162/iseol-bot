@@ -37,3 +37,22 @@ test("GitHub account links preserve concurrent unlink operations from independen
   assert.deepEqual(await new GitHubAccountLinkStore(file).list(), []);
   await rm(dir, { recursive: true, force: true });
 });
+
+test("GitHub account links remove one guild without touching another guild", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iseol-github-account-links-guild-reset-"));
+  try {
+    const file = join(dir, "github-users.json");
+    const store = new GitHubAccountLinkStore(file);
+    await store.link("guild-target", "discord-target", "target-login");
+    await store.link("guild-other", "discord-other", "other-login");
+
+    const linksBeforeMissingGuild = await store.list();
+    const otherLink = linksBeforeMissingGuild.find((link) => link.guildId === "guild-other");
+    assert.ok(otherLink);
+    assert.equal(await store.removeGuild("guild-target"), 1);
+    assert.deepEqual(await store.list(), [otherLink]);
+    assert.equal(await store.removeGuild("guild-missing"), 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
