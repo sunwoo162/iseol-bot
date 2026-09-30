@@ -17,8 +17,48 @@ test("only opened reopened and synchronize pull request actions trigger review",
   assert.equal(shouldReviewPullRequestAction("closed"), false);
 });
 
-import { buildAutomationWebhookUrl } from "../src/services/github.js";
+import { buildAutomationWebhookUrl, parseGitHubRepository } from "../src/services/github.js";
 
 test("automation webhook url targets the signed github events endpoint", () => {
   assert.equal(buildAutomationWebhookUrl("https://iseol.example.com/"), "https://iseol.example.com/github/events");
+});
+
+test("github repository identities reject malformed and path-like input", () => {
+  assert.deepEqual(parseGitHubRepository("openai/iseol"), {
+    owner: "openai",
+    repo: "iseol",
+    url: "https://github.com/openai/iseol",
+  });
+  assert.deepEqual(parseGitHubRepository("https://github.com/openai/iseol"), {
+    owner: "openai",
+    repo: "iseol",
+    url: "https://github.com/openai/iseol",
+  });
+  assert.deepEqual(parseGitHubRepository("github/.github"), {
+    owner: "github",
+    repo: ".github",
+    url: "https://github.com/github/.github",
+  });
+
+  for (const value of [
+    "https://github.com/openai/%E0%A4%A",
+    "https://github.com/openai/iseol%2Fsecret",
+    "https://github.com/openai%2Fsecret/iseol",
+    "openai\\iseol",
+    "https://github.com/openai/iseol%5Csecret",
+    "https://github.com/openai/iseol?redirect=/private",
+    "https://github.com/openai/iseol#private",
+    "https://github.com/openai/repo/../secret",
+    "https://github.com/openai/./repo",
+    "https://github.com/openai//repo",
+    "openai/.git",
+    "openai/..git",
+    "openai/.git.git",
+    "https://github.com/openai/repo%3Fprivate",
+    "https://github.com/openai/repo%23private",
+    "https://github.com/openai/repo%252Fsecret",
+    "https://github.com/openai/repo%255Csecret",
+  ]) {
+    assert.throws(() => parseGitHubRepository(value), /GitHub 저장소/);
+  }
 });
