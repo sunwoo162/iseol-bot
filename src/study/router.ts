@@ -8,13 +8,26 @@ const response = (status: number, body: unknown): UserResponse => ({ status, hea
 const bearer = (headers: Record<string, string | undefined>): string | null => { const value = headers.authorization; return value?.startsWith("Bearer ") ? value.slice(7).trim() || null : null; };
 const objectBody = (body: unknown): Record<string, unknown> | null => body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : null;
 const stringValue = (body: Record<string, unknown> | null, key: string): string | null => typeof body?.[key] === "string" && (body[key] as string).trim() ? body[key] as string : null;
-const idAfter = (pathname: string, prefix: string): string | null => { if (!pathname.startsWith(prefix)) return null; const value = decodeURIComponent(pathname.slice(prefix.length)); return value || null; };
+const decodePathValue = (value: string): string | null => {
+  if (/%(?:2f|5c)/i.test(value)) return null;
+  try {
+    const decoded = decodeURIComponent(value);
+    return decoded || null;
+  } catch {
+    return null;
+  }
+};
+const idAfter = (pathname: string, prefix: string): string | null => { if (!pathname.startsWith(prefix)) return null; return decodePathValue(pathname.slice(prefix.length)); };
 function errorResponse(error: unknown): UserResponse { const message = error instanceof Error ? error.message : "study request failed"; if (/not found/i.test(message)) return response(404, { error: message }); if (/access|required|invalid|private|manager/i.test(message)) return response(/access|manager|private/i.test(message) ? 403 : 400, { error: message }); return response(409, { error: message }); }
 
 export async function routeStudyRequest(request: UserRequest, services: StudyRouteServices): Promise<UserResponse> {
+  const url = new URL(request.path, "http://iseol.local");
+  const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
+  const isStudyPath = url.pathname === "/api/user/studies" || url.pathname.startsWith("/api/user/studies/");
+  if (isStudyPath && rawPathname.includes("\\")) return response(404, { error: "study route not found" });
   const token = bearer(request.headers); const principal = token ? await services.platformUserService.resolveAuthenticatedPrincipal(token) : null; if (!principal) return response(401, { error: "authentication required" });
   if (!services.studyService) return response(503, { error: "study unavailable" });
-  const study = services.studyService; const url = new URL(request.path, "http://iseol.local");
+  const study = services.studyService;
   try {
     if (url.pathname === "/api/user/studies") {
       if (request.method === "GET") return response(200, { studies: await study.listStudySpaces(principal) });

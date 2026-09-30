@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -33,6 +34,19 @@ test("study API keeps team access, shared task metadata, and private submissions
     const createResponse = await fetch(url + "/api/user/studies", { method: "POST", headers: headers(ownerSession.token), body: JSON.stringify({ teamId: team.id, title: "Shared study API", description: "API-backed study room" }) });
     assert.equal(createResponse.status, 201);
     const space = (await createResponse.json() as any).space;
+    const querySpace = await fetch(url + "/api/user/studies/" + space.id + "?next=%2F", { headers: headers(ownerSession.token) });
+    assert.equal(querySpace.status, 200);
+    const encodedSeparator = await fetch(url + "/api/user/studies/" + space.id + "%2Ftasks", { method: "POST", headers: headers(ownerSession.token), body: JSON.stringify({ title: "Should not be created", instructions: "Encoded separator" }) });
+    assert.equal(encodedSeparator.status, 404);
+    const rawBackslashStatus = await new Promise<number>((resolve, reject) => {
+      const request = httpRequest({ hostname: "127.0.0.1", port: (server.address() as AddressInfo).port, method: "GET", path: "/api/user/studies\\" + space.id, headers: headers(ownerSession.token) }, (response) => {
+        response.resume();
+        response.once("end", () => resolve(response.statusCode ?? 0));
+      });
+      request.once("error", reject);
+      request.end();
+    });
+    assert.equal(rawBackslashStatus, 404);
     const linkResponse = await fetch(url + "/api/user/studies/" + space.id + "/curriculum-links", { method: "POST", headers: headers(ownerSession.token), body: JSON.stringify({ kind: "resource", referenceId: "docs", label: "Docs" }) });
     assert.equal(linkResponse.status, 201);
     const taskResponse = await fetch(url + "/api/user/studies/" + space.id + "/tasks", { method: "POST", headers: headers(ownerSession.token), body: JSON.stringify({ title: "Shared task", instructions: "Write a short explanation" }) });

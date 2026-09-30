@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -42,6 +43,20 @@ test("notification API is authenticated, owner-scoped, readable, and reload-safe
 
     const outsiderInbox = await fetch(`${url}/api/user/notifications`, { headers: headers(outsiderSession.token) });
     assert.equal((await outsiderInbox.json() as any).notifications.length, 0);
+    const notificationId = memberPayload.notifications[0].id as string;
+    const rawBackslashStatus = await new Promise<number>((resolve, reject) => {
+      const request = httpRequest({ hostname: "127.0.0.1", port: (server.address() as AddressInfo).port, method: "POST", path: `/api/user/notifications\\${notificationId}/read`, headers: headers(memberSession.token) }, (response) => {
+        response.resume();
+        response.once("end", () => resolve(response.statusCode ?? 0));
+      });
+      request.once("error", reject);
+      request.end("{}");
+    });
+    assert.equal(rawBackslashStatus, 404);
+    const malformedRead = await fetch(`${url}/api/user/notifications/%E0%A4%A/read`, { method: "POST", headers: headers(memberSession.token), body: "{}" });
+    assert.equal(malformedRead.status, 404);
+    const encodedSeparatorRead = await fetch(`${url}/api/user/notifications/${encodeURIComponent(notificationId)}%2Fextra/read`, { method: "POST", headers: headers(memberSession.token), body: "{}" });
+    assert.equal(encodedSeparatorRead.status, 404);
     const read = await fetch(`${url}/api/user/notifications/${encodeURIComponent(memberPayload.notifications[0].id)}/read`, { method: "POST", headers: headers(memberSession.token), body: "{}" });
     assert.equal(read.status, 200);
     const unread = await fetch(`${url}/api/user/notifications?unreadOnly=1`, { headers: headers(memberSession.token) });

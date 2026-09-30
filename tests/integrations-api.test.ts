@@ -48,6 +48,14 @@ test("user integration status and delivery route remain authenticated, owner-sco
     }, services);
     assert.equal(deliveryResponse.status, 200);
     assert.equal((deliveryResponse.body as { delivery: { state: string; reason: string } }).delivery.state, "not-configured");
+    const rawBackslashResponse = await routeIntegrationsRequest({
+      method: "POST",
+      path: "/api/user/integrations/github/deliveries",
+      rawPath: "/api/user/integrations\\github/deliveries",
+      headers: { authorization: `Bearer ${sessionA.token}` },
+      body: { sourceType: "project.lifecycle", sourceId: "project-raw", eventType: "project.completed", eventVersion: 1 },
+    }, services);
+    assert.equal(rawBackslashResponse.status, 404);
     assert.equal((await get(sessionB.token)).body instanceof Object, true);
     const userBStatus = (await get(sessionB.token)).body as { integrations: Array<{ provider: string; optedIn: boolean; lastDelivery: unknown }> };
     assert.equal(userBStatus.integrations.find((item) => item.provider === "github")?.optedIn, false);
