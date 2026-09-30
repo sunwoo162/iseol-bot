@@ -32,7 +32,7 @@ async function serializeAgentWrite<T>(root: string, agentId: string, action: () 
   finally { if (agentWriteQueues.get(key) === run) agentWriteQueues.delete(key); }
 }
 
-async function loadRawPresence(root: string, agentId: string): Promise<DesktopAgentPresence | null> {
+async function loadRawPresenceUnlocked(root: string, agentId: string): Promise<DesktopAgentPresence | null> {
   const path = agentFile(root, agentId);
   try {
     return JSON.parse(await readFile(path, "utf8")) as DesktopAgentPresence;
@@ -67,7 +67,7 @@ export async function registerDesktopAgent(
   return withDurableDesktopAgentLock(root, hello.agentId, () => serializeAgentWrite(root, hello.agentId, async () => {
     assertDesktopProtocolVersion(hello.version);
     assertDesktopAgentId(hello.agentId);
-    const existing = await loadRawPresence(root, hello.agentId);
+    const existing = await loadRawPresenceUnlocked(root, hello.agentId);
     const presence: DesktopAgentPresence = {
       version: 1, agentId: hello.agentId, agentVersion: hello.agentVersion, os: hello.os,
       capabilities: [...hello.capabilities], workspaceRoots: normalizeRoots(hello.workspaceRoots),
@@ -86,7 +86,7 @@ export async function heartbeatDesktopAgent(
   connectionId?: string,
 ): Promise<DesktopAgentPresence> {
   return withDurableDesktopAgentLock(root, agentId, () => serializeAgentWrite(root, agentId, async () => {
-    const presence = await loadRawPresence(root, agentId);
+    const presence = await loadRawPresenceUnlocked(root, agentId);
     if (!presence) throw new Error(`Desktop Agent not registered: ${agentId}`);
     if (connectionId && presence.connectionId && presence.connectionId !== connectionId) return presence;
     if (Date.parse(at) < Date.parse(presence.lastHeartbeatAt)) return presence;
@@ -102,10 +102,17 @@ export async function getDesktopAgentPresence(
   now: string,
   timeoutMs: number,
 ): Promise<ResolvedDesktopAgentPresence | null> {
-  const presence = await loadRawPresence(root, agentId);
-  if (!presence) return null;
-  const age = Date.parse(now) - Date.parse(presence.lastHeartbeatAt);
-  return { ...presence, status: age <= timeoutMs ? "online" : "offline" };
+  return withDurableDesktopAgentLock(
+    root,
+    agentId,
+    async () => {
+      const presence = await loadRawPresenceUnlocked(root, agentId);
+      if (!presence) return null;
+      const age = Date.parse(now) - Date.parse(presence.lastHeartbeatAt);
+      return { ...presence, status: age <= timeoutMs ? "online" : "offline" };
+    },
+    { waitForMs: 2_000 },
+  );
 }
 
 export async function listOnlineDesktopAgents(
