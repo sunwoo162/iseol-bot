@@ -15,7 +15,7 @@ import {
   previousSeoulDateKey,
   saveDailyScrumRecord,
 } from "../services/daily-scrum.js";
-import { listProjects, type StoredProject } from "../services/projects.js";
+import { findProject, listProjects, withProjectDeleteLock, type StoredProject } from "../services/projects.js";
 import { seoulDateKey } from "../services/voice-time.js";
 import { withDiscordChannelEnsureLock } from "../services/discord-channel-ensure-lock.js";
 
@@ -216,52 +216,60 @@ async function handleCreateScrumChannel(interaction: ChatInputCommandInteraction
     return;
   }
 
-  await withDiscordChannelEnsureLock(`daily-scrum:${project.guildId}:${project.categoryId}`, async () => {
-    const existing = await findDailyScrumChannel(interaction.guild!, project);
-    if (existing) {
-      await interaction.editReply(`ℹ️ **${project.name}** 프로젝트에는 이미 데일리 스크럼 채널이 있습니다.\n<#${existing.id}>`);
+  await withProjectDeleteLock(project.guildId, project.id, async () => {
+    const current = await findProject(project.id);
+    if (!current) {
+      await interaction.editReply("❌ 이설로 생성한 프로젝트를 찾을 수 없습니다.");
       return;
     }
 
-    const category = await interaction.guild!.channels.fetch(project.categoryId).catch(() => null);
-    if (!category || category.type !== ChannelType.GuildCategory) {
-      await interaction.editReply("❌ 프로젝트 카테고리를 찾을 수 없습니다.");
-      return;
-    }
-
-    try {
-      const channel = await interaction.guild!.channels.create({
-        name: DAILY_SCRUM_CHANNEL_NAME,
-        type: ChannelType.GuildText,
-        parent: category.id,
-        reason: `${project.name} 데일리 스크럼 채널 사용자 생성`,
-      });
-
-      const children = await interaction.guild!.channels.fetch();
-      const discussion = children.find((item) =>
-        item?.type === ChannelType.GuildText
-        && item.parentId === category.id
-        && item.name === "💬・토론",
-      );
-      if (discussion) {
-        await channel.setPosition(discussion.position + 1).catch(() => undefined);
+    await withDiscordChannelEnsureLock(`daily-scrum:${current.guildId}:${current.categoryId}`, async () => {
+      const existing = await findDailyScrumChannel(interaction.guild!, current);
+      if (existing) {
+        await interaction.editReply(`ℹ️ **${current.name}** 프로젝트에는 이미 데일리 스크럼 채널이 있습니다.\n<#${existing.id}>`);
+        return;
       }
 
-      await channel.send({
-        content:
-          "📋 **데일리 스크럼 채널입니다.**\n" +
-          "`/scrum write todo:...`로 오늘 할 일을 기록하세요.\n" +
-          "TODO/DID는 쉼표(`,`)로 여러 항목을 구분할 수 있습니다.\n" +
-          "DID는 선택값이며 입력할 때 전날 TODO를 자동완성으로 선택할 수 있습니다.\n" +
-          "매일 오전 8시(한국시간)에 @everyone 작성 알림이 전송됩니다.",
-        allowedMentions: { parse: [] },
-      });
+      const category = await interaction.guild!.channels.fetch(current.categoryId).catch(() => null);
+      if (!category || category.type !== ChannelType.GuildCategory) {
+        await interaction.editReply("❌ 프로젝트 카테고리를 찾을 수 없습니다.");
+        return;
+      }
 
-      await interaction.editReply(`✅ **${project.name}** 프로젝트에 데일리 스크럼 채널을 생성했습니다.\n<#${channel.id}>`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
-      await interaction.editReply(`❌ 데일리 스크럼 채널 생성에 실패했습니다.\n\`${message}\``);
-    }
+      try {
+        const channel = await interaction.guild!.channels.create({
+          name: DAILY_SCRUM_CHANNEL_NAME,
+          type: ChannelType.GuildText,
+          parent: category.id,
+          reason: `${current.name} 데일리 스크럼 채널 사용자 생성`,
+        });
+
+        const children = await interaction.guild!.channels.fetch();
+        const discussion = children.find((item) =>
+          item?.type === ChannelType.GuildText
+          && item.parentId === category.id
+          && item.name === "💬・토론",
+        );
+        if (discussion) {
+          await channel.setPosition(discussion.position + 1).catch(() => undefined);
+        }
+
+        await channel.send({
+          content:
+            "📋 **데일리 스크럼 채널입니다.**\n" +
+            "`/scrum write todo:...`로 오늘 할 일을 기록하세요.\n" +
+            "TODO/DID는 쉼표(`,`)로 여러 항목을 구분할 수 있습니다.\n" +
+            "DID는 선택값이며 입력할 때 전날 TODO를 자동완성으로 선택할 수 있습니다.\n" +
+            "매일 오전 8시(한국시간)에 @everyone 작성 알림이 전송됩니다.",
+          allowedMentions: { parse: [] },
+        });
+
+        await interaction.editReply(`✅ **${current.name}** 프로젝트에 데일리 스크럼 채널을 생성했습니다.\n<#${channel.id}>`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+        await interaction.editReply(`❌ 데일리 스크럼 채널 생성에 실패했습니다.\n\`${message}\``);
+      }
+    });
   });
 }
 
