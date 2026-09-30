@@ -4160,6 +4160,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root User Notification and notification stream document read/write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed the explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-30 continuation: durable StudyAttempt document read/write synchronization
+
+- Status: **B — StudyAttempt public reads and writes now coordinate through the owning session durable lock, and live Runtime/provider execution remains unverified**. Recording an attempt now keeps session resume revision and attempt persistence in the same session lock boundary.
+- Evidence: `src/learning/store.ts`, `src/learning/service.ts`, `src/learning/session-lock.ts`, `tests/learning-study-attempt-store-lock.test.ts`, `tests/learning-persistence.test.ts`, and the existing Learning progress/report regression suite.
+- TDD: RED reproduced public StudyAttempt save/load/list calls completing while the owning session lock was held; GREEN added locked public store boundaries, per-attempt list reloads, malformed session filtering, and moved session resume plus attempt persistence into one lock-held service transaction.
+- Verification: StudyAttempt focused regression `12/12`; Learning focused regression `115/115`; serial existing full test suite `754/754`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `93ffc4c fix: synchronize learning study attempt store`; merged by PR #224 with merge commit `271b690`.
+- Boundary: same-host/shared-root StudyAttempt document read/write coordination only; remaining raw Learning stores, distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed the explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-30 continuation: durable CodingAttempt document read/write synchronization
 
 - Status: **B — CodingAttempt public reads and writes now coordinate through the owning user/exercise/client-request durable lock, and live Runtime/provider execution remains unverified**. Submission and verifier callbacks use unlocked helpers while the coding-attempt lock is held.
