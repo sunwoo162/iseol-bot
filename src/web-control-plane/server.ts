@@ -250,6 +250,11 @@ async function handleRequest(
     sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "learning route not found" });
     return;
   }
+  const isCommunityPath = url.pathname === "/api/user/community" || url.pathname.startsWith("/api/user/community/");
+  if (isCommunityPath && rawPathname.includes("\\")) {
+    sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "community route not found" });
+    return;
+  }
   if (url.pathname === "/api/events") {
     if (req.method !== "GET") {
       res.writeHead(405, { allow: "GET" }).end("method not allowed");
