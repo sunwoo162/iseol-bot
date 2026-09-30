@@ -47,3 +47,9 @@ Routine reversible work should continue automatically. Iseol pauses only for mat
 A target project's harness document contains repository-specific invariants such as build commands, supported surfaces, protected directories, deployment boundaries, and quality gates. Those rules remain owned by that project.
 
 The effective Run policy is the ordered combination of this global document and all discovered project-local guidance, with provenance retained for audit and recovery.
+
+## Progress notification journal concurrency
+
+- The Discord progress notification journal is one JSONL file per project.
+- Durable locking for notification delivery and adapter dispatch is therefore keyed by project journal identity, not by individual event ID.
+- Tests must cover different event IDs contending for the same project journal so a new event cannot bypass an in-flight journal read/append operation.
