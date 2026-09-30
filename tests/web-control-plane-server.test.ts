@@ -3,10 +3,12 @@ import test from "node:test";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { request as httpRequest } from "node:http";
 import { createConnection } from "node:net";
 import type { AddressInfo } from "node:net";
 import type { PrototypeCandidate } from "../src/project-model/contracts.js";
 import { savePrototypeCandidate } from "../src/project-model/prototype-store.js";
+import { saveProjectWorkspace } from "../src/project-model/workspace-store.js";
 import {
   resolveWebControlPlaneConfig,
   startWebControlPlaneServer,
@@ -111,7 +113,7 @@ async function startFixture() {
     webRoot,
   });
   const address = server.address() as AddressInfo;
-  return { server, baseUrl: `http://127.0.0.1:${address.port}` };
+  return { server, baseUrl: `http://127.0.0.1:${address.port}`, modelRoot };
 }
 
 test("server delegates API requests and serves static content types", async () => {
@@ -133,6 +135,30 @@ test("server delegates API requests and serves static content types", async () =
     await new Promise<void>((resolve, reject) =>
       server.close((error) => error ? reject(error) : resolve()),
     );
+  }
+});
+
+test("server rejects raw backslash normalization for operator project routes", async () => {
+  const { server, baseUrl, modelRoot } = await startFixture();
+  await saveProjectWorkspace(modelRoot, {
+    version: 1, id: "project-raw", name: "Raw path", status: "active",
+    genesis: { prototypeId: "prototype-001", repository: candidate().repository, deployment: candidate().deployment, runs: [], promotedAt: "2026-09-07T00:00:00.000Z" },
+    tree: [{ id: "root", kind: "root", title: "Raw path", status: "planned", runIds: [], createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z" }],
+    createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z",
+  });
+  try {
+    const payload = JSON.stringify({ title: "Must not be created", objective: "Raw path boundary", idempotencyKey: "raw-path-server" });
+    const status = await new Promise<number>((resolveStatus, reject) => {
+      const request = httpRequest({ hostname: "127.0.0.1", port: new URL(baseUrl).port, method: "POST", path: "/api/projects\\project-raw/work-requests", headers: { authorization: "Bearer secret-token", "content-type": "application/json", "content-length": Buffer.byteLength(payload) } }, (response) => {
+        response.resume();
+        response.once("end", () => resolveStatus(response.statusCode ?? 0));
+      });
+      request.once("error", reject);
+      request.end(payload);
+    });
+    assert.equal(status, 404);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });
 

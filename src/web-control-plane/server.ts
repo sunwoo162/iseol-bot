@@ -300,6 +300,11 @@ async function handleRequest(
     sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "notification route not found" });
     return;
   }
+  const isControlPlaneProjectPath = url.pathname === "/api/projects" || url.pathname.startsWith("/api/projects/");
+  if (isControlPlaneProjectPath && rawPathname.includes("\\")) {
+    sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "project route not found" });
+    return;
+  }
   if (url.pathname === "/api/events") {
     if (req.method !== "GET") {
       res.writeHead(405, { allow: "GET" }).end("method not allowed");
@@ -559,6 +564,7 @@ async function handleRequest(
     const routed: WebControlPlaneRequest = {
       method: req.method ?? "GET",
       path: url.pathname,
+      rawPath: req.url ?? "/",
       headers: headerRecord(req.headers),
       ...(body === undefined ? {} : { body }),
     };
