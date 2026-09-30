@@ -24,6 +24,7 @@ import {
   findContestVote,
   listContestVotesByUser,
   updateContestVote,
+  withContestVoteLock,
   type ContestVote,
 } from "../services/contest-votes.js";
 
@@ -290,7 +291,8 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
   await interaction.deferUpdate();
 
   try {
-    const vote = await findContestVote(voteId);
+    await withContestVoteLock(voteId, async () => {
+      const vote = await findContestVote(voteId);
     if (!vote || !interaction.guild || interaction.guildId !== vote.guildId) {
       await interaction.followUp({ content: "투표 정보를 찾을 수 없습니다.", ephemeral: true });
       return;
@@ -382,6 +384,7 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
           { name: "개인정보", value: `<#${prepRoom.personalChannelId}>`, inline: true },
         )
         .setURL(updated.homepage || updated.url)],
+    });
     });
   } catch (error) {
     console.error(`공모전 투표 처리 실패 (${voteId})`, error);
