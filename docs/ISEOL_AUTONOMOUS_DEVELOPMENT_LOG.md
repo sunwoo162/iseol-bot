@@ -4160,6 +4160,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root User Notification and notification stream document read/write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed the explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-30 continuation: durable LearningLink document read/write synchronization
+
+- Status: **B — LearningLink public reads and writes now coordinate through the owning user/goal/project/proposal durable lock, and live Runtime/provider execution remains unverified**. Project application acceptance keeps its existing separate acceptance lock.
+- Evidence: `src/learning/store.ts`, `src/learning/link-lock.ts`, `tests/learning-link-store-lock.test.ts`, `tests/learning-project-application.test.ts`, and the existing Learning project application regression suite.
+- TDD: RED reproduced the missing public LearningLink store lock boundary; GREEN added the canonical durable link lock, locked public save/load/list boundaries, per-link list reloads, malformed identity filtering, and fail-closed single-link reads.
+- Verification: LearningLink/project application focused regression `6/6`; Learning focused regression `113/113`; serial existing full test suite `754/754`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `f707889 fix: synchronize learning link store`; merged by PR #220 with merge commit `d8164b1`.
+- Boundary: same-host/shared-root LearningLink document read/write coordination only; remaining raw Learning stores, distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed the explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-30 continuation: durable LearningPlanAdjustment document read/write synchronization
 
 - Status: **B — LearningPlanAdjustment public reads and writes now coordinate through the owning user/goal/input-hash durable lock, and live Runtime/provider execution remains unverified**. Adjustment creation uses unlocked helpers while the adjustment lock is held; acceptance keeps its existing separate acceptance/goal locks.
