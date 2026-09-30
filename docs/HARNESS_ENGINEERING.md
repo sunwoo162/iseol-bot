@@ -324,3 +324,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Team project creation and team transitions re-check access while the durable Team membership lock is held; those checks must use the lock-aware callback so they do not recursively acquire the same lock.
 - The full isolated browser E2E verifies private team project visibility before membership, after recruitment acceptance, and through the related team transition flows.
 - `npm run test:iseol-browser-e2e` and `npm run test:iseol-user-product` remain the acceptance boundary for this integration wiring.
+
+## Browser contract guard for team-project lock wiring
+
+- The isolated browser project-runtime contract test checks that `teamService.canAccessWithinMembershipLock` remains connected to `UserProjectService`.
+- This fast source contract catches a missing lock-aware callback before the longer private-team ACL browser journey runs.
+- The contract guard complements, rather than replaces, the full `npm run test:iseol-browser-e2e` and `npm run test:iseol-user-product` acceptance suites.
