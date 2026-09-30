@@ -4759,3 +4759,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `8574aaf fix: synchronize daily scrum state`; merged by PR #282 with merge commit `d98ec48`.
 - Boundary: same-host/shared-file Daily Scrum state coordination only; distributed locking, live Discord provider quality, external delivery success, operational Runtime/Agent throughput, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-30 continuation: durable Voice study state synchronization
+
+- Status: **B — Voice study state reads and read-modify-write session/heartbeat/recovery operations now coordinate through a path-scoped durable file lock, while live Discord voice provider execution remains unverified**. Independent VoiceStudyStore instances preserve concurrent sessions.
+- Evidence: `src/services/file-state-lock.ts`, `src/services/voice-time.ts`, and `tests/voice-study-time-lock.test.ts`.
+- TDD: RED reproduced the missing file-injected VoiceStudyStore boundary before implementation; GREEN replaced the process-local update queue with stale-owner-aware durable locking while preserving the existing global function API and heartbeat scheduler flow.
+- Verification: Voice study focused regression `2/2`; serial existing full test suite `754/754`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `dd2170a fix: synchronize voice study state`; merged by PR #284 with merge commit `8974dfe`.
+- Boundary: same-host/shared-file Voice study state coordination only; distributed locking, live Discord voice provider quality, external delivery success, operational Runtime/Agent throughput, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
