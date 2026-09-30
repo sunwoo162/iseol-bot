@@ -18,7 +18,7 @@ import { resolveDiscordProjectContext } from "../discord-project/context-resolve
 import { bindDiscordProjectWorkspace, discordProjectBindingHistoryFact, listDiscordProjectBindingChoices } from "../discord-project/project-command-actions.js";
 import { buildDiscordProjectStatus } from "../discord-project/status-card.js";
 import { recordStoredProjectAction } from "../discord-project/history-recorder.js";
-import { loadHarnessRun } from "../harness/run-store.js";
+import { loadHarnessRunUnlocked } from "../harness/run-store.js";
 import { listProjectWorkspaces, loadProjectWorkspace } from "../project-model/workspace-store.js";
 import { calendarPanel } from "../services/calendar/calendar-discord.js";
 import { CalendarStateStore } from "../services/calendar/calendar-state.js";
@@ -518,7 +518,7 @@ async function handleProjectStatus(interaction: ChatInputCommandInteraction): Pr
       workspaceRoot: modelRoot,
       runRoot: iseolRunRoot(),
       loadWorkspace: (id) => loadProjectWorkspace(modelRoot, id),
-      loadRun: (id) => loadHarnessRun(iseolRunRoot(), id),
+      loadRun: (id) => loadHarnessRunUnlocked(iseolRunRoot(), id),
     });
     const workspaceText = view.workspace.state === "unbound"
       ? "Project Workspace 연결 필요"
