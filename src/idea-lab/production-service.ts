@@ -1,7 +1,7 @@
 import type { HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import { assertRunCompletionEvidence } from "../harness/completion-gates.js";
 import type { PrototypeCandidate } from "../project-model/contracts.js";
-import { loadPrototypeCandidateUnlocked, savePrototypeCandidate } from "../project-model/prototype-store.js";
+import { loadPrototypeCandidateUnlocked, savePrototypeCandidateUnlocked } from "../project-model/prototype-store.js";
 import { withDurablePrototypeLock } from "../project-model/prototype-lock.js";
 import type { IdeaProposal, PrototypeProduction } from "./contracts.js";
 import type {
@@ -154,7 +154,7 @@ export async function materializePrototypeCandidate(
       }
       return existing;
     }
-    await savePrototypeCandidate(input.modelRoot, next);
+    await savePrototypeCandidateUnlocked(input.modelRoot, next);
     return next;
   }, { waitForMs: 2_000 });
 }
