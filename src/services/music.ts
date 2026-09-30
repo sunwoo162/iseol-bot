@@ -173,20 +173,43 @@ function removeFirstMatchingTrack(tracks: MusicTrack[], target: MusicTrack): voi
   if (index >= 0) tracks.splice(index, 1);
 }
 
-function extractYouTubeVideoUrl(input: string): string | null {
+export function extractYouTubeVideoUrl(input: string): string | null {
+  const raw = input.trim();
+  if (!raw || raw.includes("\\") || /%5c/i.test(raw)) return null;
+
   try {
-    const url = new URL(input);
+    const url = new URL(raw);
+    if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password || url.port) return null;
+    const authorityEnd = raw.indexOf("://");
+    const pathStart = raw.indexOf("/", authorityEnd + 3);
+    const rawPath = (pathStart === -1 ? "" : raw.slice(pathStart)).split(/[?#]/, 1)[0] ?? "";
+    const rawPathParts = rawPath.split("/");
+    const pathParts = rawPathParts.at(-1) === "" ? rawPathParts.slice(0, -1) : rawPathParts;
+    for (const part of pathParts.slice(1)) {
+      let decodedPart: string;
+      try {
+        decodedPart = decodeURIComponent(part);
+      } catch {
+        return null;
+      }
+      if (!decodedPart || decodedPart === "." || decodedPart === ".." || /[\\/]/.test(decodedPart)) return null;
+    }
+
     const host = url.hostname.toLowerCase().replace(/^www\./, "");
     let videoId: string | null = null;
 
     if (host === "youtu.be") {
-      videoId = url.pathname.split("/").filter(Boolean)[0] ?? null;
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (parts.length === 1) videoId = parts[0] ?? null;
     } else if (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com") {
-      videoId = url.searchParams.get("v");
+      if (url.searchParams.has("v")) {
+        if (url.pathname !== "/watch" && url.pathname !== "/watch/") return null;
+        videoId = url.searchParams.get("v");
+      }
 
       if (!videoId) {
-        const [kind, id] = url.pathname.split("/").filter(Boolean);
-        if ((kind === "shorts" || kind === "live" || kind === "embed") && id) {
+        const [kind, id, extra] = url.pathname.split("/").filter(Boolean);
+        if ((kind === "shorts" || kind === "live" || kind === "embed") && id && !extra) {
           videoId = id;
         }
       }
