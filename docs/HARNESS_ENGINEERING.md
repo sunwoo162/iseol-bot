@@ -354,3 +354,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Private memory durable lock acquisition retries a transient Windows `EPERM`/probe `ENOENT` race while the configured wait deadline remains.
 - User-owned memory, active-team sharing, AI Runtime context, and owner-token cleanup boundaries remain unchanged; unexpected probe errors are not hidden.
 - Private memory/AI context, full user-product, and isolated browser E2E suites remain the acceptance boundary.
+
+## Remaining binding and social lock transient retry boundary
+
+- Discord project binding and social friend-request/report durable locks retry a transient Windows `EPERM`/probe `ENOENT` race while the configured wait deadline remains.
+- Project ownership, friendship privacy, private reports, profile visibility, and owner-token cleanup boundaries remain unchanged.
+- Discord binding/social targeted tests and the full user-product and isolated browser E2E suites remain the acceptance boundary.
