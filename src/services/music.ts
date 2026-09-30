@@ -9,6 +9,7 @@ import {
 } from "@discordjs/voice";
 import type { Guild } from "discord.js";
 import * as play from "play-dl";
+import { withDurableFileStateLock } from "./file-state-lock.js";
 import { joinUserVoiceChannel } from "./voice-connection.js";
 
 const DATA_FILE = resolve(process.cwd(), "data", "music-playlists.json");
@@ -45,40 +46,6 @@ type SpotifyOEmbed = {
 };
 
 const runtime = new Map<string, GuildMusicState>();
-let writeQueue: Promise<void> = Promise.resolve();
-
-async function readData(): Promise<MusicData> {
-  try {
-    const parsed = JSON.parse(await readFile(DATA_FILE, "utf8")) as Partial<MusicData>;
-    return { guilds: parsed.guilds ?? {} };
-  } catch {
-    return { guilds: {} };
-  }
-}
-
-async function writeData(data: MusicData): Promise<void> {
-  await mkdir(dirname(DATA_FILE), { recursive: true });
-  await writeFile(DATA_FILE, JSON.stringify(data, null, 2), "utf8");
-}
-
-async function updateData<T>(updater: (data: MusicData) => T | Promise<T>): Promise<T> {
-  let result!: T;
-  let error: unknown;
-
-  writeQueue = writeQueue.then(async () => {
-    try {
-      const data = await readData();
-      result = await updater(data);
-      await writeData(data);
-    } catch (caught) {
-      error = caught;
-    }
-  });
-
-  await writeQueue;
-  if (error) throw error;
-  return result;
-}
 
 function normalizePlaylistName(value: string): string {
   return value.normalize("NFKC").trim().toLowerCase();
@@ -95,6 +62,101 @@ function clonePlaylist(playlist: MusicPlaylist): MusicPlaylist {
     tracks: playlist.tracks.map((track) => ({ ...track })),
   };
 }
+
+export class MusicStore {
+  constructor(private readonly file = DATA_FILE) {}
+
+  private async readData(): Promise<MusicData> {
+    try {
+      const parsed = JSON.parse(await readFile(this.file, "utf8")) as Partial<MusicData>;
+      return { guilds: parsed.guilds ?? {} };
+    } catch {
+      return { guilds: {} };
+    }
+  }
+
+  private async writeData(data: MusicData): Promise<void> {
+    await mkdir(dirname(this.file), { recursive: true });
+    await writeFile(this.file, JSON.stringify(data, null, 2), "utf8");
+  }
+
+  private updateData<T>(updater: (data: MusicData) => T | Promise<T>): Promise<T> {
+    return withDurableFileStateLock(this.file, async () => {
+      const data = await this.readData();
+      const result = await updater(data);
+      await this.writeData(data);
+      return result;
+    }, { waitForMs: 2_000 });
+  }
+
+  async createPlaylist(guildId: string, name: string): Promise<MusicPlaylist> {
+    const cleanName = name.trim().slice(0, 80);
+    if (!cleanName) throw new Error("플레이리스트 이름을 입력해주세요.");
+
+    return this.updateData((data) => {
+      const playlists = data.guilds[guildId] ?? [];
+      if (findPlaylist(playlists, cleanName)) throw new Error("같은 이름의 플레이리스트가 이미 있습니다.");
+
+      const playlist: MusicPlaylist = { name: cleanName, tracks: [] };
+      playlists.push(playlist);
+      data.guilds[guildId] = playlists;
+      return clonePlaylist(playlist);
+    });
+  }
+
+  async addTrack(guildId: string, playlistName: string, track: MusicTrack): Promise<{ playlist: MusicPlaylist; track: MusicTrack }> {
+    return this.updateData((data) => {
+      const playlists = data.guilds[guildId] ?? [];
+      const playlist = findPlaylist(playlists, playlistName);
+      if (!playlist) {
+        throw new Error(`플레이리스트 \"${playlistName}\"을 찾을 수 없습니다. 먼저 /music playlist-create name:<플레이리스트 이름> 명령어로 만들어주세요.`);
+      }
+
+      playlist.tracks.push({ ...track });
+      data.guilds[guildId] = playlists;
+      return { playlist: clonePlaylist(playlist), track: { ...track } };
+    });
+  }
+
+  async removeTrack(
+    guildId: string,
+    playlistName: string,
+    position: number,
+  ): Promise<{ playlist: MusicPlaylist; removed: MusicTrack }> {
+    if (!Number.isInteger(position) || position < 1) {
+      throw new Error("삭제할 노래 번호는 1 이상의 정수여야 합니다.");
+    }
+
+    return this.updateData((data) => {
+      const playlists = data.guilds[guildId] ?? [];
+      const playlist = findPlaylist(playlists, playlistName);
+      if (!playlist) throw new Error(`플레이리스트 \"${playlistName}\"을 찾을 수 없습니다.`);
+      if (position > playlist.tracks.length) {
+        throw new Error(`해당 플레이리스트에는 ${playlist.tracks.length}곡만 있습니다.`);
+      }
+
+      const [removed] = playlist.tracks.splice(position - 1, 1);
+      if (!removed) throw new Error("삭제할 노래를 찾을 수 없습니다.");
+
+      data.guilds[guildId] = playlists;
+      return { playlist: clonePlaylist(playlist), removed: { ...removed } };
+    });
+  }
+
+  async listPlaylists(guildId: string): Promise<MusicPlaylist[]> {
+    return withDurableFileStateLock(this.file, async () => {
+      const data = await this.readData();
+      return (data.guilds[guildId] ?? []).map(clonePlaylist);
+    }, { waitForMs: 2_000 });
+  }
+
+  async getPlaylist(guildId: string, name: string): Promise<MusicPlaylist | null> {
+    const playlists = await this.listPlaylists(guildId);
+    return findPlaylist(playlists, name) ?? null;
+  }
+}
+
+const defaultMusicStore = new MusicStore();
 
 function playbackUrl(track: MusicTrack): string {
   return track.playbackUrl || track.url;
@@ -137,19 +199,8 @@ function extractYouTubeVideoUrl(input: string): string | null {
   }
 }
 
-export async function createPlaylist(guildId: string, name: string): Promise<MusicPlaylist> {
-  const cleanName = name.trim().slice(0, 80);
-  if (!cleanName) throw new Error("플레이리스트 이름을 입력해주세요.");
-
-  return updateData((data) => {
-    const playlists = data.guilds[guildId] ?? [];
-    if (findPlaylist(playlists, cleanName)) throw new Error("같은 이름의 플레이리스트가 이미 있습니다.");
-
-    const playlist: MusicPlaylist = { name: cleanName, tracks: [] };
-    playlists.push(playlist);
-    data.guilds[guildId] = playlists;
-    return clonePlaylist(playlist);
-  });
+export function createPlaylist(guildId: string, name: string): Promise<MusicPlaylist> {
+  return defaultMusicStore.createPlaylist(guildId, name);
 }
 
 async function resolveSpotifyTrack(input: string, userId: string): Promise<MusicTrack> {
@@ -237,17 +288,7 @@ export async function addTrackToPlaylist(
 ): Promise<{ playlist: MusicPlaylist; track: MusicTrack }> {
   const track = await resolveTrack(query, userId);
 
-  const result = await updateData((data) => {
-    const playlists = data.guilds[guildId] ?? [];
-    const playlist = findPlaylist(playlists, playlistName);
-    if (!playlist) {
-      throw new Error(`플레이리스트 \"${playlistName}\"을 찾을 수 없습니다. 먼저 /music playlist-create name:<플레이리스트 이름> 명령어로 만들어주세요.`);
-    }
-
-    playlist.tracks.push(track);
-    data.guilds[guildId] = playlists;
-    return { playlist: clonePlaylist(playlist), track: { ...track } };
-  });
+  const result = await defaultMusicStore.addTrack(guildId, playlistName, track);
 
   const state = runtime.get(guildId);
   if (state?.activePlaylistName
@@ -264,24 +305,7 @@ export async function removeTrackFromPlaylist(
   playlistName: string,
   position: number,
 ): Promise<{ playlist: MusicPlaylist; removed: MusicTrack }> {
-  if (!Number.isInteger(position) || position < 1) {
-    throw new Error("삭제할 노래 번호는 1 이상의 정수여야 합니다.");
-  }
-
-  const result = await updateData((data) => {
-    const playlists = data.guilds[guildId] ?? [];
-    const playlist = findPlaylist(playlists, playlistName);
-    if (!playlist) throw new Error(`플레이리스트 \"${playlistName}\"을 찾을 수 없습니다.`);
-    if (position > playlist.tracks.length) {
-      throw new Error(`해당 플레이리스트에는 ${playlist.tracks.length}곡만 있습니다.`);
-    }
-
-    const [removed] = playlist.tracks.splice(position - 1, 1);
-    if (!removed) throw new Error("삭제할 노래를 찾을 수 없습니다.");
-
-    data.guilds[guildId] = playlists;
-    return { playlist: clonePlaylist(playlist), removed: { ...removed } };
-  });
+  const result = await defaultMusicStore.removeTrack(guildId, playlistName, position);
 
   const state = runtime.get(guildId);
   if (state?.activePlaylistName
@@ -293,15 +317,12 @@ export async function removeTrackFromPlaylist(
   return result;
 }
 
-export async function listPlaylists(guildId: string): Promise<MusicPlaylist[]> {
-  await writeQueue;
-  const data = await readData();
-  return (data.guilds[guildId] ?? []).map(clonePlaylist);
+export function listPlaylists(guildId: string): Promise<MusicPlaylist[]> {
+  return defaultMusicStore.listPlaylists(guildId);
 }
 
-export async function getPlaylist(guildId: string, name: string): Promise<MusicPlaylist | null> {
-  const playlists = await listPlaylists(guildId);
-  return findPlaylist(playlists, name) ?? null;
+export function getPlaylist(guildId: string, name: string): Promise<MusicPlaylist | null> {
+  return defaultMusicStore.getPlaylist(guildId, name);
 }
 
 function getRuntimeState(guildId: string): GuildMusicState {
