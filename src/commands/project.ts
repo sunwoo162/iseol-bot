@@ -22,6 +22,7 @@ import { loadHarnessRunUnlocked } from "../harness/run-store.js";
 import { listProjectWorkspaces, loadProjectWorkspace } from "../project-model/workspace-store.js";
 import { calendarPanel } from "../services/calendar/calendar-discord.js";
 import { CalendarStateStore } from "../services/calendar/calendar-state.js";
+import { clearDailyScrumProject } from "../services/daily-scrum.js";
 import { GoogleCalendarService } from "../services/calendar/google-calendar.js";
 import { FigmaWebhookService, parseFigmaFile } from "../services/figma.js";
 import { buildAutomationWebhookUrl, GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
@@ -237,6 +238,13 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
 
       const deleted = await deleteProject(project.id);
       if (!deleted) throw new Error("프로젝트 저장 정보를 삭제하지 못했습니다.");
+
+      try {
+        await clearDailyScrumProject(project.id);
+      } catch (error) {
+        console.warn(`Daily scrum 기록 정리 실패 (${project.name}):`, error);
+        warnings.push("Daily scrum records");
+      }
 
       try {
         await deleteDiscordProjectBinding(iseolModelRoot(), project.guildId, project.id);
