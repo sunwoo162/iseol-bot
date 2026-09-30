@@ -1,6 +1,8 @@
 # 사용자별 AI 학습 상세 명세
 
-상태: 2026-09-21 확정 요구사항을 구현 가능한 계약으로 구체화한 설계. 현재 `src/learning`과 아래 API는 미구현이다. 기존 음성 공부 시간·개발 purpose profile은 이 학습 엔진이 아니다.
+상태: 2026-09-21 확정 요구사항을 구현 가능한 계약으로 구체화한 설계이며, 2026-10-01 현재 구현 추적을 반영한다. `src/learning`과 사용자 인증 `/api/user/learning/*`에는 owner-scoped Goal/Plan/Session/Content/Progress/Report/Feedback 경계가 구현되어 있다. 아래의 `/api/learning` 경로는 설계상의 축약 표기이며, 실제 canonical prefix는 `/api/user/learning`이다. 기존 음성 공부 시간·개발 purpose profile은 이 학습 엔진이 아니다.
+
+구현 상태: 학습 목표·계획 미리보기/활성화, 오늘 상태·세션, 콘텐츠 요청, 설명/예시/힌트 action, 답안 receipt와 evaluation-pending, 진행 근거, 보고서, 피드백 dispute/re-evaluation, 코딩 연습, 계획 조정, 프로젝트 적용 제안의 owner scope·revision/idempotency·waiting-runtime 경계가 구현되어 있다. 로컬 dispatcher/evaluator는 명시적으로 주입할 때만 동작하며, 실제 Ollama 모델 품질·verifier 실행·운영 Runtime 소유권은 이 문서가 완료를 주장하지 않는 별도 경계다. 구현 근거와 최신 검증 수치는 `docs/ISEOL_FEATURE_INVENTORY.md`의 Learning 항목과 `tests/learning-*` 및 `tests/user-ui-learning-*`에 기록한다.
 
 ## 1. 최소 입력과 화면
 
