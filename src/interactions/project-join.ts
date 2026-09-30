@@ -7,31 +7,48 @@ import {
   TextInputStyle,
 } from "discord.js";
 import type { GitHubWebhookService } from "../services/github.js";
-import { findProject } from "../services/projects.js";
+import { findProject, withProjectDeleteLock, type StoredProject } from "../services/projects.js";
 
 type OrganizationInviter = Pick<GitHubWebhookService, "inviteOrganizationMember">;
 
+export async function withProjectJoinLifecycleLock<T>(
+  guildId: string,
+  projectId: string,
+  task: (current: StoredProject) => Promise<T>,
+): Promise<T | undefined> {
+  return withProjectDeleteLock(guildId, projectId, async () => {
+    const current = await findProject(projectId);
+    if (!current || current.guildId !== guildId) return undefined;
+    return task(current);
+  });
+}
+
 export async function handleProjectJoinButton(interaction: ButtonInteraction): Promise<void> {
   const projectId = interaction.customId.split(":")[1];
-  const project = projectId ? await findProject(projectId) : null;
-  if (!project || project.guildId !== interaction.guildId) {
+  if (!projectId || !interaction.guildId) {
     await interaction.reply({ content: "프로젝트 정보를 찾을 수 없습니다.", ephemeral: true });
     return;
   }
 
-  const username = new TextInputBuilder()
-    .setCustomId("github_username")
-    .setLabel("GitHub 사용자명")
-    .setPlaceholder("예: sunwoo162")
-    .setMinLength(1)
-    .setMaxLength(39)
-    .setRequired(true)
-    .setStyle(TextInputStyle.Short);
-  const modal = new ModalBuilder()
-    .setCustomId(`project_join_modal:${project.id}`)
-    .setTitle(`${project.name} 참여`);
-  modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(username));
-  await interaction.showModal(modal);
+  const shown = await withProjectJoinLifecycleLock(interaction.guildId, projectId, async (project) => {
+    const username = new TextInputBuilder()
+      .setCustomId("github_username")
+      .setLabel("GitHub 사용자명")
+      .setPlaceholder("예: sunwoo162")
+      .setMinLength(1)
+      .setMaxLength(39)
+      .setRequired(true)
+      .setStyle(TextInputStyle.Short);
+    const modal = new ModalBuilder()
+      .setCustomId(`project_join_modal:${project.id}`)
+      .setTitle(`${project.name} 참여`);
+    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(username));
+    await interaction.showModal(modal);
+    return true;
+  });
+  if (shown !== true) {
+    await interaction.reply({ content: "프로젝트 정보를 찾을 수 없습니다.", ephemeral: true });
+  }
 }
 
 export async function handleProjectJoinModal(
@@ -39,8 +56,7 @@ export async function handleProjectJoinModal(
   github: OrganizationInviter,
 ): Promise<void> {
   const projectId = interaction.customId.split(":")[1];
-  const project = projectId ? await findProject(projectId) : null;
-  if (!project || project.guildId !== interaction.guildId) {
+  if (!projectId || !interaction.guildId) {
     await interaction.reply({ content: "프로젝트 정보를 찾을 수 없습니다.", ephemeral: true });
     return;
   }
@@ -53,10 +69,16 @@ export async function handleProjectJoinModal(
 
   await interaction.deferReply({ ephemeral: true });
   try {
-    await github.inviteOrganizationMember(project.organization, username);
-    await interaction.editReply(
-      `✅ **@${username}** 계정으로 **${project.organization}** Organization 초대를 보냈습니다.\nGitHub 알림 또는 이메일에서 초대를 수락하면 합류가 완료됩니다.`,
-    );
+    const invited = await withProjectJoinLifecycleLock(interaction.guildId, projectId, async (project) => {
+      await github.inviteOrganizationMember(project.organization, username);
+      await interaction.editReply(
+        `✅ **@${username}** 계정으로 **${project.organization}** Organization 초대를 보냈습니다.\nGitHub 알림 또는 이메일에서 초대를 수락하면 합류가 완료됩니다.`,
+      );
+      return true;
+    });
+    if (invited !== true) {
+      await interaction.editReply("프로젝트 정보를 찾을 수 없습니다.");
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
     await interaction.editReply(
