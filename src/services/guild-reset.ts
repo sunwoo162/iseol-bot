@@ -7,6 +7,7 @@ import { clearMusicRuntime } from "./music.js";
 import { leaveGuildVoiceChannel } from "./voice-connection.js";
 import { stopStudySessionsForGuild } from "./voice-time.js";
 import { withDurableFileStateLock } from "./file-state-lock.js";
+import { withProjectGuildLifecycleLock } from "./projects.js";
 
 const DATA_DIR = resolve(process.cwd(), "data");
 const PROJECTS_FILE = resolve(DATA_DIR, "projects.json");
@@ -139,7 +140,11 @@ async function removeProjectHooks(projects: ProjectRecord[], warnings: string[])
   return removed;
 }
 
-export async function resetGuildState(guild: Guild): Promise<GuildResetSummary> {
+export function resetGuildState(guild: Guild): Promise<GuildResetSummary> {
+  return withProjectGuildLifecycleLock(guild.id, () => resetGuildStateUnlocked(guild));
+}
+
+async function resetGuildStateUnlocked(guild: Guild): Promise<GuildResetSummary> {
   await stopStudySessionsForGuild(guild.id);
   clearMusicRuntime(guild.id);
   leaveGuildVoiceChannel(guild.id);
