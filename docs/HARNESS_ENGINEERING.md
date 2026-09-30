@@ -197,3 +197,9 @@ The effective Run policy is the ordered combination of this global document and 
 - GitHub commit feed polling shares the project deletion lock keyed by guild and project ID for each frontend/backend repository sync.
 - It re-reads the project after acquiring the lifecycle lock and skips GitHub lookup, Discord commit-log delivery, and seen-state updates when deletion has already completed.
 - A live project may finish one repository sync before deletion enters the critical section, but stale polling snapshots cannot publish post-deletion commit activity.
+
+## GitHub automation polling lifecycle synchronization
+
+- GitHub automation polling shares the project deletion lock keyed by guild and project ID while installing review workflows and syncing pull requests/milestones.
+- It re-reads the project after acquiring the lifecycle lock and skips GitHub review, Discord notification/history, and calendar milestone side effects when deletion has already completed.
+- A live project may finish one polling cycle before deletion enters the critical section, but stale snapshots cannot continue automation side effects after deletion.
