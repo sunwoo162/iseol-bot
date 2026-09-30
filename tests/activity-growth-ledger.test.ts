@@ -6,7 +6,7 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createActivityService } from "../src/activity/service.js";
 import { createGrowthService } from "../src/growth/read-model.js";
-import { saveGrowthEntry } from "../src/growth/ledger.js";
+import { saveGrowthEntryUnlocked } from "../src/growth/ledger.js";
 import { withDurableGrowthProjectionLock } from "../src/growth/projection-lock.js";
 import { withDurableActivityEventLock } from "../src/activity/event-lock.js";
 import { listActivityEvents, loadActivityEvent, saveActivityEvent } from "../src/activity/store.js";
@@ -253,7 +253,7 @@ test("growth snapshots wait for the event lock and reload the latest durable ent
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  await saveGrowthEntry(root, { ...entry, xpDelta: 200, statDelta: 200 });
+  await saveGrowthEntryUnlocked(root, { ...entry, xpDelta: 200, statDelta: 200 });
   releaseHolder();
   await lockHeld;
   assert.equal((await snapshot).xp, 200);
