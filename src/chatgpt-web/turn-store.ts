@@ -35,7 +35,7 @@ function semanticTurn(turn: ReasoningTurn): string {
   });
 }
 
-export async function listReasoningTurns(root: string, runId: string): Promise<ReasoningTurn[]> {
+export async function listReasoningTurnsUnlocked(root: string, runId: string): Promise<ReasoningTurn[]> {
   const path = turnsFile(root, runId);
   try {
     const content = await readFile(path, "utf8");
@@ -49,12 +49,17 @@ export async function listReasoningTurns(root: string, runId: string): Promise<R
     throw error;
   }
 }
+
+export async function listReasoningTurns(root: string, runId: string): Promise<ReasoningTurn[]> {
+  return withDurableReasoningTurnLock(root, runId, () => listReasoningTurnsUnlocked(root, runId), { waitForMs: 2_000 });
+}
+
 export async function appendReasoningTurn(root: string, turn: ReasoningTurn): Promise<boolean> {
   assertReasoningTurn(turn);
   const path = turnsFile(root, turn.runId);
   return serialized(path, async () => {
     return withDurableReasoningTurnLock(root, turn.runId, async () => {
-      const existing = (await listReasoningTurns(root, turn.runId)).find((item) => item.turnId === turn.turnId);
+      const existing = (await listReasoningTurnsUnlocked(root, turn.runId)).find((item) => item.turnId === turn.turnId);
       if (existing) {
         if (semanticTurn(existing) !== semanticTurn(turn)) throw new Error(`Reasoning turn identity mismatch: ${turn.turnId}`);
         return false;
