@@ -34,7 +34,7 @@ function durableResult(result: DesktopJobResult): DesktopJobResult {
   };
 }
 
-export async function loadCompletedDesktopResults(root: string): Promise<Map<string, DesktopJobResult>> {
+export async function loadCompletedDesktopResultsUnlocked(root: string): Promise<Map<string, DesktopJobResult>> {
   const results = new Map<string, DesktopJobResult>();
   let names: string[];
   try { names = await readdir(root); } catch (error) {
@@ -52,6 +52,30 @@ export async function loadCompletedDesktopResults(root: string): Promise<Map<str
   return results;
 }
 
+async function loadCompletedDesktopResultUnlocked(root: string, jobId: string): Promise<DesktopJobResult | null> {
+  try {
+    const value: unknown = JSON.parse(await readFile(resultPath(root, jobId), "utf8"));
+    return isResult(value) && value.jobId === jobId ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function loadCompletedDesktopResults(root: string): Promise<Map<string, DesktopJobResult>> {
+  const candidates = await loadCompletedDesktopResultsUnlocked(root);
+  const results = new Map<string, DesktopJobResult>();
+  for (const jobId of candidates.keys()) {
+    const current = await withDurableDesktopJobLock(
+      root,
+      jobId,
+      () => loadCompletedDesktopResultUnlocked(root, jobId),
+      { waitForMs: 2_000 },
+    );
+    if (current) results.set(current.jobId, current);
+  }
+  return results;
+}
+
 async function persistCompletedDesktopResultUnlocked(
   root: string,
   result: DesktopJobResult,
@@ -65,7 +89,7 @@ async function persistCompletedDesktopResultUnlocked(
   await writeFile(temp, JSON.stringify(durableResult(result)), "utf8");
   await rename(temp, path);
 
-  const entries = await loadCompletedDesktopResults(root);
+  const entries = await loadCompletedDesktopResultsUnlocked(root);
   const ordered = [...entries.values()].sort((left, right) => left.completedAt.localeCompare(right.completedAt));
   for (const stale of ordered.slice(0, Math.max(0, ordered.length - retention))) {
     try { await unlink(resultPath(root, stale.jobId)); } catch { /* bounded cleanup is best effort */ }
