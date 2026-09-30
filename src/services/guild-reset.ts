@@ -4,6 +4,7 @@ import { ChannelType, type Guild } from "discord.js";
 import { config } from "../config.js";
 import { deleteDiscordProjectBindingsForGuild } from "../discord-project/binding-store.js";
 import { GitHubWebhookService, type RepositoryRef } from "./github.js";
+import { removeGitHubAccountsForGuild } from "./github-user.js";
 import { clearMusicRuntime } from "./music.js";
 import { leaveGuildVoiceChannel } from "./voice-connection.js";
 import { stopStudySessionsForGuild } from "./voice-time.js";
@@ -277,7 +278,8 @@ async function resetGuildStateUnlocked(guild: Guild): Promise<GuildResetExecutio
     warnings.push(`Project Workspace binding 삭제 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
   }
 
-  await Promise.all([
+  const [removedGitHubAccounts] = await Promise.all([
+    removeGitHubAccountsForGuild(guild.id),
     removeGuildRecordsFromFile<FeedRecord>(CONTEST_FEED_FILE, guild.id),
     removeGuildRecordsFromFile<FeedRecord>(CONTEST_AUDIENCE_FILE, guild.id),
     removeGuildRecordsFromFile<ContestVoteRecord>(CONTEST_VOTES_FILE, guild.id),
@@ -324,6 +326,7 @@ async function resetGuildStateUnlocked(guild: Guild): Promise<GuildResetExecutio
     + removedVoiceUsers
     + removedActiveSessions
     + removedScrumRecords
+    + removedGitHubAccounts
     + removedProjectBindings;
 
   return {

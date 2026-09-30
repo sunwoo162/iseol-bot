@@ -135,6 +135,16 @@ export class GitHubAccountLinkStore {
     }, { waitForMs: 2_000 });
   }
 
+  async removeGuild(guildId: string): Promise<number> {
+    return withDurableFileStateLock(this.file, async () => {
+      const links = await this.readLinks();
+      const retained = links.filter((link) => link.guildId !== guildId);
+      const removed = links.length - retained.length;
+      if (removed > 0) await this.writeLinks(retained);
+      return removed;
+    }, { waitForMs: 2_000 });
+  }
+
   async find(guildId: string, discordUserId: string): Promise<GitHubAccountLink | null> {
     return withDurableFileStateLock(this.file, async () => {
       const links = await this.readLinks();
@@ -162,6 +172,10 @@ export function linkGitHubAccount(
 
 export function unlinkGitHubAccount(guildId: string, discordUserId: string): Promise<GitHubAccountLink | null> {
   return defaultGitHubAccountLinkStore.unlink(guildId, discordUserId);
+}
+
+export function removeGitHubAccountsForGuild(guildId: string): Promise<number> {
+  return defaultGitHubAccountLinkStore.removeGuild(guildId);
 }
 
 export function findGitHubAccount(guildId: string, discordUserId: string): Promise<GitHubAccountLink | null> {
