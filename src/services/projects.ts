@@ -83,6 +83,13 @@ export class ProjectStore {
   async save(project: Omit<StoredProject, "id">): Promise<StoredProject> {
     return withDurableFileStateLock(this.file, async () => {
       const projects = await this.readProjects();
+      const normalizedName = project.name.trim().normalize("NFKC").toLowerCase();
+      const duplicate = projects.some((current) =>
+        current.guildId === project.guildId
+        && current.name.trim().normalize("NFKC").toLowerCase() === normalizedName,
+      );
+      if (duplicate) throw new Error("A project with this name already exists in this guild");
+
       const stored: StoredProject = { ...project, id: randomBytes(6).toString("hex") };
       projects.push(stored);
       await this.writeProjects(projects);
