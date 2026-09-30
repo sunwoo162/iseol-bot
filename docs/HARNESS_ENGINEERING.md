@@ -330,3 +330,9 @@ The effective Run policy is the ordered combination of this global document and 
 - The isolated browser project-runtime contract test checks that `teamService.canAccessWithinMembershipLock` remains connected to `UserProjectService`.
 - This fast source contract catches a missing lock-aware callback before the longer private-team ACL browser journey runs.
 - The contract guard complements, rather than replaces, the full `npm run test:iseol-browser-e2e` and `npm run test:iseol-user-product` acceptance suites.
+
+## Social profile lock transient retry boundary
+
+- Social profile durable lock acquisition retries a transient Windows `EPERM`/probe `ENOENT` race while the configured wait deadline remains.
+- The lock still removes only a matching owner token and does not weaken stale-owner cleanup or authorization boundaries.
+- Social profile/privacy/safety tests and the full user-product regression suite remain the acceptance boundary.
