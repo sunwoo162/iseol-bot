@@ -35,22 +35,37 @@ const GITHUB_EVENTS = [
 
 export function parseGitHubRepository(input: string): RepositoryRef {
   const raw = input.trim();
+  const invalidRepository = (): never => {
+    throw new Error("GitHub 저장소는 https://github.com/ORG/REPO 형식으로 입력해주세요.");
+  };
+  if (!raw || raw.includes("\\") || /%5c/i.test(raw)) invalidRepository();
   const normalized = raw.startsWith("http://") || raw.startsWith("https://")
     ? raw
     : `https://github.com/${raw}`;
 
-  const url = new URL(normalized);
-  if (url.hostname !== "github.com" && url.hostname !== "www.github.com") {
-    throw new Error("GitHub 저장소는 https://github.com/ORG/REPO 형식만 사용할 수 있습니다.");
-  }
-
-  const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+  let url: URL;
+  try {
+    url = new URL(normalized);
+  } catch {
     throw new Error("GitHub 저장소는 https://github.com/ORG/REPO 형식으로 입력해주세요.");
   }
+  if (url.hostname !== "github.com" && url.hostname !== "www.github.com") {
+    invalidRepository();
+  }
+  if (url.username || url.password || url.port || url.search || url.hash) invalidRepository();
 
-  const owner = parts[0];
-  const repo = parts[1].replace(/\.git$/, "");
+  let parts: string[];
+  try {
+    parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  } catch {
+    throw new Error("GitHub 저장소는 https://github.com/ORG/REPO 형식으로 입력해주세요.");
+  }
+  if (parts.length !== 2 || !parts[0] || !parts[1] || parts.some((part) => part === "." || part === ".." || /[\\/\u0000-\u001f\u007f]/.test(part))) {
+    invalidRepository();
+  }
+
+  const owner = parts[0]!;
+  const repo = parts[1]!.replace(/\.git$/, "");
   return { owner, repo, url: `https://github.com/${owner}/${repo}` };
 }
 
