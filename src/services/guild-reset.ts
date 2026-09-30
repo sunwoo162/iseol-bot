@@ -8,6 +8,8 @@ import { clearMusicRuntime } from "./music.js";
 import { leaveGuildVoiceChannel } from "./voice-connection.js";
 import { stopStudySessionsForGuild } from "./voice-time.js";
 import { withDurableFileStateLock } from "./file-state-lock.js";
+import { clearGitHubAutomationPollingProject } from "./github-automation-poll-state.js";
+import { clearGitHubCommitFeedProject } from "./github-commit-feed.js";
 import { withProjectGuildLifecycleLock } from "./projects.js";
 
 const DATA_DIR = resolve(process.cwd(), "data");
@@ -142,11 +144,33 @@ async function removeProjectHooks(projects: ProjectRecord[], warnings: string[])
   return removed;
 }
 
-export function resetGuildState(guild: Guild): Promise<GuildResetSummary> {
-  return withProjectGuildLifecycleLock(guild.id, () => resetGuildStateUnlocked(guild));
+type GuildResetExecution = {
+  summary: GuildResetSummary;
+  projectIds: string[];
+};
+
+export async function resetGuildState(guild: Guild): Promise<GuildResetSummary> {
+  const execution = await withProjectGuildLifecycleLock(guild.id, () => resetGuildStateUnlocked(guild));
+  const warnings = [...execution.summary.warnings];
+
+  for (const projectId of execution.projectIds) {
+    try {
+      await clearGitHubCommitFeedProject(projectId);
+    } catch (error) {
+      warnings.push(`GitHub commit feed state 삭제 실패 (${projectId}): ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+    }
+
+    try {
+      await clearGitHubAutomationPollingProject(projectId);
+    } catch (error) {
+      warnings.push(`GitHub automation polling state 삭제 실패 (${projectId}): ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+    }
+  }
+
+  return { ...execution.summary, warnings };
 }
 
-async function resetGuildStateUnlocked(guild: Guild): Promise<GuildResetSummary> {
+async function resetGuildStateUnlocked(guild: Guild): Promise<GuildResetExecution> {
   await stopStudySessionsForGuild(guild.id);
   clearMusicRuntime(guild.id);
   leaveGuildVoiceChannel(guild.id);
@@ -296,10 +320,13 @@ async function resetGuildStateUnlocked(guild: Guild): Promise<GuildResetSummary>
     + removedProjectBindings;
 
   return {
-    deletedChannels,
-    clearedRecords,
-    removedExternalHooks,
-    removedProjectBindings,
-    warnings,
+    summary: {
+      deletedChannels,
+      clearedRecords,
+      removedExternalHooks,
+      removedProjectBindings,
+      warnings,
+    },
+    projectIds: [...projectIds],
   };
 }
