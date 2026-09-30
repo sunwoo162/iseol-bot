@@ -32,5 +32,9 @@ test("social safety API persists block and report actions behind authenticated u
     assert.deepEqual((await foreignReports.json() as any).reports, []);
     const unblock = await fetch(url + "/api/user/social/blocks/" + encodeURIComponent(b.id), { method: "DELETE", headers: headers(aSession.token) });
     assert.equal(unblock.status, 200);
+    const malformedBlockPath = await fetch(url + "/api/user/social/blocks/%E0%A4%A", { method: "DELETE", headers: headers(aSession.token) });
+    assert.equal(malformedBlockPath.status, 404);
+    const malformedFriendRequestPath = await fetch(url + "/api/user/social/friend-requests/%E0%A4%A", { method: "POST", headers: headers(aSession.token), body: JSON.stringify({ action: "reject" }) });
+    assert.equal(malformedFriendRequestPath.status, 404);
   } finally { await server.closeForShutdown(); }
 });
