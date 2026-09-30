@@ -209,3 +209,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `/project delete` clears the deleted project's daily-scrum records and reminder cursor after the project store deletion succeeds, while remaining inside the project deletion lifecycle lock.
 - Daily-scrum cleanup failures are reported as bounded warnings alongside other external cleanup failures, without hiding the completed project store deletion.
 - The cleanup removes both per-user daily-scrum records and the per-project reminder date, so deleted projects cannot retain durable daily-scrum state.
+
+## GitHub webhook lifecycle synchronization
+
+- GitHub `pull_request` and `milestone` webhook dispatch shares the project deletion lock keyed by guild and project ID before PR review, Discord notification, or Calendar milestone synchronization.
+- It re-reads the project after acquiring the lifecycle lock and skips webhook side effects when the project was deleted while the repository snapshot was being resolved.
+- A live webhook may complete while deletion is waiting for the critical section, but a stale webhook snapshot cannot perform post-deletion automation work.
