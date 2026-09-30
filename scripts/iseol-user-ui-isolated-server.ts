@@ -276,7 +276,16 @@ const integrationService = createIntegrationService(platformRoot, {
 });
 const notificationService = createNotificationService(platformRoot);
 const growthService = createGrowthService(platformRoot, { settingsService, notificationService });
-const userProjectService = createUserProjectService({ platformRoot, projectModelRoot: join(root, "project-model"), projectHarnessRoot, iseolRoot: root, canAccessTeam: (principal, teamId) => teamService.canAccess(principal, teamId), activityService, growthService });
+const userProjectService = createUserProjectService({
+  platformRoot,
+  projectModelRoot: join(root, "project-model"),
+  projectHarnessRoot,
+  iseolRoot: root,
+  canAccessTeam: (principal, teamId) => teamService.canAccess(principal, teamId),
+  canAccessTeamWithinMembershipLock: (principal, teamId) => teamService.canAccessWithinMembershipLock(principal, teamId),
+  activityService,
+  growthService,
+});
 const aiTeamProposalService = createAiTeamProposalService({ root: join(platformRoot, "ai-team"), teamService, userProjectService, activityService, dispatchForUser: userRuntimeDispatchGate, ...(aiTeamRuntimeEnabled ? { dispatcher: async () => ({ status: "proposed" as const, draft: { title: "격리 AI 팀 제안", objective: "승인 전 작업 제안 경계를 확인합니다.", acceptanceCriteria: ["사람 승인 필요", "실행은 별도 승인"], rationale: "격리 브라우저 검증" } }) } : {}) });
 const aiTeamDiscussionService = createAiTeamDiscussionService({ root: join(platformRoot, "ai-team"), teamService, userProjectService, activityService, dispatchForUser: userRuntimeDispatchGate, ...(aiTeamRuntimeEnabled ? { dispatcher: async ({ question }) => ({ status: "completed" as const, answer: `격리 Runtime 토론 답변: ${question}`, keyPoints: ["권한 범위를 먼저 확인합니다."], alternatives: ["작게 나누어 검증합니다."], risks: ["실행 전 사람 검토가 필요합니다."] }) } : {}) });
 const studyService = createStudyService(join(platformRoot, "study"), { teamService, activityService });
