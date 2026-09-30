@@ -50,6 +50,18 @@ export class ProjectStore {
     );
   }
 
+  async withCreateLock<T>(guildId: string, name: string, task: () => Promise<T>): Promise<T> {
+    const normalizedName = name.trim().normalize("NFKC").toLowerCase();
+    const digest = createHash("sha256")
+      .update(`${this.file}:project-create:${guildId}:${normalizedName}`)
+      .digest("hex");
+    return withDurableFileStateLock(
+      `${this.file}.create.${digest}`,
+      task,
+      { waitForMs: 5 * 60 * 1_000 },
+    );
+  }
+
   private async readProjects(): Promise<StoredProject[]> {
     try {
       const content = await readFile(this.file, "utf8");
@@ -163,4 +175,8 @@ export function deleteProject(id: string): Promise<boolean> {
 
 export function withProjectPollingLock<T>(task: () => Promise<T>): Promise<T> {
   return defaultProjectStore.withPollingLock(task);
+}
+
+export function withProjectCreateLock<T>(guildId: string, name: string, task: () => Promise<T>): Promise<T> {
+  return defaultProjectStore.withCreateLock(guildId, name, task);
 }

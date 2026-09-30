@@ -26,7 +26,7 @@ import { GoogleCalendarService } from "../services/calendar/google-calendar.js";
 import { FigmaWebhookService, parseFigmaFile } from "../services/figma.js";
 import { buildAutomationWebhookUrl, GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
 import { NotionService, parseNotionPage } from "../services/notion.js";
-import { deleteProject, findProject, listProjects, saveProject, updateProject } from "../services/projects.js";
+import { deleteProject, findProject, findProjectByName, listProjects, saveProject, updateProject, withProjectCreateLock } from "../services/projects.js";
 
 export const projectCommand = new SlashCommandBuilder()
   .setName("project")
@@ -303,7 +303,21 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     }
 
     const organization = frontendOwner.login;
-    const category = await interaction.guild.channels.create({ name: `📁 ${name}`, type: ChannelType.GuildCategory });
+    const guild = interaction.guild;
+    await withProjectCreateLock(guild.id, name, async () => {
+      if (await findProjectByName(guild.id, name)) {
+        throw new Error("같은 서버에 동일한 이름의 프로젝트가 이미 존재합니다.");
+      }
+
+      const channels = await guild.channels.fetch();
+      const existingCategory = channels.find((channel) =>
+        channel?.type === ChannelType.GuildCategory && channel.name === `📁 ${name}`,
+      );
+      if (existingCategory) {
+        throw new Error("같은 이름의 Discord 프로젝트 카테고리가 이미 존재합니다.");
+      }
+
+      const category = await guild.channels.create({ name: `📁 ${name}`, type: ChannelType.GuildCategory });
     const createdChannelIds: string[] = [];
     const githubHooks: GitHubHook[] = [];
     let figmaWebhookId: string | null = null;
@@ -312,12 +326,12 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     let calendarUrl: string | undefined;
 
     try {
-      const overview = await createTextChannel(interaction.guild, category.id, "📌・프로젝트");
-      const spec = await createTextChannel(interaction.guild, category.id, "📄・기능명세서");
-      const figma = await createTextChannel(interaction.guild, category.id, "🎨・figma");
-      const frontendLog = await createTextChannel(interaction.guild, category.id, "💻・frontend-log");
-      const backendLog = await createTextChannel(interaction.guild, category.id, "🛠・backend-log");
-      const calendarChannel = await createTextChannel(interaction.guild, category.id, "📅・일정");
+      const overview = await createTextChannel(guild, category.id, "📌・프로젝트");
+      const spec = await createTextChannel(guild, category.id, "📄・기능명세서");
+      const figma = await createTextChannel(guild, category.id, "🎨・figma");
+      const frontendLog = await createTextChannel(guild, category.id, "💻・frontend-log");
+      const backendLog = await createTextChannel(guild, category.id, "🛠・backend-log");
+      const calendarChannel = await createTextChannel(guild, category.id, "📅・일정");
       createdChannelIds.push(overview.id, spec.id, figma.id, frontendLog.id, backendLog.id, calendarChannel.id);
 
       if (config.googleClientId && config.googleClientSecret && config.googleRefreshToken) {
@@ -330,7 +344,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
 
       const storedProject = await saveProject({
         name,
-        guildId: interaction.guild.id,
+        guildId: guild.id,
         categoryId: category.id,
         organization,
         frontend: frontendRepo,
@@ -438,11 +452,12 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
         } catch {}
       }
       for (const id of createdChannelIds) {
-        try { await interaction.guild.channels.delete(id, "프로젝트 생성 실패 롤백"); } catch {}
+        try { await guild.channels.delete(id, "프로젝트 생성 실패 롤백"); } catch {}
       }
       try { await category.delete("프로젝트 생성 실패 롤백"); } catch {}
       throw error;
     }
+  });
   } catch (error) {
     const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
     await interaction.editReply(`❌ 프로젝트 생성에 실패했습니다.\n\`${message}\``);
