@@ -280,6 +280,11 @@ async function handleRequest(
     sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "portfolio route not found" });
     return;
   }
+  const isUserProjectPath = url.pathname === "/api/user/projects" || url.pathname.startsWith("/api/user/projects/");
+  if (isUserProjectPath && rawPathname.includes("\\")) {
+    sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "project route not found" });
+    return;
+  }
   if (url.pathname === "/api/events") {
     if (req.method !== "GET") {
       res.writeHead(405, { allow: "GET" }).end("method not allowed");
