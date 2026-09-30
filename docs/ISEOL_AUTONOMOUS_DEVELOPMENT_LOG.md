@@ -4699,3 +4699,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `cf026a0 fix: serialize calendar state updates`; merged by PR #270 with merge commit `e7bb1e4`.
 - Boundary: same-host/shared-file Calendar state coordination only; distributed locking, live external calendar/GitHub quality, operational Runtime/Agent throughput, external delivery success, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-30 continuation: durable Review state file synchronization
+
+- Status: **B — Review state reads and read-modify-write marks now coordinate through the shared path-scoped durable file lock, while live GitHub provider execution remains unverified**. Independent ReviewStateStore instances preserve concurrent review identities.
+- Evidence: `src/services/file-state-lock.ts`, `src/services/review/review-state.ts`, `tests/review-state-lock.test.ts`, and `tests/review-domain.test.ts`.
+- TDD: RED reproduced concurrent ReviewStateStore marks dropping one review identity; GREEN reused the stale-owner-aware file lock around has/mark operations.
+- Verification: Review focused regression `7/7`; serial existing full test suite `754/754`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `21826a6 fix: serialize review state updates`; merged by PR #272 with merge commit `830e78a`.
+- Boundary: same-host/shared-file Review state coordination only; distributed locking, live GitHub review quality, operational Runtime/Agent throughput, external delivery success, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
