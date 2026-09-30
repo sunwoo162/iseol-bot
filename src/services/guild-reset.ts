@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { ChannelType, type Guild } from "discord.js";
 import { config } from "../config.js";
+import { deleteDiscordProjectBindingsForGuild } from "../discord-project/binding-store.js";
 import { GitHubWebhookService, type RepositoryRef } from "./github.js";
 import { clearMusicRuntime } from "./music.js";
 import { leaveGuildVoiceChannel } from "./voice-connection.js";
@@ -62,6 +63,7 @@ export type GuildResetSummary = {
   deletedChannels: number;
   clearedRecords: number;
   removedExternalHooks: number;
+  removedProjectBindings: number;
   warnings: string[];
 };
 
@@ -236,6 +238,14 @@ async function resetGuildStateUnlocked(guild: Guild): Promise<GuildResetSummary>
     ...removedProjects.map((project) => project.id),
   ].filter((id): id is string => Boolean(id)));
 
+  let removedProjectBindings = 0;
+  try {
+    const modelRoot = config.iseolModelRoot || resolve(process.cwd(), "data", "iseol");
+    removedProjectBindings = await deleteDiscordProjectBindingsForGuild(modelRoot, guild.id);
+  } catch (error) {
+    warnings.push(`Project Workspace binding 삭제 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+  }
+
   await Promise.all([
     removeGuildRecordsFromFile<FeedRecord>(CONTEST_FEED_FILE, guild.id),
     removeGuildRecordsFromFile<FeedRecord>(CONTEST_AUDIENCE_FILE, guild.id),
@@ -282,12 +292,14 @@ async function resetGuildStateUnlocked(guild: Guild): Promise<GuildResetSummary>
     + (hadMusicData ? 1 : 0)
     + removedVoiceUsers
     + removedActiveSessions
-    + removedScrumRecords;
+    + removedScrumRecords
+    + removedProjectBindings;
 
   return {
     deletedChannels,
     clearedRecords,
     removedExternalHooks,
+    removedProjectBindings,
     warnings,
   };
 }
