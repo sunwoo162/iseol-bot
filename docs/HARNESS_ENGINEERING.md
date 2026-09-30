@@ -233,3 +233,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `!관리자권한초기화` acquires a durable guild-scoped project lifecycle lock before reading projects, deleting external hooks/channels, and clearing guild records.
 - Project creation and deletion acquire the same guild lock before their project-specific locks, so reset, create, delete, and project polling cannot overlap with a stale project snapshot.
 - The shared lock order is guild lifecycle first and project-specific lifecycle second, preventing a concurrent project deletion from being cleared or externally cleaned up out of order during guild reset.
+
+## Project join lifecycle synchronization
+
+- Project join buttons and modals acquire the project deletion lock keyed by guild and project ID before constructing the modal or sending a GitHub Organization invitation.
+- They re-read the project after acquiring the lock and stop when deletion has completed, so stale interactions cannot invite a member using an obsolete Organization snapshot.
+- A live invitation may finish before deletion enters the critical section, but a stale join interaction cannot perform post-deletion GitHub side effects.
