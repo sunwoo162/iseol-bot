@@ -221,3 +221,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Figma version/comment polling and Notion update polling share a project deletion lock keyed by guild and project ID for the complete project integration cycle.
 - They re-read the project after acquiring the lifecycle lock and skip Discord notification, cursor update, and Project History side effects when deletion has already completed.
 - A live integration cycle may finish before deletion enters the critical section, but stale Figma/Notion snapshots cannot continue post-deletion polling work.
+
+## Calendar project lifecycle synchronization
+
+- Discord Calendar view and modal actions share the project deletion lock keyed by guild and project ID before reading external events or performing Calendar/GitHub/history side effects.
+- They re-read the project after acquiring the lifecycle lock and stop when deletion has completed, so stale interactions cannot create, update, delete, or list external project calendar state.
+- A live Calendar action may finish before deletion enters the critical section, but stale modal/button snapshots cannot perform post-deletion work.
