@@ -6,6 +6,7 @@ import { renameWithTransientRetry } from "../desktop-agent/atomic-file.js";
 import type { CodeAnalysisResult, CodingAttempt, CodingExercise, GoalInterpretation, LearningAnswerReceipt, LearningContentRequest, LearningFeedback, LearningFeedbackDispute, LearningGoal, LearningLink, LearningPlan, LearningPlanAdjustment, LearningPlanVersion, LearningProjectApplication, LearningReport, LearningSession, LearningSessionAction, ReviewItem, StudyAttempt } from "./contracts.js";
 import { withDurableLearningGoalLock } from "./goal-lock.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
+import { withDurableLearningActionLock } from "./action-lock.js";
 
 type LearningKind = "goals" | "plans" | "plan-versions" | "interpretations" | "sessions" | "attempts" | "reviews" | "analyses" | "coding-exercises" | "coding-attempts" | "content-requests" | "actions" | "answers" | "feedback" | "disputes" | "adjustments" | "project-proposals" | "links" | "reports";
 function directory(root: string, userId: string, kind: LearningKind): string { assertIdentityId(userId); return resolve(root, "users", userId, "learning", kind); }
@@ -146,8 +147,24 @@ export async function listLearningContentRequests(root: string, userId: string):
   }
   return result;
 }
-export const saveLearningSessionAction = (root: string, value: LearningSessionAction) => saveJson(pathFor(root, value.userId, "actions", value.id), value);
-export const listLearningSessionActions = (root: string, userId: string) => listJson<LearningSessionAction>(root, userId, "actions");
+export const saveLearningSessionActionUnlocked = (root: string, value: LearningSessionAction) => saveJson(pathFor(root, value.userId, "actions", value.id), value);
+export const saveLearningSessionAction = (root: string, value: LearningSessionAction) => withDurableLearningActionLock(root, value.userId, value.sessionId, value.actionId, () => saveLearningSessionActionUnlocked(root, value), { waitForMs: 2_000 });
+export const listLearningSessionActionsUnlocked = (root: string, userId: string) => listJson<LearningSessionAction>(root, userId, "actions");
+export async function listLearningSessionActions(root: string, userId: string): Promise<LearningSessionAction[]> {
+  const candidates = await listLearningSessionActionsUnlocked(root, userId);
+  const result: LearningSessionAction[] = [];
+  for (const candidate of candidates) {
+    try {
+      assertIdentityId(candidate.id); assertIdentityId(candidate.sessionId);
+      if (typeof candidate.actionId !== "string" || !candidate.actionId.trim() || candidate.actionId.length > 160) throw new Error("invalid action id");
+    } catch { continue; }
+    await withDurableLearningActionLock(root, userId, candidate.sessionId, candidate.actionId, async () => {
+      const current = (await listLearningSessionActionsUnlocked(root, userId)).find((item) => item.id === candidate.id);
+      if (current?.userId === userId && current.id === candidate.id && current.sessionId === candidate.sessionId && current.actionId === candidate.actionId) result.push(current);
+    }, { waitForMs: 2_000 });
+  }
+  return result;
+}
 export const saveLearningAnswerReceipt = (root: string, value: LearningAnswerReceipt) => saveJson(pathFor(root, value.userId, "answers", value.id), value);
 export const loadLearningAnswerReceipt = (root: string, userId: string, id: string) => loadJson<LearningAnswerReceipt>(pathFor(root, userId, "answers", id));
 export const listLearningAnswerReceipts = (root: string, userId: string) => listJson<LearningAnswerReceipt>(root, userId, "answers");
