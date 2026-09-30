@@ -89,3 +89,9 @@ The effective Run policy is the ordered combination of this global document and 
 - CI artifact reviews and signed-webhook AI reviews use the same durable lock keyed by repository, pull request number, and head SHA.
 - The review lock covers the `hasReviewed` check, GitHub review publication, and successful review-state mark so concurrent workers cannot both pass the check and publish duplicate reviews.
 - Review-state file locking remains responsible for atomic state reads and writes; the per-review lock protects the longer external side-effect transaction across independent bot processes.
+
+## GitHub milestone calendar synchronization
+
+- Milestone calendar synchronization is locked by its canonical calendar external key (`project`, repository, source, and milestone number).
+- The mapping lock covers the state lookup, Calendar create/update/delete call, and mapping upsert/remove so concurrent polls cannot create duplicate events for one milestone.
+- Calendar mapping file locking still protects atomic state changes; the per-mapping lock protects the longer external Calendar side-effect transaction.
