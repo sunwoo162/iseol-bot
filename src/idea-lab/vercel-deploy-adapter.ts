@@ -110,6 +110,7 @@ export function createVercelPrototypeDeployAdapter(
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
   async function reconcile(input: PrototypeDeployRequest): Promise<PrototypeDeploymentReceipt | null> {
+    githubOwnerRepo(input.repositoryUrl);
     let until: number | undefined;
     const seenCursors = new Set<number>();
     for (let page = 0; page < 1_000; page += 1) {
@@ -163,6 +164,7 @@ export function createVercelPrototypeDeployAdapter(
   async function verify(
     input: PrototypeDeployRequest & { deployment: PrototypeDeploymentReceipt },
   ): Promise<PrototypeDeploymentReceipt> {
+    githubOwnerRepo(input.repositoryUrl);
     const response = await fetchImpl(
       apiUrl(`/v13/deployments/${encodeURIComponent(input.deployment.deploymentId)}`, options.teamId),
       { headers },
