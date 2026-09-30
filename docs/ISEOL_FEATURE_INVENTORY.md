@@ -2162,3 +2162,9 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Evidence: `src/portfolio/contracts.ts`, `src/portfolio/service.ts`, `user-ui/src/api/userApi.ts`, `user-ui/src/pages/PublicPortfolio.tsx`, and `tests/portfolio-public-api.test.ts`. The RED test observed `evidence[0].id`; the GREEN contract removes it while preserving the public route and evidence count.
 - Verification: focused public API/UI contracts pass `14/14`; `npm.cmd run test:iseol-user-product` passes `445/445`; `npm.cmd test` passes `792/792`; TypeScript and user UI production builds pass; and isolated browser E2E passes for the public portfolio route/JSON export, share control, two-account privacy, and responsive `[390,768,1024,1440]` across 13 routes.
 - Boundary: owner-authenticated portfolio snapshots still retain IDs for editing/provenance navigation; this change affects only the anonymous public projection.
+
+## 2026-10-01 continuation: public portfolio malformed-path boundary
+
+- The anonymous public portfolio route now validates the decoded entry identity before calling the portfolio service. Malformed, encoded-slash, or otherwise unsafe entry paths return the same bounded `404 public portfolio not found` response as missing/private entries instead of surfacing a service identity exception as HTTP 500.
+- Evidence: `src/portfolio/router.ts` and `tests/portfolio-public-api.test.ts`. The RED regression observed `500 !== 404` for an encoded `entryId/suffix`; the GREEN route catches decode/identity validation failures and preserves the existing public/private behavior.
+- Verification: focused portfolio/public API/provenance/UI contracts pass `14/14`; root TypeScript and user UI production builds pass; `npm.cmd run test:iseol-user-product` passes `445/445`; isolated browser E2E passes with public portfolio route/JSON export, share control, two-account privacy, and responsive `[390,768,1024,1440]` across 13 routes; `git diff --check` passes.
