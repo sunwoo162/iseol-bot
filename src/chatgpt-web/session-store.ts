@@ -32,7 +32,7 @@ async function serialized<T>(key: string, action: () => Promise<T>): Promise<T> 
   finally { if (writeQueues.get(key) === run) writeQueues.delete(key); }
 }
 
-export async function loadWebWorkerSession(root: string, sessionId: string): Promise<WebWorkerSession | null> {
+export async function loadWebWorkerSessionUnlocked(root: string, sessionId: string): Promise<WebWorkerSession | null> {
   try {
     const value = JSON.parse(await readFile(sessionFile(root, sessionId), "utf8"));
     assertWebWorkerSession(value);
@@ -43,15 +43,30 @@ export async function loadWebWorkerSession(root: string, sessionId: string): Pro
   }
 }
 
-export async function getPointedWebWorkerSession(root: string, runId: string, stage: HarnessRunStage): Promise<WebWorkerSession | null> {
+export async function loadWebWorkerSession(root: string, sessionId: string): Promise<WebWorkerSession | null> {
+  const candidate = await loadWebWorkerSessionUnlocked(root, sessionId);
+  if (!candidate) return null;
+  return withDurableWebWorkerSessionLock(root, candidate.runId, candidate.stage, () => loadWebWorkerSessionUnlocked(root, sessionId), { waitForMs: 2_000 });
+}
+
+export async function getPointedWebWorkerSessionUnlocked(root: string, runId: string, stage: HarnessRunStage): Promise<WebWorkerSession | null> {
   try {
     const pointer = JSON.parse(await readFile(activeFile(root, runId, stage), "utf8")) as { sessionId?: string };
     if (!pointer.sessionId) throw new Error("Active Web worker session pointer is invalid");
-    return await loadWebWorkerSession(root, pointer.sessionId);
+    return await loadWebWorkerSessionUnlocked(root, pointer.sessionId);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function getPointedWebWorkerSession(root: string, runId: string, stage: HarnessRunStage): Promise<WebWorkerSession | null> {
+  return withDurableWebWorkerSessionLock(root, runId, stage, () => getPointedWebWorkerSessionUnlocked(root, runId, stage), { waitForMs: 2_000 });
+}
+
+export async function getActiveWebWorkerSessionUnlocked(root: string, runId: string, stage: HarnessRunStage): Promise<WebWorkerSession | null> {
+  const session = await getPointedWebWorkerSessionUnlocked(root, runId, stage);
+  return session && session.status !== "lost" && session.status !== "closed" ? session : null;
 }
 
 export async function getActiveWebWorkerSession(root: string, runId: string, stage: HarnessRunStage): Promise<WebWorkerSession | null> {
@@ -64,12 +79,12 @@ export async function createWebWorkerSession(root: string, session: WebWorkerSes
   const key = activeFile(root, session.runId, session.stage);
   return serialized(key, async () => {
     return withDurableWebWorkerSessionLock(root, session.runId, session.stage, async () => {
-      const existingById = await loadWebWorkerSession(root, session.sessionId);
+      const existingById = await loadWebWorkerSessionUnlocked(root, session.sessionId);
       if (existingById) {
         if (JSON.stringify(existingById) !== JSON.stringify(session)) throw new Error(`Web worker session identity conflict: ${session.sessionId}`);
         return existingById;
       }
-      const active = await getActiveWebWorkerSession(root, session.runId, session.stage);
+      const active = await getActiveWebWorkerSessionUnlocked(root, session.runId, session.stage);
       if (active) throw new Error(`Web worker active session already exists: ${active.sessionId}`);
       await atomicJson(sessionFile(root, session.sessionId), session);
       await atomicJson(key, { version: 1, sessionId: session.sessionId, generation: session.generation });
@@ -92,7 +107,7 @@ export async function replaceLostWebWorkerSession(
   const key = activeFile(root, current.runId, current.stage);
   return serialized(key, async () => {
     return withDurableWebWorkerSessionLock(root, current.runId, current.stage, async () => {
-      const latest = await loadWebWorkerSession(root, currentSessionId);
+      const latest = await loadWebWorkerSessionUnlocked(root, currentSessionId);
       if (!latest) throw new Error(`Web worker session not found: ${currentSessionId}`);
       if (replacement.runId !== latest.runId || replacement.stage !== latest.stage) throw new Error("Replacement session run/stage mismatch");
       if (replacement.generation !== latest.generation + 1) throw new Error("Replacement session generation must increment by one");
@@ -128,7 +143,7 @@ export async function repairActiveWebWorkerSession(
       for (const name of names.filter((item) => item.endsWith(".json"))) {
         const id = name.slice(0, -5);
         try {
-          const session = await loadWebWorkerSession(root, id);
+          const session = await loadWebWorkerSessionUnlocked(root, id);
           if (session && session.runId === runId && session.stage === stage && session.status === "ready") ready.push(session);
         } catch {
           // Invalid historical records are not candidates for activation.
@@ -137,7 +152,7 @@ export async function repairActiveWebWorkerSession(
       if (ready.length > 1) throw new Error(`Conflicting active Web worker replacement generations for ${runId}/${stage}`);
       const candidate = ready[0];
       if (!candidate) return null;
-      const pointed = await getPointedWebWorkerSession(root, runId, stage);
+      const pointed = await getPointedWebWorkerSessionUnlocked(root, runId, stage);
       if (pointed?.status === "lost") {
         if (candidate.generation !== pointed.generation + 1) {
           throw new Error(`Web worker replacement generation does not follow lost session: ${candidate.sessionId}`);
@@ -162,7 +177,7 @@ export async function updateWebWorkerSession(
   const key = activeFile(root, session.runId, session.stage);
   return serialized(key, async () => {
     return withDurableWebWorkerSessionLock(root, session.runId, session.stage, async () => {
-      const current = await loadWebWorkerSession(root, session.sessionId);
+      const current = await loadWebWorkerSessionUnlocked(root, session.sessionId);
       if (!current) throw new Error(`Web worker session not found: ${session.sessionId}`);
       if (current.runId !== session.runId || current.stage !== session.stage || current.generation !== session.generation) {
         throw new Error(`Web worker session identity mismatch: ${session.sessionId}`);
@@ -170,7 +185,7 @@ export async function updateWebWorkerSession(
       if (persistedWebWorkerResultContract(current) !== persistedWebWorkerResultContract(session)) {
         throw new Error(`Web worker session result contract mismatch: ${session.sessionId}`);
       }
-      const active = await getActiveWebWorkerSession(root, session.runId, session.stage);
+      const active = await getActiveWebWorkerSessionUnlocked(root, session.runId, session.stage);
       if (!active || active.sessionId !== session.sessionId || active.generation !== session.generation) {
         throw new Error(`Web worker session is not active: ${session.sessionId}`);
       }
