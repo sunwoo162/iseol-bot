@@ -143,7 +143,7 @@ function channelName(filter: ContestAudienceFilter): string {
 }
 
 async function ensureContestCategory(guild: Guild): Promise<string> {
-  return withDiscordChannelEnsureLock(`contest-audience-category:${guild.id}`, async () => {
+  return withDiscordChannelEnsureLock(`contest-category:${guild.id}`, async () => {
     const baseFeed = await findContestFeed(guild.id);
     if (baseFeed) {
       const category = await guild.channels.fetch(baseFeed.categoryId).catch(() => null);

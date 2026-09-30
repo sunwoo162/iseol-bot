@@ -3,8 +3,9 @@ import test from "node:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ChannelType, TextChannel } from "discord.js";
+import { ChannelType, Collection, TextChannel } from "discord.js";
 import { ContestAudienceFeedStore, createContestAudienceFeed, type ContestAudienceFeedState } from "../src/services/contest-audience-feed.js";
+import { ContestFeedStore, createContestFeed } from "../src/services/contest-feed.js";
 
 function state(guildId: string, audienceFilter: ContestAudienceFeedState["audienceFilter"]): ContestAudienceFeedState {
   return {
@@ -164,6 +165,53 @@ test("contest audience feeds share one category creation across filters", async 
     ]);
     assert.equal(createdNames.filter((name) => name === "🏆 공모전").length, 1);
     assert.equal(first.state.categoryId, second.state.categoryId);
+  } finally {
+    if (previous) await writeFile(defaultFile, previous);
+    else await rm(defaultFile, { force: true });
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("base and audience contest feeds share one category creation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iseol-contest-category-shared-lock-"));
+  const audienceStore = new ContestAudienceFeedStore(join(dir, "contest-audience-feeds.json"));
+  const baseStore = new ContestFeedStore(join(dir, "contest-feeds.json"));
+  const defaultFile = join(process.cwd(), "data", "contest-feeds.json");
+  let previous: Buffer | null = null;
+  try { previous = await readFile(defaultFile); } catch { /* test creates the file */ }
+
+  const createdNames: string[] = [];
+  const channels = new Map<string, any>();
+  const guild = {
+    id: "contest-category-shared-lock-guild",
+    channels: {
+      cache: { find: () => undefined },
+      fetch: async (id?: string) => id ? channels.get(id) ?? null : new Collection(channels),
+      create: async (input: { name: string; type: number }) => {
+        await new Promise((resolve) => setTimeout(resolve, input.type === ChannelType.GuildCategory ? 30 : 0));
+        createdNames.push(input.name);
+        if (input.type === ChannelType.GuildCategory) {
+          const category = { id: "shared-contest-category", name: input.name, type: ChannelType.GuildCategory };
+          channels.set(category.id, category);
+          return category;
+        }
+
+        const channel = Object.create(TextChannel.prototype) as TextChannel & { send: () => Promise<void> };
+        channel.id = `channel-${createdNames.length}`;
+        channel.send = async () => undefined;
+        channels.set(channel.id, channel);
+        return channel;
+      },
+    },
+  };
+
+  try {
+    const [base, audience] = await Promise.all([
+      createContestFeed(guild as any, baseStore),
+      createContestAudienceFeed(guild as any, "high-school", audienceStore),
+    ]);
+    assert.equal(createdNames.filter((name) => name === "🏆 공모전").length, 1);
+    assert.equal(base.categoryId, audience.state.categoryId);
   } finally {
     if (previous) await writeFile(defaultFile, previous);
     else await rm(defaultFile, { force: true });
