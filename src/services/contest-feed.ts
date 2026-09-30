@@ -21,6 +21,7 @@ import {
   type ContestVote,
 } from "./contest-votes.js";
 import { listActiveItContests, type Contest, type ContestAttachment } from "./contests.js";
+import { withDiscordChannelEnsureLock } from "./discord-channel-ensure-lock.js";
 import { withDurableFileStateLock } from "./file-state-lock.js";
 
 const DATA_FILE = resolve(process.cwd(), "data", "contest-feed.json");
@@ -557,42 +558,57 @@ export async function createContestFeed(guild: Guild, store = defaultContestFeed
     const existing = await store.find(guild.id);
     if (existing) return existing;
 
-    const category = await guild.channels.create({
-      name: "🏆 공모전",
-      type: ChannelType.GuildCategory,
-      reason: "IT 공모전 자동 수집 공간 생성",
+    return withDiscordChannelEnsureLock(`contest-category:${guild.id}`, async () => {
+      const current = await store.find(guild.id);
+      if (current) return current;
+
+      const cached = guild.channels.cache.find((channel) =>
+        channel.type === ChannelType.GuildCategory && channel.name === "🏆 공모전",
+      );
+      const fetched = cached ? null : await guild.channels.fetch().catch(() => null);
+      const fetchedCategory = fetched?.find((channel) =>
+        channel?.type === ChannelType.GuildCategory && channel.name === "🏆 공모전",
+      );
+      const category = cached
+        ?? fetchedCategory
+        ?? await guild.channels.create({
+          name: "🏆 공모전",
+          type: ChannelType.GuildCategory,
+          reason: "IT 공모전 자동 수집 공간 생성",
+        });
+      const createdCategory = !cached && !fetchedCategory;
+
+      try {
+        const channel = await guild.channels.create({
+          name: "📢・공모전",
+          type: ChannelType.GuildText,
+          parent: category.id,
+          reason: "IT 공모전 자동 게시 채널 생성",
+        });
+
+        const state: ContestFeedState = {
+          guildId: guild.id,
+          categoryId: category.id,
+          channelId: channel.id,
+          postedKeys: [],
+          remindedKeys: [],
+          audienceFilter: "all",
+          createdAt: new Date().toISOString(),
+        };
+        await store.save(state);
+
+        await channel.send({
+          embeds: [new EmbedBuilder()
+            .setTitle("🏆 IT 공모전 자동 수집")
+            .setDescription("이설이가 여러 공모전 사이트를 주기적으로 확인하고, 새 웹/모바일/IT 공모전만 이 채널에 올립니다.\n\n같은 공모전은 중복 제거하며 과반수 투표가 모이면 별도 준비 공간을 자동으로 생성합니다. 제출 마감이 D-10 이하가 되면 해당 공모전을 한 번 더 알려드립니다. `/contest filter`로 참가대상 필터를 설정할 수 있습니다.")],
+        });
+
+        return state;
+      } catch (error) {
+        if (createdCategory) await category.delete("공모전 피드 생성 실패 롤백").catch(() => undefined);
+        throw error;
+      }
     });
-
-    try {
-      const channel = await guild.channels.create({
-        name: "📢・공모전",
-        type: ChannelType.GuildText,
-        parent: category.id,
-        reason: "IT 공모전 자동 게시 채널 생성",
-      });
-
-      const state: ContestFeedState = {
-        guildId: guild.id,
-        categoryId: category.id,
-        channelId: channel.id,
-        postedKeys: [],
-        remindedKeys: [],
-        audienceFilter: "all",
-        createdAt: new Date().toISOString(),
-      };
-      await store.save(state);
-
-      await channel.send({
-        embeds: [new EmbedBuilder()
-          .setTitle("🏆 IT 공모전 자동 수집")
-          .setDescription("이설이가 여러 공모전 사이트를 주기적으로 확인하고, 새 웹/모바일/IT 공모전만 이 채널에 올립니다.\n\n같은 공모전은 중복 제거하며 과반수 투표가 모이면 별도 준비 공간을 자동으로 생성합니다. 제출 마감이 D-10 이하가 되면 해당 공모전을 한 번 더 알려드립니다. `/contest filter`로 참가대상 필터를 설정할 수 있습니다.")],
-      });
-
-      return state;
-    } catch (error) {
-      await category.delete("공모전 피드 생성 실패 롤백").catch(() => undefined);
-      throw error;
-    }
   });
 }
 
