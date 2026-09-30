@@ -16,10 +16,12 @@ function partialBooleans(value: unknown): Record<string, boolean> | undefined {
 }
 
 export async function routeSettingsRequest(request: UserRequest, services: SettingsRouteServices): Promise<UserResponse> {
+  const url = new URL(request.path, "http://iseol.local");
+  const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
+  if (url.pathname !== "/api/user/settings" || rawPathname.includes("\\")) return response(404, { error: "settings route not found" });
   const token = bearer(request.headers); const principal = token ? await services.platformUserService.resolveAuthenticatedPrincipal(token) : null;
   if (!principal) return response(401, { error: "authentication required" });
   if (!services.settingsService) return response(503, { error: "settings unavailable" });
-  if (request.path !== "/api/user/settings") return response(404, { error: "settings route not found" });
   try {
     if (request.method === "GET") return response(200, { settings: await services.settingsService.getSettings(principal) });
     if (request.method !== "PATCH") return response(405, { error: "method not allowed" });

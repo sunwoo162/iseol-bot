@@ -35,6 +35,9 @@ function parsePatch(body: unknown): AiAgentProfilePatch | null {
 }
 
 export async function routeAiAgentProfileRequest(request: UserRequest, services: AiAgentProfileRouteServices): Promise<UserResponse> {
+  const url = new URL(request.path, "http://iseol.local");
+  const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
+  if (url.pathname !== "/api/user/agent" || rawPathname.includes("\\")) return response(404, { error: "AI agent route not found" });
   const principal = await authenticated(request, services);
   if (!principal) return response(401, { error: "authentication required" });
   if (!services.aiAgentProfileService) return response(503, { error: "AI agent profile unavailable" });

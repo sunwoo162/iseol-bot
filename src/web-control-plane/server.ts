@@ -305,6 +305,22 @@ async function handleRequest(
     sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "project route not found" });
     return;
   }
+  const isTopLevelUserPath = [
+    "/api/user/signup",
+    "/api/user/login",
+    "/api/user/password",
+    "/api/user/logout",
+    "/api/user/me",
+    "/api/user/runtime-status",
+    "/api/user/settings",
+    "/api/user/world",
+    "/api/user/character",
+    "/api/user/agent",
+  ].some((path) => url.pathname === path) || url.pathname === "/api/user/memory" || url.pathname.startsWith("/api/user/memory/");
+  if (isTopLevelUserPath && rawPathname.includes("\\")) {
+    sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "user route not found" });
+    return;
+  }
   if (url.pathname === "/api/events") {
     if (req.method !== "GET") {
       res.writeHead(405, { allow: "GET" }).end("method not allowed");

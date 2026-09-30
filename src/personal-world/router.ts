@@ -46,6 +46,9 @@ function identityIdFromPath(value: string): string | null {
 
 export async function routePersonalWorldRequest(request: UserRequest, services: PersonalWorldRouteServices): Promise<UserResponse> {
   const url = new URL(request.path, "http://iseol.local");
+  const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
+  const isPersonalWorldPath = ["/api/user/world", "/api/user/character", "/api/user/memory"].some((prefix) => url.pathname === prefix || url.pathname.startsWith(`${prefix}/`));
+  if (isPersonalWorldPath && rawPathname.includes("\\")) return response(404, { error: "personal world route not found" });
   const principal = await authenticated(request, services);
   if (!principal) return response(401, { error: "authentication required" });
 

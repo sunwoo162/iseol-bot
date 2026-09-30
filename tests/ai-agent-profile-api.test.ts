@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { createAiAgentProfileService } from "../src/ai-agent/service.js";
+import { routeAiAgentProfileRequest } from "../src/ai-agent/router.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
 
@@ -34,6 +35,11 @@ test("agent profile API persists a user-owned profile and keeps users isolated",
     const updated = await fetch(url, { method: "PATCH", headers: authA, body: JSON.stringify({ name: "내 이설", tone: "짧고 직설적으로" }) });
     assert.equal(updated.status, 200);
     assert.equal((await updated.json() as any).profile.name, "내 이설");
+
+    const directRawPath = await routeAiAgentProfileRequest({ method: "PATCH", path: "/api/user/agent", rawPath: "/api/user\\agent", headers: authA, body: { name: "Must not persist" } }, { platformUserService: users, aiAgentProfileService: profiles });
+    assert.equal(directRawPath.status, 404);
+    const afterRawPath = await fetch(url, { headers: authA });
+    assert.equal((await afterRawPath.json() as any).profile.name, "내 이설");
 
     const foreign = await fetch(url, { headers: authB });
     assert.equal(foreign.status, 200);
