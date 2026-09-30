@@ -8,6 +8,7 @@ import { withDurableLearningGoalLock } from "./goal-lock.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningActionLock } from "./action-lock.js";
 import { withDurableLearningAnswerLock } from "./answer-lock.js";
+import { withDurableLearningFeedbackLock } from "./feedback-lock.js";
 
 type LearningKind = "goals" | "plans" | "plan-versions" | "interpretations" | "sessions" | "attempts" | "reviews" | "analyses" | "coding-exercises" | "coding-attempts" | "content-requests" | "actions" | "answers" | "feedback" | "disputes" | "adjustments" | "project-proposals" | "links" | "reports";
 function directory(root: string, userId: string, kind: LearningKind): string { assertIdentityId(userId); return resolve(root, "users", userId, "learning", kind); }
@@ -186,9 +187,26 @@ export async function listLearningAnswerReceipts(root: string, userId: string): 
   }
   return result;
 }
-export const saveLearningFeedback = (root: string, value: LearningFeedback) => saveJson(pathFor(root, value.userId, "feedback", value.id), value);
-export const loadLearningFeedback = (root: string, userId: string, id: string) => loadJson<LearningFeedback>(pathFor(root, userId, "feedback", id));
-export const listLearningFeedback = (root: string, userId: string) => listJson<LearningFeedback>(root, userId, "feedback");
+export const saveLearningFeedbackUnlocked = (root: string, value: LearningFeedback) => saveJson(pathFor(root, value.userId, "feedback", value.id), value);
+export const saveLearningFeedback = (root: string, value: LearningFeedback) => withDurableLearningFeedbackLock(root, value.userId, value.id, () => saveLearningFeedbackUnlocked(root, value), { waitForMs: 2_000 });
+export const loadLearningFeedbackUnlocked = (root: string, userId: string, id: string) => loadJson<LearningFeedback>(pathFor(root, userId, "feedback", id));
+export async function loadLearningFeedback(root: string, userId: string, id: string): Promise<LearningFeedback | null> {
+  const candidate = await loadLearningFeedbackUnlocked(root, userId, id);
+  return candidate ? withDurableLearningFeedbackLock(root, userId, candidate.id, () => loadLearningFeedbackUnlocked(root, userId, id), { waitForMs: 2_000 }) : null;
+}
+export const listLearningFeedbackUnlocked = (root: string, userId: string) => listJson<LearningFeedback>(root, userId, "feedback");
+export async function listLearningFeedback(root: string, userId: string): Promise<LearningFeedback[]> {
+  const candidates = await listLearningFeedbackUnlocked(root, userId);
+  const result: LearningFeedback[] = [];
+  for (const candidate of candidates) {
+    try { assertIdentityId(candidate.id); } catch { continue; }
+    await withDurableLearningFeedbackLock(root, userId, candidate.id, async () => {
+      const current = await loadLearningFeedbackUnlocked(root, userId, candidate.id);
+      if (current?.userId === userId && current.id === candidate.id) result.push(current);
+    }, { waitForMs: 2_000 });
+  }
+  return result;
+}
 export const saveLearningFeedbackDispute = (root: string, value: LearningFeedbackDispute) => saveJson(pathFor(root, value.userId, "disputes", value.id), value);
 export const listLearningFeedbackDisputes = (root: string, userId: string) => listJson<LearningFeedbackDispute>(root, userId, "disputes");
 export const saveAttempt = (root: string, value: StudyAttempt) => saveJson(pathFor(root, value.userId, "attempts", value.id), value);
