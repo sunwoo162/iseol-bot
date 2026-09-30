@@ -87,6 +87,13 @@ async function serialized<T>(key: string, action: () => Promise<T>): Promise<T> 
   finally { if (queues.get(key) === current) queues.delete(key); }
 }
 
+export function appendDiagnosticLine(path: string, event: Record<string, unknown>): Promise<void> {
+  return withDurableFileStateLock(path, async () => {
+    await mkdir(dirname(path), { recursive: true });
+    await appendFile(path, `${JSON.stringify(event)}\n`, "utf8");
+  }, { waitForMs: 2_000 });
+}
+
 export function createRequestDiagnosticStore(
   root: string,
   now: () => string = () => new Date().toISOString(),
@@ -95,12 +102,7 @@ export function createRequestDiagnosticStore(
   return {
     record(event) {
       const persisted: RequestDiagnosticEvent = { version: 1, ...event, at: event.at || now() };
-      return serialized(path, async () => {
-        await withDurableFileStateLock(path, async () => {
-          await mkdir(dirname(path), { recursive: true });
-          await appendFile(path, `${JSON.stringify(persisted)}\n`, "utf8");
-        }, { waitForMs: 2_000 });
-      });
+      return serialized(path, () => appendDiagnosticLine(path, persisted));
     },
   };
 }
@@ -113,12 +115,7 @@ export function createResponseReadDiagnosticStore(
   return {
     record(event) {
       const persisted: ResponseReadDiagnosticEvent = { version: 1, type: "response-read-stage", ...event, at: event.at || now() };
-      return serialized(path, async () => {
-        await withDurableFileStateLock(path, async () => {
-          await mkdir(dirname(path), { recursive: true });
-          await appendFile(path, `${JSON.stringify(persisted)}\n`, "utf8");
-        }, { waitForMs: 2_000 });
-      });
+      return serialized(path, () => appendDiagnosticLine(path, persisted));
     },
   };
 }

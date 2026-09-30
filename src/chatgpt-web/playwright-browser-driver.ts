@@ -7,15 +7,14 @@ import {
   ChatGptWebStructuredResultError,
 } from "./browser-adapter.js";
 import { createHash } from "node:crypto";
-import { appendFile, mkdir } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { ChatGptWebResultContract, ChatGptWebSessionProbe } from "./browser-adapter.js";
 import type { ChatGptBrowserDriver } from "./production-browser-adapter.js";
 import { classifyChatGptBrowserOperationFailure } from "./production-browser-adapter.js";
 import type { PlaywrightBrowserDriverConfig } from "./playwright-browser-config.js";
 import { createPlaywrightBrowserBackend, getAssistantTextReadDiagnostic, type PlaywrightBrowserBackend } from "./playwright-browser-backend.js";
 import { patchRejectionDiagnostic } from "./patch-diagnostics.js";
-import { createResponseReadDiagnosticStore, type ResponseReadDiagnosticStage, type ResponseReadDiagnosticStore } from "./request-diagnostics.js";
+import { appendDiagnosticLine, createResponseReadDiagnosticStore, type ResponseReadDiagnosticStage, type ResponseReadDiagnosticStore } from "./request-diagnostics.js";
 
 export type { PlaywrightBrowserBackend } from "./playwright-browser-backend.js";
 
@@ -792,8 +791,7 @@ export async function createPlaywrightChatGptBrowserDriver(
             : /patch appendix|patch hunk|unified-diff/i.test(input.message) ? "structured-patch-validation" : "contract-validation";
       const file = resolve(config.lifecycleRoot, "web-workers", "parser-diagnostics.jsonl");
       try {
-        await mkdir(dirname(file), { recursive: true });
-        await appendFile(file, `${JSON.stringify({
+        await appendDiagnosticLine(file, {
           version: 1, at: new Date().toISOString(), type: "parser-rejection",
           ...(input.runId ? { runId: input.runId } : {}), ...(input.projectId ? { projectId: input.projectId } : {}),
           stage: input.stage, sessionId: input.sessionId, generation: input.generation,
@@ -803,13 +801,13 @@ export async function createPlaywrightChatGptBrowserDriver(
           ...(input.correctionBudgetUsed === undefined ? {} : { correctionBudgetUsed: input.correctionBudgetUsed }),
           ...(input.correctionBudgetLimit === undefined ? {} : { correctionBudgetLimit: input.correctionBudgetLimit }),
           ...(input.diagnostic ?? {}),
-        })}\n`, "utf8");
+        });
       } catch { /* diagnostics never affect execution */ }
     },
     async recordOperationDiagnostic(input) {
       if (!config.lifecycleRoot) return;
       const file = resolve(config.lifecycleRoot, "web-workers", "operation-diagnostics.jsonl");
-      try { await mkdir(dirname(file), { recursive: true }); await appendFile(file, `${JSON.stringify({ version: 1, at: new Date().toISOString(), type: "browser-operation", ...input })}\n`, "utf8"); } catch { /* diagnostics never affect execution */ }
+      try { await appendDiagnosticLine(file, { version: 1, at: new Date().toISOString(), type: "browser-operation", ...input }); } catch { /* diagnostics never affect execution */ }
     },
     async dispose() { await backend.dispose(); },
   };
