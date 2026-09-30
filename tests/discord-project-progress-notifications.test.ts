@@ -76,6 +76,30 @@ test("direct progress delivery waits for the durable event lock", async () => {
   await holder;
 });
 
+test("different progress events share the project journal lock", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-discord-project-journal-lock-"));
+  const first = formatProgressNotification({ id: "evt-project-lock-a", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "first" })!;
+  const second = formatProgressNotification({ id: "evt-project-lock-b", type: "run.updated", occurredAt: "2026-09-20T00:00:01.000Z", projectId: "project-1", summary: "second" })!;
+  let acquired!: () => void;
+  let release!: () => void;
+  const lockAcquired = new Promise<void>((resolve) => { acquired = resolve; });
+  const lockReleased = new Promise<void>((resolve) => { release = resolve; });
+  const holder = withDurableDiscordProgressNotificationLock(root, first.projectId!, first.eventId, async () => {
+    acquired();
+    await lockReleased;
+  });
+  await lockAcquired;
+
+  let completed = false;
+  const delivering = deliverProgressNotification(root, second).finally(() => { completed = true; });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(completed, false);
+
+  release();
+  assert.equal(await delivering, true);
+  await holder;
+});
+
 test("direct delivery and adapter dispatch share one event lock", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-discord-concurrent-"));
   const notification = formatProgressNotification({ id: "evt-shared", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "done" })!;
