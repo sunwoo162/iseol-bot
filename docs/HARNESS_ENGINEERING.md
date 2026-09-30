@@ -95,3 +95,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Milestone calendar synchronization is locked by its canonical calendar external key (`project`, repository, source, and milestone number).
 - The mapping lock covers the state lookup, Calendar create/update/delete call, and mapping upsert/remove so concurrent polls cannot create duplicate events for one milestone.
 - Calendar mapping file locking still protects atomic state changes; the per-mapping lock protects the longer external Calendar side-effect transaction.
+
+## Contest feed setup synchronization
+
+- General contest setup uses the guild delivery lock, while audience-specific setup uses the guild and audience-filter delivery lock already used by feed polling.
+- Setup must re-read feed state after acquiring the lock and keep channel creation, state persistence, and the initial 안내 message in the same critical section.
+- This prevents concurrent setup commands from creating duplicate contest categories or channels across independent bot processes.
