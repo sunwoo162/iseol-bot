@@ -275,3 +275,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `!관리자권한초기화` clears GitHub commit feed and automation milestone cursor state for removed guild projects after the guild lifecycle lock is released.
 - Cleanup runs under each polling store's sync lock, preserves other guild projects, and reports cleanup failures as reset warnings.
 - Keeping polling cleanup outside the guild lifecycle critical section avoids reversing the polling lock order and prevents a reset/poll deadlock.
+
+## Project deletion Calendar mapping cleanup
+
+- `/project delete` clears local Calendar issue/milestone mappings after the StoredProject record is deleted.
+- Local mapping cleanup is independent from external Google Calendar deletion, so missing credentials or a remote deletion failure cannot leave deleted-project mappings behind.
+- Cleanup removes only the deleted project's mappings and preserves mappings belonging to other projects.
