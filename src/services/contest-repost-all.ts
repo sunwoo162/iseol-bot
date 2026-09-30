@@ -5,6 +5,7 @@ import {
   contestVoteEmbed,
   getEligibleHumans,
   majorityOf,
+  withContestGuildDeliveryLock,
   type ContestAudienceFilter,
 } from "./contest-feed.js";
 import { matchesStrictContestAudience } from "./contest-audience-match.js";
@@ -116,50 +117,52 @@ async function publishContest(channel: TextChannel, contest: Contest, eligibleVo
 }
 
 export async function repostAllContests(client: Client, guildId: string): Promise<RepostAllResult> {
-  const guild = client.guilds.cache.get(guildId)
-    ?? await client.guilds.fetch(guildId).catch(() => null);
-  if (!guild) throw new Error("Discord 서버를 찾을 수 없습니다.");
+  return withContestGuildDeliveryLock(guildId, async () => {
+    const guild = client.guilds.cache.get(guildId)
+      ?? await client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) throw new Error("Discord 서버를 찾을 수 없습니다.");
 
-  const targets = await listRepostTargets(guildId);
-  if (targets.length === 0) {
-    throw new Error("먼저 /contest setup 또는 /contest filter로 공모전 채널을 만들어주세요.");
-  }
-
-  const contests = await listActiveItContests();
-  let channelCount = 0;
-  let postedCount = 0;
-
-  for (const target of targets) {
-    const fetched = await guild.channels.fetch(target.channelId).catch(() => null);
-    if (!(fetched instanceof TextChannel)) continue;
-
-    const eligibleVoterIds = await resolveEligibleVoterIds(fetched);
-    const matching = contests.filter((contest) =>
-      matchesStrictContestAudience(contest, target.audienceFilter),
-    );
-
-    for (const contest of matching) {
-      try {
-        await publishContest(fetched, contest, eligibleVoterIds);
-        postedCount += 1;
-      } catch (error) {
-        console.error(
-          `공모전 재게시 실패; 다음 공모전으로 계속 진행 (${guildId}/${target.audienceFilter}/${contest.title})`,
-          error,
-        );
-      }
+    const targets = await listRepostTargets(guildId);
+    if (targets.length === 0) {
+      throw new Error("먼저 /contest setup 또는 /contest filter로 공모전 채널을 만들어주세요.");
     }
 
-    channelCount += 1;
-  }
+    const contests = await listActiveItContests();
+    let channelCount = 0;
+    let postedCount = 0;
 
-  if (channelCount === 0) {
-    throw new Error("저장된 공모전 채널을 Discord에서 찾을 수 없습니다. /contest filter로 다시 만들어주세요.");
-  }
+    for (const target of targets) {
+      const fetched = await guild.channels.fetch(target.channelId).catch(() => null);
+      if (!(fetched instanceof TextChannel)) continue;
 
-  return {
-    channelCount,
-    contestCount: contests.length,
-    postedCount,
-  };
+      const eligibleVoterIds = await resolveEligibleVoterIds(fetched);
+      const matching = contests.filter((contest) =>
+        matchesStrictContestAudience(contest, target.audienceFilter),
+      );
+
+      for (const contest of matching) {
+        try {
+          await publishContest(fetched, contest, eligibleVoterIds);
+          postedCount += 1;
+        } catch (error) {
+          console.error(
+            `공모전 재게시 실패; 다음 공모전으로 계속 진행 (${guildId}/${target.audienceFilter}/${contest.title})`,
+            error,
+          );
+        }
+      }
+
+      channelCount += 1;
+    }
+
+    if (channelCount === 0) {
+      throw new Error("저장된 공모전 채널을 Discord에서 찾을 수 없습니다. /contest filter로 다시 만들어주세요.");
+    }
+
+    return {
+      channelCount,
+      contestCount: contests.length,
+      postedCount,
+    };
+  });
 }

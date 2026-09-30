@@ -16,6 +16,7 @@ import {
   findContestFeed,
   getEligibleHumans,
   majorityOf,
+  withContestGuildDeliveryLock,
   type ContestAudienceFilter,
 } from "./contest-feed.js";
 import { matchesStrictContestAudience } from "./contest-audience-match.js";
@@ -367,14 +368,16 @@ async function syncContestAudienceFeedWithContests(
   state: ContestAudienceFeedState,
   contests: Contest[],
 ): Promise<number> {
-  return defaultContestAudienceFeedStore.withDeliveryLock(
-    state.guildId,
-    state.audienceFilter,
-    async () => {
-      const current = await defaultContestAudienceFeedStore.find(state.guildId, state.audienceFilter);
-      return syncContestAudienceFeedWithContestsUnlocked(client, current ?? state, contests);
-    },
-  );
+  return withContestGuildDeliveryLock(state.guildId, async () => {
+    return defaultContestAudienceFeedStore.withDeliveryLock(
+      state.guildId,
+      state.audienceFilter,
+      async () => {
+        const current = await defaultContestAudienceFeedStore.find(state.guildId, state.audienceFilter);
+        return syncContestAudienceFeedWithContestsUnlocked(client, current ?? state, contests);
+      },
+    );
+  });
 }
 
 export async function syncContestAudienceFeed(

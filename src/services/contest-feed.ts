@@ -145,6 +145,17 @@ export class ContestFeedStore {
 
 const defaultContestFeedStore = new ContestFeedStore();
 
+export function withContestGuildDeliveryLock<T>(guildId: string, task: () => Promise<T>): Promise<T> {
+  const digest = createHash("sha256")
+    .update(`${DATA_FILE}:${guildId}:contest-guild-delivery`)
+    .digest("hex");
+  return withDurableFileStateLock(
+    `${DATA_FILE}.guild-delivery.${digest}`,
+    task,
+    { waitForMs: CONTEST_POLL_INTERVAL_MS },
+  );
+}
+
 export function findContestFeed(guildId: string): Promise<ContestFeedState | null> {
   return defaultContestFeedStore.find(guildId);
 }
@@ -861,9 +872,11 @@ async function syncContestFeedUnlocked(client: Client, state: ContestFeedState):
 }
 
 export async function syncContestFeed(client: Client, state: ContestFeedState): Promise<number> {
-  return defaultContestFeedStore.withDeliveryLock(state.guildId, async () => {
-    const current = await defaultContestFeedStore.find(state.guildId);
-    return syncContestFeedUnlocked(client, current ?? state);
+  return withContestGuildDeliveryLock(state.guildId, async () => {
+    return defaultContestFeedStore.withDeliveryLock(state.guildId, async () => {
+      const current = await defaultContestFeedStore.find(state.guildId);
+      return syncContestFeedUnlocked(client, current ?? state);
+    });
   });
 }
 
