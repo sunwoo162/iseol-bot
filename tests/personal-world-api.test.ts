@@ -60,6 +60,15 @@ test("personal world and private memory API persist through the user session bou
       method: "DELETE", headers: authA,
     });
     assert.equal(malformedMemoryPath.status, 404);
+    const malformedSharingPath = await fetch(`${url}/api/user/memory/${encodeURIComponent(`${listed.memories[0].id}/suffix`)}/sharing`, {
+      method: "PATCH", headers: authA,
+      body: JSON.stringify({ teamIds: [] }),
+    });
+    assert.equal(malformedSharingPath.status, 404);
+    const malformedEncodingPath = await fetch(`${url}/api/user/memory/%E0%A4%A`, {
+      method: "DELETE", headers: authA,
+    });
+    assert.equal(malformedEncodingPath.status, 404);
     const foreignUpdate = await fetch(`${url}/api/user/memory/${encodeURIComponent(listed.memories[0].id)}`, {
       method: "PATCH", headers: { ...authB, "content-type": "application/json" },
       body: JSON.stringify({ content: "must remain private" }),
