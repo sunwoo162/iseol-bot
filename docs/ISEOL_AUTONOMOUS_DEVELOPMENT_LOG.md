@@ -4709,3 +4709,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `21826a6 fix: serialize review state updates`; merged by PR #272 with merge commit `830e78a`.
 - Boundary: same-host/shared-file Review state coordination only; distributed locking, live GitHub review quality, operational Runtime/Agent throughput, external delivery success, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-30 continuation: durable GitHub automation poll state synchronization
+
+- Status: **B — GitHub automation polling state reads and milestone read-modify-write updates now coordinate through a path-scoped durable file lock, while live GitHub provider execution remains unverified**. Independent poller instances preserve repository milestone cursors.
+- Evidence: `src/services/file-state-lock.ts`, `src/services/github-automation-poll-state.ts`, `tests/github-automation-poll-state-lock.test.ts`, and `tests/github-automation-polling.test.ts`.
+- TDD: RED reproduced concurrent GitHub automation milestone updates dropping one repository state; GREEN added stale-owner-aware file locking around get/set/retain operations.
+- Verification: GitHub automation polling focused regression `2/2`; serial existing full test suite `754/754`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `43f1065 fix: serialize GitHub automation poll state`; merged by PR #274 with merge commit `c877030`.
+- Boundary: same-host/shared-file GitHub automation poll cursor coordination only; distributed locking, live GitHub provider quality, external delivery success, operational Runtime/Agent throughput, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
