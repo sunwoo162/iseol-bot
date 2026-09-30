@@ -46,10 +46,11 @@ function pathId(pathname: string, prefix: string): string | null {
 
 export async function routeLearningRequest(request: UserRequest, services: LearningRouteServices): Promise<UserResponse> {
   const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
-  if ((rawPathname === "/api/user/learning" || rawPathname.startsWith("/api/user/learning/")) && rawPathname.includes("\\")) {
+  const url = new URL(request.path, "http://iseol.local");
+  const isLearningPath = url.pathname === "/api/user/learning" || url.pathname.startsWith("/api/user/learning/");
+  if (isLearningPath && rawPathname.includes("\\")) {
     return response(404, { error: "learning route not found" });
   }
-  const url = new URL(request.path, "http://iseol.local");
   const token = bearer(request.headers);
   const resolvedPrincipal = token ? await services.platformUserService.resolveAuthenticatedPrincipal(token) : null;
   if (!resolvedPrincipal) return response(401, { error: "authentication required" });

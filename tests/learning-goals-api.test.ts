@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { createLearningService } from "../src/learning/service.js";
@@ -57,6 +58,29 @@ test("learning goal API stores the required input and does not expose another us
       body: { expectedRevision: goal.revision },
     }, { platformUserService: platform, learningService: learning });
     assert.equal(rawBackslashPlanPreview.status, 404);
+    const rawBackslashLearningPrefix = await routeLearningRequest({
+      method: "POST",
+      path: `/api/user/learning/goals/${goal.id}/plan-preview`,
+      rawPath: `/api/user\\learning/goals/${goal.id}/plan-preview`,
+      headers: headersA,
+      body: { expectedRevision: goal.revision },
+    }, { platformUserService: platform, learningService: learning });
+    assert.equal(rawBackslashLearningPrefix.status, 404);
+    const rawBackslashServerResponse = await new Promise<number>((resolve, reject) => {
+      const rawRequest = httpRequest({
+        hostname: "127.0.0.1",
+        port: address.port,
+        method: "POST",
+        path: `/api/user\\learning/goals/${goal.id}/plan-preview`,
+        headers: { ...headersA, "content-length": String(Buffer.byteLength(JSON.stringify({ expectedRevision: goal.revision }))) },
+      }, (response) => {
+        response.resume();
+        response.on("end", () => resolve(response.statusCode ?? 0));
+      });
+      rawRequest.on("error", reject);
+      rawRequest.end(JSON.stringify({ expectedRevision: goal.revision }));
+    });
+    assert.equal(rawBackslashServerResponse, 404);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
