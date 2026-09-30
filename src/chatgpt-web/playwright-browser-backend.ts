@@ -2,6 +2,7 @@ import { chromium, type BrowserContext, type Page } from "playwright-core";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { PlaywrightBrowserDriverConfig } from "./playwright-browser-config.js";
+import { withDurableFileStateLock } from "../services/file-state-lock.js";
 
 export interface PlaywrightBrowserBackend {
   navigate(url: string): Promise<void>;
@@ -151,11 +152,13 @@ export async function createPlaywrightBrowserBackend(
   const lifecycle = (type: string, reason?: string) => {
     if (!lifecycleFile) return;
     lifecycleWrites = lifecycleWrites.then(async () => {
-      await mkdir(dirname(lifecycleFile), { recursive: true });
-      let lines: string[] = [];
-      try { lines = (await readFile(lifecycleFile, "utf8")).trim().split("\n").filter(Boolean); } catch {}
-      lines.push(JSON.stringify({ version: 1, at: new Date().toISOString(), type, ...(reason ? { reason } : {}) }));
-      await writeFile(lifecycleFile, `${lines.slice(-1000).join("\n")}\n`, "utf8");
+      await withDurableFileStateLock(lifecycleFile, async () => {
+        await mkdir(dirname(lifecycleFile), { recursive: true });
+        let lines: string[] = [];
+        try { lines = (await readFile(lifecycleFile, "utf8")).trim().split("\n").filter(Boolean); } catch {}
+        lines.push(JSON.stringify({ version: 1, at: new Date().toISOString(), type, ...(reason ? { reason } : {}) }));
+        await writeFile(lifecycleFile, `${lines.slice(-1000).join("\n")}\n`, "utf8");
+      }, { waitForMs: 2_000 });
     }).catch(() => undefined);
   };
   lifecycle("context-created");
