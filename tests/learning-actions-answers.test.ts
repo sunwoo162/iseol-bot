@@ -9,7 +9,7 @@ import { createLearningService } from "../src/learning/service.js";
 import { withDurableLearningActionLock } from "../src/learning/action-lock.js";
 import { withDurableLearningAnswerLock } from "../src/learning/answer-lock.js";
 import { withDurableLearningFeedbackCompletionLock } from "../src/learning/feedback-completion-lock.js";
-import { saveLearningAnswerReceipt, saveLearningFeedback, saveLearningSessionAction } from "../src/learning/store.js";
+import { saveLearningAnswerReceipt, saveLearningFeedback, saveLearningSessionActionUnlocked } from "../src/learning/store.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -49,7 +49,7 @@ test("learning session action lists wait for each durable action lock before pro
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  await saveLearningSessionAction(root, { ...action, question: "잠금 해제 후 질문" });
+  await saveLearningSessionActionUnlocked(root, { ...action, question: "잠금 해제 후 질문" });
   releaseHolder();
   await lockHeld;
   assert.equal((await read)[0]?.question, "잠금 해제 후 질문");
