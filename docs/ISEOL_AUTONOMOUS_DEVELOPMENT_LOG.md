@@ -4160,6 +4160,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root User Notification and notification stream document read/write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed the explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-30 continuation: durable CodingAttempt document read/write synchronization
+
+- Status: **B — CodingAttempt public reads and writes now coordinate through the owning user/exercise/client-request durable lock, and live Runtime/provider execution remains unverified**. Submission and verifier callbacks use unlocked helpers while the coding-attempt lock is held.
+- Evidence: `src/learning/store.ts`, `src/learning/service.ts`, `src/learning/coding-attempt-lock.ts`, `tests/learning-coding-attempt-store-lock.test.ts`, `tests/learning-coding-test.test.ts`, and the existing Learning coding regression suite.
+- TDD: RED reproduced public CodingAttempt save/load/list calls completing while the owning attempt lock was held; GREEN added locked public store boundaries, per-attempt list reloads, malformed exercise/request filtering, and fixed submission/verifier/list reentrancy. The existing lock-held test injection now explicitly uses the unlocked helper.
+- Verification: CodingAttempt focused regression `6/6`; Learning focused regression `114/114`; serial existing full test suite `754/754`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `187a1ce fix: synchronize learning coding attempt store`; merged by PR #222 with merge commit `76ca267`.
+- Boundary: same-host/shared-root CodingAttempt document read/write coordination only; remaining raw Learning stores, distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed the explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-30 continuation: durable LearningLink document read/write synchronization
 
 - Status: **B — LearningLink public reads and writes now coordinate through the owning user/goal/project/proposal durable lock, and live Runtime/provider execution remains unverified**. Project application acceptance keeps its existing separate acceptance lock.
