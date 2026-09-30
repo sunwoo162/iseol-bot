@@ -26,6 +26,15 @@ test("authenticated browser selects an existing workspace, promotes across roots
   await context.route("**/*", route => new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort());
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   await page.goto(base);
+  await page.evaluate(() => {
+    localStorage.setItem("iseol.web.token", "legacy-web-token");
+    localStorage.setItem("iseol.operator.token", "legacy-operator-token");
+  });
+  await page.reload();
+  assert.equal(await page.locator("#web-token").inputValue(), "");
+  assert.equal(await page.locator("#operator-token").inputValue(), "");
+  assert.equal(await page.evaluate(() => localStorage.getItem("iseol.web.token")), null);
+  assert.equal(await page.evaluate(() => localStorage.getItem("iseol.operator.token")), null);
   await page.locator("#web-token").fill("synthetic-browser-token");
   await page.locator("#save-token").click();
   const listResponse = page.waitForResponse(r => r.url() === base + "/api/projects");
@@ -64,7 +73,7 @@ test("authenticated browser selects an existing workspace, promotes across roots
   await page.waitForFunction(() => document.querySelector("#project-list-status")?.textContent?.includes("No projects"));
   assert.equal(await page.locator("#project-list-status").getAttribute("data-kind"), "empty");
   await context.clearCookies();
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => sessionStorage.clear());
 });
 
 test("operator browser can retry a failed Project Workspace Run with the same durable Run identity", async t => {
@@ -141,5 +150,5 @@ test("operator browser can retry a failed Project Workspace Run with the same du
   assert.equal(run?.retry?.actor, "operator");
   assert.equal(run?.request.runId, runId);
   await context.clearCookies();
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => sessionStorage.clear());
 });

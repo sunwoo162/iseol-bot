@@ -36,11 +36,20 @@ function setLoading(loading, message = "Loading Iseol state…") {
 }
 
 function savedToken() {
-  return localStorage.getItem(TOKEN_KEY)?.trim() ?? "";
+  return sessionStorage.getItem(TOKEN_KEY)?.trim() ?? "";
 }
 
 function savedOperatorToken() {
-  return localStorage.getItem(OPERATOR_TOKEN_KEY)?.trim() ?? "";
+  return sessionStorage.getItem(OPERATOR_TOKEN_KEY)?.trim() ?? "";
+}
+
+function clearLegacyPersistentTokens() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(OPERATOR_TOKEN_KEY);
+  } catch {
+    // Storage can be unavailable in a hardened browser context.
+  }
 }
 
 function authHeaders() {
@@ -893,16 +902,16 @@ async function queueCurrentWorkRequest() {
 
 function saveToken() {
   const value = $("#web-token").value.trim();
-  if (value) localStorage.setItem(TOKEN_KEY, value);
-  else localStorage.removeItem(TOKEN_KEY);
-  setStatus("success", value ? "Web token saved locally in this browser." : "Web token cleared.");
+  if (value) sessionStorage.setItem(TOKEN_KEY, value);
+  else sessionStorage.removeItem(TOKEN_KEY);
+  setStatus("success", value ? "Web token saved for this tab." : "Web token cleared.");
 }
 
 function saveOperatorToken() {
   const value = $("#operator-token").value.trim();
-  if (value) localStorage.setItem(OPERATOR_TOKEN_KEY, value);
-  else localStorage.removeItem(OPERATOR_TOKEN_KEY);
-  setStatus("success", value ? "Operator token saved locally in this browser." : "Operator token cleared.");
+  if (value) sessionStorage.setItem(OPERATOR_TOKEN_KEY, value);
+  else sessionStorage.removeItem(OPERATOR_TOKEN_KEY);
+  setStatus("success", value ? "Operator token saved for this tab." : "Operator token cleared.");
 }
 
 function bindEvents() {
@@ -930,6 +939,7 @@ function bindEvents() {
 }
 
 async function init() {
+  clearLegacyPersistentTokens();
   $("#web-token").value = savedToken();
   $("#operator-token").value = savedOperatorToken();
   bindEvents();
