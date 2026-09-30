@@ -53,3 +53,9 @@ The effective Run policy is the ordered combination of this global document and 
 - The Discord progress notification journal is one JSONL file per project.
 - Durable locking for notification delivery and adapter dispatch is therefore keyed by project journal identity, not by individual event ID.
 - Tests must cover different event IDs contending for the same project journal so a new event cannot bypass an in-flight journal read/append operation.
+
+## Daily scrum reminder delivery concurrency
+
+- Daily scrum reminder delivery is coordinated by project and Seoul date, because the reminder state records one successful notification per project per date.
+- The durable delivery lock must cover the check, Discord send, and successful state mark as one critical section so concurrent pollers cannot send duplicate `@everyone` reminders.
+- A failed Discord send must release the lock without recording the date, allowing a later poll to retry the reminder.
