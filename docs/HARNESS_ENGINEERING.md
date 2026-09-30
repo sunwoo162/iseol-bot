@@ -65,3 +65,9 @@ The effective Run policy is the ordered combination of this global document and 
 - The general contest feed delivery lock is keyed by guild, while an audience-specific feed lock is keyed by guild and audience filter.
 - A feed poll must acquire its delivery lock before reading the latest state, then perform external Discord publication and `postedKeys`/`remindedKeys` persistence within that critical section.
 - A poll waiting behind another long-running poll must re-read the current state after lock acquisition instead of continuing with its original snapshot.
+
+## GitHub commit feed synchronization
+
+- The GitHub-linked commit feed sync is one external side-effect transaction across state read, Discord commit-log publication, and seen-event/commit persistence.
+- A durable sync lock must cover the entire feed run so separate bot processes cannot publish the same linked commit before either process records its seen state.
+- The existing in-process polling guard is complementary; it does not replace the durable lock required for multi-process deployment.
