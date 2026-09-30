@@ -33,6 +33,10 @@ test("collaboration API persists teams, recruitment, membership, friendship, and
     const createdTeam = await fetch(`${url}/api/user/teams`, { method: "POST", headers: headers(sessionA.token), body: JSON.stringify({ name: "API team", description: "collab", kind: "project", visibility: "public", capacity: 3 }) });
     assert.equal(createdTeam.status, 201);
     const team = (await createdTeam.json() as any).team;
+    const malformedTeamPath = await fetch(`${url}/api/user/teams/%E0%A4%A`, { headers: headers(sessionA.token) });
+    assert.equal(malformedTeamPath.status, 404);
+    const malformedRecruitmentPath = await fetch(`${url}/api/user/recruitment/%E0%A4%A`, { headers: headers(sessionA.token) });
+    assert.equal(malformedRecruitmentPath.status, 404);
     const aiAdded = await fetch(`${url}/api/user/teams/${team.id}/ai-members`, { method: "POST", headers: headers(sessionA.token), body: JSON.stringify({ agentId: "api-frontend", assignmentRole: "frontend", capabilities: ["context.read", "task.propose"], approvalScope: "suggestion-only" }) });
     assert.equal(aiAdded.status, 201);
     const aiMember = (await aiAdded.json() as any).member;

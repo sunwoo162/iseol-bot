@@ -11,7 +11,15 @@ function response(status: number, body: unknown): UserResponse { return { status
 function bearer(headers: Record<string, string | undefined>): string | null { const value = headers.authorization; return value?.startsWith("Bearer ") ? value.slice("Bearer ".length).trim() || null : null; }
 function objectBody(body: unknown): Record<string, unknown> | null { return body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : null; }
 function stringValue(body: Record<string, unknown> | null, key: string): string | null { return typeof body?.[key] === "string" && (body[key] as string).trim() ? body[key] as string : null; }
-function idAfter(pathname: string, prefix: string): string | null { if (!pathname.startsWith(prefix)) return null; const value = decodeURIComponent(pathname.slice(prefix.length)); return value || null; }
+function idAfter(pathname: string, prefix: string): string | null {
+  if (!pathname.startsWith(prefix)) return null;
+  try {
+    const value = decodeURIComponent(pathname.slice(prefix.length));
+    return value || null;
+  } catch {
+    return null;
+  }
+}
 function errorResponse(error: unknown): UserResponse { const message = error instanceof Error ? error.message : "collaboration request failed"; if (/not found/i.test(message)) return response(404, { error: message }); if (/access|required|requires|invalid|cannot|already|blocked/i.test(message)) return response(/access|manager|member|messaging|requires|blocked/i.test(message) ? 403 : 400, { error: message }); return response(409, { error: message }); }
 
 export async function routeCollaborationRequest(request: UserRequest, services: CollaborationRouteServices): Promise<UserResponse> {
@@ -72,7 +80,8 @@ export async function routeCollaborationRequest(request: UserRequest, services: 
       if (applicationPath) { if (request.method !== "POST") return response(405, { error: "method not allowed" }); const message = stringValue(objectBody(request.body), "message"); if (!message) return response(400, { error: "message is required" }); return response(201, { application: (await recruitment.apply(principal, applicationPath, message)).application }); }
       const applicationId = rest?.startsWith("applications/") ? rest.slice("applications/".length) : null;
       if (applicationId) { if (request.method !== "POST") return response(405, { error: "method not allowed" }); const action = stringValue(objectBody(request.body), "action") as "accept" | "reject" | null; if (!action) return response(400, { error: "action is required" }); return response(200, { application: await recruitment.reviewApplication(principal, applicationId, action) }); }
-      if (!rest || request.method !== "GET") return response(405, { error: "method not allowed" }); const post = await recruitment.getPost(principal, rest); return post ? response(200, post) : response(404, { error: "recruitment post not found" });
+      if (!rest) return response(404, { error: "recruitment post not found" });
+      if (request.method !== "GET") return response(405, { error: "method not allowed" }); const post = await recruitment.getPost(principal, rest); return post ? response(200, post) : response(404, { error: "recruitment post not found" });
     }
 
     if (url.pathname.startsWith("/api/user/social")) {
