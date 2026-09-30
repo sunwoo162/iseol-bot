@@ -4769,3 +4769,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `dd2170a fix: synchronize voice study state`; merged by PR #284 with merge commit `8974dfe`.
 - Boundary: same-host/shared-file Voice study state coordination only; distributed locking, live Discord voice provider quality, external delivery success, operational Runtime/Agent throughput, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-30 continuation: durable Music playlist state synchronization
+
+- Status: **B — Music playlist state reads and read-modify-write create/add/remove operations now coordinate through a path-scoped durable file lock, while live Discord voice/audio provider execution remains unverified**. Independent MusicStore instances preserve playlist records and tracks.
+- Evidence: `src/services/file-state-lock.ts`, `src/services/music.ts`, and `tests/music-playlists-lock.test.ts`.
+- TDD: RED reproduced the missing file-injected MusicStore boundary before implementation; GREEN replaced the process-local write queue with stale-owner-aware durable locking while preserving the existing global function API and keeping external track resolution/runtime playback separate.
+- Verification: Music playlist focused regression `2/2`; serial existing full test suite `754/754`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `9b83281 fix: synchronize music playlist state`; merged by PR #286 with merge commit `ccea645`.
+- Boundary: same-host/shared-file Music playlist state coordination only; distributed locking, live Discord/audio provider quality, external delivery success, operational Runtime/Agent throughput, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
