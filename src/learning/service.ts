@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CodingAttempt, CodingAttemptInput, CodingExercise, CodingExerciseInput, CodingPracticeResult, GoalInterpretation, LearningAnswerReceipt, LearningContentRequest, LearningFeedback, LearningFeedbackDispute, LearningFeedbackDisputeResult, LearningFeedbackEvaluation, LearningFeedbackEvaluationInput, LearningGoal, LearningGoalInput, LearningGoalSessionInput, LearningLessonBlock, LearningLessonContent, LearningLessonInput, LearningPlanAdjustment, LearningPlanAdjustmentInput, LearningPlanAdjustmentResult, LearningPlanInput, LearningPlanPreview, LearningPlanProposal, LearningPlanVersion, LearningProgress, LearningProjectApplication, LearningProjectApplicationInput, LearningReport, LearningReportPeriod, LearningService, LearningServiceOptions, LearningSessionAction, LearningSessionActionInput, ReviewItemInput, CodeAnalysisInput, StudyAttemptInput, LearningPlan, LearningPlanDay, LearningSession, LearningToday, ReviewItem, CodeAnalysisResult } from "./contracts.js";
-import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listGoalInterpretationsUnlocked, listLearningAnswerReceipts, listLearningAnswerReceiptsUnlocked, listLearningContentRequests, listLearningContentRequestsUnlocked, listLearningFeedback, listLearningFeedbackDisputes, listLearningFeedbackDisputesUnlocked, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanVersions, listLearningPlanVersionsUnlocked, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listLearningSessionActionsUnlocked, listPlans, listReviews, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningAnswerReceiptUnlocked, loadLearningContentRequest, loadLearningContentRequestUnlocked, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningPlanVersionUnlocked, loadLearningReport, loadPlan, loadReview, loadSession, loadSessionUnlocked, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningAnswerReceiptUnlocked, saveLearningContentRequest, saveLearningContentRequestUnlocked, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningFeedbackDisputeUnlocked, saveLearningPlanAdjustment, saveLearningSessionAction, saveLearningSessionActionUnlocked, saveGoalInterpretation, saveGoalInterpretationUnlocked, saveLearningPlanVersion, saveLearningPlanVersionUnlocked, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession, saveSessionUnlocked } from "./store.js";
+import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listGoalInterpretationsUnlocked, listLearningAnswerReceipts, listLearningAnswerReceiptsUnlocked, listLearningContentRequests, listLearningContentRequestsUnlocked, listLearningFeedback, listLearningFeedbackDisputes, listLearningFeedbackDisputesUnlocked, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanVersions, listLearningPlanVersionsUnlocked, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listLearningSessionActionsUnlocked, listPlans, listReviews, listReviewsUnlocked, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningAnswerReceiptUnlocked, loadLearningContentRequest, loadLearningContentRequestUnlocked, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningPlanVersionUnlocked, loadLearningReport, loadPlan, loadReview, loadReviewUnlocked, loadSession, loadSessionUnlocked, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningAnswerReceiptUnlocked, saveLearningContentRequest, saveLearningContentRequestUnlocked, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningFeedbackDisputeUnlocked, saveLearningPlanAdjustment, saveLearningSessionAction, saveLearningSessionActionUnlocked, saveGoalInterpretation, saveGoalInterpretationUnlocked, saveLearningPlanVersion, saveLearningPlanVersionUnlocked, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveReviewUnlocked, saveSession, saveSessionUnlocked } from "./store.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
 import { withDurableLearningProjectApplicationAcceptanceLock } from "./project-application-acceptance-lock.js";
@@ -1296,7 +1296,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const current: ReviewItem[] = [];
       for (const candidate of candidates) {
         await withDurableLearningReviewLock(root, principal.userId, candidate.id, async () => {
-          const item = await loadReview(root, principal.userId, candidate.id);
+          const item = await loadReviewUnlocked(root, principal.userId, candidate.id);
           if (item?.userId === principal.userId && Date.parse(item.dueAt) <= Date.parse(at)) current.push(item);
         }, { waitForMs: 2_000 });
       }
@@ -1307,7 +1307,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       ensurePrincipal(principal);
       if (!Number.isInteger(input.quality) || input.quality < 0 || input.quality > 5) throw new Error("Review quality must be between 0 and 5");
       return withDurableLearningReviewLock(root, principal.userId, itemId, async () => {
-        const item = await loadReview(root, principal.userId, itemId);
+        const item = await loadReviewUnlocked(root, principal.userId, itemId);
         if (!item || item.userId !== principal.userId) throw new Error("Review item not found");
         const at = now(); assertTimestamp(at, "review completion timestamp");
         const intervalDays = input.quality >= 4 ? Math.max(2, item.intervalDays * 2) : input.quality >= 3 ? Math.max(1, item.intervalDays) : 1;
@@ -1315,7 +1315,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
           ...item, intervalDays, reviewCount: item.reviewCount + 1, dueAt: addCalendarDays(at, intervalDays, principalTimezone(principal)),
           lastReviewedAt: at, updatedAt: at,
         };
-        await saveReview(root, reviewed);
+        await saveReviewUnlocked(root, reviewed);
         await options.activityService?.recordActivityEvent(principal, {
           sourceType: "learning-review",
           sourceId: item.id,
