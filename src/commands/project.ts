@@ -26,6 +26,8 @@ import { clearDailyScrumProject } from "../services/daily-scrum.js";
 import { GoogleCalendarService } from "../services/calendar/google-calendar.js";
 import { FigmaWebhookService, parseFigmaFile } from "../services/figma.js";
 import { buildAutomationWebhookUrl, GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
+import { clearGitHubAutomationPollingProject } from "../services/github-automation-poll-state.js";
+import { clearGitHubCommitFeedProject } from "../services/github-commit-feed.js";
 import { NotionService, parseNotionPage } from "../services/notion.js";
 import { deleteProject, findProject, findProjectByName, listProjects, saveProject, updateProject, withProjectCreateLock, withProjectDeleteLock } from "../services/projects.js";
 
@@ -147,15 +149,14 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
       return;
     }
 
-    await withProjectDeleteLock(interaction.guild.id, initialProject.id, async () => {
+    const deletedProject = await withProjectDeleteLock(interaction.guild.id, initialProject.id, async () => {
       const resolved = await resolveProjectCategory(interaction, target);
       const project = resolved?.project;
       const category = resolved?.category;
       const channels = resolved?.channels;
 
       if (!project || project.id !== initialProject.id || !channels) {
-        await interaction.editReply("❌ 이설로 생성한 프로젝트 정보를 찾을 수 없습니다.");
-        return;
+        return null;
       }
 
       const warnings: string[] = [];
@@ -253,11 +254,33 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
         warnings.push("Iseol Project Workspace binding");
       }
 
-      const warningText = warnings.length > 0
-        ? `\n⚠️ 외부 연동 정리 실패: ${warnings.join(", ")} (서버 로그 확인)`
-        : "";
-      await interaction.editReply(`✅ **${project.name}** 프로젝트 방과 저장 정보를 삭제했습니다.${warningText}`);
+      return { id: project.id, name: project.name, warnings };
     });
+
+    if (!deletedProject) {
+      await interaction.editReply("❌ 이설로 생성한 프로젝트 정보를 찾을 수 없습니다.");
+      return;
+    }
+
+    const warnings = deletedProject.warnings;
+    try {
+      await clearGitHubCommitFeedProject(deletedProject.id);
+    } catch (error) {
+      console.warn(`GitHub commit feed state cleanup failed (${deletedProject.name}):`, error);
+      warnings.push("GitHub commit feed state");
+    }
+
+    try {
+      await clearGitHubAutomationPollingProject(deletedProject.id);
+    } catch (error) {
+      console.warn(`GitHub automation polling state cleanup failed (${deletedProject.name}):`, error);
+      warnings.push("GitHub automation polling state");
+    }
+
+    const warningText = warnings.length > 0
+      ? `\n⚠️ 외부 연동 정리 실패: ${warnings.join(", ")} (서버 로그 확인)`
+      : "";
+    await interaction.editReply(`✅ **${deletedProject.name}** 프로젝트 방과 저장 정보를 삭제했습니다.${warningText}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
     await interaction.editReply(`❌ 프로젝트 방 삭제에 실패했습니다.\n\`${message}\``);
