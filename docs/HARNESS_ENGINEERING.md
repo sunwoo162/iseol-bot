@@ -101,3 +101,9 @@ The effective Run policy is the ordered combination of this global document and 
 - General contest setup uses the guild delivery lock, while audience-specific setup uses the guild and audience-filter delivery lock already used by feed polling.
 - Setup must re-read feed state after acquiring the lock and keep channel creation, state persistence, and the initial 안내 message in the same critical section.
 - This prevents concurrent setup commands from creating duplicate contest categories or channels across independent bot processes.
+
+## Discord channel ensure synchronization
+
+- Project discussion and contest preparation announcement channel repair use a shared durable ensure-lock helper.
+- The lock scope is the owning guild and category, so a retry or second bot process re-fetches channels after waiting and only creates missing channels.
+- Different categories remain independent, while the check, Discord channel creation, and position adjustment for one category are serialized.
