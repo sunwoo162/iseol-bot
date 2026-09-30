@@ -4,9 +4,23 @@ import { GitHubScheduleSyncService } from "../src/services/github-schedule-sync.
 
 class MemoryState {
   items = new Map<string, any>();
+  locks = new Map<string, Promise<void>>();
   async find(key: string) { return this.items.get(key) ?? null; }
   async upsert(value: any) { this.items.set(value.externalKey, value); }
   async remove(key: string) { return this.items.delete(key); }
+  async withMappingLock<T>(key: string, task: () => Promise<T>) {
+    const previous = this.locks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolveRelease) => { release = resolveRelease; });
+    this.locks.set(key, current);
+    await previous;
+    try {
+      return await task();
+    } finally {
+      release();
+      if (this.locks.get(key) === current) this.locks.delete(key);
+    }
+  }
 }
 
 test("milestone synchronization creates once then updates the same event", async () => {
@@ -21,6 +35,27 @@ test("milestone synchronization creates once then updates the same event", async
   const milestone = { number: 3, title: "MVP", dueOn: "2026-09-10T15:00:00Z", state: "open" as const, htmlUrl: "https://github.com/o/r/milestone/3" };
   await service.syncMilestone("project", "calendar", "o/r", milestone);
   await service.syncMilestone("project", "calendar", "o/r", milestone);
+  assert.deepEqual(calls, ["create", "update"]);
+});
+
+test("concurrent milestone synchronization publishes one event before updating it", async () => {
+  const calls: string[] = [];
+  const state = new MemoryState();
+  const calendar = {
+    async createEvent() {
+      calls.push("create");
+      await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+      return { id: "event-1", htmlLink: "" };
+    },
+    async updateEvent() { calls.push("update"); return { id: "event-1", htmlLink: "" }; },
+    async deleteEvent() { calls.push("delete"); },
+  };
+  const service = new GitHubScheduleSyncService(calendar, state as any);
+  const milestone = { number: 4, title: "Launch", dueOn: "2026-09-11T15:00:00Z", state: "open" as const, htmlUrl: "https://github.com/o/r/milestone/4" };
+  await Promise.all([
+    service.syncMilestone("project", "calendar", "o/r", milestone),
+    service.syncMilestone("project", "calendar", "o/r", milestone),
+  ]);
   assert.deepEqual(calls, ["create", "update"]);
 });
 

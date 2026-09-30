@@ -15,7 +15,7 @@ type CalendarPort = {
   deleteEvent(calendarId: string, eventId: string): Promise<void>;
 };
 
-type StatePort = Pick<CalendarStateStore, "find" | "upsert" | "remove">;
+type StatePort = Pick<CalendarStateStore, "find" | "upsert" | "remove" | "withMappingLock">;
 
 export class GitHubScheduleSyncService {
   constructor(private readonly calendar: CalendarPort, private readonly state: StatePort) {}
@@ -42,6 +42,10 @@ export class GitHubScheduleSyncService {
   }
   async syncMilestone(projectId: string, calendarId: string, repository: string, milestone: MilestoneSyncInput): Promise<void> {
     const externalKey = calendarExternalKey(projectId, repository, "milestone", milestone.number);
+    await this.state.withMappingLock(externalKey, async () => this.syncMilestoneUnlocked(projectId, calendarId, repository, milestone, externalKey));
+  }
+
+  private async syncMilestoneUnlocked(projectId: string, calendarId: string, repository: string, milestone: MilestoneSyncInput, externalKey: string): Promise<void> {
     const existing = await this.state.find(externalKey);
 
     if (milestone.state === "closed" || !milestone.dueOn) {
