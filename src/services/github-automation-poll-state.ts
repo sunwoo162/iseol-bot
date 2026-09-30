@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { withDurableFileStateLock } from "./file-state-lock.js";
 
 export type GitHubAutomationPollState = {
   repositories: Record<string, { milestones: Record<string, string> }>;
@@ -29,25 +30,31 @@ export class GitHubAutomationPollStateStore {
   }
 
   async getMilestones(projectId: string, repository: string): Promise<Record<string, string>> {
-    const state = await this.read();
-    return { ...(state.repositories[repositoryStateKey(projectId, repository)]?.milestones ?? {}) };
+    return withDurableFileStateLock(this.file, async () => {
+      const state = await this.read();
+      return { ...(state.repositories[repositoryStateKey(projectId, repository)]?.milestones ?? {}) };
+    }, { waitForMs: 2_000 });
   }
 
   async setMilestones(projectId: string, repository: string, milestones: Record<string, string>): Promise<void> {
-    const state = await this.read();
-    state.repositories[repositoryStateKey(projectId, repository)] = { milestones };
-    await this.write(state);
+    await withDurableFileStateLock(this.file, async () => {
+      const state = await this.read();
+      state.repositories[repositoryStateKey(projectId, repository)] = { milestones };
+      await this.write(state);
+    }, { waitForMs: 2_000 });
   }
 
   async retainRepositories(activeKeys: Set<string>): Promise<void> {
-    const state = await this.read();
-    let changed = false;
-    for (const key of Object.keys(state.repositories)) {
-      if (activeKeys.has(key)) continue;
-      delete state.repositories[key];
-      changed = true;
-    }
-    if (changed) await this.write(state);
+    await withDurableFileStateLock(this.file, async () => {
+      const state = await this.read();
+      let changed = false;
+      for (const key of Object.keys(state.repositories)) {
+        if (activeKeys.has(key)) continue;
+        delete state.repositories[key];
+        changed = true;
+      }
+      if (changed) await this.write(state);
+    }, { waitForMs: 2_000 });
   }
 
   static key(projectId: string, repository: string): string {
