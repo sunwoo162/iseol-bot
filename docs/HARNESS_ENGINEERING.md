@@ -299,3 +299,9 @@ The effective Run policy is the ordered combination of this global document and 
 - The Discord progress bridge subscribes before replaying the durable Web Product event journal, so events published during replay are not lost.
 - Replay and live events for the same Project are delivered through a project-scoped queue before entering the durable notification journal lock.
 - Restart replay relies on the durable delivery record to suppress already accepted events while allowing events that were not delivered before shutdown to recover.
+
+## Web token session-storage boundary
+
+- Web and operator bearer tokens in the Control Plane UI are stored only in `sessionStorage` and remain scoped to the current browser tab.
+- On startup, legacy `localStorage` token keys are removed without being read or migrated; token values are never copied into durable server state.
+- Static and Chromium acceptance tests verify token separation, legacy cleanup, and the existing authenticated Web and operator flows.
