@@ -281,3 +281,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `/project delete` clears local Calendar issue/milestone mappings after the StoredProject record is deleted.
 - Local mapping cleanup is independent from external Google Calendar deletion, so missing credentials or a remote deletion failure cannot leave deleted-project mappings behind.
 - Cleanup removes only the deleted project's mappings and preserves mappings belonging to other projects.
+
+## Manual Calendar event mapping cleanup
+
+- Calendar modal event deletion removes the matching local mapping after the external event deletion succeeds.
+- Matching is scoped by `projectId`, `calendarId`, and `eventId`, so shared event IDs across projects cannot remove unrelated mappings.
+- Mapping cleanup remains under the Calendar state store's durable file lock and leaves other events untouched.
