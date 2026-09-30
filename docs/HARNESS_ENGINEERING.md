@@ -342,3 +342,9 @@ The effective Run policy is the ordered combination of this global document and 
 - AI Chat conversation lock acquisition retries a transient Windows `EPERM`/probe `ENOENT` race while the configured wait deadline remains.
 - Conversation owner-token cleanup and authenticated user isolation remain unchanged; the retry does not broaden access or hide unexpected probe errors.
 - AI Chat persistence, attachment, Runtime, project-context, full user-product, and isolated browser E2E suites remain the acceptance boundary.
+
+## Team membership lock transient retry boundary
+
+- Team membership durable lock acquisition retries a transient Windows `EPERM`/probe `ENOENT` race while the configured wait deadline remains.
+- Lock-held ACL rechecks, active human membership rules, owner-token cleanup, and team data isolation remain unchanged.
+- AI Team, recruitment, study, team chat, personal memory sharing, project transition, full user-product, and isolated browser E2E suites remain the acceptance boundary.
