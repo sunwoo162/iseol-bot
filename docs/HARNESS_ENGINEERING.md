@@ -269,3 +269,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `/project delete` clears the deleted project's GitHub commit feed and automation milestone cursor state after the project deletion lock is released.
 - Each state store performs project-scoped removal under its own polling sync lock and reports cleanup failures as deletion warnings.
 - Keeping polling sync cleanup outside the project deletion critical section avoids reversing the polling lock order and prevents a delete/poll deadlock.
+
+## Guild reset polling state cleanup
+
+- `!관리자권한초기화` clears GitHub commit feed and automation milestone cursor state for removed guild projects after the guild lifecycle lock is released.
+- Cleanup runs under each polling store's sync lock, preserves other guild projects, and reports cleanup failures as reset warnings.
+- Keeping polling cleanup outside the guild lifecycle critical section avoids reversing the polling lock order and prevents a reset/poll deadlock.
