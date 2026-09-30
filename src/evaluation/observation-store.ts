@@ -10,7 +10,7 @@ function observationFile(root: string, evaluationId: string): string {
   return resolve(evaluationDirectory(root, "observations"), `${evaluationId}.jsonl`);
 }
 
-export async function listEvaluationObservations(root: string, evaluationId: string): Promise<EvaluationObservation[]> {
+async function listEvaluationObservationsUnlocked(root: string, evaluationId: string): Promise<EvaluationObservation[]> {
   const path = observationFile(root, evaluationId);
   try {
     const content = await readFile(path, "utf8");
@@ -22,10 +22,19 @@ export async function listEvaluationObservations(root: string, evaluationId: str
   } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
 }
 
+export async function listEvaluationObservations(root: string, evaluationId: string): Promise<EvaluationObservation[]> {
+  return withDurableEvaluationObservationLock(
+    root,
+    evaluationId,
+    () => listEvaluationObservationsUnlocked(root, evaluationId),
+    { waitForMs: 2_000 },
+  );
+}
+
 export async function appendEvaluationObservationOnce(root: string, observation: EvaluationObservation): Promise<boolean> {
   assertEvaluationObservation(observation);
   return withDurableEvaluationObservationLock(root, observation.evaluationId, async () => {
-    const existing = (await listEvaluationObservations(root, observation.evaluationId)).find((item) => item.id === observation.id);
+    const existing = (await listEvaluationObservationsUnlocked(root, observation.evaluationId)).find((item) => item.id === observation.id);
     if (existing) {
       const sameIdentity = existing.evaluationId === observation.evaluationId && existing.scenarioId === observation.scenarioId && existing.type === observation.type && existing.summary === observation.summary && existing.reference === observation.reference;
       if (!sameIdentity) throw new Error(`Evaluation observation identity mismatch: ${observation.id}`);
