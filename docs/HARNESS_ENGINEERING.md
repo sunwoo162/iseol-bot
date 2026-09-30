@@ -59,3 +59,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Daily scrum reminder delivery is coordinated by project and Seoul date, because the reminder state records one successful notification per project per date.
 - The durable delivery lock must cover the check, Discord send, and successful state mark as one critical section so concurrent pollers cannot send duplicate `@everyone` reminders.
 - A failed Discord send must release the lock without recording the date, allowing a later poll to retry the reminder.
+
+## Contest feed delivery concurrency
+
+- The general contest feed delivery lock is keyed by guild, while an audience-specific feed lock is keyed by guild and audience filter.
+- A feed poll must acquire its delivery lock before reading the latest state, then perform external Discord publication and `postedKeys`/`remindedKeys` persistence within that critical section.
+- A poll waiting behind another long-running poll must re-read the current state after lock acquisition instead of continuing with its original snapshot.
