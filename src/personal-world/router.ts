@@ -2,6 +2,7 @@ import type { MemoryService } from "../memory/contracts.js";
 import type { PlatformUserService } from "../platform-user/contracts.js";
 import type { PersonalWorldService } from "./contracts.js";
 import type { UserRequest, UserResponse } from "../web-control-plane/user-router.js";
+import { assertIdentityId } from "../identity/contracts.js";
 
 export type PersonalWorldRouteServices = {
   platformUserService: PlatformUserService;
@@ -31,6 +32,16 @@ async function authenticated(request: UserRequest, services: PersonalWorldRouteS
 function objectBody(body: unknown): Record<string, unknown> | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   return body as Record<string, unknown>;
+}
+
+function identityIdFromPath(value: string): string | null {
+  try {
+    const decoded = decodeURIComponent(value);
+    assertIdentityId(decoded);
+    return decoded;
+  } catch {
+    return null;
+  }
 }
 
 export async function routePersonalWorldRequest(request: UserRequest, services: PersonalWorldRouteServices): Promise<UserResponse> {
@@ -97,10 +108,8 @@ export async function routePersonalWorldRequest(request: UserRequest, services: 
   const memoryPrefix = "/api/user/memory/";
   if (url.pathname.startsWith(memoryPrefix)) {
     if (!services.memoryService) return response(503, { error: "private memory unavailable" });
-    const memoryId = decodeURIComponent(url.pathname.slice(memoryPrefix.length));
-    if (!memoryId) return response(404, { error: "not found" });
     if (url.pathname.endsWith("/sharing")) {
-      const id = decodeURIComponent(url.pathname.slice(memoryPrefix.length, -"/sharing".length));
+      const id = identityIdFromPath(url.pathname.slice(memoryPrefix.length, -"/sharing".length));
       if (!id) return response(404, { error: "memory not found" });
       if (request.method !== "PATCH" && request.method !== "PUT") return response(405, { error: "method not allowed" });
       const body = objectBody(request.body);
@@ -108,6 +117,8 @@ export async function routePersonalWorldRequest(request: UserRequest, services: 
       const memory = await services.memoryService.updatePrivateMemorySharing(principal, id, body.teamIds as string[]);
       return memory ? response(200, { memory }) : response(404, { error: "memory not found" });
     }
+    const memoryId = identityIdFromPath(url.pathname.slice(memoryPrefix.length));
+    if (!memoryId) return response(404, { error: "memory not found" });
     if (request.method === "PATCH" || request.method === "PUT") {
       const body = objectBody(request.body);
       if (!body) return response(400, { error: "json object body required" });
