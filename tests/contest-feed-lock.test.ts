@@ -53,3 +53,33 @@ test("contest feed state updates are serialized across independent stores", asyn
   ]);
   await rm(dir, { recursive: true, force: true });
 });
+
+test("contest feed delivery lock serializes concurrent polls for one guild", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iseol-contest-feed-delivery-lock-"));
+  const store = new ContestFeedStore(join(dir, "contest-feed.json"));
+  let release!: () => void;
+  const entered = new Promise<void>((resolve) => { release = resolve; });
+  let active = 0;
+  let maximumActive = 0;
+
+  const first = store.withDeliveryLock("guild-a", async () => {
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    await entered;
+    active -= 1;
+  });
+  while (active === 0) await new Promise((resolve) => setImmediate(resolve));
+
+  let secondFinished = false;
+  const second = store.withDeliveryLock("guild-a", async () => {
+    secondFinished = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(secondFinished, false);
+
+  release();
+  await Promise.all([first, second]);
+  assert.equal(maximumActive, 1);
+  assert.equal(secondFinished, true);
+  await rm(dir, { recursive: true, force: true });
+});

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
@@ -43,6 +44,21 @@ export type ContestAudienceFeedState = {
 
 export class ContestAudienceFeedStore {
   constructor(private readonly file = DATA_FILE) {}
+
+  async withDeliveryLock<T>(
+    guildId: string,
+    audienceFilter: ContestAudienceFilter,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const digest = createHash("sha256")
+      .update(`${guildId}:${audienceFilter}:contest-audience-feed-delivery`)
+      .digest("hex");
+    return withDurableFileStateLock(
+      `${this.file}.delivery.${digest}`,
+      task,
+      { waitForMs: POLL_INTERVAL_MS },
+    );
+  }
 
   private async readStates(): Promise<ContestAudienceFeedState[]> {
     try {
@@ -287,7 +303,7 @@ async function refreshContestDeadlineCards(channel: TextChannel): Promise<void> 
   }
 }
 
-async function syncContestAudienceFeedWithContests(
+async function syncContestAudienceFeedWithContestsUnlocked(
   client: Client,
   state: ContestAudienceFeedState,
   contests: Contest[],
@@ -332,6 +348,21 @@ async function syncContestAudienceFeedWithContests(
   state.lastSyncedAt = new Date().toISOString();
   await saveState(state);
   return count;
+}
+
+async function syncContestAudienceFeedWithContests(
+  client: Client,
+  state: ContestAudienceFeedState,
+  contests: Contest[],
+): Promise<number> {
+  return defaultContestAudienceFeedStore.withDeliveryLock(
+    state.guildId,
+    state.audienceFilter,
+    async () => {
+      const current = await defaultContestAudienceFeedStore.find(state.guildId, state.audienceFilter);
+      return syncContestAudienceFeedWithContestsUnlocked(client, current ?? state, contests);
+    },
+  );
 }
 
 export async function syncContestAudienceFeed(

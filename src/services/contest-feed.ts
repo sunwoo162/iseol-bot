@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
@@ -77,6 +78,17 @@ type PeriodDateMatch = {
 
 export class ContestFeedStore {
   constructor(private readonly file = DATA_FILE) {}
+
+  async withDeliveryLock<T>(guildId: string, task: () => Promise<T>): Promise<T> {
+    const digest = createHash("sha256")
+      .update(`${guildId}:contest-feed-delivery`)
+      .digest("hex");
+    return withDurableFileStateLock(
+      `${this.file}.delivery.${digest}`,
+      task,
+      { waitForMs: CONTEST_POLL_INTERVAL_MS },
+    );
+  }
 
   private async readStates(): Promise<ContestFeedState[]> {
     try {
@@ -766,7 +778,7 @@ export async function repostContest(client: Client, guildId: string, query: stri
   return contest;
 }
 
-export async function syncContestFeed(client: Client, state: ContestFeedState): Promise<number> {
+async function syncContestFeedUnlocked(client: Client, state: ContestFeedState): Promise<number> {
   const guild = client.guilds.cache.get(state.guildId)
     ?? await client.guilds.fetch(state.guildId).catch(() => null);
   if (!guild) return 0;
@@ -828,6 +840,13 @@ export async function syncContestFeed(client: Client, state: ContestFeedState): 
   state.lastSyncedAt = new Date().toISOString();
   await saveContestFeed(state);
   return count;
+}
+
+export async function syncContestFeed(client: Client, state: ContestFeedState): Promise<number> {
+  return defaultContestFeedStore.withDeliveryLock(state.guildId, async () => {
+    const current = await defaultContestFeedStore.find(state.guildId);
+    return syncContestFeedUnlocked(client, current ?? state);
+  });
 }
 
 export async function syncAllContestFeeds(client: Client): Promise<void> {
