@@ -4160,6 +4160,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root User Notification and notification stream document read/write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed the explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-30 continuation: durable CodeAnalysisResult document read/write synchronization
+
+- Status: **B — CodeAnalysisResult public reads and writes now coordinate through the owning user/analysis durable lock, and live Runtime/provider execution remains unverified**.
+- Evidence: `src/learning/store.ts`, `src/learning/analysis-lock.ts`, `tests/learning-analysis-store-lock.test.ts`, `tests/learning-api.test.ts`, `tests/learning-review-flow.test.ts`, and the existing local analysis/review regression suite.
+- TDD: RED reproduced public CodeAnalysisResult save/load calls completing while the owning analysis lock was held; GREEN added locked public store boundaries, malformed analysis identity filtering, and latest-document reload after lock acquisition.
+- Verification: CodeAnalysis/API/review focused regression `9/9`; Learning focused regression `118/118`; serial existing full test suite `754/754`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `29a6c1a fix: synchronize learning analysis store`; merged by PR #230 with merge commit `acec9f3`.
+- Boundary: same-host/shared-root CodeAnalysisResult document read/write coordination only; remaining raw Learning stores, distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed the explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-30 continuation: durable CodingExercise document read/write synchronization
 
 - Status: **B — CodingExercise public reads and writes now coordinate through the owning user/exercise durable lock, and live Runtime/provider execution remains unverified**. Both session-linked and standalone exercises use the same owner-scoped boundary.
