@@ -3,6 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { AddressInfo } from "node:net";
+import { request as httpRequest } from "node:http";
 import test from "node:test";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createRecruitmentService } from "../src/recruitment/service.js";
@@ -27,7 +28,8 @@ test("collaboration API persists teams, recruitment, membership, friendship, and
     socialService: createSocialService(join(root, "platform"), { platformUserService: users, canCollaborate: teamService.canCollaborate, now: () => "2026-09-25T12:00:00.000Z" }),
     recruitmentService: createRecruitmentService(join(root, "platform"), { teamService, now: () => "2026-09-25T12:00:00.000Z" }),
   });
-  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const port = (server.address() as AddressInfo).port;
+  const url = `http://127.0.0.1:${port}`;
   const headers = (token: string) => ({ authorization: `Bearer ${token}`, "content-type": "application/json" });
   try {
     const createdTeam = await fetch(`${url}/api/user/teams`, { method: "POST", headers: headers(sessionA.token), body: JSON.stringify({ name: "API team", description: "collab", kind: "project", visibility: "public", capacity: 3 }) });
@@ -35,8 +37,25 @@ test("collaboration API persists teams, recruitment, membership, friendship, and
     const team = (await createdTeam.json() as any).team;
     const malformedTeamPath = await fetch(`${url}/api/user/teams/%E0%A4%A`, { headers: headers(sessionA.token) });
     assert.equal(malformedTeamPath.status, 404);
+    const queryTeamPath = await fetch(`${url}/api/user/teams/${team.id}?next=%2F`, { headers: headers(sessionA.token) });
+    assert.equal(queryTeamPath.status, 200);
+    const encodedTeamSeparator = await fetch(`${url}/api/user/teams/${team.id}%2Fmessages`, { headers: headers(sessionA.token) });
+    assert.equal(encodedTeamSeparator.status, 404);
+    const rawBackslashStatus = await new Promise<number>((resolveRaw, rejectRaw) => {
+      const rawRequest = httpRequest({ hostname: "127.0.0.1", port, method: "GET", path: `/api/user\\teams/${team.id}`, headers: headers(sessionA.token) }, (rawResponse) => {
+        rawResponse.resume();
+        rawResponse.once("end", () => resolveRaw(rawResponse.statusCode ?? 0));
+      });
+      rawRequest.once("error", rejectRaw);
+      rawRequest.end();
+    });
+    assert.equal(rawBackslashStatus, 404);
     const malformedRecruitmentPath = await fetch(`${url}/api/user/recruitment/%E0%A4%A`, { headers: headers(sessionA.token) });
     assert.equal(malformedRecruitmentPath.status, 404);
+    const encodedRecruitmentSeparator = await fetch(`${url}/api/user/recruitment/post%2Fapplications`, { method: "POST", headers: headers(sessionA.token), body: JSON.stringify({ message: "encoded separator" }) });
+    assert.equal(encodedRecruitmentSeparator.status, 404);
+    const encodedSocialSeparator = await fetch(`${url}/api/user/social/blocks/${userB.id}%2Fsuffix`, { method: "DELETE", headers: headers(sessionA.token) });
+    assert.equal(encodedSocialSeparator.status, 404);
     const aiAdded = await fetch(`${url}/api/user/teams/${team.id}/ai-members`, { method: "POST", headers: headers(sessionA.token), body: JSON.stringify({ agentId: "api-frontend", assignmentRole: "frontend", capabilities: ["context.read", "task.propose"], approvalScope: "suggestion-only" }) });
     assert.equal(aiAdded.status, 201);
     const aiMember = (await aiAdded.json() as any).member;
