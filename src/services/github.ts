@@ -54,18 +54,34 @@ export function parseGitHubRepository(input: string): RepositoryRef {
   }
   if (url.username || url.password || url.port || url.search || url.hash) invalidRepository();
 
+  const pathStart = normalized.indexOf("/", normalized.indexOf("://") + 3);
+  const rawPath = (pathStart === -1 ? "" : normalized.slice(pathStart)).split(/[?#]/, 1)[0]!;
+  const rawParts = rawPath.split("/");
+  if (rawParts[0] !== "") invalidRepository();
+  rawParts.shift();
+  if (rawParts[rawParts.length - 1] === "") rawParts.pop();
+  if (rawParts.length !== 2 || rawParts.some((part) => part === "" || part === "." || part === "..")) {
+    invalidRepository();
+  }
+
   let parts: string[];
   try {
-    parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    parts = rawParts.map(decodeURIComponent);
   } catch {
     throw new Error("GitHub 저장소는 https://github.com/ORG/REPO 형식으로 입력해주세요.");
   }
-  if (parts.length !== 2 || !parts[0] || !parts[1] || parts.some((part) => part === "." || part === ".." || /[\\/\u0000-\u001f\u007f]/.test(part))) {
+  if (
+    parts.length !== 2 ||
+    parts.some((part) => /[\\/\u0000-\u001f\u007f?#]/.test(part) || /%(?:2f|5c|3f|23)/i.test(part))
+  ) {
     invalidRepository();
   }
 
   const owner = parts[0]!;
   const repo = parts[1]!.replace(/\.git$/, "");
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(owner) || !/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(repo)) {
+    invalidRepository();
+  }
   return { owner, repo, url: `https://github.com/${owner}/${repo}` };
 }
 

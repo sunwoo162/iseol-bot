@@ -43,6 +43,16 @@ test("github repository identities reject malformed and path-like input", () => 
     "https://github.com/openai/iseol%5Csecret",
     "https://github.com/openai/iseol?redirect=/private",
     "https://github.com/openai/iseol#private",
+    "https://github.com/openai/repo/../secret",
+    "https://github.com/openai/./repo",
+    "https://github.com/openai//repo",
+    "openai/.git",
+    "openai/..git",
+    "openai/.git.git",
+    "https://github.com/openai/repo%3Fprivate",
+    "https://github.com/openai/repo%23private",
+    "https://github.com/openai/repo%252Fsecret",
+    "https://github.com/openai/repo%255Csecret",
   ]) {
     assert.throws(() => parseGitHubRepository(value), /GitHub 저장소/);
   }
