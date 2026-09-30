@@ -82,7 +82,7 @@ export function createPortfolioService(root: string, options: PortfolioServiceOp
           evidence: entry.evidenceIds
             .map((id) => evidenceById.get(id))
             .filter((item): item is PortfolioEvidence => Boolean(item && item.verificationStatus === "verified"))
-            .map(({ sourceId: _sourceId, projectId: _projectId, reportId: _reportId, ...item }) => item),
+            .map(({ id: _id, sourceId: _sourceId, projectId: _projectId, reportId: _reportId, ...item }) => item),
         };
       }, { waitForMs: 2_000 });
     },
