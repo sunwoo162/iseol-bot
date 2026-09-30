@@ -137,3 +137,9 @@ The effective Run policy is the ordered combination of this global document and 
 - The default `npm test` command runs the complete test list with `--test-concurrency=1`.
 - This keeps Windows/Desktop Agent integration tests from contending for shared process, socket, and temporary-file resources.
 - Focused tests may still opt into their own concurrency when their fixtures are isolated, but the repository-wide gate remains deterministic.
+
+## Project deletion synchronization
+
+- `/project delete` uses a durable lock keyed by guild and project ID, so concurrent requests for one project share the same critical section even when they arrive through different target text.
+- After acquiring the lock, the command re-reads the project store and Discord channels before deleting external webhooks, calendars, channels, bindings, and stored state.
+- A request waiting behind a completed deletion observes the missing project and does not repeat external cleanup side effects from its stale pre-lock snapshot.
