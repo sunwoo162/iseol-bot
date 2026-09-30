@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import sharp from "sharp";
 import type { RepositoryRef } from "./github.js";
+import { withDurableFileStateLock } from "./file-state-lock.js";
 
 const DATA_FILE = resolve(process.cwd(), "data", "github-users.json");
 const GITHUB_API = "https://api.github.com";
@@ -86,59 +87,89 @@ type ContributionGraphQlResponse = {
   errors?: Array<{ message?: string }>;
 };
 
-async function readLinks(): Promise<GitHubAccountLink[]> {
-  try {
-    return JSON.parse(await readFile(DATA_FILE, "utf8")) as GitHubAccountLink[];
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
+export class GitHubAccountLinkStore {
+  constructor(private readonly file = DATA_FILE) {}
+
+  private async readLinks(): Promise<GitHubAccountLink[]> {
+    try {
+      return JSON.parse(await readFile(this.file, "utf8")) as GitHubAccountLink[];
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+  }
+
+  private async writeLinks(links: GitHubAccountLink[]): Promise<void> {
+    await mkdir(dirname(this.file), { recursive: true });
+    await writeFile(this.file, JSON.stringify(links, null, 2), "utf8");
+  }
+
+  async link(guildId: string, discordUserId: string, githubLogin: string): Promise<GitHubAccountLink> {
+    return withDurableFileStateLock(this.file, async () => {
+      const links = await this.readLinks();
+      const normalized = githubLogin.trim();
+      const existingIndex = links.findIndex((link) => link.guildId === guildId && link.discordUserId === discordUserId);
+      const next: GitHubAccountLink = {
+        guildId,
+        discordUserId,
+        githubLogin: normalized,
+        connectedAt: new Date().toISOString(),
+      };
+
+      if (existingIndex >= 0) links[existingIndex] = next;
+      else links.push(next);
+
+      await this.writeLinks(links);
+      return next;
+    }, { waitForMs: 2_000 });
+  }
+
+  async unlink(guildId: string, discordUserId: string): Promise<GitHubAccountLink | null> {
+    return withDurableFileStateLock(this.file, async () => {
+      const links = await this.readLinks();
+      const existing = links.find((link) => link.guildId === guildId && link.discordUserId === discordUserId) ?? null;
+      if (!existing) return null;
+
+      await this.writeLinks(links.filter((link) => !(link.guildId === guildId && link.discordUserId === discordUserId)));
+      return existing;
+    }, { waitForMs: 2_000 });
+  }
+
+  async find(guildId: string, discordUserId: string): Promise<GitHubAccountLink | null> {
+    return withDurableFileStateLock(this.file, async () => {
+      const links = await this.readLinks();
+      return links.find((link) => link.guildId === guildId && link.discordUserId === discordUserId) ?? null;
+    }, { waitForMs: 2_000 });
+  }
+
+  async list(guildId?: string): Promise<GitHubAccountLink[]> {
+    return withDurableFileStateLock(this.file, async () => {
+      const links = await this.readLinks();
+      return guildId ? links.filter((link) => link.guildId === guildId) : links;
+    }, { waitForMs: 2_000 });
   }
 }
 
-async function writeLinks(links: GitHubAccountLink[]): Promise<void> {
-  await mkdir(dirname(DATA_FILE), { recursive: true });
-  await writeFile(DATA_FILE, JSON.stringify(links, null, 2), "utf8");
-}
+const defaultGitHubAccountLinkStore = new GitHubAccountLinkStore();
 
-export async function linkGitHubAccount(
+export function linkGitHubAccount(
   guildId: string,
   discordUserId: string,
   githubLogin: string,
 ): Promise<GitHubAccountLink> {
-  const links = await readLinks();
-  const normalized = githubLogin.trim();
-  const existingIndex = links.findIndex((link) => link.guildId === guildId && link.discordUserId === discordUserId);
-  const next: GitHubAccountLink = {
-    guildId,
-    discordUserId,
-    githubLogin: normalized,
-    connectedAt: new Date().toISOString(),
-  };
-
-  if (existingIndex >= 0) links[existingIndex] = next;
-  else links.push(next);
-
-  await writeLinks(links);
-  return next;
+  return defaultGitHubAccountLinkStore.link(guildId, discordUserId, githubLogin);
 }
 
-export async function unlinkGitHubAccount(guildId: string, discordUserId: string): Promise<GitHubAccountLink | null> {
-  const links = await readLinks();
-  const existing = links.find((link) => link.guildId === guildId && link.discordUserId === discordUserId) ?? null;
-  if (!existing) return null;
-
-  await writeLinks(links.filter((link) => !(link.guildId === guildId && link.discordUserId === discordUserId)));
-  return existing;
+export function unlinkGitHubAccount(guildId: string, discordUserId: string): Promise<GitHubAccountLink | null> {
+  return defaultGitHubAccountLinkStore.unlink(guildId, discordUserId);
 }
 
-export async function findGitHubAccount(guildId: string, discordUserId: string): Promise<GitHubAccountLink | null> {
-  const links = await readLinks();
-  return links.find((link) => link.guildId === guildId && link.discordUserId === discordUserId) ?? null;
+export function findGitHubAccount(guildId: string, discordUserId: string): Promise<GitHubAccountLink | null> {
+  return defaultGitHubAccountLinkStore.find(guildId, discordUserId);
 }
 
-export async function listGitHubAccounts(guildId?: string): Promise<GitHubAccountLink[]> {
-  const links = await readLinks();
-  return guildId ? links.filter((link) => link.guildId === guildId) : links;
+export function listGitHubAccounts(guildId?: string): Promise<GitHubAccountLink[]> {
+  return defaultGitHubAccountLinkStore.list(guildId);
 }
 
 export class GitHubUserService {
