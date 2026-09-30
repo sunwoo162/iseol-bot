@@ -53,3 +53,33 @@ test("GitHub commit feed state updates are serialized across independent stores"
   ]);
   await rm(dir, { recursive: true, force: true });
 });
+
+test("GitHub commit feed sync lock serializes external publication runs", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iseol-github-commit-feed-sync-lock-"));
+  const store = new GitHubCommitFeedStore(join(dir, "github-commit-feed.json"));
+  let release!: () => void;
+  const entered = new Promise<void>((resolve) => { release = resolve; });
+  let active = 0;
+  let maximumActive = 0;
+
+  const first = store.withSyncLock(async () => {
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    await entered;
+    active -= 1;
+  });
+  while (active === 0) await new Promise((resolve) => setImmediate(resolve));
+
+  let secondFinished = false;
+  const second = store.withSyncLock(async () => {
+    secondFinished = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(secondFinished, false);
+
+  release();
+  await Promise.all([first, second]);
+  assert.equal(maximumActive, 1);
+  assert.equal(secondFinished, true);
+  await rm(dir, { recursive: true, force: true });
+});

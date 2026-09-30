@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Client, EmbedBuilder, TextChannel } from "discord.js";
@@ -27,6 +28,17 @@ export type CommitFeedState = {
 
 export class GitHubCommitFeedStore {
   constructor(private readonly file = DATA_FILE) {}
+
+  async withSyncLock<T>(task: () => Promise<T>): Promise<T> {
+    const digest = createHash("sha256")
+      .update(`${this.file}:github-commit-feed-sync`)
+      .digest("hex");
+    return withDurableFileStateLock(
+      `${this.file}.sync.${digest}`,
+      task,
+      { waitForMs: POLL_INTERVAL_MS },
+    );
+  }
 
   private async readStates(): Promise<CommitFeedState[]> {
     try {
@@ -221,7 +233,7 @@ async function syncRepository(
   state.seenCommitShas = [...seenCommitShas].slice(-MAX_SEEN_COMMITS);
 }
 
-export async function syncGitHubCommitFeeds(client: Client): Promise<void> {
+async function syncGitHubCommitFeedsUnlocked(client: Client): Promise<void> {
   const github = new GitHubUserService(config.githubToken);
   const projects = await listProjects();
   const states = await defaultGitHubCommitFeedStore.list();
@@ -239,6 +251,10 @@ export async function syncGitHubCommitFeeds(client: Client): Promise<void> {
   }
 
   await defaultGitHubCommitFeedStore.replace(nextStates);
+}
+
+export async function syncGitHubCommitFeeds(client: Client): Promise<void> {
+  await defaultGitHubCommitFeedStore.withSyncLock(() => syncGitHubCommitFeedsUnlocked(client));
 }
 
 export function startGitHubCommitFeedPolling(client: Client): NodeJS.Timeout {
