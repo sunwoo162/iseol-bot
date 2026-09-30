@@ -38,14 +38,14 @@ export async function appendHarnessRunEventIfAbsent(
   event: HarnessRunEvent,
 ): Promise<boolean> {
   return withDurableHarnessRunEventLock(root, event.runId, async () => {
-    const events = await loadHarnessRunEvents(root, event.runId);
+    const events = await loadHarnessRunEventsUnlocked(root, event.runId);
     if (events.some((item) => item.id === event.id)) return false;
     await appendHarnessRunEventUnlocked(root, event);
     return true;
   }, { waitForMs: 2_000 });
 }
 
-export async function loadHarnessRunEvents(
+export async function loadHarnessRunEventsUnlocked(
   root: string,
   runId: string,
 ): Promise<HarnessRunEvent[]> {
@@ -60,6 +60,18 @@ export async function loadHarnessRunEvents(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
+}
+
+export async function loadHarnessRunEvents(
+  root: string,
+  runId: string,
+): Promise<HarnessRunEvent[]> {
+  return withDurableHarnessRunEventLock(
+    root,
+    runId,
+    () => loadHarnessRunEventsUnlocked(root, runId),
+    { waitForMs: 2_000 },
+  );
 }
 
 async function saveHarnessCheckpointUnlocked(
@@ -87,7 +99,7 @@ export async function saveHarnessCheckpoint(
   );
 }
 
-export async function loadLatestHarnessCheckpoint(
+export async function loadLatestHarnessCheckpointUnlocked(
   root: string,
   runId: string,
 ): Promise<HarnessCheckpoint | null> {
@@ -104,4 +116,16 @@ export async function loadLatestHarnessCheckpoint(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function loadLatestHarnessCheckpoint(
+  root: string,
+  runId: string,
+): Promise<HarnessCheckpoint | null> {
+  return withDurableHarnessRunEventLock(
+    root,
+    runId,
+    () => loadLatestHarnessCheckpointUnlocked(root, runId),
+    { waitForMs: 2_000 },
+  );
 }
