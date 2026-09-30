@@ -49,6 +49,9 @@ test("personal world and private memory API persist through the user session bou
     assert.deepEqual(await listedByB.json(), { memories: [] });
     const malformedSharedQuery = await fetch(`${url}/api/user/memory/shared?teamId=${encodeURIComponent("team/id")}`, { headers: authA });
     assert.equal(malformedSharedQuery.status, 400);
+    const malformedLimit = await fetch(`${url}/api/user/memory?limit=not-a-number`, { headers: authA });
+    assert.equal(malformedLimit.status, 400);
+    assert.deepEqual(await malformedLimit.json(), { error: "limit must be a positive integer" });
     const listedByA = await fetch(`${url}/api/user/memory?search=private`, { headers: authA });
     const listed = await listedByA.json() as any;
     assert.equal(listed.memories.length, 1);
