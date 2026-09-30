@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CodingAttempt, CodingAttemptInput, CodingExercise, CodingExerciseInput, CodingPracticeResult, GoalInterpretation, LearningAnswerReceipt, LearningContentRequest, LearningFeedback, LearningFeedbackDispute, LearningFeedbackDisputeResult, LearningFeedbackEvaluation, LearningFeedbackEvaluationInput, LearningGoal, LearningGoalInput, LearningGoalSessionInput, LearningLessonBlock, LearningLessonContent, LearningLessonInput, LearningPlanAdjustment, LearningPlanAdjustmentInput, LearningPlanAdjustmentResult, LearningPlanInput, LearningPlanPreview, LearningPlanProposal, LearningPlanVersion, LearningProgress, LearningProjectApplication, LearningProjectApplicationInput, LearningReport, LearningReportPeriod, LearningService, LearningServiceOptions, LearningSessionAction, LearningSessionActionInput, ReviewItemInput, CodeAnalysisInput, StudyAttemptInput, LearningPlan, LearningPlanDay, LearningSession, LearningToday, ReviewItem, CodeAnalysisResult } from "./contracts.js";
-import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listGoalInterpretationsUnlocked, listLearningAnswerReceipts, listLearningAnswerReceiptsUnlocked, listLearningContentRequests, listLearningContentRequestsUnlocked, listLearningFeedback, listLearningFeedbackDisputes, listLearningFeedbackDisputesUnlocked, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanAdjustmentsUnlocked, listLearningPlanVersions, listLearningPlanVersionsUnlocked, listLearningProjectApplications, listLearningProjectApplicationsUnlocked, listLearningLinks, listLearningReports, listLearningReportsUnlocked, listLearningSessionActions, listLearningSessionActionsUnlocked, listPlans, listReviews, listReviewsUnlocked, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningAnswerReceiptUnlocked, loadLearningContentRequest, loadLearningContentRequestUnlocked, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanAdjustmentUnlocked, loadLearningPlanVersion, loadLearningPlanVersionUnlocked, loadLearningReport, loadLearningReportUnlocked, loadPlan, loadReview, loadReviewUnlocked, loadSession, loadSessionUnlocked, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningAnswerReceiptUnlocked, saveLearningContentRequest, saveLearningContentRequestUnlocked, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningFeedbackDisputeUnlocked, saveLearningPlanAdjustment, saveLearningPlanAdjustmentUnlocked, saveLearningSessionAction, saveLearningSessionActionUnlocked, saveGoalInterpretation, saveGoalInterpretationUnlocked, saveLearningPlanVersion, saveLearningPlanVersionUnlocked, saveLearningProjectApplication, saveLearningProjectApplicationUnlocked, saveLearningLink, saveLearningReport, saveLearningReportUnlocked, savePlan, saveReview, saveReviewUnlocked, saveSession, saveSessionUnlocked } from "./store.js";
+import { listAttempts, listCodingAttempts, listCodingAttemptsUnlocked, listCodingExercises, listGoalInterpretations, listGoalInterpretationsUnlocked, listLearningAnswerReceipts, listLearningAnswerReceiptsUnlocked, listLearningContentRequests, listLearningContentRequestsUnlocked, listLearningFeedback, listLearningFeedbackDisputes, listLearningFeedbackDisputesUnlocked, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanAdjustmentsUnlocked, listLearningPlanVersions, listLearningPlanVersionsUnlocked, listLearningProjectApplications, listLearningProjectApplicationsUnlocked, listLearningLinks, listLearningReports, listLearningReportsUnlocked, listLearningSessionActions, listLearningSessionActionsUnlocked, listPlans, listReviews, listReviewsUnlocked, listSessions, loadAnalysis, loadCodingAttempt, loadCodingAttemptUnlocked, loadCodingExercise, loadLearningAnswerReceipt, loadLearningAnswerReceiptUnlocked, loadLearningContentRequest, loadLearningContentRequestUnlocked, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanAdjustmentUnlocked, loadLearningPlanVersion, loadLearningPlanVersionUnlocked, loadLearningReport, loadLearningReportUnlocked, loadPlan, loadReview, loadReviewUnlocked, loadSession, loadSessionUnlocked, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingAttemptUnlocked, saveCodingExercise, saveLearningAnswerReceipt, saveLearningAnswerReceiptUnlocked, saveLearningContentRequest, saveLearningContentRequestUnlocked, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningFeedbackDisputeUnlocked, saveLearningPlanAdjustment, saveLearningPlanAdjustmentUnlocked, saveLearningSessionAction, saveLearningSessionActionUnlocked, saveGoalInterpretation, saveGoalInterpretationUnlocked, saveLearningPlanVersion, saveLearningPlanVersionUnlocked, saveLearningProjectApplication, saveLearningProjectApplicationUnlocked, saveLearningLink, saveLearningReport, saveLearningReportUnlocked, savePlan, saveReview, saveReviewUnlocked, saveSession, saveSessionUnlocked } from "./store.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
 import { withDurableLearningProjectApplicationAcceptanceLock } from "./project-application-acceptance-lock.js";
@@ -1421,7 +1421,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const clientRequestId = nonEmpty(input.clientRequestId, "Coding attempt request id", 160);
       const response = nonEmpty(input.response, "Coding attempt response", 100_000);
       return withDurableLearningCodingAttemptLock(root, principal.userId, exercise.id, clientRequestId, async () => {
-        const existing = (await listCodingAttempts(root, principal.userId)).find((attempt) => attempt.exerciseId === exercise.id && attempt.clientRequestId === clientRequestId);
+        const existing = (await listCodingAttemptsUnlocked(root, principal.userId)).find((attempt) => attempt.exerciseId === exercise.id && attempt.clientRequestId === clientRequestId);
         if (existing) {
           if (existing.response !== response) throw new Error("Coding attempt idempotency conflict");
           await recordCodingAttemptActivity(principal, exercise, existing);
@@ -1444,7 +1444,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
             policyRef: "local-runtime-executor",
           },
         };
-        await saveCodingAttempt(root, attempt);
+        await saveCodingAttemptUnlocked(root, attempt);
         if (options.codingAttemptVerifier) {
           try {
             await options.codingAttemptVerifier({
@@ -1452,13 +1452,13 @@ export function createLearningService(root: string, options: LearningServiceOpti
               exercise,
               attempt,
               complete: async (practiceResult: CodingPracticeResult) => {
-                const current = (await listCodingAttempts(root, principal.userId)).find((candidate) => candidate.id === attempt.id);
+                const current = (await listCodingAttemptsUnlocked(root, principal.userId)).find((candidate) => candidate.id === attempt.id);
                 if (!current || current.userId !== principal.userId) throw new Error("Coding attempt not found");
                 if (current.practiceResult.status !== "environment-required") {
                   return current;
                 }
                 const updated = { ...current, practiceResult };
-                await saveCodingAttempt(root, updated);
+                await saveCodingAttemptUnlocked(root, updated);
                 return updated;
               },
             });
@@ -1467,7 +1467,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
             // environment-required result remains the truthful fallback.
           }
         }
-        const persisted = (await loadCodingAttempt(root, principal.userId, attempt.id)) ?? attempt;
+        const persisted = (await loadCodingAttemptUnlocked(root, principal.userId, attempt.id)) ?? attempt;
         await recordCodingAttemptActivity(principal, exercise, persisted);
         return { attempt: persisted, created: true };
       }, { waitForMs: 2_000 });
@@ -1481,7 +1481,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const current: CodingAttempt[] = [];
       for (const candidate of candidates) {
         await withDurableLearningCodingAttemptLock(root, principal.userId, exercise.id, candidate.clientRequestId, async () => {
-          const attempt = await loadCodingAttempt(root, principal.userId, candidate.id);
+          const attempt = await loadCodingAttemptUnlocked(root, principal.userId, candidate.id);
           if (attempt?.userId === principal.userId && attempt.exerciseId === exercise.id) current.push(attempt);
         }, { waitForMs: 2_000 });
       }

@@ -7,7 +7,7 @@ import type { Principal } from "../src/identity/contracts.js";
 import { createActivityService } from "../src/activity/service.js";
 import { withDurableLearningCodingAttemptLock } from "../src/learning/coding-attempt-lock.js";
 import { createLearningService } from "../src/learning/service.js";
-import { saveCodingAttempt } from "../src/learning/store.js";
+import { saveCodingAttemptUnlocked } from "../src/learning/store.js";
 
 const at = "2026-09-26T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -117,7 +117,7 @@ test("coding attempt lists wait for each durable attempt lock before projecting 
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  await saveCodingAttempt(root, { ...submitted.attempt, response: "잠금 해제 후 시도" });
+  await saveCodingAttemptUnlocked(root, { ...submitted.attempt, response: "잠금 해제 후 시도" });
   releaseHolder();
   await lockHeld;
   assert.equal((await read)[0]?.response, "잠금 해제 후 시도");

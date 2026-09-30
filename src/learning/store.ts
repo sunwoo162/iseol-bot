@@ -15,6 +15,7 @@ import { withDurableLearningReportLock } from "./report-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
 import { withDurableLearningPlanAdjustmentLock } from "./plan-adjustment-lock.js";
 import { withDurableLearningLinkLock } from "./link-lock.js";
+import { withDurableLearningCodingAttemptLock } from "./coding-attempt-lock.js";
 
 type LearningKind = "goals" | "plans" | "plan-versions" | "interpretations" | "sessions" | "attempts" | "reviews" | "analyses" | "coding-exercises" | "coding-attempts" | "content-requests" | "actions" | "answers" | "feedback" | "disputes" | "adjustments" | "project-proposals" | "links" | "reports";
 function directory(root: string, userId: string, kind: LearningKind): string { assertIdentityId(userId); return resolve(root, "users", userId, "learning", kind); }
@@ -278,9 +279,31 @@ export const loadAnalysis = (root: string, userId: string, id: string) => loadJs
 export const saveCodingExercise = (root: string, value: CodingExercise) => saveJson(pathFor(root, value.userId, "coding-exercises", value.id), value);
 export const loadCodingExercise = (root: string, userId: string, id: string) => loadJson<CodingExercise>(pathFor(root, userId, "coding-exercises", id));
 export const listCodingExercises = (root: string, userId: string) => listJson<CodingExercise>(root, userId, "coding-exercises");
-export const saveCodingAttempt = (root: string, value: CodingAttempt) => saveJson(pathFor(root, value.userId, "coding-attempts", value.id), value);
-export const loadCodingAttempt = (root: string, userId: string, id: string) => loadJson<CodingAttempt>(pathFor(root, userId, "coding-attempts", id));
-export const listCodingAttempts = (root: string, userId: string) => listJson<CodingAttempt>(root, userId, "coding-attempts");
+export const saveCodingAttemptUnlocked = (root: string, value: CodingAttempt) => saveJson(pathFor(root, value.userId, "coding-attempts", value.id), value);
+export const saveCodingAttempt = (root: string, value: CodingAttempt) => withDurableLearningCodingAttemptLock(root, value.userId, value.exerciseId, value.clientRequestId, () => saveCodingAttemptUnlocked(root, value), { waitForMs: 2_000 });
+export const loadCodingAttemptUnlocked = (root: string, userId: string, id: string) => loadJson<CodingAttempt>(pathFor(root, userId, "coding-attempts", id));
+export async function loadCodingAttempt(root: string, userId: string, id: string): Promise<CodingAttempt | null> {
+  const candidate = await loadCodingAttemptUnlocked(root, userId, id);
+  if (!candidate || candidate.userId !== userId) return null;
+  try { assertIdentityId(candidate.exerciseId); }
+  catch { return null; }
+  if (typeof candidate.clientRequestId !== "string" || !candidate.clientRequestId.trim() || candidate.clientRequestId.length > 160) return null;
+  return withDurableLearningCodingAttemptLock(root, userId, candidate.exerciseId, candidate.clientRequestId, () => loadCodingAttemptUnlocked(root, userId, id), { waitForMs: 2_000 });
+}
+export const listCodingAttemptsUnlocked = (root: string, userId: string) => listJson<CodingAttempt>(root, userId, "coding-attempts");
+export async function listCodingAttempts(root: string, userId: string): Promise<CodingAttempt[]> {
+  const candidates = await listCodingAttemptsUnlocked(root, userId);
+  const result: CodingAttempt[] = [];
+  for (const candidate of candidates) {
+    try { assertIdentityId(candidate.id); assertIdentityId(candidate.exerciseId); } catch { continue; }
+    if (typeof candidate.clientRequestId !== "string" || !candidate.clientRequestId.trim() || candidate.clientRequestId.length > 160) continue;
+    await withDurableLearningCodingAttemptLock(root, userId, candidate.exerciseId, candidate.clientRequestId, async () => {
+      const current = await loadCodingAttemptUnlocked(root, userId, candidate.id);
+      if (current?.userId === userId && current.id === candidate.id && current.exerciseId === candidate.exerciseId && current.clientRequestId === candidate.clientRequestId) result.push(current);
+    }, { waitForMs: 2_000 });
+  }
+  return result;
+}
 export const saveLearningProjectApplicationUnlocked = (root: string, value: LearningProjectApplication) => saveJson(pathFor(root, value.userId, "project-proposals", value.id), value);
 export const saveLearningProjectApplication = (root: string, value: LearningProjectApplication) => withDurableLearningProjectApplicationLock(root, value.userId, value.goalId, value.projectId, () => saveLearningProjectApplicationUnlocked(root, value), { waitForMs: 2_000 });
 export const loadLearningProjectApplicationUnlocked = (root: string, userId: string, id: string) => loadJson<LearningProjectApplication>(pathFor(root, userId, "project-proposals", id));
