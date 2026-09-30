@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { withDurableFileStateLock } from "./file-state-lock.js";
@@ -38,6 +38,17 @@ const DATA_FILE = resolve(process.cwd(), "data", "projects.json");
 
 export class ProjectStore {
   constructor(private readonly file = DATA_FILE) {}
+
+  async withPollingLock<T>(task: () => Promise<T>): Promise<T> {
+    const digest = createHash("sha256")
+      .update(`${this.file}:integration-polling`)
+      .digest("hex");
+    return withDurableFileStateLock(
+      `${this.file}.polling.${digest}`,
+      task,
+      { waitForMs: 5 * 60 * 1_000 },
+    );
+  }
 
   private async readProjects(): Promise<StoredProject[]> {
     try {
@@ -148,4 +159,8 @@ export function findProjectByFigmaWebhook(webhookId: string, fileKey: string): P
 
 export function deleteProject(id: string): Promise<boolean> {
   return defaultProjectStore.delete(id);
+}
+
+export function withProjectPollingLock<T>(task: () => Promise<T>): Promise<T> {
+  return defaultProjectStore.withPollingLock(task);
 }

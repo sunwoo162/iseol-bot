@@ -5,7 +5,7 @@ import { config } from "../config.js";
 import { recordStoredProjectAction, type StoredProjectActionFact } from "../discord-project/history-recorder.js";
 import { FigmaWebhookService, NO_FIGMA_VERSION, type FigmaComment, type FigmaVersion } from "./figma.js";
 import { NotionService, type NotionPageSnapshot } from "./notion.js";
-import { listProjects, updateProject, type StoredProject } from "./projects.js";
+import { listProjects, updateProject, withProjectPollingLock, type StoredProject } from "./projects.js";
 import { CalendarStateStore } from "./calendar/calendar-state.js";
 import { GoogleCalendarService } from "./calendar/google-calendar.js";
 import { GitHubScheduleSyncService } from "./github-schedule-sync.js";
@@ -221,7 +221,7 @@ export async function pollProjectNotion(
   await record(project, notionUpdateHistoryFact(project.notionPageId, page.last_edited_time));
 }
 
-async function pollAllProjects(client: Client): Promise<void> {
+async function pollAllProjectsUnlocked(client: Client): Promise<void> {
   const figma = new FigmaWebhookService(config.figmaToken);
   const notion = new NotionService(config.notionToken);
   const projects = await listProjects();
@@ -245,6 +245,10 @@ async function pollAllProjects(client: Client): Promise<void> {
       console.error(`Notion 수정 확인 실패 (${project.name})`, error);
     }
   }
+}
+
+async function pollAllProjects(client: Client): Promise<void> {
+  await withProjectPollingLock(() => pollAllProjectsUnlocked(client));
 }
 
 function repositoryName(project: StoredProject, side: "frontend" | "backend"): string {
