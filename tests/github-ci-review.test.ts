@@ -6,6 +6,7 @@ import {
   selectIseolReviewRun,
   validateCiArtifactForPull,
 } from "../src/services/review/github-ci-review.js";
+import { parseReviewRepository } from "../src/services/review/github-review.js";
 
 function singleFileZip(name: string, text: string): Buffer {
   const filename = Buffer.from(name, "utf8");
@@ -77,4 +78,22 @@ test("review artifact zip extracts and validates repository pull and head sha", 
   assert.doesNotThrow(() => validateCiArtifactForPull(parsed, "org/repo", 4, "head123"));
   assert.throws(() => validateCiArtifactForPull(parsed, "org/repo", 4, "different"), /HEAD SHA/);
   assert.throws(() => validateCiArtifactForPull(parsed, "evil/repo", 4, "head123"), /저장소/);
+});
+
+test("review repository identities preserve canonical inputs and reject unsafe forms", () => {
+  assert.deepEqual(parseReviewRepository("openai/iseol"), { owner: "openai", repo: "iseol" });
+  assert.deepEqual(parseReviewRepository("https://github.com/openai/iseol"), { owner: "openai", repo: "iseol" });
+  assert.deepEqual(parseReviewRepository("github/.github"), { owner: "github", repo: ".github" });
+
+  for (const value of [
+    "openai",
+    "openai/iseol/extra",
+    "openai\\iseol",
+    "https://github.com/openai/repo/../secret",
+    "https://github.com/openai/repo%252Fsecret",
+    "https://github.com/openai/%E0%A4%A",
+    "https://github.com/openai/iseol?redirect=/private",
+  ]) {
+    assert.throws(() => parseReviewRepository(value), /GitHub 저장소/);
+  }
 });

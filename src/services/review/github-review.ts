@@ -1,6 +1,7 @@
 ﻿import { Octokit } from "@octokit/rest";
 import { aggregateCiFindings } from "./ci-review-aggregate.js";
 import type { CiReviewArtifact } from "./ci-review-types.js";
+import { parseGitHubRepository } from "../github.js";
 import { changedLinesFromPatch, filterReviewFindings } from "./review-filter.js";
 import { renderInlineComment, renderReviewBody } from "./review-render.js";
 import { ReviewStateStore } from "./review-state.js";
@@ -32,6 +33,11 @@ export function buildReviewContext(files: PullFile[], maxChars = 50_000): string
   return chunks.join("\n\n");
 }
 
+export function parseReviewRepository(repository: string): { owner: string; repo: string } {
+  const parsed = parseGitHubRepository(repository);
+  return { owner: parsed.owner, repo: parsed.repo };
+}
+
 export class GitHubReviewService {
   private readonly octokit: Octokit;
 
@@ -44,9 +50,7 @@ export class GitHubReviewService {
   }
 
   private parseRepository(repository: string): { owner: string; repo: string } {
-    const [owner, repo] = repository.split("/");
-    if (!owner || !repo) throw new Error(`올바르지 않은 GitHub 저장소: ${repository}`);
-    return { owner, repo };
+    return parseReviewRepository(repository);
   }
 
   private async listReviewableFiles(owner: string, repo: string, pullNumber: number): Promise<PullFile[]> {
