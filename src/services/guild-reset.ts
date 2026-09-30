@@ -6,6 +6,7 @@ import { GitHubWebhookService, type RepositoryRef } from "./github.js";
 import { clearMusicRuntime } from "./music.js";
 import { leaveGuildVoiceChannel } from "./voice-connection.js";
 import { stopStudySessionsForGuild } from "./voice-time.js";
+import { withDurableFileStateLock } from "./file-state-lock.js";
 
 const DATA_DIR = resolve(process.cwd(), "data");
 const PROJECTS_FILE = resolve(DATA_DIR, "projects.json");
@@ -72,9 +73,33 @@ async function readJson<T>(path: string, fallback: T): Promise<T> {
   }
 }
 
+async function readJsonWithDurableLock<T>(path: string, fallback: T): Promise<T> {
+  return withDurableFileStateLock(path, () => readJson(path, fallback), { waitForMs: 2_000 });
+}
+
 async function writeJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, JSON.stringify(value, null, 2), "utf8");
+}
+
+async function updateJsonWithDurableLock<T, R>(
+  path: string,
+  fallback: T,
+  update: (current: T) => { next: T; result: R },
+): Promise<R> {
+  return withDurableFileStateLock(path, async () => {
+    const current = await readJson(path, fallback);
+    const { next, result } = update(current);
+    await writeJson(path, next);
+    return result;
+  }, { waitForMs: 2_000 });
+}
+
+export function removeGuildRecordsFromFile<T extends GuildScopedRecord>(path: string, guildId: string): Promise<T[]> {
+  return updateJsonWithDurableLock<T[], T[]>(path, [], (current) => ({
+    next: withoutGuild(current, guildId),
+    result: recordsForGuild(current, guildId),
+  }));
 }
 
 function recordsForGuild<T extends GuildScopedRecord>(records: T[], guildId: string): T[] {
@@ -120,14 +145,14 @@ export async function resetGuildState(guild: Guild): Promise<GuildResetSummary> 
   leaveGuildVoiceChannel(guild.id);
 
   const [projects, contestFeeds, audienceFeeds, contestVotes, jobFeeds, musicData, voiceData, dailyScrumData] = await Promise.all([
-    readJson<ProjectRecord[]>(PROJECTS_FILE, []),
-    readJson<FeedRecord[]>(CONTEST_FEED_FILE, []),
-    readJson<FeedRecord[]>(CONTEST_AUDIENCE_FILE, []),
-    readJson<ContestVoteRecord[]>(CONTEST_VOTES_FILE, []),
-    readJson<FeedRecord[]>(JOB_FEED_FILE, []),
-    readJson<MusicData>(MUSIC_FILE, { guilds: {} }),
-    readJson<VoiceStudyData>(VOICE_TIME_FILE, { dailySeconds: {}, activeSessions: [] }),
-    readJson<DailyScrumData>(DAILY_SCRUM_FILE, { records: [], reminderDates: {} }),
+    readJsonWithDurableLock<ProjectRecord[]>(PROJECTS_FILE, []),
+    readJsonWithDurableLock<FeedRecord[]>(CONTEST_FEED_FILE, []),
+    readJsonWithDurableLock<FeedRecord[]>(CONTEST_AUDIENCE_FILE, []),
+    readJsonWithDurableLock<ContestVoteRecord[]>(CONTEST_VOTES_FILE, []),
+    readJsonWithDurableLock<FeedRecord[]>(JOB_FEED_FILE, []),
+    readJsonWithDurableLock<MusicData>(MUSIC_FILE, { guilds: {} }),
+    readJsonWithDurableLock<VoiceStudyData>(VOICE_TIME_FILE, { dailySeconds: {}, activeSessions: [] }),
+    readJsonWithDurableLock<DailyScrumData>(DAILY_SCRUM_FILE, { records: [], reminderDates: {} }),
   ]);
 
   const guildProjects = recordsForGuild(projects, guild.id);
@@ -190,42 +215,57 @@ export async function resetGuildState(guild: Guild): Promise<GuildResetSummary> 
     }
   }
 
-  const nextMusicGuilds = { ...(musicData.guilds ?? {}) };
-  const hadMusicData = Object.prototype.hasOwnProperty.call(nextMusicGuilds, guild.id);
-  delete nextMusicGuilds[guild.id];
+  const hadMusicData = Object.prototype.hasOwnProperty.call(musicData.guilds ?? {}, guild.id);
 
-  const nextDailySeconds = { ...(voiceData.dailySeconds ?? {}) };
-  let removedVoiceUsers = 0;
-  for (const key of Object.keys(nextDailySeconds)) {
-    if (!key.startsWith(`${guild.id}:`)) continue;
-    delete nextDailySeconds[key];
-    removedVoiceUsers += 1;
-  }
+  const removedVoiceUsers = Object.keys(voiceData.dailySeconds ?? {})
+    .filter((key) => key.startsWith(`${guild.id}:`)).length;
   const activeSessions = voiceData.activeSessions ?? [];
   const removedActiveSessions = activeSessions.filter((session) => session.guildId === guild.id).length;
 
   const scrumRecords = dailyScrumData.records ?? [];
   const removedScrumRecords = scrumRecords.filter((record) => record.guildId === guild.id).length;
-  const nextReminderDates = { ...(dailyScrumData.reminderDates ?? {}) };
-  for (const project of guildProjects) {
-    if (project.id) delete nextReminderDates[project.id];
-  }
+
+  const removedProjects = await removeGuildRecordsFromFile<ProjectRecord>(PROJECTS_FILE, guild.id);
+  const projectIds = new Set([
+    ...guildProjects.map((project) => project.id),
+    ...removedProjects.map((project) => project.id),
+  ].filter((id): id is string => Boolean(id)));
 
   await Promise.all([
-    writeJson(PROJECTS_FILE, withoutGuild(projects, guild.id)),
-    writeJson(CONTEST_FEED_FILE, withoutGuild(contestFeeds, guild.id)),
-    writeJson(CONTEST_AUDIENCE_FILE, withoutGuild(audienceFeeds, guild.id)),
-    writeJson(CONTEST_VOTES_FILE, withoutGuild(contestVotes, guild.id)),
-    writeJson(JOB_FEED_FILE, withoutGuild(jobFeeds, guild.id)),
-    writeJson(MUSIC_FILE, { ...musicData, guilds: nextMusicGuilds }),
-    writeJson(VOICE_TIME_FILE, {
-      ...voiceData,
-      dailySeconds: nextDailySeconds,
-      activeSessions: activeSessions.filter((session) => session.guildId !== guild.id),
+    removeGuildRecordsFromFile<FeedRecord>(CONTEST_FEED_FILE, guild.id),
+    removeGuildRecordsFromFile<FeedRecord>(CONTEST_AUDIENCE_FILE, guild.id),
+    removeGuildRecordsFromFile<ContestVoteRecord>(CONTEST_VOTES_FILE, guild.id),
+    removeGuildRecordsFromFile<FeedRecord>(JOB_FEED_FILE, guild.id),
+    updateJsonWithDurableLock<MusicData, void>(MUSIC_FILE, { guilds: {} }, (current) => {
+      const guilds = { ...(current.guilds ?? {}) };
+      delete guilds[guild.id];
+      return { next: { ...current, guilds }, result: undefined };
     }),
-    writeJson(DAILY_SCRUM_FILE, {
-      records: scrumRecords.filter((record) => record.guildId !== guild.id),
-      reminderDates: nextReminderDates,
+    updateJsonWithDurableLock<VoiceStudyData, void>(VOICE_TIME_FILE, { dailySeconds: {}, activeSessions: [] }, (current) => {
+      const dailySeconds = { ...(current.dailySeconds ?? {}) };
+      for (const key of Object.keys(dailySeconds)) {
+        if (key.startsWith(`${guild.id}:`)) delete dailySeconds[key];
+      }
+      return {
+        next: {
+          ...current,
+          dailySeconds,
+          activeSessions: (current.activeSessions ?? []).filter((session) => session.guildId !== guild.id),
+        },
+        result: undefined,
+      };
+    }),
+    updateJsonWithDurableLock<DailyScrumData, void>(DAILY_SCRUM_FILE, { records: [], reminderDates: {} }, (current) => {
+      const reminderDates = { ...(current.reminderDates ?? {}) };
+      for (const projectId of projectIds) delete reminderDates[projectId];
+      return {
+        next: {
+          ...current,
+          records: (current.records ?? []).filter((record) => record.guildId !== guild.id),
+          reminderDates,
+        },
+        result: undefined,
+      };
     }),
   ]);
 
