@@ -16,6 +16,7 @@ import { withDurableLearningProjectApplicationLock } from "./project-application
 import { withDurableLearningPlanAdjustmentLock } from "./plan-adjustment-lock.js";
 import { withDurableLearningLinkLock } from "./link-lock.js";
 import { withDurableLearningCodingAttemptLock } from "./coding-attempt-lock.js";
+import { withDurableLearningPlanLock } from "./plan-lock.js";
 
 type LearningKind = "goals" | "plans" | "plan-versions" | "interpretations" | "sessions" | "attempts" | "reviews" | "analyses" | "coding-exercises" | "coding-attempts" | "content-requests" | "actions" | "answers" | "feedback" | "disputes" | "adjustments" | "project-proposals" | "links" | "reports";
 function directory(root: string, userId: string, kind: LearningKind): string { assertIdentityId(userId); return resolve(root, "users", userId, "learning", kind); }
@@ -41,9 +42,29 @@ async function listJson<T>(root: string, userId: string, kind: LearningKind): Pr
   return values;
 }
 
-export const savePlan = (root: string, value: LearningPlan) => saveJson(pathFor(root, value.userId, "plans", value.id), value);
-export const loadPlan = (root: string, userId: string, id: string) => loadJson<LearningPlan>(pathFor(root, userId, "plans", id));
-export const listPlans = (root: string, userId: string) => listJson<LearningPlan>(root, userId, "plans");
+export const savePlanUnlocked = (root: string, value: LearningPlan) => saveJson(pathFor(root, value.userId, "plans", value.id), value);
+export const savePlan = (root: string, value: LearningPlan) => withDurableLearningPlanLock(root, value.userId, value.id, () => savePlanUnlocked(root, value), { waitForMs: 2_000 });
+export const loadPlanUnlocked = (root: string, userId: string, id: string) => loadJson<LearningPlan>(pathFor(root, userId, "plans", id));
+export async function loadPlan(root: string, userId: string, id: string): Promise<LearningPlan | null> {
+  const candidate = await loadPlanUnlocked(root, userId, id);
+  if (!candidate || candidate.userId !== userId) return null;
+  try { assertIdentityId(candidate.id); }
+  catch { return null; }
+  return withDurableLearningPlanLock(root, userId, candidate.id, () => loadPlanUnlocked(root, userId, id), { waitForMs: 2_000 });
+}
+export const listPlansUnlocked = (root: string, userId: string) => listJson<LearningPlan>(root, userId, "plans");
+export async function listPlans(root: string, userId: string): Promise<LearningPlan[]> {
+  const candidates = await listPlansUnlocked(root, userId);
+  const result: LearningPlan[] = [];
+  for (const candidate of candidates) {
+    try { assertIdentityId(candidate.id); } catch { continue; }
+    await withDurableLearningPlanLock(root, userId, candidate.id, async () => {
+      const current = await loadPlanUnlocked(root, userId, candidate.id);
+      if (current?.userId === userId && current.id === candidate.id) result.push(current);
+    }, { waitForMs: 2_000 });
+  }
+  return result;
+}
 export const saveLearningGoalUnlocked = (root: string, value: LearningGoal) => saveJson(pathFor(root, value.userId, "goals", value.id), value);
 export const saveLearningGoal = (root: string, value: LearningGoal) => withDurableLearningGoalLock(root, value.userId, value.id, () => saveLearningGoalUnlocked(root, value), { waitForMs: 2_000 });
 export const loadLearningGoalUnlocked = (root: string, userId: string, id: string) => loadJson<LearningGoal>(pathFor(root, userId, "goals", id));
