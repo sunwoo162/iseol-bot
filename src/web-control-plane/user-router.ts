@@ -48,6 +48,16 @@ export async function routeUserRequest(
   options: { runtimeCapability?: UserRuntimeCapability; aiChatRuntimeReady?: boolean; aiTeamRuntimeReady?: boolean; learningAiRuntimeReady?: boolean } = {},
 ): Promise<UserResponse> {
   const path = request.path.split("?", 1)[0] ?? request.path;
+  const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
+  const isTopLevelUserPath = [
+    "/api/user/signup",
+    "/api/user/login",
+    "/api/user/password",
+    "/api/user/logout",
+    "/api/user/me",
+    "/api/user/runtime-status",
+  ].includes(path);
+  if (isTopLevelUserPath && rawPathname.includes("\\")) return response(404, { error: "user route not found" });
   if (path === "/api/user/signup") {
     if (request.method !== "POST") return response(405, { error: "method not allowed" });
     const body = objectBody(request.body);

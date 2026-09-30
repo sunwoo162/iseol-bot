@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { createMemoryService } from "../src/memory/service.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createPersonalWorldService } from "../src/personal-world/service.js";
+import { routePersonalWorldRequest } from "../src/personal-world/router.js";
 import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
 
 test("personal world and private memory API persist through the user session boundary", async () => {
@@ -33,12 +35,28 @@ test("personal world and private memory API persist through the user session bou
     assert.equal(initial.status, 200);
     assert.equal((await initial.json() as any).world.onboardingCompleted, false);
 
+    const directRawPath = await routePersonalWorldRequest({ method: "PUT", path: "/api/user/world", rawPath: "/api/user\\world", headers: authA, body: { displayName: "Must not persist" } }, { platformUserService: platform, personalWorldService: world, memoryService: memory });
+    assert.equal(directRawPath.status, 404);
+
     const updated = await fetch(`${url}/api/user/world`, {
       method: "PUT", headers: authA,
       body: JSON.stringify({ displayName: "Ari", handle: "ari_dev", character: "c", interests: ["AI/ML"], activities: ["learn"], onboardingCompleted: true }),
     });
     assert.equal(updated.status, 200);
     assert.equal((await updated.json() as any).world.displayName, "Ari");
+
+    const rawPayload = JSON.stringify({ displayName: "Must not persist over HTTP" });
+    const rawStatus = await new Promise<number>((resolveStatus, reject) => {
+      const request = httpRequest({ hostname: "127.0.0.1", port: address.port, method: "PUT", path: "/api/user\\world", headers: { ...authA, "content-length": String(Buffer.byteLength(rawPayload)) } }, (response) => {
+        response.resume();
+        response.once("end", () => resolveStatus(response.statusCode ?? 0));
+      });
+      request.once("error", reject);
+      request.end(rawPayload);
+    });
+    assert.equal(rawStatus, 404);
+    const afterRawPath = await fetch(`${url}/api/user/world`, { headers: authA });
+    assert.equal((await afterRawPath.json() as any).world.displayName, "Ari");
 
     const createdMemory = await fetch(`${url}/api/user/memory`, {
       method: "POST", headers: authA,

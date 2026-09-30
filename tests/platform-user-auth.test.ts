@@ -48,6 +48,28 @@ test("user auth routes create and resolve a platform session", async () => {
   assert.equal(login.status, 200);
 });
 
+test("top-level user routes reject raw backslash normalization before session mutation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-platform-auth-raw-path-"));
+  const service = createPlatformUserService(root, { now: () => "2026-09-25T12:00:00.000Z" });
+  const user = await service.createUser({ id: "raw-path-user", email: "raw-path@example.com", displayName: "Raw Path", timezone: "Asia/Seoul", password: "raw-path-password" });
+  const session = await service.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-26T12:00:00.000Z" });
+  const headers = { authorization: `Bearer ${session.token}`, "content-type": "application/json" };
+
+  const rawLogout = await routeUserRequest({ method: "POST", path: "/api/user/logout", rawPath: "/api/user\\logout", headers }, service);
+  assert.equal(rawLogout.status, 404);
+  assert.equal((await routeUserRequest({ method: "GET", path: "/api/user/me", headers }, service)).status, 200);
+
+  const rawPassword = await routeUserRequest({
+    method: "POST",
+    path: "/api/user/password",
+    rawPath: "/api/user\\password",
+    headers,
+    body: { currentPassword: "raw-path-password", newPassword: "raw-path-new-password" },
+  }, service);
+  assert.equal(rawPassword.status, 404);
+  assert.ok(await service.authenticateUser("raw-path@example.com", "raw-path-password"));
+});
+
 test("logout revokes the authenticated platform session instead of only clearing browser storage", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-platform-logout-route-"));
   const service = createPlatformUserService(root, { now: () => "2026-09-25T12:00:00.000Z" });
