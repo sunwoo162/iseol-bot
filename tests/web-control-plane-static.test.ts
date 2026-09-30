@@ -40,7 +40,9 @@ test("browser script supports deployment opening promotion and workspace renderi
   assert.match(script, /\/api\/prototypes\//);
   assert.match(script, /\/promote/);
   assert.match(script, /\/api\/projects\//);
-  assert.match(script, /localStorage/);
+  assert.match(script, /sessionStorage/);
+  assert.match(script, /localStorage\.removeItem/);
+  assert.doesNotMatch(script, /localStorage\.(getItem|setItem)/);
   assert.match(script, /Authorization/);
   assert.match(script, /deployment/);
   assert.match(script, /genesis/);
