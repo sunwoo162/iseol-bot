@@ -96,7 +96,7 @@ export function createStudyService(root: string, options: StudyServiceOptions): 
       });
     },
     async saveTaskSubmission(principal, studySpaceId, taskId, input) {
-      const initialSpace = await loadStudySpace(root, studySpaceId); if (!initialSpace || initialSpace.status !== "active") throw new Error("Study space not found"); assertIdentityId(taskId); if (!(input.status === "draft" || input.status === "submitted")) throw new Error("Invalid submission status"); const answer = required(input.answer, "Study answer", 20_000);
+      const initialSpace = await loadStudySpaceUnlocked(root, studySpaceId); if (!initialSpace || initialSpace.status !== "active") throw new Error("Study space not found"); assertIdentityId(taskId); if (!(input.status === "draft" || input.status === "submitted")) throw new Error("Invalid submission status"); const answer = required(input.answer, "Study answer", 20_000);
       return withTeamMembershipMutationLock(initialSpace.teamId, async () => {
         const space = await loadAccessibleSpace(principal, studySpaceId, true); if (!space) throw new Error("Study space not found");
         return withDurableStudySubmissionLock(root, space.id, taskId, principal.userId, async () => {

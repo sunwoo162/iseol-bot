@@ -49,9 +49,17 @@ test("personal world and private memory API persist through the user session bou
     assert.deepEqual(await listedByB.json(), { memories: [] });
     const malformedSharedQuery = await fetch(`${url}/api/user/memory/shared?teamId=${encodeURIComponent("team/id")}`, { headers: authA });
     assert.equal(malformedSharedQuery.status, 400);
-    const malformedLimit = await fetch(`${url}/api/user/memory?limit=not-a-number`, { headers: authA });
-    assert.equal(malformedLimit.status, 400);
-    assert.deepEqual(await malformedLimit.json(), { error: "limit must be a positive integer" });
+    for (const value of ["not-a-number", "1.5", "1.00000000000000001", "NaN", "Infinity", "0", "-1"]) {
+      const malformedLimit = await fetch(`${url}/api/user/memory?limit=${encodeURIComponent(value)}`, { headers: authA });
+      assert.equal(malformedLimit.status, 400, value);
+      assert.deepEqual(await malformedLimit.json(), { error: "limit must be a positive integer" });
+    }
+    const duplicateLimit = await fetch(`${url}/api/user/memory?limit=1&limit=2`, { headers: authA });
+    assert.equal(duplicateLimit.status, 400);
+    assert.deepEqual(await duplicateLimit.json(), { error: "limit must be a positive integer" });
+    const explicitLimit = await fetch(`${url}/api/user/memory?limit=1&search=private`, { headers: authA });
+    assert.equal(explicitLimit.status, 200);
+    assert.equal((await explicitLimit.json() as any).memories.length, 1);
     const listedByA = await fetch(`${url}/api/user/memory?search=private`, { headers: authA });
     const listed = await listedByA.json() as any;
     assert.equal(listed.memories.length, 1);
