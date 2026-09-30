@@ -58,7 +58,12 @@ export async function withDurableSocialProfileLock<T>(
         try {
           await readFile(path, "utf8");
         } catch (probeError) {
-          if ((probeError as NodeJS.ErrnoException).code === "ENOENT") throw error;
+          if ((probeError as NodeJS.ErrnoException).code === "ENOENT") {
+            if (waitForMs <= 0 || Date.now() >= deadline) throw error;
+            await new Promise((resolveWait) => setTimeout(resolveWait, Math.min(pollIntervalMs, Math.max(1, deadline - Date.now()))));
+            continue;
+          }
+          throw probeError;
         }
       } else if (code !== "EEXIST") {
         throw error;
