@@ -1,23 +1,31 @@
+import { lazy } from 'react';
 import { createBrowserRouter } from 'react-router';
-import Landing from '../pages/Landing';
-import NotFound from '../pages/NotFound';
-import { LoginPage, SignupPage } from '../pages/Auth';
-import Onboarding from '../pages/Onboarding';
-import MyWorld from '../pages/MyWorld';
-import { CharacterDetail, CharacterCustomize } from '../pages/Character';
-import IdeaLab from '../pages/IdeaLab';
-import { ProjectList, ProjectWorkspace } from '../pages/Projects';
-import AIChat from '../pages/AIChat';
-import MemoryVault from '../pages/MemoryVault';
-import Learning from '../pages/Learning';
-import { TeamRecruit } from '../pages/Teams';
-import Community from '../pages/Community';
-import Friends from '../pages/Friends';
-import { ActivityTimeline, PortfolioPage } from '../pages/PortfolioApi';
-import Settings from '../pages/Settings';
-import PublicPortfolio from '../pages/PublicPortfolio';
-import Profile from '../pages/Profile';
-import { HelpPage, PrivacyPage, TermsPage } from '../pages/Information';
+
+const Landing = lazy(() => import('../pages/Landing'));
+const NotFound = lazy(() => import('../pages/NotFound'));
+const LoginPage = lazy(() => import('../pages/Auth').then(({ LoginPage }) => ({ default: LoginPage })));
+const SignupPage = lazy(() => import('../pages/Auth').then(({ SignupPage }) => ({ default: SignupPage })));
+const Onboarding = lazy(() => import('../pages/Onboarding'));
+const MyWorld = lazy(() => import('../pages/MyWorld'));
+const CharacterDetail = lazy(() => import('../pages/Character').then(({ CharacterDetail }) => ({ default: CharacterDetail })));
+const CharacterCustomize = lazy(() => import('../pages/Character').then(({ CharacterCustomize }) => ({ default: CharacterCustomize })));
+const IdeaLab = lazy(() => import('../pages/IdeaLab'));
+const ProjectList = lazy(() => import('../pages/Projects').then(({ ProjectList }) => ({ default: ProjectList })));
+const ProjectWorkspace = lazy(() => import('../pages/Projects').then(({ ProjectWorkspace }) => ({ default: ProjectWorkspace })));
+const AIChat = lazy(() => import('../pages/AIChat'));
+const MemoryVault = lazy(() => import('../pages/MemoryVault'));
+const Learning = lazy(() => import('../pages/Learning'));
+const TeamRecruit = lazy(() => import('../pages/Teams').then(({ TeamRecruit }) => ({ default: TeamRecruit })));
+const Community = lazy(() => import('../pages/Community'));
+const Friends = lazy(() => import('../pages/Friends'));
+const ActivityTimeline = lazy(() => import('../pages/PortfolioApi').then(({ ActivityTimeline }) => ({ default: ActivityTimeline })));
+const PortfolioPage = lazy(() => import('../pages/PortfolioApi').then(({ PortfolioPage }) => ({ default: PortfolioPage })));
+const Settings = lazy(() => import('../pages/Settings'));
+const PublicPortfolio = lazy(() => import('../pages/PublicPortfolio'));
+const Profile = lazy(() => import('../pages/Profile'));
+const TermsPage = lazy(() => import('../pages/Information').then(({ TermsPage }) => ({ default: TermsPage })));
+const PrivacyPage = lazy(() => import('../pages/Information').then(({ PrivacyPage }) => ({ default: PrivacyPage })));
+const HelpPage = lazy(() => import('../pages/Information').then(({ HelpPage }) => ({ default: HelpPage })));
 
 export const router = createBrowserRouter([
   { path: '/', Component: Landing },
