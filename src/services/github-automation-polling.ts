@@ -9,7 +9,7 @@ import { syncMilestonesFromPoll } from "./github-automation-polling-domain.js";
 import { GitHubAutomationSource } from "./github-automation-source.js";
 import { GitHubScheduleSyncService } from "./github-schedule-sync.js";
 import { GitHubWebhookService, type RepositoryRef } from "./github.js";
-import { listProjects, type StoredProject } from "./projects.js";
+import { findProject, listProjects, withProjectDeleteLock, type StoredProject } from "./projects.js";
 import { validateCiArtifactForPull } from "./review/github-ci-review.js";
 import { GitHubReviewService } from "./review/github-review.js";
 import { reviewRuntimeMessages } from "./review/review-runtime.js";
@@ -18,6 +18,17 @@ import { ensureProjectReviewWorkflows } from "./review/review-workflow-install.j
 const POLL_INTERVAL_MS = 60_000;
 type RepositorySide = "frontend" | "backend";
 const workflowInstallAttempted = new Set<string>();
+
+export async function withProjectAutomationPollingLifecycleLock<T>(
+  project: StoredProject,
+  task: (current: StoredProject) => Promise<T>,
+): Promise<T | undefined> {
+  return withProjectDeleteLock(project.guildId, project.id, async () => {
+    const current = await findProject(project.id);
+    if (!current) return undefined;
+    return task(current);
+  });
+}
 
 function projectRepository(project: StoredProject, side: RepositorySide): RepositoryRef {
   return side === "frontend" ? project.frontend : project.backend;
@@ -135,29 +146,35 @@ async function syncGitHubAutomationPollingUnlocked(
 
   for (const project of projects) {
     try {
-      await ensureWorkflows(github, project);
-    } catch (error) {
-      console.error(`Iseol review workflow 자동 설치 실패 (${project.name})`, error);
-    }
-
-    for (const side of ["frontend", "backend"] as const) {
-      const repository = projectRepository(project, side);
-      const fullName = repositoryName(repository);
-      activeKeys.add(GitHubAutomationPollStateStore.key(project.id, fullName));
-
-      try {
-        await syncPullRequests(client, source, reviewer, project, side);
-      } catch (error) {
-        console.error(`PR 목록 폴링 실패 (${project.name}/${side})`, error);
-      }
-
-      if (schedule && project.calendarId) {
+      await withProjectAutomationPollingLifecycleLock(project, async (current) => {
         try {
-          await syncMilestones(source, schedule, pollState, project, side);
+          await ensureWorkflows(github, current);
         } catch (error) {
-          console.error(`GitHub milestone 폴링 실패 (${project.name}/${side})`, error);
+          console.error(`Iseol review workflow 자동 설치 실패 (${current.name})`, error);
         }
-      }
+
+        for (const side of ["frontend", "backend"] as const) {
+          const repository = projectRepository(current, side);
+          const fullName = repositoryName(repository);
+          activeKeys.add(GitHubAutomationPollStateStore.key(current.id, fullName));
+
+          try {
+            await syncPullRequests(client, source, reviewer, current, side);
+          } catch (error) {
+            console.error(`PR 목록 폴링 실패 (${current.name}/${side})`, error);
+          }
+
+          if (schedule && current.calendarId) {
+            try {
+              await syncMilestones(source, schedule, pollState, current, side);
+            } catch (error) {
+              console.error(`GitHub milestone 폴링 실패 (${current.name}/${side})`, error);
+            }
+          }
+        }
+      });
+    } catch (error) {
+      console.error(`GitHub automation lifecycle polling 실패 (${project.name})`, error);
     }
   }
 
