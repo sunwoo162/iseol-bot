@@ -11,6 +11,7 @@ import { withDurableLearningAnswerLock } from "./answer-lock.js";
 import { withDurableLearningFeedbackLock } from "./feedback-lock.js";
 import { withDurableLearningFeedbackDisputeLock } from "./feedback-dispute-lock.js";
 import { withDurableLearningReviewLock } from "./review-lock.js";
+import { withDurableLearningReportLock } from "./report-lock.js";
 
 type LearningKind = "goals" | "plans" | "plan-versions" | "interpretations" | "sessions" | "attempts" | "reviews" | "analyses" | "coding-exercises" | "coding-attempts" | "content-requests" | "actions" | "answers" | "feedback" | "disputes" | "adjustments" | "project-proposals" | "links" | "reports";
 function directory(root: string, userId: string, kind: LearningKind): string { assertIdentityId(userId); return resolve(root, "users", userId, "learning", kind); }
@@ -265,6 +266,32 @@ export const listLearningProjectApplications = (root: string, userId: string) =>
 export const saveLearningLink = (root: string, value: LearningLink) => saveJson(pathFor(root, value.userId, "links", value.id), value);
 export const loadLearningLink = (root: string, userId: string, id: string) => loadJson<LearningLink>(pathFor(root, userId, "links", id));
 export const listLearningLinks = (root: string, userId: string) => listJson<LearningLink>(root, userId, "links");
-export const saveLearningReport = (root: string, value: LearningReport) => saveJson(pathFor(root, value.userId, "reports", value.id), value);
-export const loadLearningReport = (root: string, userId: string, id: string) => loadJson<LearningReport>(pathFor(root, userId, "reports", id));
-export const listLearningReports = (root: string, userId: string) => listJson<LearningReport>(root, userId, "reports");
+function learningReportPeriodKey(value: LearningReport): string | null {
+  try {
+    const key = JSON.stringify(value.period);
+    return typeof key === "string" && key.length > 0 && key.length <= 500 ? key : null;
+  } catch { return null; }
+}
+export const saveLearningReportUnlocked = (root: string, value: LearningReport) => saveJson(pathFor(root, value.userId, "reports", value.id), value);
+export const saveLearningReport = (root: string, value: LearningReport) => withDurableLearningReportLock(root, value.userId, value.goalId, JSON.stringify(value.period), () => saveLearningReportUnlocked(root, value), { waitForMs: 2_000 });
+export const loadLearningReportUnlocked = (root: string, userId: string, id: string) => loadJson<LearningReport>(pathFor(root, userId, "reports", id));
+export async function loadLearningReport(root: string, userId: string, id: string): Promise<LearningReport | null> {
+  const candidate = await loadLearningReportUnlocked(root, userId, id);
+  const periodKey = candidate ? learningReportPeriodKey(candidate) : null;
+  return candidate && periodKey ? withDurableLearningReportLock(root, userId, candidate.goalId, periodKey, () => loadLearningReportUnlocked(root, userId, id), { waitForMs: 2_000 }) : null;
+}
+export const listLearningReportsUnlocked = (root: string, userId: string) => listJson<LearningReport>(root, userId, "reports");
+export async function listLearningReports(root: string, userId: string): Promise<LearningReport[]> {
+  const candidates = await listLearningReportsUnlocked(root, userId);
+  const result: LearningReport[] = [];
+  for (const candidate of candidates) {
+    const periodKey = learningReportPeriodKey(candidate);
+    try { assertIdentityId(candidate.id); assertIdentityId(candidate.goalId); } catch { continue; }
+    if (!periodKey) continue;
+    await withDurableLearningReportLock(root, userId, candidate.goalId, periodKey, async () => {
+      const current = await loadLearningReportUnlocked(root, userId, candidate.id);
+      if (current?.userId === userId && current.id === candidate.id && current.goalId === candidate.goalId) result.push(current);
+    }, { waitForMs: 2_000 });
+  }
+  return result;
+}
