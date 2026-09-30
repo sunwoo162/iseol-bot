@@ -2165,8 +2165,8 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 
 ## 2026-10-01 continuation: public portfolio malformed-path boundary
 
-- The anonymous public portfolio route now validates the decoded entry identity before calling the portfolio service. Malformed, encoded-slash, or otherwise unsafe entry paths return the same bounded `404 public portfolio not found` response as missing/private entries instead of surfacing a service identity exception as HTTP 500.
-- Evidence: `src/portfolio/router.ts` and `tests/portfolio-public-api.test.ts`. The RED regression observed `500 !== 404` for an encoded `entryId/suffix`; the GREEN route catches decode/identity validation failures and preserves the existing public/private behavior.
+- The anonymous public portfolio route now validates the decoded entry identity before calling the portfolio service, and both public and authenticated portfolio prefixes reject raw backslash normalization before route dispatch. Malformed, encoded-slash, or otherwise unsafe entry paths return bounded `404` responses instead of surfacing service identity exceptions or resolving a normalized alternate path.
+- Evidence: `src/portfolio/router.ts`, `src/web-control-plane/server.ts`, and `tests/portfolio-public-api.test.ts`. RED coverage observed `500 !== 404` for an encoded `entryId/suffix` and `200 !== 404` for a raw HTTP `/api/public/portfolio\\entryId`; GREEN coverage catches decode/identity validation failures, preserves query-bearing public reads, and keeps existing public/private behavior.
 - Verification: focused portfolio/public API/provenance/UI contracts pass `14/14`; root TypeScript and user UI production builds pass; `npm.cmd run test:iseol-user-product` passes `445/445`; isolated browser E2E passes with public portfolio route/JSON export, share control, two-account privacy, and responsive `[390,768,1024,1440]` across 13 routes; `git diff --check` passes.
 
 ## 2026-10-01 continuation: private memory malformed-path boundary
