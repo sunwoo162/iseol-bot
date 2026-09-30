@@ -252,8 +252,29 @@ export async function listLearningFeedbackDisputes(root: string, userId: string)
   }
   return result;
 }
-export const saveAttempt = (root: string, value: StudyAttempt) => saveJson(pathFor(root, value.userId, "attempts", value.id), value);
-export const listAttempts = (root: string, userId: string) => listJson<StudyAttempt>(root, userId, "attempts");
+export const saveAttemptUnlocked = (root: string, value: StudyAttempt) => saveJson(pathFor(root, value.userId, "attempts", value.id), value);
+export const saveAttempt = (root: string, value: StudyAttempt) => withDurableLearningSessionLock(root, value.userId, value.sessionId, () => saveAttemptUnlocked(root, value), { waitForMs: 2_000 });
+export const loadAttemptUnlocked = (root: string, userId: string, id: string) => loadJson<StudyAttempt>(pathFor(root, userId, "attempts", id));
+export async function loadAttempt(root: string, userId: string, id: string): Promise<StudyAttempt | null> {
+  const candidate = await loadAttemptUnlocked(root, userId, id);
+  if (!candidate || candidate.userId !== userId) return null;
+  try { assertIdentityId(candidate.sessionId); }
+  catch { return null; }
+  return withDurableLearningSessionLock(root, userId, candidate.sessionId, () => loadAttemptUnlocked(root, userId, id), { waitForMs: 2_000 });
+}
+export const listAttemptsUnlocked = (root: string, userId: string) => listJson<StudyAttempt>(root, userId, "attempts");
+export async function listAttempts(root: string, userId: string): Promise<StudyAttempt[]> {
+  const candidates = await listAttemptsUnlocked(root, userId);
+  const result: StudyAttempt[] = [];
+  for (const candidate of candidates) {
+    try { assertIdentityId(candidate.id); assertIdentityId(candidate.sessionId); } catch { continue; }
+    await withDurableLearningSessionLock(root, userId, candidate.sessionId, async () => {
+      const current = await loadAttemptUnlocked(root, userId, candidate.id);
+      if (current?.userId === userId && current.id === candidate.id && current.sessionId === candidate.sessionId) result.push(current);
+    }, { waitForMs: 2_000 });
+  }
+  return result;
+}
 export const saveReviewUnlocked = (root: string, value: ReviewItem) => saveJson(pathFor(root, value.userId, "reviews", value.id), value);
 export const saveReview = (root: string, value: ReviewItem) => withDurableLearningReviewLock(root, value.userId, value.id, () => saveReviewUnlocked(root, value), { waitForMs: 2_000 });
 export const loadReviewUnlocked = (root: string, userId: string, id: string) => loadJson<ReviewItem>(pathFor(root, userId, "reviews", id));

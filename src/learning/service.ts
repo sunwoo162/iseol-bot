@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CodingAttempt, CodingAttemptInput, CodingExercise, CodingExerciseInput, CodingPracticeResult, GoalInterpretation, LearningAnswerReceipt, LearningContentRequest, LearningFeedback, LearningFeedbackDispute, LearningFeedbackDisputeResult, LearningFeedbackEvaluation, LearningFeedbackEvaluationInput, LearningGoal, LearningGoalInput, LearningGoalSessionInput, LearningLessonBlock, LearningLessonContent, LearningLessonInput, LearningPlanAdjustment, LearningPlanAdjustmentInput, LearningPlanAdjustmentResult, LearningPlanInput, LearningPlanPreview, LearningPlanProposal, LearningPlanVersion, LearningProgress, LearningProjectApplication, LearningProjectApplicationInput, LearningReport, LearningReportPeriod, LearningService, LearningServiceOptions, LearningSessionAction, LearningSessionActionInput, ReviewItemInput, CodeAnalysisInput, StudyAttemptInput, LearningPlan, LearningPlanDay, LearningSession, LearningToday, ReviewItem, CodeAnalysisResult } from "./contracts.js";
-import { listAttempts, listCodingAttempts, listCodingAttemptsUnlocked, listCodingExercises, listGoalInterpretations, listGoalInterpretationsUnlocked, listLearningAnswerReceipts, listLearningAnswerReceiptsUnlocked, listLearningContentRequests, listLearningContentRequestsUnlocked, listLearningFeedback, listLearningFeedbackDisputes, listLearningFeedbackDisputesUnlocked, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanAdjustmentsUnlocked, listLearningPlanVersions, listLearningPlanVersionsUnlocked, listLearningProjectApplications, listLearningProjectApplicationsUnlocked, listLearningLinks, listLearningReports, listLearningReportsUnlocked, listLearningSessionActions, listLearningSessionActionsUnlocked, listPlans, listReviews, listReviewsUnlocked, listSessions, loadAnalysis, loadCodingAttempt, loadCodingAttemptUnlocked, loadCodingExercise, loadLearningAnswerReceipt, loadLearningAnswerReceiptUnlocked, loadLearningContentRequest, loadLearningContentRequestUnlocked, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanAdjustmentUnlocked, loadLearningPlanVersion, loadLearningPlanVersionUnlocked, loadLearningReport, loadLearningReportUnlocked, loadPlan, loadReview, loadReviewUnlocked, loadSession, loadSessionUnlocked, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingAttemptUnlocked, saveCodingExercise, saveLearningAnswerReceipt, saveLearningAnswerReceiptUnlocked, saveLearningContentRequest, saveLearningContentRequestUnlocked, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningFeedbackDisputeUnlocked, saveLearningPlanAdjustment, saveLearningPlanAdjustmentUnlocked, saveLearningSessionAction, saveLearningSessionActionUnlocked, saveGoalInterpretation, saveGoalInterpretationUnlocked, saveLearningPlanVersion, saveLearningPlanVersionUnlocked, saveLearningProjectApplication, saveLearningProjectApplicationUnlocked, saveLearningLink, saveLearningReport, saveLearningReportUnlocked, savePlan, saveReview, saveReviewUnlocked, saveSession, saveSessionUnlocked } from "./store.js";
+import { listAttempts, listAttemptsUnlocked, listCodingAttempts, listCodingAttemptsUnlocked, listCodingExercises, listGoalInterpretations, listGoalInterpretationsUnlocked, listLearningAnswerReceipts, listLearningAnswerReceiptsUnlocked, listLearningContentRequests, listLearningContentRequestsUnlocked, listLearningFeedback, listLearningFeedbackDisputes, listLearningFeedbackDisputesUnlocked, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanAdjustmentsUnlocked, listLearningPlanVersions, listLearningPlanVersionsUnlocked, listLearningProjectApplications, listLearningProjectApplicationsUnlocked, listLearningLinks, listLearningReports, listLearningReportsUnlocked, listLearningSessionActions, listLearningSessionActionsUnlocked, listPlans, listReviews, listReviewsUnlocked, listSessions, loadAnalysis, loadCodingAttempt, loadCodingAttemptUnlocked, loadCodingExercise, loadLearningAnswerReceipt, loadLearningAnswerReceiptUnlocked, loadLearningContentRequest, loadLearningContentRequestUnlocked, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanAdjustmentUnlocked, loadLearningPlanVersion, loadLearningPlanVersionUnlocked, loadLearningReport, loadLearningReportUnlocked, loadPlan, loadReview, loadReviewUnlocked, loadSession, loadSessionUnlocked, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveAttemptUnlocked, saveCodingAttempt, saveCodingAttemptUnlocked, saveCodingExercise, saveLearningAnswerReceipt, saveLearningAnswerReceiptUnlocked, saveLearningContentRequest, saveLearningContentRequestUnlocked, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningFeedbackDisputeUnlocked, saveLearningPlanAdjustment, saveLearningPlanAdjustmentUnlocked, saveLearningSessionAction, saveLearningSessionActionUnlocked, saveGoalInterpretation, saveGoalInterpretationUnlocked, saveLearningPlanVersion, saveLearningPlanVersionUnlocked, saveLearningProjectApplication, saveLearningProjectApplicationUnlocked, saveLearningLink, saveLearningReport, saveLearningReportUnlocked, savePlan, saveReview, saveReviewUnlocked, saveSession, saveSessionUnlocked } from "./store.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
 import { withDurableLearningProjectApplicationAcceptanceLock } from "./project-application-acceptance-lock.js";
@@ -1241,28 +1241,33 @@ export function createLearningService(root: string, options: LearningServiceOpti
 
     async recordStudyAttempt(principal, input: StudyAttemptInput) {
       ensurePrincipal(principal);
-      const session = await this.resumeLearningSession(principal, input.sessionId);
-      if (!session) throw new Error("Learning session not found");
-      if (session.status === "completed") throw new Error("Learning session is completed");
-      const at = now(); assertTimestamp(at, "study attempt timestamp");
-      const attempt = {
-        version: 1 as const, id: "attempt-" + randomUUID(), userId: principal.userId,
-        sessionId: session.id, questionId: nonEmpty(input.questionId, "Question id", 160),
-        answer: nonEmpty(input.answer, "Answer", 20_000),
-        ...(input.correct === undefined ? {} : { correct: Boolean(input.correct) }),
-        submittedAt: at,
-      };
-      await saveAttempt(root, attempt);
-      if (options.activityService && input.correct === true) {
-        const activity = await options.activityService.recordActivityEvent(principal, {
-          sourceType: "learning-session", sourceId: session.id,
-          eventType: "learning.study.attempt.completed", eventVersion: 1,
-          actorType: "user", verificationStatus: "verified",
-          payload: { questionId: attempt.questionId },
-        });
-        await options.growthService?.applyGrowthProjection(activity);
-      }
-      return attempt;
+      try { assertIdentityId(input.sessionId); } catch { throw new Error("Learning session not found"); }
+      return withSessionMutationLock(`${principal.userId}:${input.sessionId}`, () => withDurableLearningSessionLock(root, principal.userId, input.sessionId, async () => {
+        const session = await loadSessionUnlocked(root, principal.userId, input.sessionId);
+        if (!session || session.userId !== principal.userId) throw new Error("Learning session not found");
+        if (session.status === "completed") throw new Error("Learning session is completed");
+        const at = now(); assertTimestamp(at, "study attempt timestamp");
+        const resumed = nextSessionRevision(session, { resumedAt: at });
+        await saveSessionUnlocked(root, resumed);
+        const attempt = {
+          version: 1 as const, id: "attempt-" + randomUUID(), userId: principal.userId,
+          sessionId: resumed.id, questionId: nonEmpty(input.questionId, "Question id", 160),
+          answer: nonEmpty(input.answer, "Answer", 20_000),
+          ...(input.correct === undefined ? {} : { correct: Boolean(input.correct) }),
+          submittedAt: at,
+        };
+        await saveAttemptUnlocked(root, attempt);
+        if (options.activityService && input.correct === true) {
+          const activity = await options.activityService.recordActivityEvent(principal, {
+            sourceType: "learning-session", sourceId: resumed.id,
+            eventType: "learning.study.attempt.completed", eventVersion: 1,
+            actorType: "user", verificationStatus: "verified",
+            payload: { questionId: attempt.questionId },
+          });
+          await options.growthService?.applyGrowthProjection(activity);
+        }
+        return attempt;
+      }));
     },
 
     async listStudyAttempts(principal, sessionId) {
