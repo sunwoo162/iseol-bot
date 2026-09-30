@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { ChannelType, Client, Guild, TextChannel } from "discord.js";
@@ -35,6 +36,21 @@ function emptyData(): DailyScrumData {
 
 export class DailyScrumStore {
   constructor(private readonly file = DATA_FILE) {}
+
+  async withReminderDeliveryLock<T>(
+    projectId: string,
+    date: string,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const digest = createHash("sha256")
+      .update(`${projectId}:${date}:daily-scrum-reminder`)
+      .digest("hex");
+    return withDurableFileStateLock(
+      `${this.file}.reminder.${digest}`,
+      task,
+      { waitForMs: 2_000 },
+    );
+  }
 
   private async readData(): Promise<DailyScrumData> {
     try {
@@ -145,39 +161,44 @@ export async function findDailyScrumChannel(
   return channel instanceof TextChannel ? channel : null;
 }
 
-async function reminderAlreadySent(projectId: string, date: string): Promise<boolean> {
-  return defaultDailyScrumStore.isReminderSent(projectId, date);
-}
+type DailyScrumReminderDependencies = {
+  store?: DailyScrumStore;
+  listProjects?: () => Promise<StoredProject[]>;
+  findChannel?: (guild: Guild, project: StoredProject) => Promise<TextChannel | null>;
+};
 
-async function markReminderSent(projectId: string, date: string): Promise<void> {
-  await defaultDailyScrumStore.markReminderSent(projectId, date);
-}
-
-export async function sendDailyScrumReminders(client: Client, now = new Date()): Promise<void> {
+export async function sendDailyScrumReminders(
+  client: Client,
+  now = new Date(),
+  dependencies: DailyScrumReminderDependencies = {},
+): Promise<void> {
   const date = seoulDateKey(now);
-  const projects = await listProjects();
+  const store = dependencies.store ?? defaultDailyScrumStore;
+  const projects = await (dependencies.listProjects ?? listProjects)();
 
   for (const project of projects) {
     try {
-      if (await reminderAlreadySent(project.id, date)) continue;
+      await store.withReminderDeliveryLock(project.id, date, async () => {
+        if (await store.isReminderSent(project.id, date)) return;
 
-      const guild = client.guilds.cache.get(project.guildId)
-        ?? await client.guilds.fetch(project.guildId).catch(() => null);
-      if (!guild) continue;
+        const guild = client.guilds.cache.get(project.guildId)
+          ?? await client.guilds.fetch(project.guildId).catch(() => null);
+        if (!guild) return;
 
-      const channel = await findDailyScrumChannel(guild, project);
-      if (!channel) continue;
+        const channel = await (dependencies.findChannel ?? findDailyScrumChannel)(guild, project);
+        if (!channel) return;
 
-      await channel.send({
-        content:
-          "@everyone\n" +
-          "🌅 **데일리 스크럼 작성 시간입니다.**\n" +
-          "오늘 할 일은 `/scrum write todo:...`로 작성해주세요.\n" +
-          "여러 할 일은 쉼표(`,`)로 구분하면 번호 목록으로 표시됩니다.\n" +
-          "`did`는 선택값이며, 입력할 때 전날 TODO 목록에서 완료한 항목을 선택할 수 있습니다.",
-        allowedMentions: { parse: ["everyone"] },
+        await channel.send({
+          content:
+            "@everyone\n" +
+            "🌅 **데일리 스크럼 작성 시간입니다.**\n" +
+            "오늘 할 일은 `/scrum write todo:...`로 작성해주세요.\n" +
+            "여러 할 일은 쉼표(`,`)로 구분하면 번호 목록으로 표시됩니다.\n" +
+            "`did`는 선택값이며, 입력할 때 전날 TODO 목록에서 선택할 수 있습니다.",
+          allowedMentions: { parse: ["everyone"] },
+        });
+        await store.markReminderSent(project.id, date);
       });
-      await markReminderSent(project.id, date);
     } catch (error) {
       console.error(`데일리 스크럼 알림 전송 실패 (${project.name})`, error);
     }
