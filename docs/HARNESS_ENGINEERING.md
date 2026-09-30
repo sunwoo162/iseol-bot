@@ -263,3 +263,9 @@ The effective Run policy is the ordered combination of this global document and 
 - GitHub commit feed cursor state is retained only for project/repository keys whose project lifecycle pass was admitted under the project deletion lock.
 - If a project is deleted while polling waits for its lifecycle lock, the skipped project key is excluded from the final durable state replacement instead of being restored from the initial snapshot.
 - This keeps deleted project cursor state from surviving a concurrent polling cycle or being reused by later reconciliation.
+
+## Project deletion polling state cleanup
+
+- `/project delete` clears the deleted project's GitHub commit feed and automation milestone cursor state after the project deletion lock is released.
+- Each state store performs project-scoped removal under its own polling sync lock and reports cleanup failures as deletion warnings.
+- Keeping polling sync cleanup outside the project deletion critical section avoids reversing the polling lock order and prevents a delete/poll deadlock.
