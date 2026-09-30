@@ -336,3 +336,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Social profile durable lock acquisition retries a transient Windows `EPERM`/probe `ENOENT` race while the configured wait deadline remains.
 - The lock still removes only a matching owner token and does not weaken stale-owner cleanup or authorization boundaries.
 - Social profile/privacy/safety tests and the full user-product regression suite remain the acceptance boundary.
+
+## AI Chat conversation lock transient retry boundary
+
+- AI Chat conversation lock acquisition retries a transient Windows `EPERM`/probe `ENOENT` race while the configured wait deadline remains.
+- Conversation owner-token cleanup and authenticated user isolation remain unchanged; the retry does not broaden access or hide unexpected probe errors.
+- AI Chat persistence, attachment, Runtime, project-context, full user-product, and isolated browser E2E suites remain the acceptance boundary.
