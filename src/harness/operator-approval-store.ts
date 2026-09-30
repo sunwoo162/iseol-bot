@@ -66,8 +66,18 @@ export async function issueOperatorApproval(input: {
   }, { waitForMs: 2000 }));
 }
 
-export async function loadOperatorApproval(root: string, approvalId: string): Promise<OperatorApproval | null> {
+async function loadOperatorApprovalUnlocked(root: string, approvalId: string): Promise<OperatorApproval | null> {
   return readJson(approvalPath(root, approvalId));
+}
+
+export async function loadOperatorApproval(root: string, approvalId: string): Promise<OperatorApproval | null> {
+  return withDurableOperatorApprovalLock(
+    root,
+    approvalId,
+    () => loadOperatorApprovalUnlocked(root, approvalId),
+    { waitForMs: 2_000 },
+    "approval",
+  );
 }
 
 export async function consumeOperatorApproval(input: {
