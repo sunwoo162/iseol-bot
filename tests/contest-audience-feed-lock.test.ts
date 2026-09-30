@@ -121,3 +121,52 @@ test("contest audience setup creates one channel for concurrent requests", async
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("contest audience feeds share one category creation across filters", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iseol-contest-audience-category-lock-"));
+  const store = new ContestAudienceFeedStore(join(dir, "contest-audience-feeds.json"));
+  const defaultFile = join(process.cwd(), "data", "contest-feeds.json");
+  let previous: Buffer | null = null;
+  try { previous = await readFile(defaultFile); } catch { /* test creates the file */ }
+
+  const createdNames: string[] = [];
+  const channels = new Map<string, any>();
+  const guild = {
+    id: "contest-audience-category-lock-guild",
+    channels: {
+      cache: { find: () => undefined },
+      fetch: async (id?: string) => {
+        if (id) return channels.get(id) ?? null;
+        return { find: (predicate: (channel: any) => boolean) => [...channels.values()].find(predicate) };
+      },
+      create: async (input: { name: string; type: number }) => {
+        await new Promise((resolve) => setTimeout(resolve, input.type === ChannelType.GuildCategory ? 30 : 0));
+        createdNames.push(input.name);
+        if (input.type === ChannelType.GuildCategory) {
+          const category = { id: "shared-category", name: input.name, type: ChannelType.GuildCategory };
+          channels.set(category.id, category);
+          return category;
+        }
+
+        const channel = Object.create(TextChannel.prototype) as TextChannel & { send: () => Promise<void> };
+        channel.id = `channel-${input.name}`;
+        channel.send = async () => undefined;
+        channels.set(channel.id, channel);
+        return channel;
+      },
+    },
+  };
+
+  try {
+    const [first, second] = await Promise.all([
+      createContestAudienceFeed(guild as any, "high-school", store),
+      createContestAudienceFeed(guild as any, "university", store),
+    ]);
+    assert.equal(createdNames.filter((name) => name === "🏆 공모전").length, 1);
+    assert.equal(first.state.categoryId, second.state.categoryId);
+  } finally {
+    if (previous) await writeFile(defaultFile, previous);
+    else await rm(defaultFile, { force: true });
+    await rm(dir, { recursive: true, force: true });
+  }
+});
