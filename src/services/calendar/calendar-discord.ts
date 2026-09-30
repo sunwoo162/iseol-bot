@@ -194,6 +194,7 @@ export async function handleCalendarModal(interaction: ModalSubmitInteraction): 
     if (action === "delete") {
       const eventId = interaction.fields.getTextInputValue("event_id").trim();
       await service.deleteEvent(current.calendarId, eventId);
+      await new CalendarStateStore().removeEvent(current.id, current.calendarId, eventId);
       await recordCalendarProjectHistory(current, calendarHistoryFact("deleted", eventId));
       await interaction.editReply(`✅ 일정 \`${eventId}\` 삭제 완료`);
       return true;
