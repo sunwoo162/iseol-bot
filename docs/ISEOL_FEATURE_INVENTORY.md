@@ -2210,5 +2210,5 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 ## 2026-10-01 continuation: AI Chat malformed-path boundary
 
 - Authenticated AI Chat conversation and execution-plan routes now fail closed when identity segments contain malformed percent-encoding or encoded separators. Raw backslashes are rejected against the normalized AI Chat prefix before message or plan mutations.
-- Evidence: `src/ai-chat/router.ts`, `src/web-control-plane/server.ts`, and `tests/ai-chat-api.test.ts`. RED coverage observed `400 !== 404` for malformed conversation/plan identities and the raw HTTP normalization path; GREEN coverage verifies bounded `404` responses and confirms no message is appended.
+- Evidence: `src/ai-chat/router.ts`, `src/web-control-plane/server.ts`, and `tests/ai-chat-api.test.ts`. RED coverage observed `400 !== 404` for malformed conversation/plan identities, `404 !== 200` for query-bearing conversation reads, and the raw HTTP normalization path; GREEN coverage matches routes on parsed pathname, preserves query-bearing conversation/message behavior, verifies bounded `404` responses, and confirms no raw-path message is appended.
 - Boundary: this change only hardens AI Chat route decoding and HTTP normalization; conversation privacy, message persistence, attachment validation, and execution-plan state transitions are unchanged.

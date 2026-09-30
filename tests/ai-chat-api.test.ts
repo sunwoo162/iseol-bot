@@ -64,6 +64,10 @@ test("AI chat routes reject malformed ids and raw backslash normalization before
     assert.equal(malformedConversation.status, 404);
     const malformedPlanMessage = await fetch(`${base}/${conversation.id}/execution-plans/%E0%A4%A/approve`, { method: "POST", headers, body: "{}" });
     assert.equal(malformedPlanMessage.status, 404);
+    const queryConversation = await fetch(`${base}/${conversation.id}?next=%2F`, { headers });
+    assert.equal(queryConversation.status, 200);
+    const queryMessage = await fetch(`${base}/${conversation.id}/messages?next=%2F`, { method: "POST", headers, body: JSON.stringify({ content: "query string이 붙은 메시지" }) });
+    assert.equal(queryMessage.status, 201);
     const rawBody = JSON.stringify({ content: "서버 우회 메시지" });
     const rawServerStatus = await new Promise<number>((resolve, reject) => {
       const rawRequest = httpRequest({ hostname: "127.0.0.1", port: address.port, method: "POST", path: `/api/user\\ai-chat/conversations/${conversation.id}/messages`, headers: { ...headers, "content-length": String(Buffer.byteLength(rawBody)) } }, (response) => {
@@ -75,6 +79,6 @@ test("AI chat routes reject malformed ids and raw backslash normalization before
     });
     assert.equal(rawServerStatus, 404);
     const unchanged = await chat.getConversation({ userId: user.id, sessionId: session.id, roles: ["user"] }, conversation.id);
-    assert.equal(unchanged?.messages.length, 0);
+    assert.equal(unchanged?.messages.length, 1);
   } finally { await server.closeForShutdown(); }
 });

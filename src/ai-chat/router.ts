@@ -22,7 +22,7 @@ export async function routeAiChatRequest(request: UserRequest, services: AiChatR
   if (!services.aiChatService) return response(503, { error: "AI chat unavailable" });
   const chat = services.aiChatService;
   try {
-    const planWorkRequest = /^\/api\/user\/ai-chat\/conversations\/([^/]+)\/execution-plans\/([^/]+)\/work-requests$/.exec(request.path);
+    const planWorkRequest = /^\/api\/user\/ai-chat\/conversations\/([^/]+)\/execution-plans\/([^/]+)\/work-requests$/.exec(pathname);
     if (planWorkRequest) {
       if (request.method !== "POST") return response(405, { error: "method not allowed" });
       const conversationId = decodePathValue(planWorkRequest[1]!);
@@ -30,7 +30,7 @@ export async function routeAiChatRequest(request: UserRequest, services: AiChatR
       if (!conversationId || !messageId) return response(404, { error: "AI chat route not found" });
       return response(201, await chat.createExecutionPlanWorkRequest(principal, conversationId, messageId));
     }
-    const planAction = /^\/api\/user\/ai-chat\/conversations\/([^/]+)\/execution-plans\/([^/]+)\/(approve|reject)$/.exec(request.path);
+    const planAction = /^\/api\/user\/ai-chat\/conversations\/([^/]+)\/execution-plans\/([^/]+)\/(approve|reject)$/.exec(pathname);
     if (planAction) {
       if (request.method !== "POST") return response(405, { error: "method not allowed" });
       const conversationId = decodePathValue(planAction[1]!);
@@ -39,17 +39,17 @@ export async function routeAiChatRequest(request: UserRequest, services: AiChatR
       const conversation = planAction[3] === "approve" ? await chat.approveExecutionPlan(principal, conversationId, messageId) : await chat.rejectExecutionPlan(principal, conversationId, messageId);
       return response(200, { conversation });
     }
-    if (request.path === "/api/user/ai-chat/conversations") {
+    if (pathname === "/api/user/ai-chat/conversations") {
       if (request.method === "GET") return response(200, { conversations: await chat.listConversations(principal) });
       if (request.method !== "POST") return response(405, { error: "method not allowed" });
       const title = bodyString(bodyObject(request.body), "title");
       return response(201, { conversation: await chat.createConversation(principal, title ?? undefined) });
     }
-    const conversationId = idAfter(request.path, "/api/user/ai-chat/conversations/");
+    const conversationId = idAfter(pathname, "/api/user/ai-chat/conversations/");
     if (!conversationId) return response(404, { error: "AI chat route not found" });
     const messageId = idAfter(conversationId, "/messages");
     if (messageId) return response(404, { error: "AI chat route not found" });
-    if (request.path.endsWith("/messages")) {
+    if (pathname.endsWith("/messages")) {
       const id = conversationId.slice(0, -"/messages".length); const body = bodyObject(request.body); const content = bodyString(body, "content");
       if (request.method !== "POST") return response(405, { error: "method not allowed" });
       if (!content) return response(400, { error: "content is required" });
