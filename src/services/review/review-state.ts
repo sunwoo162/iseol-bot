@@ -1,6 +1,8 @@
 ﻿import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
+import { withDurableFileStateLock } from "../file-state-lock.js";
+
 type ReviewState = { repository: string; pullNumber: number; headSha: string; reviewedAt: string };
 
 export class ReviewStateStore {
@@ -20,13 +22,15 @@ export class ReviewStateStore {
 
   async hasReviewed(repository: string, pullNumber: number, headSha: string): Promise<boolean> {
     const repo = repository.toLowerCase();
-    return (await this.read()).some((item) => item.repository.toLowerCase() === repo && item.pullNumber === pullNumber && item.headSha === headSha);
+    return withDurableFileStateLock(this.file, async () => (await this.read()).some((item) => item.repository.toLowerCase() === repo && item.pullNumber === pullNumber && item.headSha === headSha), { waitForMs: 2_000 });
   }
 
   async markReviewed(repository: string, pullNumber: number, headSha: string): Promise<void> {
-    const items = await this.read();
-    if (items.some((item) => item.repository.toLowerCase() === repository.toLowerCase() && item.pullNumber === pullNumber && item.headSha === headSha)) return;
-    items.push({ repository, pullNumber, headSha, reviewedAt: new Date().toISOString() });
-    await this.write(items);
+    await withDurableFileStateLock(this.file, async () => {
+      const items = await this.read();
+      if (items.some((item) => item.repository.toLowerCase() === repository.toLowerCase() && item.pullNumber === pullNumber && item.headSha === headSha)) return;
+      items.push({ repository, pullNumber, headSha, reviewedAt: new Date().toISOString() });
+      await this.write(items);
+    }, { waitForMs: 2_000 });
   }
 }
