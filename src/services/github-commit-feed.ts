@@ -95,9 +95,23 @@ export class GitHubCommitFeedStore {
   async replace(states: CommitFeedState[]): Promise<void> {
     await withDurableFileStateLock(this.file, () => this.writeStates(states), { waitForMs: 2_000 });
   }
+
+  async removeProject(projectId: string): Promise<number> {
+    return withDurableFileStateLock(this.file, async () => {
+      const states = await this.readStates();
+      const next = states.filter((state) => state.projectId !== projectId);
+      if (next.length === states.length) return 0;
+      await this.writeStates(next);
+      return states.length - next.length;
+    }, { waitForMs: 2_000 });
+  }
 }
 
 const defaultGitHubCommitFeedStore = new GitHubCommitFeedStore();
+
+export function clearGitHubCommitFeedProject(projectId: string): Promise<number> {
+  return defaultGitHubCommitFeedStore.withSyncLock(() => defaultGitHubCommitFeedStore.removeProject(projectId));
+}
 
 export async function withProjectCommitFeedLifecycleLock<T>(
   project: StoredProject,

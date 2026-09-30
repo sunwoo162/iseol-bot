@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile, rm, writeFile } from "node:fs/promises";
-import { retainActiveCommitFeedStates, withProjectCommitFeedLifecycleLock, type CommitFeedState } from "../src/services/github-commit-feed.js";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { GitHubCommitFeedStore, retainActiveCommitFeedStates, withProjectCommitFeedLifecycleLock, type CommitFeedState } from "../src/services/github-commit-feed.js";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { deleteProject, withProjectDeleteLock, type StoredProject } from "../src/services/projects.js";
 
 function delay(ms: number): Promise<void> {
@@ -24,6 +26,27 @@ test("GitHub commit feed state pruning uses only projects that completed their l
     retainActiveCommitFeedStates([deleted, active], new Set([active.key])),
     [active],
   );
+});
+
+test("GitHub commit feed removes all durable states for a deleted project", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iseol-github-commit-feed-delete-"));
+  const store = new GitHubCommitFeedStore(join(dir, "state.json"));
+  const makeState = (key: string, projectId: string): CommitFeedState => ({
+    key,
+    guildId: "guild-1",
+    projectId,
+    side: key.endsWith(":backend") ? "backend" : "frontend",
+    seenEventIds: [],
+    seenCommitShas: [],
+    initializedAt: new Date(0).toISOString(),
+  });
+  await store.save(makeState("deleted-project:frontend", "deleted-project"));
+  await store.save(makeState("deleted-project:backend", "deleted-project"));
+  await store.save(makeState("active-project:frontend", "active-project"));
+
+  assert.equal(await store.removeProject("deleted-project"), 2);
+  assert.deepEqual((await store.list()).map((state) => state.projectId), ["active-project"]);
+  await rm(dir, { recursive: true, force: true });
 });
 
 test("GitHub commit feed skips a stale project after waiting for project deletion", async () => {

@@ -69,7 +69,25 @@ export class GitHubAutomationPollStateStore {
     }, { waitForMs: 2_000 });
   }
 
+  async removeProject(projectId: string): Promise<number> {
+    const prefix = `${projectId}:`;
+    return withDurableFileStateLock(this.file, async () => {
+      const state = await this.read();
+      const nextRepositories = Object.fromEntries(
+        Object.entries(state.repositories).filter(([key]) => !key.startsWith(prefix)),
+      );
+      const removed = Object.keys(state.repositories).length - Object.keys(nextRepositories).length;
+      if (removed > 0) await this.write({ repositories: nextRepositories });
+      return removed;
+    }, { waitForMs: 2_000 });
+  }
+
   static key(projectId: string, repository: string): string {
     return repositoryStateKey(projectId, repository);
   }
+}
+
+export function clearGitHubAutomationPollingProject(projectId: string): Promise<number> {
+  const store = new GitHubAutomationPollStateStore();
+  return store.withSyncLock(() => store.removeProject(projectId));
 }
