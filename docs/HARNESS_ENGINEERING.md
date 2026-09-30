@@ -77,3 +77,9 @@ The effective Run policy is the ordered combination of this global document and 
 - GitHub automation polling treats PR review publication, milestone calendar synchronization, and poll-state persistence as one multi-process synchronization boundary.
 - The durable sync lock must cover the complete polling run, while the existing in-process `running` guard remains a fast local optimization rather than the correctness boundary.
 - A waiting or restarted poll must observe the persisted poll state after the previous run releases the lock before producing further external side effects.
+
+## Figma and Notion integration polling
+
+- Figma version/comment notifications and Notion edit notifications share one ProjectStore integration-polling boundary because each external send is followed by a project cursor update.
+- The scheduler must hold the durable polling lock across project discovery, external Discord notification, and cursor persistence so another bot process cannot replay the same provider change.
+- The in-process scheduler guard remains useful for avoiding local overlap, but correctness depends on the durable lock shared by all processes.
