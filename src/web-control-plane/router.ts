@@ -31,6 +31,7 @@ import type { WebProductEventBus } from "./event-bus.js";
 export type WebControlPlaneRequest = {
   method: string;
   path: string;
+  rawPath?: string;
   headers: Record<string, string | undefined>;
   body?: unknown;
 };
@@ -121,6 +122,9 @@ export async function routeWebControlPlaneRequest(
   deps: WebControlPlaneRouterDependencies,
 ): Promise<WebControlPlaneResponse> {
   const path = request.path.split("?", 1)[0] ?? request.path;
+  const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
+  const isProjectPath = path === "/api/projects" || path.startsWith("/api/projects/");
+  if (isProjectPath && rawPathname.includes("\\")) return response(404, { error: "project route not found" });
   const projectModelRoot = deps.projectModelRoot ?? deps.modelRoot;
   const projectHarnessRoot = deps.projectHarnessRoot ?? deps.harnessRoot;
 

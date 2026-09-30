@@ -86,6 +86,14 @@ test("work request API persists idempotent queue entries and exposes claims", as
     tree: [{ id: "root", kind: "root", title: "Queue", status: "planned", runIds: [], createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z" }],
     createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z",
   });
+  const rawBackslash = await routeWebControlPlaneRequest({
+    method: "POST",
+    path: "/api/projects/project-queue/work-requests",
+    rawPath: "/api/projects\\project-queue/work-requests",
+    headers: { authorization: "Bearer secret-token" },
+    body: { title: "Must not be created", objective: "Raw path boundary", idempotencyKey: "raw-path-queue" },
+  }, deps);
+  assert.equal(rawBackslash.status, 404);
   const create = await routeWebControlPlaneRequest({ method: "POST", path: "/api/projects/project-queue/work-requests", headers: { authorization: "Bearer secret-token" }, body: { title: "Implement queue", objective: "Build durable queue", idempotencyKey: "queue-1" } }, deps);
   assert.equal(create.status, 201);
   const repeat = await routeWebControlPlaneRequest({ method: "POST", path: "/api/projects/project-queue/work-requests", headers: { authorization: "Bearer secret-token" }, body: { title: "Implement queue", objective: "Build durable queue", idempotencyKey: "queue-1" } }, deps);
