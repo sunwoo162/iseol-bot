@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { ChannelType, Client, Guild, TextChannel } from "discord.js";
+import { withDurableFileStateLock } from "./file-state-lock.js";
 import { listProjects, type StoredProject } from "./projects.js";
 import { seoulDateKey } from "./voice-time.js";
 
@@ -28,86 +29,107 @@ type DailyScrumData = {
   reminderDates: Record<string, string>;
 };
 
-let updateQueue: Promise<void> = Promise.resolve();
-
 function emptyData(): DailyScrumData {
   return { records: [], reminderDates: {} };
 }
 
-async function readData(): Promise<DailyScrumData> {
-  try {
-    const parsed = JSON.parse(await readFile(DATA_FILE, "utf8")) as Partial<DailyScrumData>;
-    return {
-      records: parsed.records ?? [],
-      reminderDates: parsed.reminderDates ?? {},
-    };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyData();
-    throw error;
+export class DailyScrumStore {
+  constructor(private readonly file = DATA_FILE) {}
+
+  private async readData(): Promise<DailyScrumData> {
+    try {
+      const parsed = JSON.parse(await readFile(this.file, "utf8")) as Partial<DailyScrumData>;
+      return {
+        records: parsed.records ?? [],
+        reminderDates: parsed.reminderDates ?? {},
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyData();
+      throw error;
+    }
+  }
+
+  private async writeData(data: DailyScrumData): Promise<void> {
+    await mkdir(dirname(this.file), { recursive: true });
+    await writeFile(this.file, JSON.stringify(data, null, 2), "utf8");
+  }
+
+  private updateData<T>(updater: (data: DailyScrumData) => T | Promise<T>): Promise<T> {
+    return withDurableFileStateLock(this.file, async () => {
+      const data = await this.readData();
+      const result = await updater(data);
+      await this.writeData(data);
+      return result;
+    }, { waitForMs: 2_000 });
+  }
+
+  async getRecord(projectId: string, userId: string, date: string): Promise<DailyScrumRecord | null> {
+    return withDurableFileStateLock(this.file, async () => {
+      const data = await this.readData();
+      return data.records.find((record) =>
+        record.projectId === projectId
+        && record.userId === userId
+        && record.date === date,
+      ) ?? null;
+    }, { waitForMs: 2_000 });
+  }
+
+  saveRecord(record: DailyScrumRecord): Promise<void> {
+    return this.updateData((data) => {
+      const index = data.records.findIndex((item) =>
+        item.projectId === record.projectId
+        && item.userId === record.userId
+        && item.date === record.date,
+      );
+
+      if (index >= 0) data.records[index] = record;
+      else data.records.push(record);
+    });
+  }
+
+  clearProject(projectId: string): Promise<number> {
+    return this.updateData((data) => {
+      const before = data.records.length;
+      data.records = data.records.filter((record) => record.projectId !== projectId);
+      delete data.reminderDates[projectId];
+      return before - data.records.length;
+    });
+  }
+
+  async isReminderSent(projectId: string, date: string): Promise<boolean> {
+    return withDurableFileStateLock(this.file, async () => {
+      const data = await this.readData();
+      return data.reminderDates[projectId] === date;
+    }, { waitForMs: 2_000 });
+  }
+
+  markReminderSent(projectId: string, date: string): Promise<void> {
+    return this.updateData((data) => {
+      data.reminderDates[projectId] = date;
+    });
   }
 }
 
-async function writeData(data: DailyScrumData): Promise<void> {
-  await mkdir(dirname(DATA_FILE), { recursive: true });
-  await writeFile(DATA_FILE, JSON.stringify(data, null, 2), "utf8");
-}
-
-async function updateData<T>(updater: (data: DailyScrumData) => T | Promise<T>): Promise<T> {
-  let result!: T;
-  let caught: unknown;
-
-  updateQueue = updateQueue.then(async () => {
-    try {
-      const data = await readData();
-      result = await updater(data);
-      await writeData(data);
-    } catch (error) {
-      caught = error;
-    }
-  });
-
-  await updateQueue;
-  if (caught) throw caught;
-  return result;
-}
+const defaultDailyScrumStore = new DailyScrumStore();
 
 export function previousSeoulDateKey(date = new Date()): string {
   return seoulDateKey(new Date(date.getTime() - DAY_MS));
 }
 
-export async function getDailyScrumRecord(
+export function getDailyScrumRecord(
   projectId: string,
   userId: string,
   date: string,
 ): Promise<DailyScrumRecord | null> {
-  const data = await readData();
-  return data.records.find((record) =>
-    record.projectId === projectId
-    && record.userId === userId
-    && record.date === date,
-  ) ?? null;
+  return defaultDailyScrumStore.getRecord(projectId, userId, date);
 }
 
-export async function saveDailyScrumRecord(record: DailyScrumRecord): Promise<void> {
-  await updateData((data) => {
-    const index = data.records.findIndex((item) =>
-      item.projectId === record.projectId
-      && item.userId === record.userId
-      && item.date === record.date,
-    );
-
-    if (index >= 0) data.records[index] = record;
-    else data.records.push(record);
-  });
+export function saveDailyScrumRecord(record: DailyScrumRecord): Promise<void> {
+  return defaultDailyScrumStore.saveRecord(record);
 }
 
-export async function clearDailyScrumProject(projectId: string): Promise<number> {
-  return updateData((data) => {
-    const before = data.records.length;
-    data.records = data.records.filter((record) => record.projectId !== projectId);
-    delete data.reminderDates[projectId];
-    return before - data.records.length;
-  });
+export function clearDailyScrumProject(projectId: string): Promise<number> {
+  return defaultDailyScrumStore.clearProject(projectId);
 }
 
 export async function findDailyScrumChannel(
@@ -124,14 +146,11 @@ export async function findDailyScrumChannel(
 }
 
 async function reminderAlreadySent(projectId: string, date: string): Promise<boolean> {
-  const data = await readData();
-  return data.reminderDates[projectId] === date;
+  return defaultDailyScrumStore.isReminderSent(projectId, date);
 }
 
 async function markReminderSent(projectId: string, date: string): Promise<void> {
-  await updateData((data) => {
-    data.reminderDates[projectId] = date;
-  });
+  await defaultDailyScrumStore.markReminderSent(projectId, date);
 }
 
 export async function sendDailyScrumReminders(client: Client, now = new Date()): Promise<void> {
