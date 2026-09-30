@@ -97,3 +97,26 @@ test("rejects unsafe sandbox paths, malformed args, non-positive timeout, and un
   assert.throws(() => resolveIdeaLabRuntimeConfig(enabledEnv({ ISEOL_IDEA_LAB_REPOSITORY_URL: "git@github.com:example/repo.git" }), roots), /repository url/i);
   assert.throws(() => resolveIdeaLabRuntimeConfig(enabledEnv({ ISEOL_IDEA_LAB_REPOSITORY_URL: "https://example.com/repo.git" }), roots), /repository url/i);
 });
+
+test("runtime config enforces canonical GitHub repository identities and preserves valid scheme/suffix casing", () => {
+  for (const repositoryUrl of [
+    "https://github.com/example/repo?redirect=private",
+    "https://github.com/example/repo#private",
+    "https://github.com/example/repo%5C.git",
+    "https://github.com/example/repo%2Fextra",
+    "https://github.com/example/.git",
+    "https://github.com/example/repo\\git",
+  ]) {
+    assert.throws(
+      () => resolveIdeaLabRuntimeConfig(enabledEnv({ ISEOL_IDEA_LAB_REPOSITORY_URL: repositoryUrl }), roots),
+      /repository url|GitHub 저장소/i,
+    );
+  }
+
+  const config = resolveIdeaLabRuntimeConfig(
+    enabledEnv({ ISEOL_IDEA_LAB_REPOSITORY_URL: "HTTPS://github.com/example/repo.GIT" }),
+    roots,
+  );
+  assert.equal(config.enabled, true);
+  if (config.enabled) assert.equal(config.repositoryUrl, "HTTPS://github.com/example/repo.GIT");
+});
