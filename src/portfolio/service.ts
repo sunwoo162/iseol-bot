@@ -76,7 +76,14 @@ export function createPortfolioService(root: string, options: PortfolioServiceOp
         if (!entry || entry.visibility === "private") return null;
         const evidence = await collectEvidence({ userId: entry.userId, sessionId: "public-portfolio", roles: ["user"] });
         const evidenceById = new Map(evidence.map((item) => [item.id, item]));
-        return { entry, evidence: entry.evidenceIds.map((id) => evidenceById.get(id)).filter((item): item is PortfolioEvidence => Boolean(item && item.verificationStatus === "verified")).map(({ projectId: _projectId, reportId: _reportId, ...item }) => item) };
+        const { userId: _userId, evidenceIds: _evidenceIds, ...publicEntry } = entry;
+        return {
+          entry: publicEntry,
+          evidence: entry.evidenceIds
+            .map((id) => evidenceById.get(id))
+            .filter((item): item is PortfolioEvidence => Boolean(item && item.verificationStatus === "verified"))
+            .map(({ sourceId: _sourceId, projectId: _projectId, reportId: _reportId, ...item }) => item),
+        };
       }, { waitForMs: 2_000 });
     },
   };
