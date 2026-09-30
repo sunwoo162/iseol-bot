@@ -4849,3 +4849,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `5d22bc3 fix: synchronize ChatGPT browser diagnostics`; merged by PR #300 with merge commit `8a8f7cc`.
 - Boundary: same-host/shared-root ChatGPT diagnostic JSONL synchronization only; browser lifecycle journal, live ChatGPT interaction, external provider quality, operational Runtime/Agent throughput, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-30 continuation: durable ChatGPT browser lifecycle journal
+
+- Status: **B — ChatGPT browser lifecycle journal read-trim-write updates now coordinate through a path-scoped durable lock in addition to the existing process-local queue, while live browser/provider execution remains unverified**. The journal still retains only the latest bounded records.
+- Evidence: `src/services/file-state-lock.ts`, `src/chatgpt-web/playwright-browser-backend.ts`, and `tests/chatgpt-browser-lifecycle-lock.test.ts`.
+- TDD: RED reproduced lifecycle journal creation while the durable file lock was held; GREEN placed the latest-journal read, bounded trim, and write inside the shared durable lock.
+- Verification: Browser lifecycle lock focused regression `1/1`; Playwright backend focused regression `22/22`; serial existing full test suite `754/754`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `9104a16 fix: synchronize ChatGPT browser lifecycle journal`; merged by PR #302 with merge commit `26938bc`.
+- Boundary: same-host/shared-root ChatGPT browser lifecycle journal synchronization only; live ChatGPT interaction, external provider quality, operational Runtime/Agent throughput, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
