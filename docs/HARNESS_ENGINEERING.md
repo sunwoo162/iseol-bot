@@ -71,3 +71,9 @@ The effective Run policy is the ordered combination of this global document and 
 - The GitHub-linked commit feed sync is one external side-effect transaction across state read, Discord commit-log publication, and seen-event/commit persistence.
 - A durable sync lock must cover the entire feed run so separate bot processes cannot publish the same linked commit before either process records its seen state.
 - The existing in-process polling guard is complementary; it does not replace the durable lock required for multi-process deployment.
+
+## GitHub automation polling synchronization
+
+- GitHub automation polling treats PR review publication, milestone calendar synchronization, and poll-state persistence as one multi-process synchronization boundary.
+- The durable sync lock must cover the complete polling run, while the existing in-process `running` guard remains a fast local optimization rather than the correctness boundary.
+- A waiting or restarted poll must observe the persisted poll state after the previous run releases the lock before producing further external side effects.
