@@ -10,6 +10,7 @@ import { withDurableLearningActionLock } from "./action-lock.js";
 import { withDurableLearningAnswerLock } from "./answer-lock.js";
 import { withDurableLearningFeedbackLock } from "./feedback-lock.js";
 import { withDurableLearningFeedbackDisputeLock } from "./feedback-dispute-lock.js";
+import { withDurableLearningReviewLock } from "./review-lock.js";
 
 type LearningKind = "goals" | "plans" | "plan-versions" | "interpretations" | "sessions" | "attempts" | "reviews" | "analyses" | "coding-exercises" | "coding-attempts" | "content-requests" | "actions" | "answers" | "feedback" | "disputes" | "adjustments" | "project-proposals" | "links" | "reports";
 function directory(root: string, userId: string, kind: LearningKind): string { assertIdentityId(userId); return resolve(root, "users", userId, "learning", kind); }
@@ -230,9 +231,26 @@ export async function listLearningFeedbackDisputes(root: string, userId: string)
 }
 export const saveAttempt = (root: string, value: StudyAttempt) => saveJson(pathFor(root, value.userId, "attempts", value.id), value);
 export const listAttempts = (root: string, userId: string) => listJson<StudyAttempt>(root, userId, "attempts");
-export const saveReview = (root: string, value: ReviewItem) => saveJson(pathFor(root, value.userId, "reviews", value.id), value);
-export const loadReview = (root: string, userId: string, id: string) => loadJson<ReviewItem>(pathFor(root, userId, "reviews", id));
-export const listReviews = (root: string, userId: string) => listJson<ReviewItem>(root, userId, "reviews");
+export const saveReviewUnlocked = (root: string, value: ReviewItem) => saveJson(pathFor(root, value.userId, "reviews", value.id), value);
+export const saveReview = (root: string, value: ReviewItem) => withDurableLearningReviewLock(root, value.userId, value.id, () => saveReviewUnlocked(root, value), { waitForMs: 2_000 });
+export const loadReviewUnlocked = (root: string, userId: string, id: string) => loadJson<ReviewItem>(pathFor(root, userId, "reviews", id));
+export async function loadReview(root: string, userId: string, id: string): Promise<ReviewItem | null> {
+  const candidate = await loadReviewUnlocked(root, userId, id);
+  return candidate ? withDurableLearningReviewLock(root, userId, candidate.id, () => loadReviewUnlocked(root, userId, id), { waitForMs: 2_000 }) : null;
+}
+export const listReviewsUnlocked = (root: string, userId: string) => listJson<ReviewItem>(root, userId, "reviews");
+export async function listReviews(root: string, userId: string): Promise<ReviewItem[]> {
+  const candidates = await listReviewsUnlocked(root, userId);
+  const result: ReviewItem[] = [];
+  for (const candidate of candidates) {
+    try { assertIdentityId(candidate.id); } catch { continue; }
+    await withDurableLearningReviewLock(root, userId, candidate.id, async () => {
+      const current = await loadReviewUnlocked(root, userId, candidate.id);
+      if (current?.userId === userId && current.id === candidate.id) result.push(current);
+    }, { waitForMs: 2_000 });
+  }
+  return result;
+}
 export const saveAnalysis = (root: string, value: CodeAnalysisResult) => saveJson(pathFor(root, value.userId, "analyses", value.id), value);
 export const loadAnalysis = (root: string, userId: string, id: string) => loadJson<CodeAnalysisResult>(pathFor(root, userId, "analyses", id));
 export const saveCodingExercise = (root: string, value: CodingExercise) => saveJson(pathFor(root, value.userId, "coding-exercises", value.id), value);
