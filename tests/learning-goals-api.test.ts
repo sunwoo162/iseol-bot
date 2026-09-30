@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { createLearningService } from "../src/learning/service.js";
+import { routeLearningRequest } from "../src/learning/router.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
 
@@ -48,6 +49,14 @@ test("learning goal API stores the required input and does not expose another us
     assert.equal(encodedSlashPlanPreview.status, 404);
     const encodedSlashPlanList = await fetch(`${url}/api/user/learning/goals/${goal.id}%2Fplans`, { headers: headersA });
     assert.equal(encodedSlashPlanList.status, 404);
+    const rawBackslashPlanPreview = await routeLearningRequest({
+      method: "POST",
+      path: `/api/user/learning/goals/${goal.id}/plan-preview`,
+      rawPath: `/api/user/learning/goals/${goal.id}\\plan-preview`,
+      headers: headersA,
+      body: { expectedRevision: goal.revision },
+    }, { platformUserService: platform, learningService: learning });
+    assert.equal(rawBackslashPlanPreview.status, 404);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }

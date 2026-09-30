@@ -3,6 +3,7 @@ import type { PlatformUserService } from "../platform-user/contracts.js";
 export type UserRequest = {
   method: string;
   path: string;
+  rawPath?: string;
   headers: Record<string, string | undefined>;
   body?: unknown;
 };

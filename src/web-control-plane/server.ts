@@ -410,6 +410,7 @@ async function handleRequest(
     const userRequest = {
       method: req.method ?? "GET",
       path: `${url.pathname}${url.search}`,
+      rawPath: req.url ?? "/",
       headers: headerRecord(req.headers),
       ...(body === undefined ? {} : { body }),
     };
