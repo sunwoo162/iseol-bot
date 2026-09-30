@@ -161,3 +161,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Startup and post-command project discussion repair shares the project deletion lock keyed by guild and project ID.
 - Repair re-reads the stored project after acquiring that lock and skips channel creation when deletion has already removed the project.
 - The Discord category/channel ensure lock remains nested for channel-level duplicate prevention, while the lifecycle lock coordinates repair with project deletion.
+
+## Scrum channel creation synchronization
+
+- `/scrum create` shares the project deletion lock keyed by guild and project ID before entering its daily-scrum channel ensure lock.
+- The command re-reads the project after acquiring the lifecycle lock and exits before Discord channel creation when deletion has already completed.
+- The nested channel lock still deduplicates concurrent scrum requests for a live project, while the outer lifecycle lock coordinates creation with project deletion.
