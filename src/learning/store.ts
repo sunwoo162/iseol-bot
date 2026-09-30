@@ -17,6 +17,7 @@ import { withDurableLearningPlanAdjustmentLock } from "./plan-adjustment-lock.js
 import { withDurableLearningLinkLock } from "./link-lock.js";
 import { withDurableLearningCodingAttemptLock } from "./coding-attempt-lock.js";
 import { withDurableLearningPlanLock } from "./plan-lock.js";
+import { withDurableLearningCodingExerciseLock } from "./coding-exercise-lock.js";
 
 type LearningKind = "goals" | "plans" | "plan-versions" | "interpretations" | "sessions" | "attempts" | "reviews" | "analyses" | "coding-exercises" | "coding-attempts" | "content-requests" | "actions" | "answers" | "feedback" | "disputes" | "adjustments" | "project-proposals" | "links" | "reports";
 function directory(root: string, userId: string, kind: LearningKind): string { assertIdentityId(userId); return resolve(root, "users", userId, "learning", kind); }
@@ -318,9 +319,29 @@ export async function listReviews(root: string, userId: string): Promise<ReviewI
 }
 export const saveAnalysis = (root: string, value: CodeAnalysisResult) => saveJson(pathFor(root, value.userId, "analyses", value.id), value);
 export const loadAnalysis = (root: string, userId: string, id: string) => loadJson<CodeAnalysisResult>(pathFor(root, userId, "analyses", id));
-export const saveCodingExercise = (root: string, value: CodingExercise) => saveJson(pathFor(root, value.userId, "coding-exercises", value.id), value);
-export const loadCodingExercise = (root: string, userId: string, id: string) => loadJson<CodingExercise>(pathFor(root, userId, "coding-exercises", id));
-export const listCodingExercises = (root: string, userId: string) => listJson<CodingExercise>(root, userId, "coding-exercises");
+export const saveCodingExerciseUnlocked = (root: string, value: CodingExercise) => saveJson(pathFor(root, value.userId, "coding-exercises", value.id), value);
+export const saveCodingExercise = (root: string, value: CodingExercise) => withDurableLearningCodingExerciseLock(root, value.userId, value.id, () => saveCodingExerciseUnlocked(root, value), { waitForMs: 2_000 });
+export const loadCodingExerciseUnlocked = (root: string, userId: string, id: string) => loadJson<CodingExercise>(pathFor(root, userId, "coding-exercises", id));
+export async function loadCodingExercise(root: string, userId: string, id: string): Promise<CodingExercise | null> {
+  const candidate = await loadCodingExerciseUnlocked(root, userId, id);
+  if (!candidate || candidate.userId !== userId) return null;
+  try { assertIdentityId(candidate.id); }
+  catch { return null; }
+  return withDurableLearningCodingExerciseLock(root, userId, candidate.id, () => loadCodingExerciseUnlocked(root, userId, id), { waitForMs: 2_000 });
+}
+export const listCodingExercisesUnlocked = (root: string, userId: string) => listJson<CodingExercise>(root, userId, "coding-exercises");
+export async function listCodingExercises(root: string, userId: string): Promise<CodingExercise[]> {
+  const candidates = await listCodingExercisesUnlocked(root, userId);
+  const result: CodingExercise[] = [];
+  for (const candidate of candidates) {
+    try { assertIdentityId(candidate.id); } catch { continue; }
+    await withDurableLearningCodingExerciseLock(root, userId, candidate.id, async () => {
+      const current = await loadCodingExerciseUnlocked(root, userId, candidate.id);
+      if (current?.userId === userId && current.id === candidate.id) result.push(current);
+    }, { waitForMs: 2_000 });
+  }
+  return result;
+}
 export const saveCodingAttemptUnlocked = (root: string, value: CodingAttempt) => saveJson(pathFor(root, value.userId, "coding-attempts", value.id), value);
 export const saveCodingAttempt = (root: string, value: CodingAttempt) => withDurableLearningCodingAttemptLock(root, value.userId, value.exerciseId, value.clientRequestId, () => saveCodingAttemptUnlocked(root, value), { waitForMs: 2_000 });
 export const loadCodingAttemptUnlocked = (root: string, userId: string, id: string) => loadJson<CodingAttempt>(pathFor(root, userId, "coding-attempts", id));
