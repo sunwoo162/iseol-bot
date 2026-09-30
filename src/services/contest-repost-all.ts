@@ -1,7 +1,6 @@
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import { Client, PermissionFlagsBits, TextChannel } from "discord.js";
 import {
+  ContestFeedStore,
   contestVoteComponents,
   contestVoteEmbed,
   getEligibleHumans,
@@ -9,24 +8,10 @@ import {
   type ContestAudienceFilter,
 } from "./contest-feed.js";
 import { matchesStrictContestAudience } from "./contest-audience-match.js";
+import { ContestAudienceFeedStore } from "./contest-audience-feed.js";
 import { createContestVoteId, saveContestVote } from "./contest-votes.js";
 import { resolveContestDeadline, seoulDateKey } from "./contest-time.js";
 import { listActiveItContests, type Contest } from "./contests.js";
-
-const CONTEST_FEED_FILE = resolve(process.cwd(), "data", "contest-feed.json");
-const CONTEST_AUDIENCE_FILE = resolve(process.cwd(), "data", "contest-audience-feeds.json");
-
-type ContestFeedState = {
-  guildId: string;
-  channelId: string;
-  audienceFilter?: ContestAudienceFilter;
-};
-
-type ContestAudienceFeedState = {
-  guildId: string;
-  channelId: string;
-  audienceFilter: ContestAudienceFilter;
-};
 
 type RepostTarget = {
   channelId: string;
@@ -39,19 +24,14 @@ export type RepostAllResult = {
   postedCount: number;
 };
 
-async function readJson<T>(path: string, fallback: T): Promise<T> {
-  try {
-    return JSON.parse(await readFile(path, "utf8")) as T;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return fallback;
-    throw error;
-  }
-}
-
-async function listRepostTargets(guildId: string): Promise<RepostTarget[]> {
+export async function listRepostTargets(
+  guildId: string,
+  contestFeedStore = new ContestFeedStore(),
+  contestAudienceFeedStore = new ContestAudienceFeedStore(),
+): Promise<RepostTarget[]> {
   const [feeds, audienceFeeds] = await Promise.all([
-    readJson<ContestFeedState[]>(CONTEST_FEED_FILE, []),
-    readJson<ContestAudienceFeedState[]>(CONTEST_AUDIENCE_FILE, []),
+    contestFeedStore.list(),
+    contestAudienceFeedStore.list(),
   ]);
 
   const targets = new Map<string, RepostTarget>();
