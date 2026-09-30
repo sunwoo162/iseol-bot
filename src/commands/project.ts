@@ -21,7 +21,7 @@ import { recordStoredProjectAction } from "../discord-project/history-recorder.j
 import { loadHarnessRunUnlocked } from "../harness/run-store.js";
 import { listProjectWorkspaces, loadProjectWorkspace } from "../project-model/workspace-store.js";
 import { calendarPanel } from "../services/calendar/calendar-discord.js";
-import { CalendarStateStore } from "../services/calendar/calendar-state.js";
+import { CalendarStateStore, clearCalendarProjectState } from "../services/calendar/calendar-state.js";
 import { clearDailyScrumProject } from "../services/daily-scrum.js";
 import { GoogleCalendarService } from "../services/calendar/google-calendar.js";
 import { FigmaWebhookService, parseFigmaFile } from "../services/figma.js";
@@ -217,7 +217,6 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
           try {
             await new GoogleCalendarService(config.googleClientId, config.googleClientSecret, config.googleRefreshToken, config.googleRedirectUri)
               .deleteProjectCalendar(project.calendarId);
-            await new CalendarStateStore().removeProject(project.id);
           } catch (error) {
             console.warn(`Google Calendar 삭제 실패 (${project.name}):`, error);
             warnings.push("Google Calendar");
@@ -275,6 +274,13 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
     } catch (error) {
       console.warn(`GitHub automation polling state cleanup failed (${deletedProject.name}):`, error);
       warnings.push("GitHub automation polling state");
+    }
+
+    try {
+      await clearCalendarProjectState(deletedProject.id);
+    } catch (error) {
+      console.warn(`Calendar state cleanup failed (${deletedProject.name}):`, error);
+      warnings.push("Calendar state");
     }
 
     const warningText = warnings.length > 0
