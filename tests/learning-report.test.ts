@@ -6,7 +6,7 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createLearningService } from "../src/learning/service.js";
 import { withDurableLearningReportLock } from "../src/learning/report-lock.js";
-import { saveLearningReport } from "../src/learning/store.js";
+import { saveLearningReportUnlocked } from "../src/learning/store.js";
 
 const at = "2026-09-27T12:00:00.000Z";
 function principal(userId: string): Principal { return { userId, sessionId: `${userId}-session`, roles: ["user"] }; }
@@ -58,7 +58,7 @@ test("learning report lists wait for each durable report lock before projecting 
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(settled, false);
 
-  await saveLearningReport(root, { ...report.report, summary: "잠금 해제 후 리포트", updatedAt: "2026-09-27T12:00:01.000Z" });
+  await saveLearningReportUnlocked(root, { ...report.report, summary: "잠금 해제 후 리포트", updatedAt: "2026-09-27T12:00:01.000Z" });
   releaseHolder();
   await lockHeld;
   assert.equal((await read)[0]?.summary, "잠금 해제 후 리포트");
