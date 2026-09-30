@@ -8,6 +8,7 @@ import { clearMusicRuntime } from "./music.js";
 import { leaveGuildVoiceChannel } from "./voice-connection.js";
 import { stopStudySessionsForGuild } from "./voice-time.js";
 import { withDurableFileStateLock } from "./file-state-lock.js";
+import { clearCalendarProjectState } from "./calendar/calendar-state.js";
 import { clearGitHubAutomationPollingProject } from "./github-automation-poll-state.js";
 import { clearGitHubCommitFeedProject } from "./github-commit-feed.js";
 import { withProjectGuildLifecycleLock } from "./projects.js";
@@ -164,6 +165,12 @@ export async function resetGuildState(guild: Guild): Promise<GuildResetSummary> 
       await clearGitHubAutomationPollingProject(projectId);
     } catch (error) {
       warnings.push(`GitHub automation polling state 삭제 실패 (${projectId}): ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+    }
+
+    try {
+      await clearCalendarProjectState(projectId);
+    } catch (error) {
+      warnings.push(`Calendar state 삭제 실패 (${projectId}): ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
     }
   }
 
