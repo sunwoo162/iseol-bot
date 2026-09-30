@@ -1,4 +1,5 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { parseGitHubRepository } from "../services/github.js";
 
 type EnvLike = Record<string, string | undefined>;
 
@@ -63,7 +64,12 @@ export function resolveIdeaLabRuntimeConfig(env: EnvLike, roots: IdeaLabRuntimeR
   if (deploymentMode !== "vercel" && deploymentMode !== "local-preview") {
     throw new Error("ISEOL_IDEA_LAB_DEPLOYMENT_MODE must be vercel or local-preview");
   }
-  if (!/^https:\/\/github\.com\/[^/]+\/[^/]+(?:\.git)?\/?$/.test(repositoryUrl)) {
+  if (!/^https:\/\//i.test(repositoryUrl)) {
+    throw new Error("ISEOL_IDEA_LAB_REPOSITORY_URL must be a GitHub HTTPS repository URL");
+  }
+  try {
+    parseGitHubRepository(repositoryUrl);
+  } catch {
     throw new Error("ISEOL_IDEA_LAB_REPOSITORY_URL must be a GitHub HTTPS repository URL");
   }
   if (!insideOrEqual(sandboxRoot, repositoryRoot)) throw new Error("repositoryRoot must be inside sandboxRoot");
