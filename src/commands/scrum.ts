@@ -288,22 +288,30 @@ async function handleDeleteScrumChannel(interaction: ChatInputCommandInteraction
     return;
   }
 
-  const channel = await findDailyScrumChannel(interaction.guild, project);
-  if (!channel) {
-    await interaction.editReply(`ℹ️ **${project.name}** 프로젝트에는 데일리 스크럼 채널이 없습니다.`);
-    return;
-  }
+  await withProjectDeleteLock(project.guildId, project.id, async () => {
+    const current = await findProject(project.id);
+    if (!current) {
+      await interaction.editReply("❌ 이설로 생성한 프로젝트를 찾을 수 없습니다.");
+      return;
+    }
 
-  try {
-    await channel.delete(`${project.name} 데일리 스크럼 채널 사용자 삭제`);
-    const cleared = await clearDailyScrumProject(project.id);
-    await interaction.editReply(
-      `✅ **${project.name}** 데일리 스크럼 채널을 삭제했습니다.\n저장된 스크럼 기록 **${cleared.toLocaleString("ko-KR")}개**도 함께 정리했습니다.`,
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
-    await interaction.editReply(`❌ 데일리 스크럼 채널 삭제에 실패했습니다.\n\`${message}\``);
-  }
+    const channel = await findDailyScrumChannel(interaction.guild!, current);
+    if (!channel) {
+      await interaction.editReply(`ℹ️ **${current.name}** 프로젝트에는 데일리 스크럼 채널이 없습니다.`);
+      return;
+    }
+
+    try {
+      await channel.delete(`${current.name} 데일리 스크럼 채널 사용자 삭제`);
+      const cleared = await clearDailyScrumProject(current.id);
+      await interaction.editReply(
+        `✅ **${current.name}** 프로젝트의 데일리 스크럼 채널을 삭제했습니다.\n저장된 스크럼 기록 **${cleared.toLocaleString("ko-KR")}개**도 함께 정리했습니다.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      await interaction.editReply(`❌ 데일리 스크럼 채널 삭제에 실패했습니다.\n\`${message}\``);
+    }
+  });
 }
 
 async function handleWriteScrum(interaction: ChatInputCommandInteraction): Promise<void> {
