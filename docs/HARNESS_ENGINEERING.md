@@ -119,3 +119,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `/scrum create` uses the shared Discord channel ensure lock keyed by the project guild and category.
 - The command re-fetches the daily scrum channel after acquiring the lock and creates it only when still missing.
 - Channel creation, discussion-channel position adjustment, and the initial usage message are kept inside the same critical section.
+
+## Project creation synchronization
+
+- `/project create` uses a durable lock keyed by the guild and the NFKC-normalized, case-insensitive project name.
+- After acquiring the lock, the command re-reads the project store and Discord categories before creating the category, preventing duplicate project spaces across bot processes.
+- The lock remains held through category/channel setup, integration side effects, and project persistence so a concurrent request cannot begin the same external setup from an old snapshot.
