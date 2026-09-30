@@ -6,7 +6,7 @@ import type {
 } from "./contracts.js";
 import { prepareDevelopmentRun } from "./preflight.js";
 import { appendHarnessRunEvent, saveHarnessCheckpoint } from "./event-store.js";
-import { loadHarnessRun, saveHarnessRun, saveHarnessRunIfUnchangedUnlocked } from "./run-store.js";
+import { loadHarnessRunUnlocked, saveHarnessRunUnlocked, saveHarnessRunIfUnchangedUnlocked } from "./run-store.js";
 import { withDurableHarnessRunLock } from "./run-lock.js";
 import { createInitialRunState, transitionRunState } from "./state-machine.js";
 
@@ -37,7 +37,7 @@ async function createDevelopmentRunUnlocked(
     updatedAt: now,
   };
 
-  await saveHarnessRun(options.storeRoot, envelope);
+  await saveHarnessRunUnlocked(options.storeRoot, envelope);
   return envelope;
 }
 
@@ -63,7 +63,7 @@ export type RefreshDevelopmentRunPreflightOptions = {
 async function refreshDevelopmentRunPreflightUnlocked(
   options: RefreshDevelopmentRunPreflightOptions,
 ): Promise<HarnessRuntimeRunEnvelope> {
-  const run = await loadHarnessRun(options.storeRoot, options.runId);
+  const run = await loadHarnessRunUnlocked(options.storeRoot, options.runId);
   if (!run) throw new Error(`Harness Run not found: ${options.runId}`);
   if (run.state.stage !== "CONTEXT" || run.state.status !== "READY") {
     throw new Error(`Harness preflight refresh requires READY CONTEXT, got ${run.state.status} ${run.state.stage}`);
@@ -76,7 +76,7 @@ async function refreshDevelopmentRunPreflightUnlocked(
     ? { ...run.state, updatedAt: at }
     : { version: 1, stage: "PREFLIGHT", status: "BLOCKED_USER", completedStages: [], skippedStages: [], updatedAt: at, reason: preflight.reason ?? "Harness preflight refresh blocked" };
   const refreshed: HarnessRuntimeRunEnvelope = { ...run, preflight, state, updatedAt: at };
-  await saveHarnessRun(options.storeRoot, refreshed);
+  await saveHarnessRunUnlocked(options.storeRoot, refreshed);
   return refreshed;
 }
 
@@ -101,7 +101,7 @@ async function resumeHarnessRunUnlocked(
   runId: string,
   at: string,
 ): Promise<HarnessRuntimeRunEnvelope> {
-  const current = await loadHarnessRun(storeRoot, runId);
+  const current = await loadHarnessRunUnlocked(storeRoot, runId);
   if (!current) throw new Error(`Harness Run not found: ${runId}`);
   const resumed: HarnessRuntimeRunEnvelope = {
     ...current,
@@ -157,7 +157,7 @@ async function pauseHarnessRunUnlocked(
   at: string,
   reason = "Run paused at the user checkpoint",
 ): Promise<HarnessRuntimeRunEnvelope> {
-  const current = await loadHarnessRun(storeRoot, runId);
+  const current = await loadHarnessRunUnlocked(storeRoot, runId);
   if (!current) throw new Error(`Harness Run not found: ${runId}`);
   const paused: HarnessRuntimeRunEnvelope = {
     ...current,

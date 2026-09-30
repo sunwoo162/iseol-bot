@@ -61,12 +61,22 @@ async function writeNormalizedRun(root: string, normalized: HarnessRuntimeRunEnv
   }
 }
 
-export async function saveHarnessRun(root: string, envelope: HarnessRunEnvelope): Promise<void> {
+export async function saveHarnessRunUnlocked(root: string, envelope: HarnessRunEnvelope): Promise<void> {
   const normalized = normalizeHarnessRunEnvelope(envelope);
   await serializeRunWrite(root, normalized.request.runId, () => writeNormalizedRun(root, normalized));
 }
 
-export async function loadHarnessRun(
+export async function saveHarnessRun(root: string, envelope: HarnessRunEnvelope): Promise<void> {
+  const normalized = normalizeHarnessRunEnvelope(envelope);
+  await serializeRunWrite(root, normalized.request.runId, () => withDurableHarnessRunLock(
+    root,
+    normalized.request.runId,
+    () => writeNormalizedRun(root, normalized),
+    { waitForMs: 2_000 },
+  ));
+}
+
+export async function loadHarnessRunUnlocked(
   root: string,
   runId: string,
 ): Promise<HarnessRuntimeRunEnvelope | null> {
@@ -78,6 +88,18 @@ export async function loadHarnessRun(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function loadHarnessRun(
+  root: string,
+  runId: string,
+): Promise<HarnessRuntimeRunEnvelope | null> {
+  return withDurableHarnessRunLock(
+    root,
+    runId,
+    () => loadHarnessRunUnlocked(root, runId),
+    { waitForMs: 2_000 },
+  );
 }
 
 export async function listHarnessRuns(root: string): Promise<HarnessRuntimeRunEnvelope[]> {
@@ -106,7 +128,7 @@ export async function requestHarnessRunRetry(
 ): Promise<HarnessRunRetryResult> {
   return serializeRunWrite(root, runId, () =>
     withDurableHarnessRunLock(root, runId, async () => {
-      const current = await loadHarnessRun(root, runId);
+      const current = await loadHarnessRunUnlocked(root, runId);
       if (!current) return { status: "not-allowed", reason: "Run not found" };
       if (current.retry?.status === "active") return { status: "already-active", run: current };
       if (current.state.status !== "FAILED_FINAL") return { status: "not-allowed", reason: "Run is not terminal FAILED_FINAL" };
@@ -167,7 +189,7 @@ export async function saveHarnessRunIfUnchangedUnlocked(
   expectedRun: HarnessRuntimeRunEnvelope,
   nextRun: HarnessRuntimeRunEnvelope,
 ): Promise<boolean> {
-  const current = await loadHarnessRun(root, expectedRun.request.runId);
+  const current = await loadHarnessRunUnlocked(root, expectedRun.request.runId);
   if (!current || JSON.stringify(current) !== JSON.stringify(expectedRun)) return false;
   await writeNormalizedRun(root, nextRun);
   return true;
