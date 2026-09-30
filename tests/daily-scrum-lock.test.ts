@@ -83,6 +83,7 @@ test("daily scrum reminder delivery is once-per-project-and-date across concurre
   const dependencies = {
     store,
     listProjects: async () => [project],
+    findProject: async () => project,
     findChannel: async () => channel,
   };
   const client = {
@@ -122,6 +123,7 @@ test("daily scrum reminder remains retryable when Discord delivery fails", async
   const dependencies = {
     store,
     listProjects: async () => [project],
+    findProject: async () => project,
     findChannel: async () => channel,
   };
   const client = {
