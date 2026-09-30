@@ -32,9 +32,14 @@ function formatPageId(value: string): string {
 }
 
 export function parseNotionPage(input: string): NotionPageRef {
+  const raw = input.trim();
+  if (!raw || raw.includes("\\") || /%5c/i.test(raw)) {
+    throw new Error("Notion 링크 형식이 올바르지 않습니다.");
+  }
+
   let url: URL;
   try {
-    url = new URL(input.trim());
+    url = new URL(raw);
   } catch {
     throw new Error("Notion 링크 형식이 올바르지 않습니다.");
   }
@@ -46,7 +51,7 @@ export function parseNotionPage(input: string): NotionPageRef {
     || host === "notion.site"
     || host.endsWith(".notion.site");
 
-  if (url.protocol !== "https:" || !validHost) {
+  if (url.protocol !== "https:" || !validHost || url.username || url.password || url.port) {
     throw new Error("Notion 링크는 실제 notion.so, app.notion.com 또는 notion.site 페이지 링크여야 합니다.");
   }
 
