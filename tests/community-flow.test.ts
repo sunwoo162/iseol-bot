@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AddressInfo } from "node:net";
 import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createCommunityService } from "../src/community/service.js";
+import { routeCommunityRequest } from "../src/community/router.js";
 import { withDurableCommunityLikeLock } from "../src/community/like-lock.js";
 import { saveLikeUnlocked } from "../src/community/store.js";
 import { createNotificationService } from "../src/notifications/service.js";
 import { createSettingsService } from "../src/settings/service.js";
+import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
 
 const at = "2026-09-26T00:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
@@ -134,4 +138,39 @@ test("concurrent community like toggles across service instances serialize per v
   const finalPost = (await firstService.listPosts(principal("like-viewer")))[0];
   assert.equal(finalPost?.viewerLiked, false);
   assert.equal(finalPost?.likeCount, 0);
+});
+
+test("community routes reject malformed ids and raw backslash normalization before mutation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-community-router-paths-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  const user = await users.createUser({ id: "community-router-user", email: "community-router@example.com", displayName: "Community Router", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-27T00:00:00.000Z" });
+  const community = createCommunityService(platformRoot, { platformUserService: users, now: () => at });
+  const post = await community.createPost(principal(user.id), { category: "질문 · 답변", title: "경로 경계 테스트", content: "경로 디코딩 경계를 확인합니다.", tags: [] });
+  const headers = { authorization: `Bearer ${session.token}`, "content-type": "application/json" };
+  const server = await startWebControlPlaneServer({ host: "127.0.0.1", port: 0, token: "operator", modelRoot: join(root, "model"), harnessRoot: join(root, "runs"), webRoot: join(root, "web"), userService: users, communityService: community });
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  try {
+    for (const suffix of ["comments", "report", "like"]) {
+      const response = await fetch(`${baseUrl}/api/user/community/%E0%A4%A/${suffix}`, { method: suffix === "comments" ? "GET" : "POST", headers, body: suffix === "report" ? JSON.stringify({ targetType: "post", targetId: "missing", reason: "malformed" }) : undefined });
+      assert.equal(response.status, 404);
+    }
+    const directRawBackslash = await routeCommunityRequest({ method: "POST", path: `/api/user/community/${post.id}/comments`, rawPath: `/api/user\\community/${post.id}/comments`, headers, body: { content: "우회 댓글" } }, { platformUserService: users, communityService: community });
+    assert.equal(directRawBackslash.status, 404);
+    const rawBody = JSON.stringify({ content: "서버 우회 댓글" });
+    const rawServerStatus = await new Promise<number>((resolve, reject) => {
+      const rawRequest = httpRequest({ hostname: "127.0.0.1", port: address.port, method: "POST", path: `/api/user\\community/${post.id}/comments`, headers: { ...headers, "content-length": String(Buffer.byteLength(rawBody)) } }, (response) => {
+        response.resume();
+        response.on("end", () => resolve(response.statusCode ?? 0));
+      });
+      rawRequest.on("error", reject);
+      rawRequest.end(rawBody);
+    });
+    assert.equal(rawServerStatus, 404);
+    assert.equal((await community.listComments(principal(user.id), post.id)).length, 0);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
 });
