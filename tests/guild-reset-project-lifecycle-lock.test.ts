@@ -14,6 +14,8 @@ const DATA_FILES = [
   "data/music-playlists.json",
   "data/voice-study-time.json",
   "data/daily-scrum.json",
+  "data/github-commit-feed.json",
+  "data/github-automation-polling.json",
 ];
 
 function delay(ms: number): Promise<void> {
@@ -64,6 +66,55 @@ test("guild reset waits for a concurrent project deletion before fetching channe
     release();
     await Promise.all([deletion, reset]);
     assert.equal(channelsFetched, true);
+  } finally {
+    for (const file of DATA_FILES) {
+      const content = previous.get(file);
+      if (content) await writeFile(file, content);
+      else await rm(file, { force: true });
+    }
+  }
+});
+
+test("guild reset clears GitHub polling state for removed projects", async () => {
+  const previous = new Map<string, Buffer>();
+  for (const file of DATA_FILES) {
+    try { previous.set(file, await readFile(file)); } catch { /* test creates the file */ }
+  }
+
+  const project: StoredProject = {
+    id: "guild-reset-poll-state-project",
+    name: "Guild reset poll state project",
+    guildId: "guild-reset-poll-state-guild",
+    categoryId: "guild-reset-poll-state-category",
+    organization: "iseol",
+    frontend: { owner: "iseol", repo: "frontend" },
+    backend: { owner: "iseol", repo: "backend" },
+  };
+  const guild = {
+    id: project.guildId,
+    name: "Guild reset poll state",
+    channels: { fetch: async () => new Map() },
+  } as unknown as Guild;
+
+  try {
+    await writeFile("data/projects.json", JSON.stringify([project], null, 2), "utf8");
+    await writeFile("data/github-commit-feed.json", JSON.stringify([
+      { key: `${project.id}:frontend`, guildId: project.guildId, projectId: project.id, side: "frontend", seenEventIds: [], seenCommitShas: [], initializedAt: "2026-09-30T00:00:00.000Z" },
+      { key: "active-project:frontend", guildId: "other-guild", projectId: "active-project", side: "frontend", seenEventIds: [], seenCommitShas: [], initializedAt: "2026-09-30T00:00:00.000Z" },
+    ], null, 2), "utf8");
+    await writeFile("data/github-automation-polling.json", JSON.stringify({ repositories: {
+      [`${project.id}:iseol/frontend`]: { milestones: { "1": "deleted" } },
+      "active-project:iseol/frontend": { milestones: { "2": "active" } },
+    } }, null, 2), "utf8");
+
+    const summary = await resetGuildState(guild);
+    assert.equal(summary.warnings.length, 0);
+    assert.deepEqual(JSON.parse(await readFile("data/github-commit-feed.json", "utf8")), [
+      { key: "active-project:frontend", guildId: "other-guild", projectId: "active-project", side: "frontend", seenEventIds: [], seenCommitShas: [], initializedAt: "2026-09-30T00:00:00.000Z" },
+    ]);
+    assert.deepEqual(JSON.parse(await readFile("data/github-automation-polling.json", "utf8")), {
+      repositories: { "active-project:iseol/frontend": { milestones: { "2": "active" } } },
+    });
   } finally {
     for (const file of DATA_FILES) {
       const content = previous.get(file);
