@@ -85,8 +85,8 @@ export class WebProductEventBus {
     return event;
   }
 
-  async replayAfter(afterEventId?: string): Promise<WebProductEvent[]> {
-    if (!this.journalRoot || !afterEventId || !EVENT_ID_PATTERN.test(afterEventId)) return [];
+  private async loadJournalEvents(): Promise<WebProductEvent[]> {
+    if (!this.journalRoot) return [];
     let entries;
     try {
       entries = await readdir(eventDirectory(this.journalRoot), { withFileTypes: true });
@@ -106,6 +106,16 @@ export class WebProductEventBus {
       }
     }
     events.sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id));
+    return events;
+  }
+
+  async replayAll(): Promise<WebProductEvent[]> {
+    return this.loadJournalEvents();
+  }
+
+  async replayAfter(afterEventId?: string): Promise<WebProductEvent[]> {
+    if (!afterEventId || !EVENT_ID_PATTERN.test(afterEventId)) return [];
+    const events = await this.loadJournalEvents();
     const cursor = events.findIndex((event) => event.id === afterEventId);
     return cursor < 0 ? [] : events.slice(cursor + 1);
   }

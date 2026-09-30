@@ -43,3 +43,79 @@ test("bridge disconnect prevents later events from dispatching", async () => {
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(sends, 0);
 });
+
+test("bridge replays durable progress events after a restart", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-progress-bridge-replay-"));
+  const journalRoot = join(root, "event-journal");
+  const firstBus = new WebProductEventBus({ journalRoot });
+  firstBus.publish({
+    type: "run.updated",
+    scope: { projectId: "project-replay" },
+    payload: { status: "completed", change: "restarted" },
+    occurredAt: "2026-09-30T00:00:00.000Z",
+  });
+
+  const restartedBus = new WebProductEventBus({ journalRoot });
+  let sends = 0;
+  const disconnect = connectProgressEventBridge({
+    eventBus: restartedBus,
+    durableRoot: join(root, "deliveries"),
+    adapter: { send: async (notification) => { sends += 1; assert.equal(notification.projectId, "project-replay"); return { accepted: true }; } },
+  });
+
+  await waitFor(() => sends === 1);
+  disconnect();
+  assert.equal(sends, 1);
+});
+
+test("bridge replay reuses durable delivery state without sending duplicates", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-progress-bridge-replay-dedupe-"));
+  const journalRoot = join(root, "event-journal");
+  const firstBus = new WebProductEventBus({ journalRoot });
+  firstBus.publish({ type: "run.updated", scope: { projectId: "project-replay-dedupe" }, payload: { status: "completed" } });
+
+  let sends = 0;
+  const adapter = { send: async () => { sends += 1; return { accepted: true }; } };
+  const firstDisconnect = connectProgressEventBridge({ eventBus: new WebProductEventBus({ journalRoot }), durableRoot: join(root, "deliveries"), adapter });
+  await waitFor(() => sends === 1);
+  firstDisconnect();
+
+  const secondDisconnect = connectProgressEventBridge({ eventBus: new WebProductEventBus({ journalRoot }), durableRoot: join(root, "deliveries"), adapter });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  secondDisconnect();
+  assert.equal(sends, 1);
+});
+
+test("bridge subscribes before replay so a live race event is delivered once", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-progress-bridge-replay-race-"));
+  const journalRoot = join(root, "event-journal");
+  const seedBus = new WebProductEventBus({ journalRoot });
+  seedBus.publish({ type: "run.updated", scope: { projectId: "project-replay-race" }, payload: { status: "queued" }, occurredAt: "2026-09-30T00:00:00.000Z" });
+
+  let releaseReplay!: () => void;
+  let replayStarted!: () => void;
+  const replayGate = new Promise<void>((resolve) => { releaseReplay = resolve; });
+  const replayReady = new Promise<void>((resolve) => { replayStarted = resolve; });
+  class GatedEventBus extends WebProductEventBus {
+    override async replayAll() {
+      replayStarted();
+      await replayGate;
+      return super.replayAll();
+    }
+  }
+
+  const bus = new GatedEventBus({ journalRoot });
+  let sends = 0;
+  const disconnect = connectProgressEventBridge({
+    eventBus: bus,
+    durableRoot: join(root, "deliveries"),
+    adapter: { send: async () => { sends += 1; return { accepted: true }; } },
+  });
+  await replayReady;
+  bus.publish({ type: "run.updated", scope: { projectId: "project-replay-race" }, payload: { status: "running" }, occurredAt: "2026-09-30T00:00:01.000Z" });
+  releaseReplay();
+
+  await waitFor(() => sends === 2);
+  disconnect();
+  assert.equal(sends, 2);
+});
