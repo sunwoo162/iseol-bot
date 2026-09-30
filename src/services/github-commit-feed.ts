@@ -26,6 +26,13 @@ export type CommitFeedState = {
   initializedAt: string;
 };
 
+export function retainActiveCommitFeedStates(
+  states: CommitFeedState[],
+  activeKeys: ReadonlySet<string>,
+): CommitFeedState[] {
+  return states.filter((state) => activeKeys.has(state.key));
+}
+
 export class GitHubCommitFeedStore {
   constructor(private readonly file = DATA_FILE) {}
 
@@ -250,11 +257,13 @@ async function syncGitHubCommitFeedsUnlocked(client: Client): Promise<void> {
   const states = await defaultGitHubCommitFeedStore.list();
   const activeKeys = new Set(projects.flatMap((project) => [stateKey(project, "frontend"), stateKey(project, "backend")]));
   const nextStates = states.filter((state) => activeKeys.has(state.key));
+  const completedLifecycleKeys = new Set<string>();
 
   for (const project of projects) {
     for (const side of ["frontend", "backend"] as const) {
       try {
         await withProjectCommitFeedLifecycleLock(project, async (current) => {
+          completedLifecycleKeys.add(stateKey(current, side));
           await syncRepository(client, github, current, side, nextStates);
         });
       } catch (error) {
@@ -263,7 +272,7 @@ async function syncGitHubCommitFeedsUnlocked(client: Client): Promise<void> {
     }
   }
 
-  await defaultGitHubCommitFeedStore.replace(nextStates);
+  await defaultGitHubCommitFeedStore.replace(retainActiveCommitFeedStates(nextStates, completedLifecycleKeys));
 }
 
 export async function syncGitHubCommitFeeds(client: Client): Promise<void> {
