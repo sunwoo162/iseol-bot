@@ -26,6 +26,7 @@ import {
 } from "./contest-votes.js";
 import { resolveContestDeadline, seoulDateKey } from "./contest-time.js";
 import { listActiveItContests, type Contest } from "./contests.js";
+import { withDurableFileStateLock } from "./file-state-lock.js";
 
 const DATA_FILE = resolve(process.cwd(), "data", "contest-audience-feeds.json");
 const POLL_INTERVAL_MS = 60 * 60 * 1000;
@@ -40,37 +41,82 @@ export type ContestAudienceFeedState = {
   lastSyncedAt?: string;
 };
 
-async function readStates(): Promise<ContestAudienceFeedState[]> {
-  try {
-    return JSON.parse(await readFile(DATA_FILE, "utf8")) as ContestAudienceFeedState[];
-  } catch {
-    return [];
+export class ContestAudienceFeedStore {
+  constructor(private readonly file = DATA_FILE) {}
+
+  private async readStates(): Promise<ContestAudienceFeedState[]> {
+    try {
+      return JSON.parse(await readFile(this.file, "utf8")) as ContestAudienceFeedState[];
+    } catch {
+      return [];
+    }
+  }
+
+  private async writeStates(states: ContestAudienceFeedState[]): Promise<void> {
+    await mkdir(dirname(this.file), { recursive: true });
+    await writeFile(this.file, JSON.stringify(states, null, 2), "utf8");
+  }
+
+  async list(): Promise<ContestAudienceFeedState[]> {
+    return withDurableFileStateLock(this.file, () => this.readStates(), { waitForMs: 2_000 });
+  }
+
+  async find(
+    guildId: string,
+    audienceFilter: ContestAudienceFilter,
+  ): Promise<ContestAudienceFeedState | null> {
+    return withDurableFileStateLock(this.file, async () => {
+      const states = await this.readStates();
+      return states.find((state) =>
+        state.guildId === guildId && state.audienceFilter === audienceFilter,
+      ) ?? null;
+    }, { waitForMs: 2_000 });
+  }
+
+  async save(state: ContestAudienceFeedState): Promise<void> {
+    await withDurableFileStateLock(this.file, async () => {
+      const states = await this.readStates();
+      const index = states.findIndex((item) =>
+        item.guildId === state.guildId && item.audienceFilter === state.audienceFilter,
+      );
+      if (index >= 0) states[index] = state;
+      else states.push(state);
+      await this.writeStates(states);
+    }, { waitForMs: 2_000 });
+  }
+
+  async update(
+    guildId: string,
+    audienceFilter: ContestAudienceFilter,
+    updater: (state: ContestAudienceFeedState) => ContestAudienceFeedState | Promise<ContestAudienceFeedState>,
+  ): Promise<ContestAudienceFeedState> {
+    return withDurableFileStateLock(this.file, async () => {
+      const states = await this.readStates();
+      const index = states.findIndex((state) =>
+        state.guildId === guildId && state.audienceFilter === audienceFilter,
+      );
+      const current = index >= 0 ? states[index] : undefined;
+      if (!current) throw new Error("참가대상별 공모전 피드 설정을 찾을 수 없습니다.");
+
+      const updated = await updater(current);
+      states[index] = updated;
+      await this.writeStates(states);
+      return updated;
+    }, { waitForMs: 2_000 });
   }
 }
 
-async function writeStates(states: ContestAudienceFeedState[]): Promise<void> {
-  await mkdir(dirname(DATA_FILE), { recursive: true });
-  await writeFile(DATA_FILE, JSON.stringify(states, null, 2), "utf8");
-}
+const defaultContestAudienceFeedStore = new ContestAudienceFeedStore();
 
-async function saveState(state: ContestAudienceFeedState): Promise<void> {
-  const states = await readStates();
-  const index = states.findIndex((item) =>
-    item.guildId === state.guildId && item.audienceFilter === state.audienceFilter,
-  );
-  if (index >= 0) states[index] = state;
-  else states.push(state);
-  await writeStates(states);
-}
-
-export async function findContestAudienceFeed(
+export function findContestAudienceFeed(
   guildId: string,
   audienceFilter: ContestAudienceFilter,
 ): Promise<ContestAudienceFeedState | null> {
-  const states = await readStates();
-  return states.find((state) =>
-    state.guildId === guildId && state.audienceFilter === audienceFilter,
-  ) ?? null;
+  return defaultContestAudienceFeedStore.find(guildId, audienceFilter);
+}
+
+async function saveState(state: ContestAudienceFeedState): Promise<void> {
+  await defaultContestAudienceFeedStore.save(state);
 }
 
 function channelName(filter: ContestAudienceFilter): string {
@@ -300,7 +346,7 @@ export async function syncContestAudienceFeed(
 }
 
 export async function syncAllContestAudienceFeeds(client: Client): Promise<void> {
-  const states = await readStates();
+  const states = await defaultContestAudienceFeedStore.list();
   if (states.length === 0) return;
 
   let contests: Contest[];
