@@ -191,3 +191,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Base contest polling, audience-specific polling, and `/contest repost` share a guild-scoped durable delivery lock.
 - The shared lock is nested outside each feed's own delivery/state lock, so independent audience state remains isolated while Discord publication is serialized per guild.
 - Manual reposts cannot publish concurrently with scheduled feed polling for the same guild, preventing duplicate contest messages and vote records from overlapping publisher paths.
+
+## GitHub commit feed lifecycle synchronization
+
+- GitHub commit feed polling shares the project deletion lock keyed by guild and project ID for each frontend/backend repository sync.
+- It re-reads the project after acquiring the lifecycle lock and skips GitHub lookup, Discord commit-log delivery, and seen-state updates when deletion has already completed.
+- A live project may finish one repository sync before deletion enters the critical section, but stale polling snapshots cannot publish post-deletion commit activity.
