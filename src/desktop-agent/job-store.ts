@@ -90,7 +90,7 @@ async function saveContainment(root: string, record: DesktopJobContainmentRecord
   await rename(temp, path);
 }
 
-export async function loadDesktopJobContainment(root: string, jobId: string): Promise<DesktopJobContainmentRecord | null> {
+export async function loadDesktopJobContainmentUnlocked(root: string, jobId: string): Promise<DesktopJobContainmentRecord | null> {
   try {
     return JSON.parse(await readFile(containmentFile(root, jobId), "utf8")) as DesktopJobContainmentRecord;
   } catch (error) {
@@ -99,8 +99,26 @@ export async function loadDesktopJobContainment(root: string, jobId: string): Pr
   }
 }
 
+export async function loadDesktopJobContainment(root: string, jobId: string): Promise<DesktopJobContainmentRecord | null> {
+  return withDurableDesktopJobLock(
+    root,
+    jobId,
+    () => loadDesktopJobContainmentUnlocked(root, jobId),
+    { waitForMs: 2_000 },
+  );
+}
+
+export async function isDesktopJobContainedUnlocked(root: string, jobId: string): Promise<boolean> {
+  return Boolean(await loadDesktopJobContainmentUnlocked(root, jobId));
+}
+
 export async function isDesktopJobContained(root: string, jobId: string): Promise<boolean> {
-  return Boolean(await loadDesktopJobContainment(root, jobId));
+  return withDurableDesktopJobLock(
+    root,
+    jobId,
+    () => isDesktopJobContainedUnlocked(root, jobId),
+    { waitForMs: 2_000 },
+  );
 }
 
 async function containDesktopJobUnlocked(
@@ -110,14 +128,14 @@ async function containDesktopJobUnlocked(
 ): Promise<DesktopJobContainmentResult> {
   if (input.actor !== "operator") throw new Error("Desktop job containment requires operator actor");
   if (!input.operationId || !input.expectedRevision || !input.at) throw new Error("Desktop job containment identity is required");
-  const existingContainment = await loadDesktopJobContainment(root, jobId);
+  const existingContainment = await loadDesktopJobContainmentUnlocked(root, jobId);
   if (existingContainment) {
     if (existingContainment.operationId === input.operationId && existingContainment.expectedRevision === input.expectedRevision) {
       return { status: "already-contained", record: existingContainment };
     }
     throw new Error(`Desktop job is already contained: ${jobId}`);
   }
-  const job = await loadDesktopJob(root, jobId);
+  const job = await loadDesktopJobUnlocked(root, jobId);
   if (!job) throw new Error(`Desktop Job not found: ${jobId}`);
   if (job.lease) throw new Error("Desktop job containment requires no active lease");
   if (job.status !== "pending") throw new Error(`Desktop job containment requires pending status: ${job.status}`);
@@ -155,7 +173,7 @@ async function saveJob(root: string, job: DesktopJobRecord): Promise<void> {
   await rename(temp, path);
 }
 
-export async function loadDesktopJob(
+export async function loadDesktopJobUnlocked(
   root: string,
   jobId: string,
 ): Promise<DesktopJobRecord | null> {
@@ -166,6 +184,18 @@ export async function loadDesktopJob(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function loadDesktopJob(
+  root: string,
+  jobId: string,
+): Promise<DesktopJobRecord | null> {
+  return withDurableDesktopJobLock(
+    root,
+    jobId,
+    () => loadDesktopJobUnlocked(root, jobId),
+    { waitForMs: 2_000 },
+  );
 }
 
 function semanticTaskIdentity(pack: DesktopTaskPack): string {
@@ -179,7 +209,7 @@ function semanticTaskIdentity(pack: DesktopTaskPack): string {
   });
 }
 
-export async function listDesktopJobs(root: string): Promise<DesktopJobRecord[]> {
+export async function listDesktopJobsUnlocked(root: string): Promise<DesktopJobRecord[]> {
   const directory = resolve(root, "jobs");
   let entries: Dirent<string>[];
   try {
@@ -192,10 +222,33 @@ export async function listDesktopJobs(root: string): Promise<DesktopJobRecord[]>
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     try { assertJobId(entry.name); } catch { continue; }
-    const job = await loadDesktopJob(root, entry.name);
+    const job = await loadDesktopJobUnlocked(root, entry.name);
     if (job) result.push(job);
   }
   return result.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.jobId.localeCompare(b.jobId));
+}
+
+export async function listDesktopJobs(root: string): Promise<DesktopJobRecord[]> {
+  const candidates = await listDesktopJobsUnlocked(root);
+  const result: DesktopJobRecord[] = [];
+  for (const candidate of candidates) {
+    const current = await withDurableDesktopJobLock(
+      root,
+      candidate.jobId,
+      () => loadDesktopJobUnlocked(root, candidate.jobId),
+      { waitForMs: 2_000 },
+    );
+    if (current) result.push(current);
+  }
+  return result.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.jobId.localeCompare(b.jobId));
+}
+
+export async function findDesktopJobByIdempotencyKeyUnlocked(
+  root: string,
+  key: string,
+): Promise<DesktopJobRecord | null> {
+  const jobs = await listDesktopJobsUnlocked(root);
+  return jobs.find((job) => job.idempotencyKey === key) ?? null;
 }
 
 export async function findDesktopJobByIdempotencyKey(
@@ -212,14 +265,14 @@ async function createDesktopJobUnlocked(
   at: string,
 ): Promise<DesktopJobRecord> {
   assertDesktopTaskPack(pack);
-  const existingByKey = await findDesktopJobByIdempotencyKey(root, pack.idempotencyKey);
+  const existingByKey = await findDesktopJobByIdempotencyKeyUnlocked(root, pack.idempotencyKey);
   if (existingByKey) {
     if (semanticTaskIdentity(existingByKey.pack) !== semanticTaskIdentity(pack)) {
       throw new Error(`Desktop Job idempotency conflict: ${pack.idempotencyKey}`);
     }
     return existingByKey;
   }
-  const existingById = await loadDesktopJob(root, pack.jobId);
+  const existingById = await loadDesktopJobUnlocked(root, pack.jobId);
   if (existingById) throw new Error(`Desktop Job already exists: ${pack.jobId}`);
   const job: DesktopJobRecord = {
     version: 1,
@@ -265,9 +318,9 @@ async function acquireDesktopJobLeaseUnlocked(
   options: { allowContained?: boolean } = {},
 ): Promise<DesktopJobRecord> {
   validateLeaseDuration(durationMs);
-  const job = await loadDesktopJob(root, jobId);
+  const job = await loadDesktopJobUnlocked(root, jobId);
   if (!job) throw new Error(`Desktop Job not found: ${jobId}`);
-  if (!options.allowContained && await isDesktopJobContained(root, jobId)) throw new Error(`Desktop Job is contained by operator and cannot be dispatched: ${jobId}`);
+  if (!options.allowContained && await isDesktopJobContainedUnlocked(root, jobId)) throw new Error(`Desktop Job is contained by operator and cannot be dispatched: ${jobId}`);
   if (job.status === "completed" || job.status === "cancelled") {
     throw new Error(`Desktop Job is terminal: ${jobId}`);
   }
@@ -315,7 +368,7 @@ async function renewDesktopJobLeaseUnlocked(
   durationMs: number,
 ): Promise<DesktopJobRecord> {
   validateLeaseDuration(durationMs);
-  const job = await loadDesktopJob(root, jobId);
+  const job = await loadDesktopJobUnlocked(root, jobId);
   if (!job) throw new Error(`Desktop Job not found: ${jobId}`);
   if (!job.lease || job.lease.owner !== owner) {
     throw new Error(`Desktop Job lease owner mismatch: ${jobId}`);
@@ -353,7 +406,7 @@ async function completeDesktopJobUnlocked(
   owner: string,
   result: DesktopJobResult,
 ): Promise<DesktopJobRecord> {
-  const job = await loadDesktopJob(root, jobId);
+  const job = await loadDesktopJobUnlocked(root, jobId);
   if (!job) throw new Error(`Desktop Job not found: ${jobId}`);
   if (result.jobId !== job.jobId) throw new Error(`Desktop Job result jobId mismatch: ${result.jobId}`);
   if (result.runId !== job.runId) throw new Error(`Desktop Job result runId mismatch: ${result.runId}`);
@@ -396,7 +449,7 @@ async function markDesktopJobIndeterminateUnlocked(
   owner: string,
   at: string,
 ): Promise<DesktopJobRecord> {
-  const job = await loadDesktopJob(root, jobId);
+  const job = await loadDesktopJobUnlocked(root, jobId);
   if (!job) throw new Error(`Desktop Job not found: ${jobId}`);
   if (job.status === "completed" || job.status === "cancelled") {
     throw new Error(`Desktop Job is terminal: ${jobId}`);
@@ -429,7 +482,7 @@ async function requeueDesktopJobUnlocked(
   owner: string,
   at: string,
 ): Promise<DesktopJobRecord> {
-  const job = await loadDesktopJob(root, jobId);
+  const job = await loadDesktopJobUnlocked(root, jobId);
   if (!job) throw new Error(`Desktop Job not found: ${jobId}`);
   if (job.status === "completed" || job.status === "cancelled") {
     throw new Error(`Desktop Job is terminal: ${jobId}`);
