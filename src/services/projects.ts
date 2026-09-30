@@ -55,19 +55,30 @@ export class ProjectStore {
     const digest = createHash("sha256")
       .update(`${this.file}:project-create:${guildId}:${normalizedName}`)
       .digest("hex");
-    return withDurableFileStateLock(
+    return this.withGuildProjectLifecycleLock(guildId, () => withDurableFileStateLock(
       `${this.file}.create.${digest}`,
       task,
       { waitForMs: 5 * 60 * 1_000 },
-    );
+    ));
   }
 
   async withDeleteLock<T>(guildId: string, projectId: string, task: () => Promise<T>): Promise<T> {
     const digest = createHash("sha256")
       .update(`${this.file}:project-delete:${guildId}:${projectId}`)
       .digest("hex");
-    return withDurableFileStateLock(
+    return this.withGuildProjectLifecycleLock(guildId, () => withDurableFileStateLock(
       `${this.file}.delete.${digest}`,
+      task,
+      { waitForMs: 5 * 60 * 1_000 },
+    ));
+  }
+
+  async withGuildProjectLifecycleLock<T>(guildId: string, task: () => Promise<T>): Promise<T> {
+    const digest = createHash("sha256")
+      .update(`${this.file}:guild-project-lifecycle:${guildId}`)
+      .digest("hex");
+    return withDurableFileStateLock(
+      `${this.file}.guild.${digest}`,
       task,
       { waitForMs: 5 * 60 * 1_000 },
     );
@@ -201,4 +212,8 @@ export function withProjectCreateLock<T>(guildId: string, name: string, task: ()
 
 export function withProjectDeleteLock<T>(guildId: string, projectId: string, task: () => Promise<T>): Promise<T> {
   return defaultProjectStore.withDeleteLock(guildId, projectId, task);
+}
+
+export function withProjectGuildLifecycleLock<T>(guildId: string, task: () => Promise<T>): Promise<T> {
+  return defaultProjectStore.withGuildProjectLifecycleLock(guildId, task);
 }
