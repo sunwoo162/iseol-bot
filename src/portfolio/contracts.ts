@@ -8,7 +8,9 @@ export type PortfolioEvidence = { id: string; sourceType: "activity" | "project-
 export type PortfolioEntry = { version: 1; id: string; userId: string; title: string; summary: string; visibility: PortfolioVisibility; evidenceIds: string[]; createdAt: string; updatedAt: string };
 export type PortfolioEntryInput = { title: string; summary: string; visibility: PortfolioVisibility; evidenceIds: string[] };
 export type PortfolioSnapshot = { entries: PortfolioEntry[]; evidence: PortfolioEvidence[] };
-export type PublicPortfolioView = { entry: PortfolioEntry; evidence: PortfolioEvidence[] };
+export type PublicPortfolioEntry = Omit<PortfolioEntry, "userId" | "evidenceIds">;
+export type PublicPortfolioEvidence = Omit<PortfolioEvidence, "sourceId" | "projectId" | "reportId">;
+export type PublicPortfolioView = { entry: PublicPortfolioEntry; evidence: PublicPortfolioEvidence[] };
 export type ExportedPortfolio = { format: "json" | "markdown"; filename: string; content: string };
 export type PortfolioService = {
   listPortfolio(principal: Principal): Promise<PortfolioSnapshot>;
