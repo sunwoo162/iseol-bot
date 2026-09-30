@@ -6,6 +6,7 @@ import type { RepositoryRef } from "./github.js";
 import { startGitHubAutomationPolling } from "./github-automation-polling.js";
 import { GitHubUserService, listGitHubAccounts, type GitHubRepositoryEvent } from "./github-user.js";
 import { listProjects, type StoredProject } from "./projects.js";
+import { withDurableFileStateLock } from "./file-state-lock.js";
 
 const DATA_FILE = resolve(process.cwd(), "data", "github-commit-feed.json");
 const POLL_INTERVAL_MS = 60_000;
@@ -14,7 +15,7 @@ const MAX_SEEN_COMMITS = 500;
 
 type RepositorySide = "frontend" | "backend";
 
-type CommitFeedState = {
+export type CommitFeedState = {
   key: string;
   guildId: string;
   projectId: string;
@@ -24,19 +25,60 @@ type CommitFeedState = {
   initializedAt: string;
 };
 
-async function readStates(): Promise<CommitFeedState[]> {
-  try {
-    return JSON.parse(await readFile(DATA_FILE, "utf8")) as CommitFeedState[];
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw error;
+export class GitHubCommitFeedStore {
+  constructor(private readonly file = DATA_FILE) {}
+
+  private async readStates(): Promise<CommitFeedState[]> {
+    try {
+      return JSON.parse(await readFile(this.file, "utf8")) as CommitFeedState[];
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+  }
+
+  private async writeStates(states: CommitFeedState[]): Promise<void> {
+    await mkdir(dirname(this.file), { recursive: true });
+    await writeFile(this.file, JSON.stringify(states, null, 2), "utf8");
+  }
+
+  async list(): Promise<CommitFeedState[]> {
+    return withDurableFileStateLock(this.file, () => this.readStates(), { waitForMs: 2_000 });
+  }
+
+  async save(state: CommitFeedState): Promise<void> {
+    await withDurableFileStateLock(this.file, async () => {
+      const states = await this.readStates();
+      const index = states.findIndex((item) => item.key === state.key);
+      if (index >= 0) states[index] = state;
+      else states.push(state);
+      await this.writeStates(states);
+    }, { waitForMs: 2_000 });
+  }
+
+  async update(
+    key: string,
+    updater: (state: CommitFeedState) => CommitFeedState | Promise<CommitFeedState>,
+  ): Promise<CommitFeedState> {
+    return withDurableFileStateLock(this.file, async () => {
+      const states = await this.readStates();
+      const index = states.findIndex((state) => state.key === key);
+      const current = index >= 0 ? states[index] : undefined;
+      if (!current) throw new Error("GitHub commit feed state not found.");
+
+      const updated = await updater(current);
+      states[index] = updated;
+      await this.writeStates(states);
+      return updated;
+    }, { waitForMs: 2_000 });
+  }
+
+  async replace(states: CommitFeedState[]): Promise<void> {
+    await withDurableFileStateLock(this.file, () => this.writeStates(states), { waitForMs: 2_000 });
   }
 }
 
-async function writeStates(states: CommitFeedState[]): Promise<void> {
-  await mkdir(dirname(DATA_FILE), { recursive: true });
-  await writeFile(DATA_FILE, JSON.stringify(states, null, 2), "utf8");
-}
+const defaultGitHubCommitFeedStore = new GitHubCommitFeedStore();
 
 function stateKey(project: StoredProject, side: RepositorySide): string {
   return `${project.id}:${side}`;
@@ -182,7 +224,7 @@ async function syncRepository(
 export async function syncGitHubCommitFeeds(client: Client): Promise<void> {
   const github = new GitHubUserService(config.githubToken);
   const projects = await listProjects();
-  const states = await readStates();
+  const states = await defaultGitHubCommitFeedStore.list();
   const activeKeys = new Set(projects.flatMap((project) => [stateKey(project, "frontend"), stateKey(project, "backend")]));
   const nextStates = states.filter((state) => activeKeys.has(state.key));
 
@@ -196,7 +238,7 @@ export async function syncGitHubCommitFeeds(client: Client): Promise<void> {
     }
   }
 
-  await writeStates(nextStates);
+  await defaultGitHubCommitFeedStore.replace(nextStates);
 }
 
 export function startGitHubCommitFeedPolling(client: Client): NodeJS.Timeout {
