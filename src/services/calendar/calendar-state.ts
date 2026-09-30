@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { withDurableFileStateLock } from "../file-state-lock.js";
 
 export type CalendarMapping = {
   externalKey: string;
@@ -34,29 +35,35 @@ export class CalendarStateStore {
   }
 
   async find(externalKey: string): Promise<CalendarMapping | null> {
-    return (await this.read()).find((item) => item.externalKey === externalKey) ?? null;
+    return withDurableFileStateLock(this.file, async () => (await this.read()).find((item) => item.externalKey === externalKey) ?? null, { waitForMs: 2_000 });
   }
 
   async upsert(mapping: CalendarMapping): Promise<void> {
-    const items = await this.read();
-    const index = items.findIndex((item) => item.externalKey === mapping.externalKey);
-    if (index >= 0) items[index] = mapping;
-    else items.push(mapping);
-    await this.write(items);
+    await withDurableFileStateLock(this.file, async () => {
+      const items = await this.read();
+      const index = items.findIndex((item) => item.externalKey === mapping.externalKey);
+      if (index >= 0) items[index] = mapping;
+      else items.push(mapping);
+      await this.write(items);
+    }, { waitForMs: 2_000 });
   }
 
   async removeProject(projectId: string): Promise<number> {
-    const items = await this.read();
-    const next = items.filter((item) => item.projectId !== projectId);
-    const removed = items.length - next.length;
-    if (removed > 0) await this.write(next);
-    return removed;
+    return withDurableFileStateLock(this.file, async () => {
+      const items = await this.read();
+      const next = items.filter((item) => item.projectId !== projectId);
+      const removed = items.length - next.length;
+      if (removed > 0) await this.write(next);
+      return removed;
+    }, { waitForMs: 2_000 });
   }
   async remove(externalKey: string): Promise<boolean> {
-    const items = await this.read();
-    const next = items.filter((item) => item.externalKey !== externalKey);
-    if (next.length === items.length) return false;
-    await this.write(next);
-    return true;
+    return withDurableFileStateLock(this.file, async () => {
+      const items = await this.read();
+      const next = items.filter((item) => item.externalKey !== externalKey);
+      if (next.length === items.length) return false;
+      await this.write(next);
+      return true;
+    }, { waitForMs: 2_000 });
   }
 }
