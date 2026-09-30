@@ -285,6 +285,21 @@ async function handleRequest(
     sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "project route not found" });
     return;
   }
+  const isUserStudyPath = url.pathname === "/api/user/studies" || url.pathname.startsWith("/api/user/studies/");
+  if (isUserStudyPath && rawPathname.includes("\\")) {
+    sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "study route not found" });
+    return;
+  }
+  const isUserIntegrationPath = url.pathname === "/api/user/integrations" || url.pathname.startsWith("/api/user/integrations/");
+  if (isUserIntegrationPath && rawPathname.includes("\\")) {
+    sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "integration route not found" });
+    return;
+  }
+  const isUserNotificationPath = url.pathname === "/api/user/notifications" || url.pathname.startsWith("/api/user/notifications/");
+  if (isUserNotificationPath && rawPathname.includes("\\")) {
+    sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "notification route not found" });
+    return;
+  }
   if (url.pathname === "/api/events") {
     if (req.method !== "GET") {
       res.writeHead(405, { allow: "GET" }).end("method not allowed");

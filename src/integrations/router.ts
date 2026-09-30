@@ -20,11 +20,15 @@ function providerFromPath(path: string): IntegrationProvider | null {
 }
 
 export async function routeIntegrationsRequest(request: UserRequest, services: IntegrationRouteServices): Promise<UserResponse> {
+  const url = new URL(request.path, "http://iseol.local");
+  const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
+  const isIntegrationPath = url.pathname === "/api/user/integrations" || url.pathname.startsWith("/api/user/integrations/");
+  if (isIntegrationPath && rawPathname.includes("\\")) return response(404, { error: "integration route not found" });
   const token = bearer(request.headers);
   const principal = token ? await services.platformUserService.resolveAuthenticatedPrincipal(token) : null;
   if (!principal) return response(401, { error: "authentication required" });
   if (!services.integrationService || !services.settingsService) return response(503, { error: "integrations unavailable" });
-  const path = request.path.split("?", 1)[0] ?? request.path;
+  const path = url.pathname;
   try {
     if (path === "/api/user/integrations" && request.method === "GET") {
       const settings = await services.settingsService.getSettings(principal);
