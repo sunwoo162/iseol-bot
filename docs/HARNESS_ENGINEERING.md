@@ -113,3 +113,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Contest vote handling uses a durable lock keyed by vote ID in addition to the local in-process duplicate-click guard.
 - The lock covers the fresh vote read, majority decision, preparation-room channel creation, vote-state update, and related Discord notifications.
 - A worker waiting behind another process therefore observes the finalized vote before attempting another preparation-room side effect.
+
+## Daily scrum channel setup synchronization
+
+- `/scrum create` uses the shared Discord channel ensure lock keyed by the project guild and category.
+- The command re-fetches the daily scrum channel after acquiring the lock and creates it only when still missing.
+- Channel creation, discussion-channel position adjustment, and the initial usage message are kept inside the same critical section.
