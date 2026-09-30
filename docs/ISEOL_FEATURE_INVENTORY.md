@@ -2142,3 +2142,9 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Verification: focused project-model stores `8/8`; user-product `364/364`; root `689/689`; backend TypeScript build, user UI build, `git diff --check`, and isolated browser E2E passed with two-account isolation, reload persistence, and responsive `[390,768,1024,1440]` coverage across `13` routes. Commit: `fe9fbce feat: serialize portfolio document patches`.
 - Boundary: same-host/shared-root project Portfolio patch coordination only; no distributed coordinator, live Runtime/provider quality, external connector delivery, weekly digest scheduler, final approved design-source completeness, or AI Broadcast Room implementation is claimed.
 - Safety: Runtime/Agent/browser processes, UNKNOWN records, external providers/connectors, deployment/push state, and approved/deferred design artifacts remain untouched.
+
+## 2026-09-30 continuation: replay and guild-reset inventory refresh
+
+- UI-02 now has a durable Web Product event journal and `Last-Event-ID` replay path. `tests/web-control-plane-server.test.ts` verifies journal recovery after a bus restart, cursor filtering, and the subscribe-before-replay live-event race boundary; real browser reconnect acceptance remains unverified.
+- DISC-02's Discord progress bridge now subscribes before replaying the durable journal and uses durable delivery records to suppress already accepted notifications after restart. `tests/discord-project-progress-event-bridge.test.ts` covers restart replay, duplicate suppression, and replay/live ordering; live Discord delivery remains unverified.
+- DISC-09's guild reset regression now covers target-guild GitHub account-link removal while preserving another guild's link in `data/github-users.json`; the destructive Discord action itself remains unexecuted in production.
