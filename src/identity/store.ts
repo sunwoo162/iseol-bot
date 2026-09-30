@@ -126,7 +126,7 @@ export async function revokeSessionsForUser(inputRoot: string, userId: string, a
   return revoked;
 }
 
-export async function resolvePrincipal(inputRoot: string, sessionId: string, at: string): Promise<Principal | null> {
+export async function resolvePrincipalUnlocked(inputRoot: string, sessionId: string, at: string): Promise<Principal | null> {
   try { assertTimestamp(at, "principal timestamp"); } catch { return null; }
   let session: SessionRecord | null;
   try { session = await loadJson<SessionRecord>(sessionFile(inputRoot, sessionId)); } catch { return null; }
@@ -134,4 +134,12 @@ export async function resolvePrincipal(inputRoot: string, sessionId: string, at:
   const user = await loadJson<UserRecord>(userFile(inputRoot, session.userId));
   if (!user || user.version !== 1) return null;
   return { userId: user.id, sessionId: session.id, roles: [...session.roles] };
+}
+
+export async function resolvePrincipal(inputRoot: string, sessionId: string, at: string): Promise<Principal | null> {
+  try {
+    return await withDurableIdentityLock(inputRoot, "session", sessionId, () => resolvePrincipalUnlocked(inputRoot, sessionId, at), { waitForMs: 2_000 });
+  } catch {
+    return null;
+  }
 }
