@@ -4729,3 +4729,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `ad8d8ec fix: synchronize contest vote state`; merged by PR #276 with merge commit `aae07b9`.
 - Boundary: same-host/shared-file Contest vote state coordination only; distributed locking, live Discord provider quality, operational Runtime/Agent throughput, external delivery success, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-30 continuation: durable GitHub account link state synchronization
+
+- Status: **B — GitHub account link state reads and read-modify-write link/unlink operations now coordinate through a path-scoped durable file lock, while live GitHub provider execution remains unverified**. Independent GitHubAccountLinkStore instances preserve account links.
+- Evidence: `src/services/file-state-lock.ts`, `src/services/github-user.ts`, and `tests/github-account-links-lock.test.ts`.
+- TDD: RED reproduced the missing file-injected GitHubAccountLinkStore boundary before implementation; GREEN added the file-scoped store and stale-owner-aware locking around reads, link, and unlink operations while preserving the existing global function API.
+- Verification: GitHub account link focused regression `2/2`; serial existing full test suite `754/754`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `bea8367 fix: synchronize GitHub account links`; merged by PR #278 with merge commit `1697f09`.
+- Boundary: same-host/shared-file GitHub account link coordination only; distributed locking, live GitHub provider quality, external delivery success, operational Runtime/Agent throughput, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
