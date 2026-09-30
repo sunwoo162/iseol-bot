@@ -7,9 +7,11 @@ import { removeOwnedLock } from "../lock-utils.js";
 type ProgressNotificationLockRecord = { version: 1; pid: number; token: string; createdAt: string };
 export type DurableDiscordProgressNotificationLockOptions = { waitForMs?: number; pollIntervalMs?: number };
 
-function lockPath(root: string, projectId: string, eventId: string): string {
+function lockPath(root: string, projectId: string, _eventId: string): string {
   assertProjectModelId(projectId);
-  const digest = createHash("sha256").update(`${projectId}:${eventId}:discord-progress-notification`).digest("hex");
+  // All events for a project append to one JSONL journal. The lock therefore
+  // has to cover the journal file, not only one event identity.
+  const digest = createHash("sha256").update(`${projectId}:discord-progress-notification`).digest("hex");
   return resolve(root, ".locks", "discord-progress-notifications", `${digest}.lock`);
 }
 
