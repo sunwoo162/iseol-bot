@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { assertIdentityId, assertTimestamp, type Principal } from "../identity/contracts.js";
 import type { CodingAttempt, CodingAttemptInput, CodingExercise, CodingExerciseInput, CodingPracticeResult, GoalInterpretation, LearningAnswerReceipt, LearningContentRequest, LearningFeedback, LearningFeedbackDispute, LearningFeedbackDisputeResult, LearningFeedbackEvaluation, LearningFeedbackEvaluationInput, LearningGoal, LearningGoalInput, LearningGoalSessionInput, LearningLessonBlock, LearningLessonContent, LearningLessonInput, LearningPlanAdjustment, LearningPlanAdjustmentInput, LearningPlanAdjustmentResult, LearningPlanInput, LearningPlanPreview, LearningPlanProposal, LearningPlanVersion, LearningProgress, LearningProjectApplication, LearningProjectApplicationInput, LearningReport, LearningReportPeriod, LearningService, LearningServiceOptions, LearningSessionAction, LearningSessionActionInput, ReviewItemInput, CodeAnalysisInput, StudyAttemptInput, LearningPlan, LearningPlanDay, LearningSession, LearningToday, ReviewItem, CodeAnalysisResult } from "./contracts.js";
-import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listGoalInterpretationsUnlocked, listLearningAnswerReceipts, listLearningAnswerReceiptsUnlocked, listLearningContentRequests, listLearningContentRequestsUnlocked, listLearningFeedback, listLearningFeedbackDisputes, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanVersions, listLearningPlanVersionsUnlocked, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listLearningSessionActionsUnlocked, listPlans, listReviews, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningAnswerReceiptUnlocked, loadLearningContentRequest, loadLearningContentRequestUnlocked, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningPlanVersionUnlocked, loadLearningReport, loadPlan, loadReview, loadSession, loadSessionUnlocked, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningAnswerReceiptUnlocked, saveLearningContentRequest, saveLearningContentRequestUnlocked, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningPlanAdjustment, saveLearningSessionAction, saveLearningSessionActionUnlocked, saveGoalInterpretation, saveGoalInterpretationUnlocked, saveLearningPlanVersion, saveLearningPlanVersionUnlocked, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession, saveSessionUnlocked } from "./store.js";
+import { listAttempts, listCodingAttempts, listCodingExercises, listGoalInterpretations, listGoalInterpretationsUnlocked, listLearningAnswerReceipts, listLearningAnswerReceiptsUnlocked, listLearningContentRequests, listLearningContentRequestsUnlocked, listLearningFeedback, listLearningFeedbackDisputes, listLearningFeedbackDisputesUnlocked, listLearningGoalsUnlocked, listLearningPlanAdjustments, listLearningPlanVersions, listLearningPlanVersionsUnlocked, listLearningProjectApplications, listLearningLinks, listLearningReports, listLearningSessionActions, listLearningSessionActionsUnlocked, listPlans, listReviews, listSessions, loadAnalysis, loadCodingAttempt, loadCodingExercise, loadLearningAnswerReceipt, loadLearningAnswerReceiptUnlocked, loadLearningContentRequest, loadLearningContentRequestUnlocked, loadLearningFeedback, loadLearningGoal, loadLearningGoalUnlocked, loadLearningPlanAdjustment, loadLearningPlanVersion, loadLearningPlanVersionUnlocked, loadLearningReport, loadPlan, loadReview, loadSession, loadSessionUnlocked, loadLearningProjectApplication, saveAnalysis, saveAttempt, saveCodingAttempt, saveCodingExercise, saveLearningAnswerReceipt, saveLearningAnswerReceiptUnlocked, saveLearningContentRequest, saveLearningContentRequestUnlocked, saveLearningFeedback, saveLearningGoal, saveLearningGoalUnlocked, saveLearningFeedbackDispute, saveLearningFeedbackDisputeUnlocked, saveLearningPlanAdjustment, saveLearningSessionAction, saveLearningSessionActionUnlocked, saveGoalInterpretation, saveGoalInterpretationUnlocked, saveLearningPlanVersion, saveLearningPlanVersionUnlocked, saveLearningProjectApplication, saveLearningLink, saveLearningReport, savePlan, saveReview, saveSession, saveSessionUnlocked } from "./store.js";
 import { withDurableLearningSessionLock } from "./session-lock.js";
 import { withDurableLearningProjectApplicationLock } from "./project-application-lock.js";
 import { withDurableLearningProjectApplicationAcceptanceLock } from "./project-application-acceptance-lock.js";
@@ -1096,7 +1096,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const answer = await loadLearningAnswerReceipt(root, principal.userId, feedback.answerId);
       if (!answer || answer.userId !== principal.userId) throw new Error("Learning answer not found");
       const reason = nonEmpty(input.reason, "Learning feedback dispute reason", 4_000);
-      const existing = (await listLearningFeedbackDisputes(root, principal.userId)).find((candidate) => candidate.feedbackId === feedback.id);
+      const existing = (await listLearningFeedbackDisputesUnlocked(root, principal.userId)).find((candidate) => candidate.feedbackId === feedback.id);
       if (existing) {
         if (existing.reason !== reason) throw new Error("Learning feedback dispute idempotency conflict");
         return { dispute: existing, feedback, answer };
@@ -1113,7 +1113,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const updatedAnswer: LearningAnswerReceipt = { ...answer, status: "disputed" };
       await saveLearningAnswerReceipt(root, updatedAnswer);
       await saveLearningFeedback(root, updatedFeedback);
-      await saveLearningFeedbackDispute(root, dispute);
+      await saveLearningFeedbackDisputeUnlocked(root, dispute);
       if (!options.feedbackDispatcher) return { dispute, feedback: updatedFeedback, answer: updatedAnswer };
       const exercise = await loadCodingExercise(root, principal.userId, updatedAnswer.exerciseId);
       const attempt = exercise ? (await listCodingAttempts(root, principal.userId)).find((candidate) => candidate.id === updatedAnswer.attemptId && candidate.exerciseId === exercise.id) : undefined;
@@ -1130,11 +1130,11 @@ export function createLearningService(root: string, options: LearningServiceOpti
         }
         const blocker = evaluationResult.status === "completed" ? "local learning evaluator completed but the re-evaluation record could not be reloaded" : evaluationResult.blocker ?? "local learning evaluator accepted re-evaluation but has not returned feedback";
         const waitingDispute: LearningFeedbackDispute = { ...dispute, blocker, updatedAt: now() };
-        await saveLearningFeedbackDispute(root, waitingDispute);
+        await saveLearningFeedbackDisputeUnlocked(root, waitingDispute);
         return { dispute: waitingDispute, feedback: updatedFeedback, answer: updatedAnswer };
       } catch (error) {
         const waitingDispute: LearningFeedbackDispute = { ...dispute, blocker: error instanceof Error ? error.message : "local learning evaluator did not complete re-evaluation", updatedAt: now() };
-        await saveLearningFeedbackDispute(root, waitingDispute);
+        await saveLearningFeedbackDisputeUnlocked(root, waitingDispute);
         return { dispute: waitingDispute, feedback: updatedFeedback, answer: updatedAnswer };
         }
       }, { waitForMs: 2_000 });
