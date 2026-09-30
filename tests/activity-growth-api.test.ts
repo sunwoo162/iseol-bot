@@ -17,7 +17,9 @@ test("user activity API rejects client-submitted verified evidence and reads tru
   const activity = createActivityService(join(root, "platform"), { now });
   const growth = createGrowthService(join(root, "platform"), { now });
   const user = await platform.createUser({ id: "growth-api-user", email: "growth@example.com", displayName: "Growth", timezone: "Asia/Seoul" });
+  const otherUser = await platform.createUser({ id: "growth-api-other", email: "other-growth@example.com", displayName: "Other Growth", timezone: "Asia/Seoul" });
   const session = await platform.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-26T12:00:00.000Z" });
+  const otherSession = await platform.createSession({ userId: otherUser.id, roles: ["user"], expiresAt: "2026-09-26T12:00:00.000Z" });
   const server = await startWebControlPlaneServer({
     host: "127.0.0.1", port: 0, token: "operator", modelRoot: join(root, "model"), harnessRoot: join(root, "runs"), webRoot: join(root, "web"),
     userService: platform, activityService: activity, growthService: growth,
@@ -25,6 +27,7 @@ test("user activity API rejects client-submitted verified evidence and reads tru
   const address = server.address() as AddressInfo;
   const url = `http://127.0.0.1:${address.port}`;
   const headers = { authorization: `Bearer ${session.token}`, "content-type": "application/json" };
+  const otherHeaders = { authorization: `Bearer ${otherSession.token}`, "content-type": "application/json" };
   try {
     const unverified = await fetch(`${url}/api/user/activity`, {
       method: "POST", headers,
@@ -51,10 +54,43 @@ test("user activity API rejects client-submitted verified evidence and reads tru
     });
     await growth.applyGrowthProjection(trustedEvent);
 
+    const malformedRetraction = await fetch(`${url}/api/user/activity/${encodeURIComponent(`${trustedEvent.id}/suffix`)}`, {
+      method: "DELETE", headers,
+    });
+    assert.equal(malformedRetraction.status, 404);
+    const malformedEncodingRetraction = await fetch(`${url}/api/user/activity/%E0%A4%A`, {
+      method: "DELETE", headers,
+    });
+    assert.equal(malformedEncodingRetraction.status, 404);
+    const unknownRetraction = await fetch(`${url}/api/user/activity/activity-missing`, {
+      method: "DELETE", headers,
+    });
+    assert.equal(unknownRetraction.status, 404);
+    const crossOwnerRetraction = await fetch(`${url}/api/user/activity/${trustedEvent.id}`, {
+      method: "DELETE", headers: otherHeaders,
+    });
+    assert.equal(crossOwnerRetraction.status, 404);
+    const retracted = await fetch(`${url}/api/user/activity/${trustedEvent.id}`, {
+      method: "DELETE", headers,
+    });
+    assert.equal(retracted.status, 200);
+    const retractedBody = await retracted.json() as any;
+    assert.equal(retractedBody.event.status, "retracted");
+    assert.equal(retractedBody.growth.xpDelta, -100);
+    assert.equal(retractedBody.snapshot.xp, 0);
+    const repeatedRetraction = await fetch(`${url}/api/user/activity/${trustedEvent.id}`, {
+      method: "DELETE", headers,
+    });
+    assert.equal(repeatedRetraction.status, 200);
+    const repeatedBody = await repeatedRetraction.json() as any;
+    assert.equal(repeatedBody.event.status, "retracted");
+    assert.equal(repeatedBody.growth.xpDelta, -100);
+    assert.equal(repeatedBody.snapshot.xp, 0);
+
     const snapshot = await fetch(`${url}/api/user/growth`, { headers });
     const snapshotBody = await snapshot.json() as any;
-    assert.equal(snapshotBody.xp, 100);
-    assert.equal(snapshotBody.achievements.some((item: any) => item.id === "learning-session"), true);
+    assert.equal(snapshotBody.xp, 0);
+    assert.equal(snapshotBody.achievements.some((item: any) => item.id === "learning-session"), false);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
