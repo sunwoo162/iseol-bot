@@ -2254,3 +2254,9 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Notion page parsing now rejects credentials, non-default ports, raw or encoded backslashes, and empty input before a Notion page reference is persisted. HTTPS Notion workspace/custom-site links, page UUID normalization, and supported query parameters such as `pvs=4` remain compatible.
 - Evidence: `src/services/notion.ts`, `tests/notion.test.ts`, and the `test:notion` npm script. RED coverage observed unsafe authority/path inputs being accepted as page references; GREEN coverage preserves supported public page links and returns bounded Notion-link errors for unsafe forms.
 - Boundary: this change only hardens local Notion URL parsing; Notion API calls, page access permissions, integration credentials, and Discord project lifecycle behavior remain unchanged.
+
+## 2026-10-01 continuation: YouTube video identity boundary
+
+- Music YouTube input parsing now rejects credentials, non-default ports, raw or encoded backslashes, dot or empty path segments, arbitrary watch paths, and extra video path segments before playback validation. Existing `youtu.be`, `/watch`, `/watch/`, and `/shorts` forms plus HTTP/HTTPS compatibility remain supported.
+- Evidence: `src/services/music.ts`, `tests/music.test.ts`, and the `test:music` npm script. RED coverage observed that the extractor was not independently testable and accepted unsafe authority/path forms; GREEN coverage preserves supported video IDs and returns `null` for unsafe forms.
+- Boundary: this change only hardens local YouTube URL identity parsing; Discord music commands, play-dl/YouTube validation, external requests, playback, and playlist persistence remain unchanged.

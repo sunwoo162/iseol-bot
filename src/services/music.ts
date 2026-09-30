@@ -158,6 +158,16 @@ export class MusicStore {
 
 const defaultMusicStore = new MusicStore();
 
+type MusicPlaybackProvider = {
+  validate(input: string): Promise<string | false> | string | false;
+  video_basic_info(input: string): Promise<{ video_details: { title?: string; url: string } }>;
+};
+
+type MusicDependencies = {
+  playback: MusicPlaybackProvider;
+  store: Pick<MusicStore, "addTrack">;
+};
+
 function playbackUrl(track: MusicTrack): string {
   return track.playbackUrl || track.url;
 }
@@ -173,20 +183,43 @@ function removeFirstMatchingTrack(tracks: MusicTrack[], target: MusicTrack): voi
   if (index >= 0) tracks.splice(index, 1);
 }
 
-function extractYouTubeVideoUrl(input: string): string | null {
+export function extractYouTubeVideoUrl(input: string): string | null {
+  const raw = input.trim();
+  if (!raw || raw.includes("\\") || /%5c/i.test(raw)) return null;
+
   try {
-    const url = new URL(input);
+    const url = new URL(raw);
+    if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password || url.port) return null;
+    const authorityEnd = raw.indexOf("://");
+    const pathStart = raw.indexOf("/", authorityEnd + 3);
+    const rawPath = (pathStart === -1 ? "" : raw.slice(pathStart)).split(/[?#]/, 1)[0] ?? "";
+    const rawPathParts = rawPath.split("/");
+    const pathParts = rawPathParts.at(-1) === "" ? rawPathParts.slice(0, -1) : rawPathParts;
+    for (const part of pathParts.slice(1)) {
+      let decodedPart: string;
+      try {
+        decodedPart = decodeURIComponent(part);
+      } catch {
+        return null;
+      }
+      if (!decodedPart || decodedPart === "." || decodedPart === ".." || /[\\/]/.test(decodedPart)) return null;
+    }
+
     const host = url.hostname.toLowerCase().replace(/^www\./, "");
     let videoId: string | null = null;
 
     if (host === "youtu.be") {
-      videoId = url.pathname.split("/").filter(Boolean)[0] ?? null;
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (parts.length === 1) videoId = parts[0] ?? null;
     } else if (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com") {
-      videoId = url.searchParams.get("v");
+      if (url.searchParams.has("v")) {
+        if (url.pathname !== "/watch" && url.pathname !== "/watch/") return null;
+        videoId = url.searchParams.get("v");
+      }
 
       if (!videoId) {
-        const [kind, id] = url.pathname.split("/").filter(Boolean);
-        if ((kind === "shorts" || kind === "live" || kind === "embed") && id) {
+        const [kind, id, extra] = url.pathname.split("/").filter(Boolean);
+        if ((kind === "shorts" || kind === "live" || kind === "embed") && id && !extra) {
           videoId = id;
         }
       }
@@ -196,6 +229,19 @@ function extractYouTubeVideoUrl(input: string): string | null {
     return `https://www.youtube.com/watch?v=${videoId}`;
   } catch {
     return null;
+  }
+}
+
+function isYouTubeUrlLike(input: string): boolean {
+  try {
+    const url = new URL(input);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    return host === "youtu.be"
+      || host === "youtube.com"
+      || host === "m.youtube.com"
+      || host === "music.youtube.com";
+  } catch {
+    return /^https?:\/\/[^/?#\\]*(?:youtube\.com|youtu\.be)(?:[/?#\\:]|$)/i.test(input);
   }
 }
 
@@ -240,7 +286,7 @@ async function resolveSpotifyTrack(input: string, userId: string): Promise<Music
   };
 }
 
-async function resolveTrack(query: string, userId: string): Promise<MusicTrack> {
+async function resolveTrack(query: string, userId: string, playback: MusicPlaybackProvider = play): Promise<MusicTrack> {
   const input = query.trim();
   if (!input) throw new Error("YouTube 또는 Spotify 노래 링크를 입력해주세요.");
 
@@ -250,9 +296,9 @@ async function resolveTrack(query: string, userId: string): Promise<MusicTrack> 
 
   const youtubeVideoUrl = extractYouTubeVideoUrl(input);
   if (youtubeVideoUrl) {
-    const validation = await play.validate(youtubeVideoUrl);
+    const validation = await playback.validate(youtubeVideoUrl);
     if (validation === "yt_video") {
-      const info = await play.video_basic_info(youtubeVideoUrl);
+      const info = await playback.video_basic_info(youtubeVideoUrl);
       return {
         title: info.video_details.title ?? youtubeVideoUrl,
         url: info.video_details.url,
@@ -262,9 +308,13 @@ async function resolveTrack(query: string, userId: string): Promise<MusicTrack> 
     }
   }
 
-  const validation = await play.validate(input);
+  if (isYouTubeUrlLike(input)) {
+    throw new Error("YouTube 또는 Spotify의 개별 노래 링크만 추가할 수 있습니다.");
+  }
+
+  const validation = await playback.validate(input);
   if (validation === "yt_video") {
-    const info = await play.video_basic_info(input);
+    const info = await playback.video_basic_info(input);
     return {
       title: info.video_details.title ?? input,
       url: info.video_details.url,
@@ -285,10 +335,11 @@ export async function addTrackToPlaylist(
   playlistName: string,
   query: string,
   userId: string,
+  dependencies: MusicDependencies = { playback: play, store: defaultMusicStore },
 ): Promise<{ playlist: MusicPlaylist; track: MusicTrack }> {
-  const track = await resolveTrack(query, userId);
+  const track = await resolveTrack(query, userId, dependencies.playback);
 
-  const result = await defaultMusicStore.addTrack(guildId, playlistName, track);
+  const result = await dependencies.store.addTrack(guildId, playlistName, track);
 
   const state = runtime.get(guildId);
   if (state?.activePlaylistName
