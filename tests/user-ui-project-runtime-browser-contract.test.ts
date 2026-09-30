@@ -20,6 +20,7 @@ test("isolated browser runner includes a real project Runtime completion journey
   assert.match(server, /connectFakeDesktopAgent/);
   assert.match(server, /createProjectWorkspaceExecutor/);
   assert.match(server, /providerExecutor/);
+  assert.match(server, /canAccessTeamWithinMembershipLock: \(principal, teamId\) => teamService\.canAccessWithinMembershipLock\(principal, teamId\)/);
   assert.match(runner, /verifyProjectLocalAgentRuntimeUi/);
   assert.match(runner, /파일 열기 package\.json/);
   assert.match(runner, /파일 열기 image\.bin/);
