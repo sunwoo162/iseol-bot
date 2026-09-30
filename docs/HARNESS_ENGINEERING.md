@@ -245,3 +245,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `/project bind` and `/project status` acquire the project deletion lock keyed by guild and stored project ID before creating bindings, recording Project History, or projecting Workspace status.
 - The command paths re-read the stored project after acquiring the lock and stop when deletion has completed, so stale binding/history writes and stale status responses are not produced.
 - Binding creation, its history fact, and status projection share one stored-project lifecycle boundary, while their nested Workspace/Run locks retain their existing ordering.
+
+## Guild reset Project Workspace binding cleanup
+
+- `!관리자권한초기화` removes valid Discord↔Project Workspace binding files only from the target guild directory, using each binding's durable lock.
+- Binding files for other guilds remain untouched, and deleted binding counts are included in the reset's stored-record total and operator report.
+- Missing binding directories and invalid filenames fail closed without broadening cleanup beyond the validated guild-scoped path.
