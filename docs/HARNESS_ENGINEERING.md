@@ -239,3 +239,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Project join buttons and modals acquire the project deletion lock keyed by guild and project ID before constructing the modal or sending a GitHub Organization invitation.
 - They re-read the project after acquiring the lock and stop when deletion has completed, so stale interactions cannot invite a member using an obsolete Organization snapshot.
 - A live invitation may finish before deletion enters the critical section, but a stale join interaction cannot perform post-deletion GitHub side effects.
+
+## Project command lifecycle synchronization
+
+- `/project bind` and `/project status` acquire the project deletion lock keyed by guild and stored project ID before creating bindings, recording Project History, or projecting Workspace status.
+- The command paths re-read the stored project after acquiring the lock and stop when deletion has completed, so stale binding/history writes and stale status responses are not produced.
+- Binding creation, its history fact, and status projection share one stored-project lifecycle boundary, while their nested Workspace/Run locks retain their existing ordering.
