@@ -317,3 +317,10 @@ The effective Run policy is the ordered combination of this global document and 
 - User UI pages are loaded per route through lazy imports, while the application keeps the existing route/component mapping and renders a bounded Suspense fallback during chunk loading.
 - The production Vite build keeps the initial JavaScript chunk at roughly 318 KB and emits separate page chunks instead of one roughly 695 KB bundle.
 - The route contract suite and the full NPC user-product regression suite remain the acceptance boundary; this optimization does not claim live browser performance measurements.
+
+## Isolated browser team-project ACL lock boundary
+
+- The isolated browser server injects both the public team-access callback and the lock-aware team-access callback into `UserProjectService`.
+- Team project creation and team transitions re-check access while the durable Team membership lock is held; those checks must use the lock-aware callback so they do not recursively acquire the same lock.
+- The full isolated browser E2E verifies private team project visibility before membership, after recruitment acceptance, and through the related team transition flows.
+- `npm run test:iseol-browser-e2e` and `npm run test:iseol-user-product` remain the acceptance boundary for this integration wiring.
