@@ -244,6 +244,12 @@ async function handleRequest(
   notificationSseState: SseState,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", `http://${options.host}`);
+  const rawPathname = (req.url ?? "/").split("?", 1)[0] ?? "";
+  const isLearningPath = url.pathname === "/api/user/learning" || url.pathname.startsWith("/api/user/learning/");
+  if (isLearningPath && rawPathname.includes("\\")) {
+    sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "learning route not found" });
+    return;
+  }
   if (url.pathname === "/api/events") {
     if (req.method !== "GET") {
       res.writeHead(405, { allow: "GET" }).end("method not allowed");
@@ -410,6 +416,7 @@ async function handleRequest(
     const userRequest = {
       method: req.method ?? "GET",
       path: `${url.pathname}${url.search}`,
+      rawPath: req.url ?? "/",
       headers: headerRecord(req.headers),
       ...(body === undefined ? {} : { body }),
     };

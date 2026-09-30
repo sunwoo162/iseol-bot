@@ -29,14 +29,28 @@ function stringValue(body: Record<string, unknown>, key: string): string | null 
   return typeof body[key] === "string" && body[key].trim() ? body[key] as string : null;
 }
 
+function decodePathValue(value: string): string | null {
+  if (/%(?:2f|5c)/i.test(value)) return null;
+  try {
+    const decoded = decodeURIComponent(value);
+    return decoded || null;
+  } catch {
+    return null;
+  }
+}
+
 function pathId(pathname: string, prefix: string): string | null {
   if (!pathname.startsWith(prefix)) return null;
-  const value = decodeURIComponent(pathname.slice(prefix.length));
-  return value || null;
+  return decodePathValue(pathname.slice(prefix.length));
 }
 
 export async function routeLearningRequest(request: UserRequest, services: LearningRouteServices): Promise<UserResponse> {
+  const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
   const url = new URL(request.path, "http://iseol.local");
+  const isLearningPath = url.pathname === "/api/user/learning" || url.pathname.startsWith("/api/user/learning/");
+  if (isLearningPath && rawPathname.includes("\\")) {
+    return response(404, { error: "learning route not found" });
+  }
   const token = bearer(request.headers);
   const resolvedPrincipal = token ? await services.platformUserService.resolveAuthenticatedPrincipal(token) : null;
   if (!resolvedPrincipal) return response(401, { error: "authentication required" });
@@ -65,8 +79,10 @@ export async function routeLearningRequest(request: UserRequest, services: Learn
 
     const projectProposalMatch = /^\/api\/user\/learning\/goals\/([^/]+)\/project-proposals(?:\/([^/]+)\/accept)?$/.exec(url.pathname);
     if (projectProposalMatch) {
-      const goalId = decodeURIComponent(projectProposalMatch[1] ?? "");
-      const proposalId = projectProposalMatch[2] ? decodeURIComponent(projectProposalMatch[2]) : null;
+      const goalId = decodePathValue(projectProposalMatch[1] ?? "");
+      const rawProposalId = projectProposalMatch[2] ?? null;
+      const proposalId = rawProposalId ? decodePathValue(rawProposalId) : null;
+      if (!goalId || (rawProposalId && !proposalId)) return response(404, { error: "learning goal or project proposal not found" });
       if (proposalId) {
         if (request.method !== "POST") return response(405, { error: "method not allowed" });
         return response(200, await learning.acceptLearningProjectApplication(principal, goalId, proposalId));
@@ -92,7 +108,8 @@ export async function routeLearningRequest(request: UserRequest, services: Learn
 
     const reportMatch = /^\/api\/user\/learning\/goals\/([^/]+)\/reports$/.exec(url.pathname);
     if (reportMatch) {
-      const goalId = decodeURIComponent(reportMatch[1] ?? "");
+      const goalId = decodePathValue(reportMatch[1] ?? "");
+      if (!goalId) return response(404, { error: "learning goal not found" });
       if (request.method === "GET") return response(200, { reports: await learning.listLearningReports(principal, goalId) });
       if (request.method !== "POST") return response(405, { error: "method not allowed" });
       const body = objectBody(request.body);
