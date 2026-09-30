@@ -150,6 +150,12 @@ The effective Run policy is the ordered combination of this global document and 
 - The category ensure critical section re-reads cached and fetched Discord channels before creating the category, so filters with independent delivery locks reuse one category.
 - The audience delivery lock remains filter-scoped for independent feed channels, while only the shared category side effect is serialized across filters.
 
+## Shared contest category synchronization
+
+- Base `/contest setup` and audience-specific feed setup share the guild-scoped `contest-category` lock for the common `🏆 공모전` category.
+- Both paths re-read Discord channels inside that lock and reuse an existing category, including one created by the other service.
+- Base feed rollback deletes the category only when the base setup created it; a pre-existing shared category is preserved when channel setup fails.
+
 ## Project discussion repair synchronization
 
 - Startup and post-command project discussion repair shares the project deletion lock keyed by guild and project ID.
