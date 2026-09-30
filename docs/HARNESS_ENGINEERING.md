@@ -203,3 +203,9 @@ The effective Run policy is the ordered combination of this global document and 
 - GitHub automation polling shares the project deletion lock keyed by guild and project ID while installing review workflows and syncing pull requests/milestones.
 - It re-reads the project after acquiring the lifecycle lock and skips GitHub review, Discord notification/history, and calendar milestone side effects when deletion has already completed.
 - A live project may finish one polling cycle before deletion enters the critical section, but stale snapshots cannot continue automation side effects after deletion.
+
+## Project deletion daily scrum cleanup
+
+- `/project delete` clears the deleted project's daily-scrum records and reminder cursor after the project store deletion succeeds, while remaining inside the project deletion lifecycle lock.
+- Daily-scrum cleanup failures are reported as bounded warnings alongside other external cleanup failures, without hiding the completed project store deletion.
+- The cleanup removes both per-user daily-scrum records and the per-project reminder date, so deleted projects cannot retain durable daily-scrum state.
