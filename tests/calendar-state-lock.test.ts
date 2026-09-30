@@ -39,3 +39,29 @@ test("calendar state preserves concurrent upserts across independent store insta
   assert.equal((await reading)?.eventId, "event-1");
   await rm(dir, { recursive: true, force: true });
 });
+
+test("calendar mapping side effect lock serializes the same external key across store instances", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iseol-calendar-side-effect-lock-"));
+  const file = join(dir, "state.json");
+  const first = new CalendarStateStore(file);
+  const second = new CalendarStateStore(file);
+  let release!: () => void;
+  const firstStarted = new Promise<void>((resolveStarted) => {
+    void first.withMappingLock("project:owner/repo:milestone:3", async () => {
+      resolveStarted();
+      await new Promise<void>((resolveRelease) => { release = resolveRelease; });
+    });
+  });
+  await firstStarted;
+
+  let secondSettled = false;
+  const secondRun = second.withMappingLock("project:owner/repo:milestone:3", async () => {
+    secondSettled = true;
+  });
+  await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  assert.equal(secondSettled, false);
+  release();
+  await secondRun;
+  assert.equal(secondSettled, true);
+  await rm(dir, { recursive: true, force: true });
+});

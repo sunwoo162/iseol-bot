@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { withDurableFileStateLock } from "../file-state-lock.js";
@@ -18,6 +19,11 @@ export function calendarExternalKey(projectId: string, repository: string, sourc
 
 export class CalendarStateStore {
   constructor(private readonly file = resolve(process.cwd(), "data", "calendar-state.json")) {}
+
+  async withMappingLock<T>(externalKey: string, task: () => Promise<T>): Promise<T> {
+    const digest = createHash("sha256").update(externalKey).digest("hex");
+    return withDurableFileStateLock(`${this.file}.mapping-${digest}`, task, { waitForMs: 60_000, pollIntervalMs: 25 });
+  }
 
   private async read(): Promise<CalendarMapping[]> {
     try {
