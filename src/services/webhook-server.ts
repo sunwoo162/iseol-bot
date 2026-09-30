@@ -26,6 +26,17 @@ export async function withProjectGitHubWebhookLifecycleLock<T>(
   });
 }
 
+export async function withProjectIntegrationPollingLifecycleLock<T>(
+  project: StoredProject,
+  task: (current: StoredProject) => Promise<T>,
+): Promise<T | undefined> {
+  return withProjectDeleteLock(project.guildId, project.id, async () => {
+    const current = await findProject(project.id);
+    if (!current) return undefined;
+    return task(current);
+  });
+}
+
 async function getFigmaChannel(client: Client, project: StoredProject): Promise<TextChannel | null> {
   if (!project.figmaChannelId) return null;
 
@@ -239,21 +250,27 @@ async function pollAllProjectsUnlocked(client: Client): Promise<void> {
 
   for (const project of projects) {
     try {
-      await pollProjectVersions(client, figma, project);
-    } catch (error) {
-      console.error(`Figma 버전 확인 실패 (${project.name})`, error);
-    }
+      await withProjectIntegrationPollingLifecycleLock(project, async (current) => {
+        try {
+          await pollProjectVersions(client, figma, current);
+        } catch (error) {
+          console.error(`Figma 버전 확인 실패 (${current.name})`, error);
+        }
 
-    try {
-      await pollProjectComments(client, figma, project);
-    } catch (error) {
-      console.error(`Figma 댓글 확인 실패 (${project.name})`, error);
-    }
+        try {
+          await pollProjectComments(client, figma, current);
+        } catch (error) {
+          console.error(`Figma 댓글 확인 실패 (${current.name})`, error);
+        }
 
-    try {
-      await pollProjectNotion(client, notion, project);
+        try {
+          await pollProjectNotion(client, notion, current);
+        } catch (error) {
+          console.error(`Notion 수정 확인 실패 (${current.name})`, error);
+        }
+      });
     } catch (error) {
-      console.error(`Notion 수정 확인 실패 (${project.name})`, error);
+      console.error(`프로젝트 integration polling lifecycle 실패 (${project.name})`, error);
     }
   }
 }
