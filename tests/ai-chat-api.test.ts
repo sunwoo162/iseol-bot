@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -46,5 +47,38 @@ test("AI chat API persists bounded text attachments and rejects binary input wit
     const conversationAfterReject = await fetch(`${base}/${conversation.id}`, { headers: { authorization: `Bearer ${session.token}` } });
     const afterReject = await conversationAfterReject.json() as { conversation: { messages: unknown[] } };
     assert.equal(afterReject.conversation.messages.length, 1);
+  } finally { await server.closeForShutdown(); }
+});
+
+test("AI chat routes reject malformed ids and raw backslash normalization before mutation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-chat-router-paths-")); const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => "2026-09-28T15:30:00.000Z" });
+  const user = await users.createUser({ id: "ai-chat-router-user", email: "ai-chat-router@example.com", displayName: "AI Chat Router", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-29T15:30:00.000Z" });
+  const chat = createAiChatService(platformRoot, { now: () => "2026-09-28T15:30:00.000Z" });
+  const conversation = await chat.createConversation({ userId: user.id, sessionId: session.id, roles: ["user"] }, "경로 경계 테스트");
+  const server = await startWebControlPlaneServer({ host: "127.0.0.1", port: 0, token: "control", modelRoot: join(root, "model"), harnessRoot: join(root, "runs"), webRoot: join(root, "web"), userService: users, aiChatService: chat });
+  const address = server.address() as AddressInfo; const base = `http://127.0.0.1:${address.port}/api/user/ai-chat/conversations`; const headers = { authorization: `Bearer ${session.token}`, "content-type": "application/json" };
+  try {
+    const malformedConversation = await fetch(`${base}/%E0%A4%A`, { headers });
+    assert.equal(malformedConversation.status, 404);
+    const malformedPlanMessage = await fetch(`${base}/${conversation.id}/execution-plans/%E0%A4%A/approve`, { method: "POST", headers, body: "{}" });
+    assert.equal(malformedPlanMessage.status, 404);
+    const queryConversation = await fetch(`${base}/${conversation.id}?next=%2F`, { headers });
+    assert.equal(queryConversation.status, 200);
+    const queryMessage = await fetch(`${base}/${conversation.id}/messages?next=%2F`, { method: "POST", headers, body: JSON.stringify({ content: "query string이 붙은 메시지" }) });
+    assert.equal(queryMessage.status, 201);
+    const rawBody = JSON.stringify({ content: "서버 우회 메시지" });
+    const rawServerStatus = await new Promise<number>((resolve, reject) => {
+      const rawRequest = httpRequest({ hostname: "127.0.0.1", port: address.port, method: "POST", path: `/api/user\\ai-chat/conversations/${conversation.id}/messages`, headers: { ...headers, "content-length": String(Buffer.byteLength(rawBody)) } }, (response) => {
+        response.resume();
+        response.on("end", () => resolve(response.statusCode ?? 0));
+      });
+      rawRequest.on("error", reject);
+      rawRequest.end(rawBody);
+    });
+    assert.equal(rawServerStatus, 404);
+    const unchanged = await chat.getConversation({ userId: user.id, sessionId: session.id, roles: ["user"] }, conversation.id);
+    assert.equal(unchanged?.messages.length, 1);
   } finally { await server.closeForShutdown(); }
 });
