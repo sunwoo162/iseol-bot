@@ -311,3 +311,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `!관리자권한초기화` removes GitHub account links scoped to the reset guild under the account-link store's durable file lock.
 - Links for other guilds remain intact, and the removed-link count is included in the reset's cleared-record summary.
 - The guild reset integration test verifies target/other guild isolation in `data/github-users.json`.
+
+## User UI route bundle loading
+
+- User UI pages are loaded per route through lazy imports, while the application keeps the existing route/component mapping and renders a bounded Suspense fallback during chunk loading.
+- The production Vite build keeps the initial JavaScript chunk at roughly 318 KB and emits separate page chunks instead of one roughly 695 KB bundle.
+- The route contract suite and the full NPC user-product regression suite remain the acceptance boundary; this optimization does not claim live browser performance measurements.
