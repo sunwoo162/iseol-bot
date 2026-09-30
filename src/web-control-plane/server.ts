@@ -255,6 +255,11 @@ async function handleRequest(
     sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "community route not found" });
     return;
   }
+  const isAiChatPath = url.pathname === "/api/user/ai-chat" || url.pathname.startsWith("/api/user/ai-chat/");
+  if (isAiChatPath && rawPathname.includes("\\")) {
+    sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "AI chat route not found" });
+    return;
+  }
   if (url.pathname === "/api/events") {
     if (req.method !== "GET") {
       res.writeHead(405, { allow: "GET" }).end("method not allowed");

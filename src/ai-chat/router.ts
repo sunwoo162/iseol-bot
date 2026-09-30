@@ -9,9 +9,14 @@ function response(status: number, body: unknown): UserResponse { return { status
 function bearer(headers: Record<string, string | undefined>): string | null { const value = headers.authorization; return value?.startsWith("Bearer ") ? value.slice(7).trim() || null : null; }
 function bodyObject(body: unknown): Record<string, unknown> | null { return body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : null; }
 function bodyString(body: Record<string, unknown> | null, key: string): string | null { return typeof body?.[key] === "string" && (body[key] as string).trim() ? body[key] as string : null; }
-function idAfter(path: string, prefix: string): string | null { if (!path.startsWith(prefix)) return null; const value = decodeURIComponent(path.slice(prefix.length)); return value || null; }
+function decodePathValue(value: string): string | null { if (/%(?:2f|5c)/i.test(value)) return null; try { const decoded = decodeURIComponent(value); return decoded || null; } catch { return null; } }
+function idAfter(path: string, prefix: string): string | null { if (!path.startsWith(prefix)) return null; return decodePathValue(path.slice(prefix.length)); }
 
 export async function routeAiChatRequest(request: UserRequest, services: AiChatRouteServices): Promise<UserResponse> {
+  const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
+  const pathname = new URL(request.path, "http://iseol.local").pathname;
+  const isAiChatPath = pathname === "/api/user/ai-chat" || pathname.startsWith("/api/user/ai-chat/");
+  if (isAiChatPath && rawPathname.includes("\\")) return response(404, { error: "AI chat route not found" });
   const token = bearer(request.headers); const principal = token ? await services.platformUserService.resolveAuthenticatedPrincipal(token) : null;
   if (!principal) return response(401, { error: "authentication required" });
   if (!services.aiChatService) return response(503, { error: "AI chat unavailable" });
@@ -20,15 +25,17 @@ export async function routeAiChatRequest(request: UserRequest, services: AiChatR
     const planWorkRequest = /^\/api\/user\/ai-chat\/conversations\/([^/]+)\/execution-plans\/([^/]+)\/work-requests$/.exec(request.path);
     if (planWorkRequest) {
       if (request.method !== "POST") return response(405, { error: "method not allowed" });
-      const conversationId = decodeURIComponent(planWorkRequest[1]!);
-      const messageId = decodeURIComponent(planWorkRequest[2]!);
+      const conversationId = decodePathValue(planWorkRequest[1]!);
+      const messageId = decodePathValue(planWorkRequest[2]!);
+      if (!conversationId || !messageId) return response(404, { error: "AI chat route not found" });
       return response(201, await chat.createExecutionPlanWorkRequest(principal, conversationId, messageId));
     }
     const planAction = /^\/api\/user\/ai-chat\/conversations\/([^/]+)\/execution-plans\/([^/]+)\/(approve|reject)$/.exec(request.path);
     if (planAction) {
       if (request.method !== "POST") return response(405, { error: "method not allowed" });
-      const conversationId = decodeURIComponent(planAction[1]!);
-      const messageId = decodeURIComponent(planAction[2]!);
+      const conversationId = decodePathValue(planAction[1]!);
+      const messageId = decodePathValue(planAction[2]!);
+      if (!conversationId || !messageId) return response(404, { error: "AI chat route not found" });
       const conversation = planAction[3] === "approve" ? await chat.approveExecutionPlan(principal, conversationId, messageId) : await chat.rejectExecutionPlan(principal, conversationId, messageId);
       return response(200, { conversation });
     }
