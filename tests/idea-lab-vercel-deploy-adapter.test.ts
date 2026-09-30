@@ -30,6 +30,42 @@ function production(): PrototypeProduction {
   };
 }
 
+test("Vercel deployment rejects unsafe repository identities before provider mutation", async () => {
+  let fetchCalls = 0;
+  const adapter = createVercelPrototypeDeployAdapter({
+    token: "vercel-token",
+    projectId: "prj_test",
+    fetch: async () => {
+      fetchCalls += 1;
+      return Response.json({ id: "unexpected", url: "unexpected.vercel.app" });
+    },
+  });
+  const base = {
+    key: KEY,
+    campaignId: "camp-1",
+    productionId: "prod-1",
+    branch: "idea/camp-1/prod-1",
+    commitSha: COMMIT,
+  };
+
+  for (const repositoryUrl of [
+    "https://user:password@github.com/acme/prototype.git",
+    "https://github.com:444/acme/prototype.git",
+    "https://github.com/acme/./prototype.git",
+    "https://github.com/acme/prototype.git/extra",
+    "https://github.com/acme/prototype?",
+    "https://github.com/acme/prototype%5C.git",
+    "https://github.com/acme//prototype",
+    "https://github.com/acme/.git",
+  ]) {
+    await assert.rejects(
+      () => adapter.deploy({ ...base, repositoryUrl }),
+      /GitHub repository|GitHub 저장소/,
+    );
+  }
+  assert.equal(fetchCalls, 0);
+});
+
 test("lost Vercel create response reconciles by stable deployment metadata", async () => {
   const deployments: any[] = [];
   let createCalls = 0;

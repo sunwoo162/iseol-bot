@@ -3,6 +3,7 @@ import type {
   PrototypeDeployRequest,
   PrototypeDeploymentReceipt,
 } from "./deploy-adapter.js";
+import { parseGitHubRepository } from "../services/github.js";
 
 type FetchLike = typeof fetch;
 type EnvLike = Record<string, string | undefined>;
@@ -87,14 +88,16 @@ function receipt(value: VercelDeployment, input: PrototypeDeployRequest, now: ()
   };
 }
 function githubOwnerRepo(repositoryUrl: string): { owner: string; repo: string } {
-  let url: URL;
-  try { url = new URL(repositoryUrl); } catch { throw new Error("Idea Lab Vercel deployment requires a GitHub repository URL"); }
-  if (url.hostname.toLowerCase() !== "github.com") {
-    throw new Error("Idea Lab Vercel deployment currently supports GitHub repositories only");
+  const raw = repositoryUrl.trim();
+  if (!/^https?:\/\//i.test(raw)) {
+    throw new Error("Idea Lab Vercel deployment requires a GitHub repository URL");
   }
-  const parts = url.pathname.replace(/^\/+|\/+$/g, "").split("/");
-  if (parts.length !== 2) throw new Error("Idea Lab Vercel deployment GitHub repository URL is invalid");
-  return { owner: parts[0]!, repo: parts[1]!.replace(/\.git$/i, "") };
+  try {
+    const parsed = parseGitHubRepository(raw);
+    return { owner: parsed.owner, repo: parsed.repo };
+  } catch {
+    throw new Error("Idea Lab Vercel deployment GitHub repository URL is invalid");
+  }
 }
 
 export function createVercelPrototypeDeployAdapter(
