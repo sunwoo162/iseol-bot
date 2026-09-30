@@ -78,9 +78,19 @@ export async function routePersonalWorldRequest(request: UserRequest, services: 
   if (url.pathname === "/api/user/memory") {
     if (!services.memoryService) return response(503, { error: "private memory unavailable" });
     if (request.method === "GET") {
+      const limitValues = url.searchParams.getAll("limit");
+      let limit: number | undefined;
+      if (limitValues.length > 1) return response(400, { error: "limit must be a positive integer" });
+      const limitValue = limitValues[0];
+      if (limitValue !== undefined) {
+        if (!/^\d+$/.test(limitValue)) return response(400, { error: "limit must be a positive integer" });
+        const parsedLimit = Number(limitValue);
+        if (!Number.isSafeInteger(parsedLimit) || parsedLimit < 1) return response(400, { error: "limit must be a positive integer" });
+        limit = parsedLimit;
+      }
       const memories = await services.memoryService.listPrivateMemories(principal, {
         ...(url.searchParams.get("search") ? { search: url.searchParams.get("search")! } : {}),
-        ...(url.searchParams.get("limit") ? { limit: Number(url.searchParams.get("limit")) } : {}),
+        ...(limit === undefined ? {} : { limit }),
       });
       return response(200, { memories });
     }
