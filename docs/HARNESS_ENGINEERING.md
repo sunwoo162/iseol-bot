@@ -143,3 +143,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `/project delete` uses a durable lock keyed by guild and project ID, so concurrent requests for one project share the same critical section even when they arrive through different target text.
 - After acquiring the lock, the command re-reads the project store and Discord channels before deleting external webhooks, calendars, channels, bindings, and stored state.
 - A request waiting behind a completed deletion observes the missing project and does not repeat external cleanup side effects from its stale pre-lock snapshot.
+
+## Contest audience category synchronization
+
+- Audience-specific contest feed setup uses a guild-scoped Discord channel lock for the shared `🏆 공모전` category.
+- The category ensure critical section re-reads cached and fetched Discord channels before creating the category, so filters with independent delivery locks reuse one category.
+- The audience delivery lock remains filter-scoped for independent feed channels, while only the shared category side effect is serialized across filters.
