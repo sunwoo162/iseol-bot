@@ -93,7 +93,7 @@ export async function loadPortfolioDocument(root: string, projectId: string): Pr
   );
 }
 
-export async function savePortfolioDocument(root: string, document: StoredPortfolioDocument): Promise<void> {
+async function savePortfolioDocumentUnlocked(root: string, document: StoredPortfolioDocument): Promise<void> {
   assertProjectModelId(document.projectId);
   if (document.version !== 1 || document.generationMode !== "deterministic") throw new Error("Unsupported portfolio document");
   if (document.sections.length !== SECTION_IDS.length || document.sections.some((section, index) => section.id !== SECTION_IDS[index])) {
@@ -106,12 +106,21 @@ export async function savePortfolioDocument(root: string, document: StoredPortfo
   await rename(temp, path);
 }
 
+export async function savePortfolioDocument(root: string, document: StoredPortfolioDocument): Promise<void> {
+  return withDurablePortfolioLock(
+    root,
+    document.projectId,
+    () => savePortfolioDocumentUnlocked(root, document),
+    { waitForMs: 2_000 },
+  );
+}
+
 export async function ensurePortfolioDocument(root: string, draft: PortfolioDraft, at = new Date().toISOString()): Promise<StoredPortfolioDocument> {
   return withDurablePortfolioLock(root, draft.projectId, async () => {
     const existing = await loadPortfolioDocumentUnlocked(root, draft.projectId);
     if (existing) return existing;
     const created = createPortfolioDocument(draft, at);
-    await savePortfolioDocument(root, created);
+    await savePortfolioDocumentUnlocked(root, created);
     return created;
   }, { waitForMs: 2_000 });
 }
@@ -142,7 +151,7 @@ export async function updatePortfolioDocument(
       throw new Error("Invalid portfolio section id");
     }
     const next = { ...current, sections, readme: input.readme === undefined ? current.readme : bounded(input.readme, "readme", 50_000), updatedAt: at };
-    await savePortfolioDocument(root, next);
+    await savePortfolioDocumentUnlocked(root, next);
     return next;
   }, { waitForMs: 2_000 });
 }
