@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ContestAttachment, ContestSource } from "./contests.js";
+import { withDurableFileStateLock } from "./file-state-lock.js";
 
 export type ContestVote = {
   id: string;
@@ -45,99 +46,153 @@ function normalizeTitle(value: string): string {
     .trim();
 }
 
-async function readVotes(): Promise<ContestVote[]> {
-  try {
-    const content = await readFile(DATA_FILE, "utf8");
-    return JSON.parse(content) as ContestVote[];
-  } catch {
-    return [];
-  }
-}
-
-async function writeVotes(votes: ContestVote[]): Promise<void> {
-  await mkdir(dirname(DATA_FILE), { recursive: true });
-  await writeFile(DATA_FILE, JSON.stringify(votes, null, 2), "utf8");
-}
-
 export function createContestVoteId(): string {
   return randomBytes(6).toString("hex");
 }
 
-export async function saveContestVote(vote: Omit<ContestVote, "createdAt">): Promise<ContestVote> {
-  const votes = await readVotes();
-  const stored: ContestVote = {
-    ...vote,
-    createdAt: new Date().toISOString(),
-  };
-  votes.push(stored);
-  await writeVotes(votes);
-  return stored;
+export class ContestVoteStore {
+  constructor(private readonly file = DATA_FILE) {}
+
+  private async readVotes(): Promise<ContestVote[]> {
+    try {
+      const content = await readFile(this.file, "utf8");
+      return JSON.parse(content) as ContestVote[];
+    } catch {
+      return [];
+    }
+  }
+
+  private async writeVotes(votes: ContestVote[]): Promise<void> {
+    await mkdir(dirname(this.file), { recursive: true });
+    await writeFile(this.file, JSON.stringify(votes, null, 2), "utf8");
+  }
+
+  async save(vote: Omit<ContestVote, "createdAt">): Promise<ContestVote> {
+    return withDurableFileStateLock(this.file, async () => {
+      const votes = await this.readVotes();
+      const stored: ContestVote = {
+        ...vote,
+        createdAt: new Date().toISOString(),
+      };
+      votes.push(stored);
+      await this.writeVotes(votes);
+      return stored;
+    }, { waitForMs: 2_000 });
+  }
+
+  async list(): Promise<ContestVote[]> {
+    return withDurableFileStateLock(this.file, () => this.readVotes(), { waitForMs: 2_000 });
+  }
+
+  async find(id: string): Promise<ContestVote | null> {
+    return withDurableFileStateLock(this.file, async () => {
+      const votes = await this.readVotes();
+      return votes.find((vote) => vote.id === id) ?? null;
+    }, { waitForMs: 2_000 });
+  }
+
+  async findLatest(
+    guildId: string,
+    channelId: string,
+    title: string,
+    url: string,
+  ): Promise<ContestVote | null> {
+    return withDurableFileStateLock(this.file, async () => {
+      const normalizedTitle = normalizeTitle(title);
+      const votes = await this.readVotes();
+
+      return votes
+        .filter((vote) =>
+          vote.guildId === guildId
+          && vote.channelId === channelId
+          && (vote.url === url || normalizeTitle(vote.title) === normalizedTitle),
+        )
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+    }, { waitForMs: 2_000 });
+  }
+
+  async listForChannel(guildId: string, channelId: string): Promise<ContestVote[]> {
+    return withDurableFileStateLock(this.file, async () => {
+      const votes = await this.readVotes();
+      return votes.filter((vote) => vote.guildId === guildId && vote.channelId === channelId);
+    }, { waitForMs: 2_000 });
+  }
+
+  async listByUser(guildId: string, userId: string): Promise<ContestVote[]> {
+    return withDurableFileStateLock(this.file, async () => {
+      const votes = await this.readVotes();
+      return votes
+        .filter((vote) => vote.guildId === guildId && vote.voterIds.includes(userId))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .map((vote) => {
+          const homepage = vote.homepage || vote.url;
+          const messageUrl = `https://discord.com/channels/${vote.guildId}/${vote.channelId}/${vote.messageId}`;
+          const periodParts = [vote.period, homepage ? `[🌐 홈페이지](${homepage})` : undefined]
+            .filter((value): value is string => Boolean(value));
+
+          return {
+            ...vote,
+            homepage: messageUrl,
+            period: periodParts.length > 0 ? periodParts.join(" · ") : undefined,
+          };
+        });
+    }, { waitForMs: 2_000 });
+  }
+
+  async update(
+    id: string,
+    updates: Partial<Omit<ContestVote, "id" | "createdAt">>,
+  ): Promise<ContestVote | null> {
+    return withDurableFileStateLock(this.file, async () => {
+      const votes = await this.readVotes();
+      const index = votes.findIndex((vote) => vote.id === id);
+      if (index < 0) return null;
+
+      const current = votes[index];
+      if (!current) return null;
+
+      const updated: ContestVote = { ...current, ...updates, id: current.id, createdAt: current.createdAt };
+      votes[index] = updated;
+      await this.writeVotes(votes);
+      return updated;
+    }, { waitForMs: 2_000 });
+  }
 }
 
-export async function listContestVotes(): Promise<ContestVote[]> {
-  return readVotes();
+const defaultContestVoteStore = new ContestVoteStore();
+
+export function saveContestVote(vote: Omit<ContestVote, "createdAt">): Promise<ContestVote> {
+  return defaultContestVoteStore.save(vote);
 }
 
-export async function findContestVote(id: string): Promise<ContestVote | null> {
-  const votes = await readVotes();
-  return votes.find((vote) => vote.id === id) ?? null;
+export function listContestVotes(): Promise<ContestVote[]> {
+  return defaultContestVoteStore.list();
 }
 
-export async function findLatestContestVote(
+export function findContestVote(id: string): Promise<ContestVote | null> {
+  return defaultContestVoteStore.find(id);
+}
+
+export function findLatestContestVote(
   guildId: string,
   channelId: string,
   title: string,
   url: string,
 ): Promise<ContestVote | null> {
-  const normalizedTitle = normalizeTitle(title);
-  const votes = await readVotes();
-
-  return votes
-    .filter((vote) =>
-      vote.guildId === guildId
-      && vote.channelId === channelId
-      && (vote.url === url || normalizeTitle(vote.title) === normalizedTitle),
-    )
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+  return defaultContestVoteStore.findLatest(guildId, channelId, title, url);
 }
 
-export async function listContestVotesForChannel(guildId: string, channelId: string): Promise<ContestVote[]> {
-  const votes = await readVotes();
-  return votes.filter((vote) => vote.guildId === guildId && vote.channelId === channelId);
+export function listContestVotesForChannel(guildId: string, channelId: string): Promise<ContestVote[]> {
+  return defaultContestVoteStore.listForChannel(guildId, channelId);
 }
 
-export async function listContestVotesByUser(guildId: string, userId: string): Promise<ContestVote[]> {
-  const votes = await readVotes();
-  return votes
-    .filter((vote) => vote.guildId === guildId && vote.voterIds.includes(userId))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((vote) => {
-      const homepage = vote.homepage || vote.url;
-      const messageUrl = `https://discord.com/channels/${vote.guildId}/${vote.channelId}/${vote.messageId}`;
-      const periodParts = [vote.period, homepage ? `[🌐 홈페이지](${homepage})` : undefined]
-        .filter((value): value is string => Boolean(value));
-
-      return {
-        ...vote,
-        homepage: messageUrl,
-        period: periodParts.length > 0 ? periodParts.join(" · ") : undefined,
-      };
-    });
+export function listContestVotesByUser(guildId: string, userId: string): Promise<ContestVote[]> {
+  return defaultContestVoteStore.listByUser(guildId, userId);
 }
 
-export async function updateContestVote(
+export function updateContestVote(
   id: string,
   updates: Partial<Omit<ContestVote, "id" | "createdAt">>,
 ): Promise<ContestVote | null> {
-  const votes = await readVotes();
-  const index = votes.findIndex((vote) => vote.id === id);
-  if (index < 0) return null;
-
-  const current = votes[index];
-  if (!current) return null;
-
-  const updated: ContestVote = { ...current, ...updates, id: current.id, createdAt: current.createdAt };
-  votes[index] = updated;
-  await writeVotes(votes);
-  return updated;
+  return defaultContestVoteStore.update(id, updates);
 }
