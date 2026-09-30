@@ -5,7 +5,7 @@ import { config } from "../config.js";
 import { recordStoredProjectAction, type StoredProjectActionFact } from "../discord-project/history-recorder.js";
 import { FigmaWebhookService, NO_FIGMA_VERSION, type FigmaComment, type FigmaVersion } from "./figma.js";
 import { NotionService, type NotionPageSnapshot } from "./notion.js";
-import { listProjects, updateProject, withProjectPollingLock, type StoredProject } from "./projects.js";
+import { findProject, listProjects, updateProject, withProjectDeleteLock, withProjectPollingLock, type StoredProject } from "./projects.js";
 import { CalendarStateStore } from "./calendar/calendar-state.js";
 import { GoogleCalendarService } from "./calendar/google-calendar.js";
 import { GitHubScheduleSyncService } from "./github-schedule-sync.js";
@@ -14,6 +14,17 @@ import { GeminiReviewProvider } from "./review/gemini-review-provider.js";
 import { GitHubReviewService } from "./review/github-review.js";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
+
+export async function withProjectGitHubWebhookLifecycleLock<T>(
+  project: StoredProject,
+  task: (current: StoredProject) => Promise<T>,
+): Promise<T | undefined> {
+  return withProjectDeleteLock(project.guildId, project.id, async () => {
+    const current = await findProject(project.id);
+    if (!current) return undefined;
+    return task(current);
+  });
+}
 
 async function getFigmaChannel(client: Client, project: StoredProject): Promise<TextChannel | null> {
   if (!project.figmaChannelId) return null;
@@ -279,41 +290,43 @@ async function dispatchGitHubAutomation(client: Client, event: string, payload: 
   if (!resolved) return;
   const { project, side } = resolved;
 
-  if (event === "pull_request" && shouldReviewPullRequestAction(String(payload.action ?? ""))) {
-    const pullNumber = Number(payload?.pull_request?.number ?? payload?.number);
-    const headSha = String(payload?.pull_request?.head?.sha ?? "");
-    if (!Number.isInteger(pullNumber) || !headSha) return;
-    if (!config.geminiApiKey) {
-      await notifyGitHubAutomation(client, project, side, "⚠️ PR 자동 리뷰를 건너뜀: GEMINI_API_KEY가 설정되지 않았습니다.");
+  await withProjectGitHubWebhookLifecycleLock(project, async (current) => {
+    if (event === "pull_request" && shouldReviewPullRequestAction(String(payload.action ?? ""))) {
+      const pullNumber = Number(payload?.pull_request?.number ?? payload?.number);
+      const headSha = String(payload?.pull_request?.head?.sha ?? "");
+      if (!Number.isInteger(pullNumber) || !headSha) return;
+      if (!config.geminiApiKey) {
+        await notifyGitHubAutomation(client, current, side, "⚠️ PR 자동 리뷰를 건너뜀: GEMINI_API_KEY가 설정되지 않았습니다.");
+        return;
+      }
+      try {
+        const reviewer = new GitHubReviewService(config.githubToken, new GeminiReviewProvider(config.geminiApiKey));
+        const result = await reviewer.reviewPullRequest(fullName, pullNumber, headSha);
+        if (!result.skipped) await notifyGitHubAutomation(client, current, side, "🤖 PR #" + pullNumber + " 이설 코드리뷰 완료 · inline " + result.findings + "개");
+      } catch (error) {
+        console.error("PR 자동 리뷰 실패 (" + fullName + "#" + pullNumber + ")", error);
+        await notifyGitHubAutomation(client, current, side, "❌ PR #" + pullNumber + " 이설 코드리뷰 실패 · 서버 로그를 확인해주세요.");
+      }
       return;
     }
-    try {
-      const reviewer = new GitHubReviewService(config.githubToken, new GeminiReviewProvider(config.geminiApiKey));
-      const result = await reviewer.reviewPullRequest(fullName, pullNumber, headSha);
-      if (!result.skipped) await notifyGitHubAutomation(client, project, side, "🤖 PR #" + pullNumber + " 이설 코드리뷰 완료 · inline " + result.findings + "개");
-    } catch (error) {
-      console.error("PR 자동 리뷰 실패 (" + fullName + "#" + pullNumber + ")", error);
-      await notifyGitHubAutomation(client, project, side, "❌ PR #" + pullNumber + " 이설 코드리뷰 실패 · 서버 로그를 확인해주세요.");
-    }
-    return;
-  }
 
-  if (event === "milestone" && project.calendarId) {
-    if (!config.googleClientId || !config.googleClientSecret || !config.googleRefreshToken) return;
-    const milestone = payload?.milestone;
-    if (!milestone || typeof milestone.number !== "number") return;
-    const service = new GitHubScheduleSyncService(
-      new GoogleCalendarService(config.googleClientId, config.googleClientSecret, config.googleRefreshToken, config.googleRedirectUri),
-      new CalendarStateStore(),
-    );
-    await service.syncMilestone(project.id, project.calendarId, fullName, {
-      number: milestone.number,
-      title: String(milestone.title ?? ("Milestone #" + milestone.number)),
-      dueOn: typeof milestone.due_on === "string" ? milestone.due_on : null,
-      state: milestone.state === "closed" || payload.action === "deleted" ? "closed" : "open",
-      htmlUrl: String(milestone.html_url ?? ""),
-    });
-  }
+    if (event === "milestone" && current.calendarId) {
+      if (!config.googleClientId || !config.googleClientSecret || !config.googleRefreshToken) return;
+      const milestone = payload?.milestone;
+      if (!milestone || typeof milestone.number !== "number") return;
+      const service = new GitHubScheduleSyncService(
+        new GoogleCalendarService(config.googleClientId, config.googleClientSecret, config.googleRefreshToken, config.googleRedirectUri),
+        new CalendarStateStore(),
+      );
+      await service.syncMilestone(current.id, current.calendarId, fullName, {
+        number: milestone.number,
+        title: String(milestone.title ?? ("Milestone #" + milestone.number)),
+        dueOn: typeof milestone.due_on === "string" ? milestone.due_on : null,
+        state: milestone.state === "closed" || payload.action === "deleted" ? "closed" : "open",
+        htmlUrl: String(milestone.html_url ?? ""),
+      });
+    }
+  });
 }
 
 function startGitHubHttpServer(client: Client): void {
