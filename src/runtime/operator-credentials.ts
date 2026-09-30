@@ -3,6 +3,7 @@ import { execFile as execFileCallback, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { withDurableOperatorCredentialLock } from "./operator-credential-lock.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -99,7 +100,7 @@ async function saveRecord(path: string, record: OperatorCredentialRecord): Promi
   await rename(temporary, path);
 }
 
-export async function readOperatorCredential(path: string): Promise<OperatorCredentialRecord | undefined> {
+async function readOperatorCredentialUnlocked(path: string): Promise<OperatorCredentialRecord | undefined> {
   try {
     const record = JSON.parse(await readFile(path, "utf8")) as Partial<OperatorCredentialRecord>;
     if (record.version !== 1 || typeof record.operatorId !== "string" || typeof record.userSid !== "string" || typeof record.protectedToken !== "string") throw new Error("invalid operator credential record");
@@ -110,34 +111,44 @@ export async function readOperatorCredential(path: string): Promise<OperatorCred
   }
 }
 
+export async function readOperatorCredential(path: string): Promise<OperatorCredentialRecord | undefined> {
+  return withDurableOperatorCredentialLock(path, () => readOperatorCredentialUnlocked(path), { waitForMs: 2_000 });
+}
+
 export async function bootstrapOperatorCredential(input: { path: string; operatorId: string; now?: string; crypto?: CredentialCrypto }): Promise<{ path: string; operatorId: string }> {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(input.operatorId)) throw new Error("operatorId must be a bounded identifier");
   const crypto = input.crypto ?? dpapiCrypto;
-  if (await readOperatorCredential(input.path)) throw new Error("operator credential already exists; use rotate");
-  const now = input.now ?? new Date().toISOString();
-  const token = randomBytes(32).toString("base64url");
-  const record: OperatorCredentialRecord = { version: 1, operatorId: input.operatorId, userSid: await crypto.userSid(), protectedToken: await crypto.protect(token), createdAt: now, rotatedAt: now };
-  await saveRecord(input.path, record);
-  return { path: input.path, operatorId: record.operatorId };
+  return withDurableOperatorCredentialLock(input.path, async () => {
+    if (await readOperatorCredentialUnlocked(input.path)) throw new Error("operator credential already exists; use rotate");
+    const now = input.now ?? new Date().toISOString();
+    const token = randomBytes(32).toString("base64url");
+    const record: OperatorCredentialRecord = { version: 1, operatorId: input.operatorId, userSid: await crypto.userSid(), protectedToken: await crypto.protect(token), createdAt: now, rotatedAt: now };
+    await saveRecord(input.path, record);
+    return { path: input.path, operatorId: record.operatorId };
+  }, { waitForMs: 2_000 });
 }
 
 export async function rotateOperatorCredential(input: { path: string; operatorId: string; now?: string; crypto?: CredentialCrypto }): Promise<{ path: string; operatorId: string }> {
   const crypto = input.crypto ?? dpapiCrypto;
-  const previous = await readOperatorCredential(input.path);
-  if (!previous) throw new Error("operator credential is not bootstrapped");
-  if (previous.userSid !== await crypto.userSid()) throw new Error("operator credential rotation requires the registered Windows identity");
-  const now = input.now ?? new Date().toISOString();
-  const token = randomBytes(32).toString("base64url");
-  const record: OperatorCredentialRecord = { version: 1, operatorId: input.operatorId, userSid: await crypto.userSid(), protectedToken: await crypto.protect(token), createdAt: previous!.createdAt, rotatedAt: now };
-  await saveRecord(input.path, record);
-  return { path: input.path, operatorId: record.operatorId };
+  return withDurableOperatorCredentialLock(input.path, async () => {
+    const previous = await readOperatorCredentialUnlocked(input.path);
+    if (!previous) throw new Error("operator credential is not bootstrapped");
+    if (previous.userSid !== await crypto.userSid()) throw new Error("operator credential rotation requires the registered Windows identity");
+    const now = input.now ?? new Date().toISOString();
+    const token = randomBytes(32).toString("base64url");
+    const record: OperatorCredentialRecord = { version: 1, operatorId: input.operatorId, userSid: await crypto.userSid(), protectedToken: await crypto.protect(token), createdAt: previous.createdAt, rotatedAt: now };
+    await saveRecord(input.path, record);
+    return { path: input.path, operatorId: record.operatorId };
+  }, { waitForMs: 2_000 });
 }
 
 export async function verifyOperatorCredential(input: { path: string; operatorId: string; token?: string; crypto?: CredentialCrypto }): Promise<boolean> {
   const crypto = input.crypto ?? dpapiCrypto;
-  const record = await readOperatorCredential(input.path);
-  if (!record || record.operatorId !== input.operatorId) return false;
-  if (record.userSid !== await crypto.userSid()) return false;
-  if (input.token === undefined) return true;
-  return (await crypto.unprotect(record.protectedToken)) === input.token;
+  return withDurableOperatorCredentialLock(input.path, async () => {
+    const record = await readOperatorCredentialUnlocked(input.path);
+    if (!record || record.operatorId !== input.operatorId) return false;
+    if (record.userSid !== await crypto.userSid()) return false;
+    if (input.token === undefined) return true;
+    return (await crypto.unprotect(record.protectedToken)) === input.token;
+  }, { waitForMs: 2_000 });
 }
