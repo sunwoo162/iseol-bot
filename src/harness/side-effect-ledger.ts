@@ -66,12 +66,25 @@ async function replaceReceipt(
     throw error;
   }
 }
-export async function loadHarnessSideEffect(
+async function loadHarnessSideEffectUnlocked(
   root: string,
   runId: string,
   key: string,
 ): Promise<HarnessSideEffectReceipt | null> {
   return readReceipt(effectFile(root, runId, key));
+}
+
+export async function loadHarnessSideEffect(
+  root: string,
+  runId: string,
+  key: string,
+): Promise<HarnessSideEffectReceipt | null> {
+  return withDurableHarnessRunEventLock(
+    root,
+    runId,
+    () => loadHarnessSideEffectUnlocked(root, runId, key),
+    { waitForMs: 2_000 },
+  );
 }
 
 async function reserveHarnessSideEffectUnlocked(
