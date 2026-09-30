@@ -44,7 +44,7 @@ flowchart LR
 | E Idea Lab | campaign/proposal/production/candidate | legacy 보존, 신규 scope | `src/idea-lab`, prototype store | 기존 API 보존, 후속 scope 추가 | 여러 후보 실패 격리, UNKNOWN barrier |
 | F 프로젝트 | workspace/tree/Run/queue/history | 개인/팀 프로젝트 ACL | `src/project-model`, portfolio | 기존 API에 actor/scope 경계 추가 | Run identity, 승격 root, queue crash |
 | G 실행 | owner/lease/approval/intent/result | project grant와 agent workspace | Runtime/Harness/Desktop 그대로 | permission snapshot을 실행 직전 재확인 | contained 차단, revoke, stop/recovery 경쟁 |
-| H 학습 | Goal/PlanVersion/Session/Answer/Feedback/Review | 사용자 private | 새 `src/learning`; AI transport만 adapter 재사용 | `/api/learning/*` 및 평가 evidence | 중복 답변, UNKNOWN, 계획 CAS |
+| H 학습 | Goal/PlanVersion/Session/Answer/Feedback/Review | 사용자 private | 구현된 `src/learning`; AI transport는 명시적 local adapter로만 재사용 | canonical `/api/user/learning/*` (설계 축약 `/api/learning/*`) 및 평가 evidence | 중복 답변, UNKNOWN, 계획 CAS |
 | I 스터디 | StudySpace, CurriculumLink, shared task | membership 공유, 개인 진도 비공개 | 음성 시간은 activity 입력일 뿐; 새 `src/study` | `/api/studies/*`, opt-in sharing | 탈퇴 이후 접근, 개인 오답 비공개 |
 | J 혼합 팀 | HumanMember/AIMember, Role, grant | team scoped | Discord binding 참고, 새 `src/teams` | 사람 승인 membership; AI execution delegation | AI가 승인/권한상승 불가 |
 | K 교류 | friend request, message, community post, moderation | 관계/채널별 ACL | 새 `src/social` | `/api/friends`, `/api/conversations`, `/api/communities` | 차단/신고, 삭제/보존, 타 채널 노출 |
