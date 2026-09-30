@@ -12,10 +12,21 @@ function response(status: number, body: unknown): UserResponse { return { status
 function bearer(headers: Record<string, string | undefined>): string | null { const value = headers.authorization; return value?.startsWith("Bearer ") ? value.slice(7).trim() || null : null; }
 function bodyObject(body: unknown): Record<string, unknown> | null { return body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : null; }
 function stringValue(body: Record<string, unknown>, key: string): string | null { return typeof body[key] === "string" && body[key].trim() ? body[key] as string : null; }
-function idFrom(pathname: string, prefix: string): string | null { if (!pathname.startsWith(prefix)) return null; const id = decodeURIComponent(pathname.slice(prefix.length)); return id || null; }
+function decodePathValue(value: string): string | null {
+  if (/%(?:2f|5c)/i.test(value)) return null;
+  try {
+    const decoded = decodeURIComponent(value);
+    return decoded || null;
+  } catch {
+    return null;
+  }
+}
 
 export async function routeUserProjectRequest(request: UserRequest, services: UserProjectRouteServices): Promise<UserResponse> {
   const url = new URL(request.path, "http://iseol.local");
+  const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
+  const isProjectPath = url.pathname === "/api/user/projects" || url.pathname.startsWith("/api/user/projects/");
+  if (isProjectPath && rawPathname.includes("\\")) return response(404, { error: "project route not found" });
   const token = bearer(request.headers);
   const principal = token ? await services.platformUserService.resolveAuthenticatedPrincipal(token) : null;
   if (!principal) return response(401, { error: "authentication required" });
@@ -38,7 +49,8 @@ export async function routeUserProjectRequest(request: UserRequest, services: Us
     const proposalMatch = /^\/api\/user\/projects\/([^/]+)\/ai-proposals(?:\/([^/]+)\/(accept|reject))?$/.exec(url.pathname);
     if (proposalMatch) {
       if (!services.aiTeamProposalService) return response(503, { error: "AI team proposal service unavailable" });
-      const projectId = decodeURIComponent(proposalMatch[1] ?? ""); const proposalId = proposalMatch[2] ? decodeURIComponent(proposalMatch[2]) : null; const action = proposalMatch[3];
+      const projectId = decodePathValue(proposalMatch[1] ?? ""); const proposalId = proposalMatch[2] ? decodePathValue(proposalMatch[2]) : null; const action = proposalMatch[3];
+      if (!projectId || (proposalMatch[2] && !proposalId)) return response(404, { error: "not found" });
       if (!proposalId && !action) {
         if (request.method === "GET") return response(200, { proposals: await services.aiTeamProposalService.listProposals(principal, projectId) });
         if (request.method !== "POST") return response(405, { error: "method not allowed" });
@@ -55,7 +67,8 @@ export async function routeUserProjectRequest(request: UserRequest, services: Us
     const discussionMatch = /^\/api\/user\/projects\/([^/]+)\/ai-discussions$/.exec(url.pathname);
     if (discussionMatch) {
       if (!services.aiTeamDiscussionService) return response(503, { error: "AI team discussion service unavailable" });
-      const projectId = decodeURIComponent(discussionMatch[1] ?? "");
+      const projectId = decodePathValue(discussionMatch[1] ?? "");
+      if (!projectId) return response(404, { error: "not found" });
       if (request.method === "GET") return response(200, { discussions: await services.aiTeamDiscussionService.listDiscussions(principal, projectId) });
       if (request.method !== "POST") return response(405, { error: "method not allowed" });
       const body = bodyObject(request.body); const agentId = body ? stringValue(body, "agentId") : null; const requestId = body ? stringValue(body, "requestId") : null; const question = body ? stringValue(body, "question") : null;
@@ -72,7 +85,9 @@ export async function routeUserProjectRequest(request: UserRequest, services: Us
       if (maxConcurrent === null) return response(400, { error: "maxConcurrent must be a number" });
       const approved = body?.approved === undefined ? undefined : typeof body.approved === "boolean" ? body.approved : null;
       if (approved === null) return response(400, { error: "approved must be a boolean" });
-      const result = await projects.scheduleProjectRuns(principal, decodeURIComponent(scheduleMatch[1] ?? ""), { ...(maxConcurrent === undefined ? {} : { maxConcurrent }), ...(approved === undefined ? {} : { approved }) }, services.enqueueProjectRun);
+      const projectId = decodePathValue(scheduleMatch[1] ?? "");
+      if (!projectId) return response(404, { error: "not found" });
+      const result = await projects.scheduleProjectRuns(principal, projectId, { ...(maxConcurrent === undefined ? {} : { maxConcurrent }), ...(approved === undefined ? {} : { approved }) }, services.enqueueProjectRun);
       return response(result.selected > 0 ? 202 : 200, result);
     }
 
@@ -82,7 +97,9 @@ export async function routeUserProjectRequest(request: UserRequest, services: Us
       const body = bodyObject(request.body);
       const workRequestId = body ? stringValue(body, "workRequestId") : null;
       if (!workRequestId) return response(400, { error: "workRequestId is required" });
-      const result = await projects.pauseProjectRun(principal, decodeURIComponent(pauseMatch[1] ?? ""), { workRequestId });
+      const projectId = decodePathValue(pauseMatch[1] ?? "");
+      if (!projectId) return response(404, { error: "not found" });
+      const result = await projects.pauseProjectRun(principal, projectId, { workRequestId });
       return response(200, result);
     }
 
@@ -94,7 +111,9 @@ export async function routeUserProjectRequest(request: UserRequest, services: Us
       if (!workRequestId) return response(400, { error: "workRequestId is required" });
       const approved = body?.approved === undefined ? undefined : typeof body.approved === "boolean" ? body.approved : null;
       if (approved === null) return response(400, { error: "approved must be a boolean" });
-      const result = await projects.resumeProjectRun(principal, decodeURIComponent(resumeMatch[1] ?? ""), { workRequestId, ...(approved === undefined ? {} : { approved }) }, services.enqueueProjectRun);
+      const projectId = decodePathValue(resumeMatch[1] ?? "");
+      if (!projectId) return response(404, { error: "not found" });
+      const result = await projects.resumeProjectRun(principal, projectId, { workRequestId, ...(approved === undefined ? {} : { approved }) }, services.enqueueProjectRun);
       return response(result.status === "waiting" ? 409 : result.status === "started" ? 202 : 200, result);
     }
 
@@ -106,15 +125,18 @@ export async function routeUserProjectRequest(request: UserRequest, services: Us
       if (!workRequestId) return response(400, { error: "workRequestId is required" });
       const approved = body?.approved === undefined ? undefined : typeof body.approved === "boolean" ? body.approved : null;
       if (approved === null) return response(400, { error: "approved must be a boolean" });
-      const result = await projects.retryProjectRun(principal, decodeURIComponent(retryMatch[1] ?? ""), { workRequestId, ...(approved === undefined ? {} : { approved }) }, services.enqueueProjectRun);
+      const projectId = decodePathValue(retryMatch[1] ?? "");
+      if (!projectId) return response(404, { error: "not found" });
+      const result = await projects.retryProjectRun(principal, projectId, { workRequestId, ...(approved === undefined ? {} : { approved }) }, services.enqueueProjectRun);
       return response(result.status === "waiting" ? 409 : result.status === "started" ? 202 : 200, result);
     }
 
     const cancelWorkMatch = /^\/api\/user\/projects\/([^/]+)\/work-requests\/([^/]+)\/cancel$/.exec(url.pathname);
     if (cancelWorkMatch) {
       if (request.method !== "POST") return response(405, { error: "method not allowed" });
-      const projectId = decodeURIComponent(cancelWorkMatch[1] ?? "");
-      const workRequestId = decodeURIComponent(cancelWorkMatch[2] ?? "");
+      const projectId = decodePathValue(cancelWorkMatch[1] ?? "");
+      const workRequestId = decodePathValue(cancelWorkMatch[2] ?? "");
+      if (!projectId || !workRequestId) return response(404, { error: "not found" });
       const cancelled = await projects.cancelWorkRequest(principal, projectId, workRequestId);
       return response(200, { request: cancelled });
     }
@@ -124,13 +146,16 @@ export async function routeUserProjectRequest(request: UserRequest, services: Us
       if (request.method !== "GET") return response(405, { error: "method not allowed" });
       const relativePath = url.searchParams.get("path");
       if (!relativePath) return response(400, { error: "path is required" });
-      const preview = await projects.readWorkspaceFile(principal, decodeURIComponent(fileMatch[1] ?? ""), relativePath);
+      const projectId = decodePathValue(fileMatch[1] ?? "");
+      if (!projectId) return response(404, { error: "not found" });
+      const preview = await projects.readWorkspaceFile(principal, projectId, relativePath);
       return preview ? response(200, preview) : response(404, { error: "project not found" });
     }
 
     const projectMatch = /^\/api\/user\/projects\/([^/]+)(?:\/(work-requests|runs|team))?$/.exec(url.pathname);
     if (!projectMatch) return response(404, { error: "not found" });
-    const projectId = decodeURIComponent(projectMatch[1] ?? "");
+    const projectId = decodePathValue(projectMatch[1] ?? "");
+    if (!projectId) return response(404, { error: "not found" });
     const child = projectMatch[2];
     if (!child) {
       if (request.method !== "GET") return response(405, { error: "method not allowed" });

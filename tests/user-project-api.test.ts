@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -28,6 +29,19 @@ test("user project API binds project and work request to the authenticated user"
     const createdResponse = await fetch(`${url}/api/user/projects`, { method: "POST", headers: headers(sessionA.token), body: JSON.stringify({ name: "API project", objective: "bind work", purpose: "rapid-prototype", teamMode: "solo" }) });
     assert.equal(createdResponse.status, 201);
     const project = (await createdResponse.json() as any).project;
+    const queryProject = await fetch(`${url}/api/user/projects/${project.id}?next=%2F`, { headers: headers(sessionA.token) });
+    assert.equal(queryProject.status, 200);
+    const encodedProjectSeparator = await fetch(`${url}/api/user/projects/${project.id}%2Fteam`, { headers: headers(sessionA.token) });
+    assert.equal(encodedProjectSeparator.status, 404);
+    const rawBackslashStatus = await new Promise<number>((resolve, reject) => {
+      const request = httpRequest({ hostname: "127.0.0.1", port: (server.address() as AddressInfo).port, method: "GET", path: `/api/user/projects\\${project.id}`, headers: headers(sessionA.token) }, (response) => {
+        response.resume();
+        response.once("end", () => resolve(response.statusCode ?? 0));
+      });
+      request.once("error", reject);
+      request.end();
+    });
+    assert.equal(rawBackslashStatus, 404);
     const workResponse = await fetch(`${url}/api/user/projects/${project.id}/work-requests`, { method: "POST", headers: headers(sessionA.token), body: JSON.stringify({ title: "Task", objective: "record task", idempotencyKey: "task-1" }) });
     assert.equal(workResponse.status, 201);
     const work = (await workResponse.json() as any).request;
