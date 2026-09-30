@@ -1218,6 +1218,12 @@ async function verifySettingsPermissionIsolation(pageA: Page, pageB: Page, baseU
   await pageA.getByText("설정을 저장했습니다.", { exact: true }).waitFor();
   await pageA.reload();
   await pageA.getByRole("button", { name: "AI 설정", exact: true }).click();
+  await pageA.waitForFunction(() => (
+    document.querySelector('button[role="switch"][aria-label="개인 기억 참조"]')?.getAttribute("aria-checked") === "false"
+    && document.querySelector('button[role="switch"][aria-label="내 프로젝트 파일 접근"]')?.getAttribute("aria-checked") === "false"
+    && document.querySelector('button[role="switch"][aria-label="활동 타임라인 참조"]')?.getAttribute("aria-checked") === "false"
+    && document.querySelector('button[role="switch"][aria-label="팀 공유 문서 접근"]')?.getAttribute("aria-checked") === "true"
+  ));
   if (await readSwitch(pageA, memoryLabel) !== "false" || await readSwitch(pageA, projectLabel) !== "false" || await readSwitch(pageA, activityLabel) !== "false" || await readSwitch(pageA, teamDocsLabel) !== "true") throw new Error("account A AI context permission change did not persist");
 
   await pageB.goto(`${baseUrl}/app/settings`);
