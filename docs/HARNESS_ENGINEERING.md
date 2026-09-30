@@ -227,3 +227,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Discord Calendar view and modal actions share the project deletion lock keyed by guild and project ID before reading external events or performing Calendar/GitHub/history side effects.
 - They re-read the project after acquiring the lifecycle lock and stop when deletion has completed, so stale interactions cannot create, update, delete, or list external project calendar state.
 - A live Calendar action may finish before deletion enters the critical section, but stale modal/button snapshots cannot perform post-deletion work.
+
+## Guild reset project lifecycle synchronization
+
+- `!관리자권한초기화` acquires a durable guild-scoped project lifecycle lock before reading projects, deleting external hooks/channels, and clearing guild records.
+- Project creation and deletion acquire the same guild lock before their project-specific locks, so reset, create, delete, and project polling cannot overlap with a stale project snapshot.
+- The shared lock order is guild lifecycle first and project-specific lifecycle second, preventing a concurrent project deletion from being cleared or externally cleaned up out of order during guild reset.
