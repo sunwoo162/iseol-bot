@@ -100,25 +100,29 @@ export class GitHubReviewService {
     headSha: string,
     artifact: CiReviewArtifact,
   ): Promise<{ skipped: boolean; findings: number }> {
-    if (await this.state.hasReviewed(repository, pullNumber, headSha)) return { skipped: true, findings: 0 };
-    const { owner, repo } = this.parseRepository(repository);
-    const files = await this.listReviewableFiles(owner, repo, pullNumber);
-    const normalized = aggregateCiFindings(artifact, this.changedLines(files));
-    return this.postReview(owner, repo, repository, pullNumber, headSha, normalized);
+    return this.state.withReviewLock(repository, pullNumber, headSha, async () => {
+      if (await this.state.hasReviewed(repository, pullNumber, headSha)) return { skipped: true, findings: 0 };
+      const { owner, repo } = this.parseRepository(repository);
+      const files = await this.listReviewableFiles(owner, repo, pullNumber);
+      const normalized = aggregateCiFindings(artifact, this.changedLines(files));
+      return this.postReview(owner, repo, repository, pullNumber, headSha, normalized);
+    });
   }
 
   async reviewPullRequest(repository: string, pullNumber: number, headSha: string): Promise<{ skipped: boolean; findings: number }> {
-    if (await this.state.hasReviewed(repository, pullNumber, headSha)) return { skipped: true, findings: 0 };
-    if (!this.provider) throw new Error("AI ReviewProvider가 설정되지 않았습니다.");
-    const { owner, repo } = this.parseRepository(repository);
+    return this.state.withReviewLock(repository, pullNumber, headSha, async () => {
+      if (await this.state.hasReviewed(repository, pullNumber, headSha)) return { skipped: true, findings: 0 };
+      if (!this.provider) throw new Error("AI ReviewProvider가 설정되지 않았습니다.");
+      const { owner, repo } = this.parseRepository(repository);
 
-    const reviewable = await this.listReviewableFiles(owner, repo, pullNumber);
-    const context = buildReviewContext(reviewable);
-    if (!context.trim()) {
-      return this.postReview(owner, repo, repository, pullNumber, headSha, { summary: [], findings: [] });
-    }
+      const reviewable = await this.listReviewableFiles(owner, repo, pullNumber);
+      const context = buildReviewContext(reviewable);
+      if (!context.trim()) {
+        return this.postReview(owner, repo, repository, pullNumber, headSha, { summary: [], findings: [] });
+      }
 
-    const normalized = filterReviewFindings(await this.provider.review(context), this.changedLines(reviewable));
-    return this.postReview(owner, repo, repository, pullNumber, headSha, normalized);
+      const normalized = filterReviewFindings(await this.provider.review(context), this.changedLines(reviewable));
+      return this.postReview(owner, repo, repository, pullNumber, headSha, normalized);
+    });
   }
 }

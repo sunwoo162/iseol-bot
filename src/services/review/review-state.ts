@@ -1,5 +1,6 @@
 ﻿import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { createHash } from "node:crypto";
 
 import { withDurableFileStateLock } from "../file-state-lock.js";
 
@@ -7,6 +8,12 @@ type ReviewState = { repository: string; pullNumber: number; headSha: string; re
 
 export class ReviewStateStore {
   constructor(private readonly file = resolve(process.cwd(), "data", "review-state.json")) {}
+
+  async withReviewLock<T>(repository: string, pullNumber: number, headSha: string, task: () => Promise<T>): Promise<T> {
+    const identity = `${repository.toLowerCase()}:${pullNumber}:${headSha}`;
+    const digest = createHash("sha256").update(identity).digest("hex");
+    return withDurableFileStateLock(`${this.file}.review-${digest}`, task, { waitForMs: 60_000, pollIntervalMs: 25 });
+  }
 
   private async read(): Promise<ReviewState[]> {
     try { return JSON.parse(await readFile(this.file, "utf8")) as ReviewState[]; }
