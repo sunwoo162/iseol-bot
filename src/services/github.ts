@@ -78,7 +78,7 @@ export function parseGitHubRepository(input: string): RepositoryRef {
   }
 
   const owner = parts[0]!;
-  const repo = parts[1]!.replace(/\.git$/, "");
+  const repo = parts[1]!.replace(/\.git$/i, "");
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(owner) || !/^[A-Za-z0-9._-]+$/.test(repo) || !/[A-Za-z0-9]/.test(repo) || repo === ".git") {
     invalidRepository();
   }

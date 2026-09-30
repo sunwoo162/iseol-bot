@@ -121,7 +121,7 @@ test("Vercel deployment preserves uppercase HTTPS GitHub URL compatibility", asy
     productionId: "prod-1",
     branch: "idea/camp-1/prod-1",
     commitSha: COMMIT,
-    repositoryUrl: "HTTPS://github.com/acme/prototype.git",
+    repositoryUrl: "HTTPS://github.com/acme/prototype.GIT",
   });
   assert.equal(requestBody.gitSource.org, "acme");
   assert.equal(requestBody.gitSource.repo, "prototype");
