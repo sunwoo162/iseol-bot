@@ -36,3 +36,17 @@ test("calendar state can remove all mappings for a deleted project", async () =>
   assert.notEqual(await store.find("q:a:issue:2"), null);
   await rm(dir, { recursive: true, force: true });
 });
+
+test("calendar state can remove mappings for one manually deleted event", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iseol-calendar-event-cleanup-"));
+  const store = new CalendarStateStore(join(dir, "state.json"));
+  await store.upsert({ externalKey: "p:a:issue:1", projectId: "p", calendarId: "cal", eventId: "event-deleted", source: "issue" });
+  await store.upsert({ externalKey: "p:a:milestone:2", projectId: "p", calendarId: "cal", eventId: "event-other", source: "milestone" });
+  await store.upsert({ externalKey: "q:a:issue:3", projectId: "q", calendarId: "cal", eventId: "event-deleted", source: "issue" });
+
+  assert.equal(await store.removeEvent("p", "cal", "event-deleted"), 1);
+  assert.equal(await store.find("p:a:issue:1"), null);
+  assert.notEqual(await store.find("p:a:milestone:2"), null);
+  assert.notEqual(await store.find("q:a:issue:3"), null);
+  await rm(dir, { recursive: true, force: true });
+});

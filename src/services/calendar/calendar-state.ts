@@ -63,6 +63,21 @@ export class CalendarStateStore {
       return removed;
     }, { waitForMs: 2_000 });
   }
+
+  async removeEvent(projectId: string, calendarId: string, eventId: string): Promise<number> {
+    return withDurableFileStateLock(this.file, async () => {
+      const items = await this.read();
+      const next = items.filter((item) =>
+        item.projectId !== projectId
+        || item.calendarId !== calendarId
+        || item.eventId !== eventId,
+      );
+      const removed = items.length - next.length;
+      if (removed > 0) await this.write(next);
+      return removed;
+    }, { waitForMs: 2_000 });
+  }
+
   async remove(externalKey: string): Promise<boolean> {
     return withDurableFileStateLock(this.file, async () => {
       const items = await this.read();
