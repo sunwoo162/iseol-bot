@@ -17,12 +17,24 @@ async function writeAtomic(path: string, value: unknown): Promise<void> {
   await rename(temp, path);
 }
 
-export async function savePrototypeCandidate(
+export async function savePrototypeCandidateUnlocked(
   root: string,
   candidate: PrototypeCandidate,
 ): Promise<void> {
   assertProjectModelId(candidate.id);
   await writeAtomic(prototypeFile(root, candidate.id), candidate);
+}
+
+export async function savePrototypeCandidate(
+  root: string,
+  candidate: PrototypeCandidate,
+): Promise<void> {
+  return withDurablePrototypeLock(
+    root,
+    candidate.id,
+    () => savePrototypeCandidateUnlocked(root, candidate),
+    { waitForMs: 2_000 },
+  );
 }
 
 export async function loadPrototypeCandidateUnlocked(
@@ -59,7 +71,7 @@ export async function updatePrototypeCandidate(
     }
     if (options.returnIfStatus && current.status === options.returnIfStatus) return current;
     const updated: PrototypeCandidate = { ...current, ...updates, id, version: 1 };
-    await savePrototypeCandidate(root, updated);
+    await savePrototypeCandidateUnlocked(root, updated);
     return updated;
   }, { waitForMs: 2_000 });
 }
