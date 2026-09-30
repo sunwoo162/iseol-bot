@@ -1,4 +1,5 @@
 import type { ActivityService } from "../activity/contracts.js";
+import { assertIdentityId } from "../identity/contracts.js";
 import type { PlatformUserService } from "../platform-user/contracts.js";
 import type { UserRequest, UserResponse } from "../web-control-plane/user-router.js";
 import type { GrowthService } from "./contracts.js";
@@ -17,6 +18,15 @@ function bearer(headers: Record<string, string | undefined>): string | null {
   return value.slice("Bearer ".length).trim() || null;
 }
 function objectBody(body: unknown): Record<string, unknown> | null { return body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : null; }
+function identityIdFromPath(value: string): string | null {
+  try {
+    const decoded = decodeURIComponent(value);
+    assertIdentityId(decoded);
+    return decoded;
+  } catch {
+    return null;
+  }
+}
 
 export async function routeGrowthRequest(request: UserRequest, services: GrowthRouteServices): Promise<UserResponse> {
   const url = new URL(request.path, "http://iseol.local");
@@ -76,9 +86,15 @@ export async function routeGrowthRequest(request: UserRequest, services: GrowthR
   if (url.pathname.startsWith(prefix)) {
     if (!services.activityService || !services.growthService) return response(503, { error: "activity growth unavailable" });
     if (request.method !== "DELETE") return response(405, { error: "method not allowed" });
-    const eventId = decodeURIComponent(url.pathname.slice(prefix.length));
-    if (!eventId) return response(404, { error: "not found" });
-    const event = await services.activityService.retractActivityEvent(principal, eventId);
+    const eventId = identityIdFromPath(url.pathname.slice(prefix.length));
+    if (!eventId) return response(404, { error: "activity event not found" });
+    let event;
+    try {
+      event = await services.activityService.retractActivityEvent(principal, eventId);
+    } catch (error) {
+      if (error instanceof Error && /not found/i.test(error.message)) return response(404, { error: error.message });
+      throw error;
+    }
     const growth = await services.growthService.applyGrowthProjection(event);
     return response(200, { event, growth, snapshot: await services.growthService.getGrowthSnapshot(principal) });
   }

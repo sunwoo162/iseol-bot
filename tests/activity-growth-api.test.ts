@@ -51,6 +51,15 @@ test("user activity API rejects client-submitted verified evidence and reads tru
     });
     await growth.applyGrowthProjection(trustedEvent);
 
+    const malformedRetraction = await fetch(`${url}/api/user/activity/${encodeURIComponent(`${trustedEvent.id}/suffix`)}`, {
+      method: "DELETE", headers,
+    });
+    assert.equal(malformedRetraction.status, 404);
+    const unknownRetraction = await fetch(`${url}/api/user/activity/activity-missing`, {
+      method: "DELETE", headers,
+    });
+    assert.equal(unknownRetraction.status, 404);
+
     const snapshot = await fetch(`${url}/api/user/growth`, { headers });
     const snapshotBody = await snapshot.json() as any;
     assert.equal(snapshotBody.xp, 100);
