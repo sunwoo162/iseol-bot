@@ -348,3 +348,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Team membership durable lock acquisition retries a transient Windows `EPERM`/probe `ENOENT` race while the configured wait deadline remains.
 - Lock-held ACL rechecks, active human membership rules, owner-token cleanup, and team data isolation remain unchanged.
 - AI Team, recruitment, study, team chat, personal memory sharing, project transition, full user-product, and isolated browser E2E suites remain the acceptance boundary.
+
+## Private memory lock transient retry boundary
+
+- Private memory durable lock acquisition retries a transient Windows `EPERM`/probe `ENOENT` race while the configured wait deadline remains.
+- User-owned memory, active-team sharing, AI Runtime context, and owner-token cleanup boundaries remain unchanged; unexpected probe errors are not hidden.
+- Private memory/AI context, full user-product, and isolated browser E2E suites remain the acceptance boundary.
