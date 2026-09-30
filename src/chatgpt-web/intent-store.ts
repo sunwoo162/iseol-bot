@@ -51,7 +51,7 @@ function semanticRecord(record: DesktopIntentRecord): string {
   return JSON.stringify({ intent: record.intent, status: record.status, reason: record.reason ?? null });
 }
 
-export async function loadDesktopIntent(root: string, runId: string, intentId: string): Promise<DesktopIntentRecord | null> {
+export async function loadDesktopIntentUnlocked(root: string, runId: string, intentId: string): Promise<DesktopIntentRecord | null> {
   try {
     const value = JSON.parse(await readFile(intentFile(root, runId, intentId), "utf8")) as DesktopIntentRecord;
     assertDesktopIntent(value.intent);
@@ -62,7 +62,11 @@ export async function loadDesktopIntent(root: string, runId: string, intentId: s
   }
 }
 
-export async function listDesktopIntents(root: string, runId: string): Promise<DesktopIntentRecord[]> {
+export async function loadDesktopIntent(root: string, runId: string, intentId: string): Promise<DesktopIntentRecord | null> {
+  return withDurableDesktopIntentLock(root, runId, intentId, () => loadDesktopIntentUnlocked(root, runId, intentId), { waitForMs: 2_000 });
+}
+
+export async function listDesktopIntentsUnlocked(root: string, runId: string): Promise<DesktopIntentRecord[]> {
   const directory = resolve(root, "web-workers", "runs", safeId(runId, "runId"), "intents");
   let names: string[];
   try {
@@ -74,8 +78,21 @@ export async function listDesktopIntents(root: string, runId: string): Promise<D
   const records: DesktopIntentRecord[] = [];
   for (const name of names.filter((item) => item.endsWith(".json"))) {
     const intentId = name.slice(0, -5);
-    const record = await loadDesktopIntent(root, runId, intentId);
+    const record = await loadDesktopIntentUnlocked(root, runId, intentId);
     if (record) records.push(record);
+  }
+  return records.sort((a, b) => a.recordedAt.localeCompare(b.recordedAt));
+}
+
+export async function listDesktopIntents(root: string, runId: string): Promise<DesktopIntentRecord[]> {
+  const candidates = await listDesktopIntentsUnlocked(root, runId);
+  const records: DesktopIntentRecord[] = [];
+  for (const candidate of candidates) {
+    const intentId = candidate.intent.intentId;
+    await withDurableDesktopIntentLock(root, runId, intentId, async () => {
+      const current = await loadDesktopIntentUnlocked(root, runId, intentId);
+      if (current?.intent.runId === runId && current.intent.intentId === intentId) records.push(current);
+    }, { waitForMs: 2_000 });
   }
   return records.sort((a, b) => a.recordedAt.localeCompare(b.recordedAt));
 }
@@ -86,7 +103,7 @@ export async function recordDesktopIntent(root: string, input: RecordDesktopInte
   return serialized(path, async () => {
     return withDurableDesktopIntentLock(root, input.intent.runId, input.intent.intentId, async () => {
       const next: DesktopIntentRecord = { version: 1, intent: structuredClone(input.intent), status: input.status, recordedAt: input.recordedAt, ...(input.reason === undefined ? {} : { reason: input.reason }) };
-      const existing = await loadDesktopIntent(root, input.intent.runId, input.intent.intentId);
+      const existing = await loadDesktopIntentUnlocked(root, input.intent.runId, input.intent.intentId);
       if (existing) {
         if (semanticRecord(existing) !== semanticRecord(next)) throw new Error(`Desktop intent identity conflict: ${input.intent.intentId}`);
         return existing;
