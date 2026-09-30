@@ -3,7 +3,8 @@ import test from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ContestFeedStore, type ContestFeedState } from "../src/services/contest-feed.js";
+import { ChannelType } from "discord.js";
+import { ContestFeedStore, createContestFeed, type ContestFeedState } from "../src/services/contest-feed.js";
 
 function state(guildId: string): ContestFeedState {
   return {
@@ -81,5 +82,31 @@ test("contest feed delivery lock serializes concurrent polls for one guild", asy
   await Promise.all([first, second]);
   assert.equal(maximumActive, 1);
   assert.equal(secondFinished, true);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("contest feed setup creates one channel pair for concurrent requests", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iseol-contest-feed-setup-lock-"));
+  const store = new ContestFeedStore(join(dir, "contest-feed.json"));
+  const createdNames: string[] = [];
+  const guild = {
+    id: "1539559244028715060",
+    channels: {
+      cache: { find: () => undefined },
+      create: async (input: { name: string; type: number }) => {
+        createdNames.push(input.name);
+        if (input.type === ChannelType.GuildCategory) return { id: "category", delete: async () => undefined };
+        return { id: "channel", send: async () => undefined };
+      },
+    },
+  };
+
+  const [first, second] = await Promise.all([
+    createContestFeed(guild as any, store),
+    createContestFeed(guild as any, store),
+  ]);
+  assert.deepEqual(createdNames, ["🏆 공모전", "📢・공모전"]);
+  assert.equal(first.channelId, second.channelId);
+  assert.equal((await store.list()).length, 1);
   await rm(dir, { recursive: true, force: true });
 });

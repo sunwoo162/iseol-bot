@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ContestAudienceFeedStore, type ContestAudienceFeedState } from "../src/services/contest-audience-feed.js";
+import { ChannelType, TextChannel } from "discord.js";
+import { ContestAudienceFeedStore, createContestAudienceFeed, type ContestAudienceFeedState } from "../src/services/contest-audience-feed.js";
 
 function state(guildId: string, audienceFilter: ContestAudienceFeedState["audienceFilter"]): ContestAudienceFeedState {
   return {
@@ -81,4 +82,42 @@ test("contest audience delivery lock serializes concurrent polls for one audienc
   assert.equal(maximumActive, 1);
   assert.equal(secondFinished, true);
   await rm(dir, { recursive: true, force: true });
+});
+
+test("contest audience setup creates one channel for concurrent requests", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iseol-contest-audience-setup-lock-"));
+  const store = new ContestAudienceFeedStore(join(dir, "contest-audience-feeds.json"));
+  const defaultFile = join(process.cwd(), "data", "contest-audience-feeds.json");
+  let previous: Buffer | null = null;
+  try { previous = await readFile(defaultFile); } catch { /* test creates the file */ }
+  const createdNames: string[] = [];
+  const existingChannel = Object.create(TextChannel.prototype) as TextChannel & { send: () => Promise<void> };
+  existingChannel.id = "audience-channel";
+  existingChannel.send = async () => undefined;
+  const guild = {
+    id: "contest-audience-setup-lock-guild",
+    channels: {
+      cache: { find: () => undefined },
+      fetch: async (id: string) => id === existingChannel.id ? existingChannel : null,
+      create: async (input: { name: string; type: number }) => {
+        createdNames.push(input.name);
+        if (input.type === ChannelType.GuildCategory) return { id: "category" };
+        return existingChannel;
+      },
+    },
+  };
+
+  try {
+    const [first, second] = await Promise.all([
+      createContestAudienceFeed(guild as any, "high-school", store),
+      createContestAudienceFeed(guild as any, "high-school", store),
+    ]);
+    assert.deepEqual(createdNames, ["🏆 공모전", "🎓・고등학생-공모전"]);
+    assert.equal(first.state.channelId, second.state.channelId);
+    assert.equal((await store.list()).length, 1);
+  } finally {
+    if (previous) await writeFile(defaultFile, previous);
+    else await rm(defaultFile, { force: true });
+    await rm(dir, { recursive: true, force: true });
+  }
 });
