@@ -41,6 +41,20 @@ function assertLoopback(host: string): asserts host is "127.0.0.1" | "::1" {
   if (host !== "127.0.0.1" && host !== "::1") throw new Error("local preview host must be loopback");
 }
 
+function listenerUrl(host: "127.0.0.1" | "::1", port: number): string {
+  return `http://${host === "::1" ? `[${host}]` : host}:${port}/`;
+}
+
+function assertListenerUrl(value: string, host: "127.0.0.1" | "::1", port: number): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("local preview URL is invalid");
+  }
+  if (parsed.href !== listenerUrl(host, port)) throw new Error("local preview URL is outside the configured listener");
+}
+
 function alive(owner: OwnedPreview): boolean {
   return owner.child.exitCode === null && owner.child.signalCode === null && owner.child.killed === false;
 }
@@ -125,7 +139,7 @@ export function createLocalPreviewDeployAdapter(options: LocalPreviewOptions): P
       const workspaceRoot = requestWorkspace(input);
       if (owners.has(input.key)) throw new Error("local preview deployment already owns this identity");
       const port = options.port;
-      const url = `http://${options.host === "::1" ? `[${options.host}]` : options.host}:${port}/`;
+      const url = listenerUrl(options.host, port);
       const child = spawnProcess(executable, expandArgs(options.args, port, workspaceRoot), {
         cwd: workspaceRoot,
         env: { ...process.env, ISEOL_PREVIEW_HOST: options.host, ISEOL_PREVIEW_PORT: String(port) },
@@ -166,8 +180,7 @@ export function createLocalPreviewDeployAdapter(options: LocalPreviewOptions): P
       if (input.deployment.provider !== "local-preview" || input.deployment.commitSha !== input.commitSha) {
         throw new Error("local preview verification identity mismatch");
       }
-      const parsed = new URL(input.deployment.url);
-      if (parsed.hostname !== options.host || Number(parsed.port) !== options.port) throw new Error("local preview URL is outside the configured listener");
+      assertListenerUrl(input.deployment.url, options.host, options.port);
       await fetchReady(input.deployment.url);
       owner.receipt = { ...owner.receipt, verifiedAt: now() };
       return { ...owner.receipt };

@@ -21,7 +21,7 @@ function request(workspaceRoot: string): PrototypeDeployRequest {
   };
 }
 
-async function fixture() {
+async function fixture(options: { fetch?: typeof fetch } = {}) {
   const root = await mkdtemp(join(tmpdir(), "iseol-local-preview-"));
   const workspace = join(root, "workspace");
   await mkdir(workspace);
@@ -32,6 +32,7 @@ async function fixture() {
     host: "127.0.0.1",
     port: 19091,
     readinessTimeoutMs: 3000,
+    ...(options.fetch ? { fetch: options.fetch } : {}),
     now: () => "2026-09-21T00:00:00.000Z",
   });
   return { root, workspace, adapter };
@@ -50,6 +51,36 @@ test("local preview starts a trusted process, verifies HTTP, and disposes only i
     assert.deepEqual(reconciled, verified);
     await f.adapter.dispose();
     assert.equal(await f.adapter.reconcile(request(f.workspace)), null);
+  } finally {
+    await f.adapter.dispose();
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("local preview verification rejects non-canonical listener URLs before readiness fetch", async () => {
+  let fetchCalls = 0;
+  const f = await fixture({
+    fetch: async () => {
+      fetchCalls += 1;
+      return new Response("ok", { status: 200 });
+    },
+  });
+  try {
+    const receipt = await f.adapter.deploy(request(f.workspace));
+    fetchCalls = 0;
+    for (const url of [
+      "http://user:password@127.0.0.1:19091/",
+      "http://127.0.0.1:19091/unsafe",
+      "http://127.0.0.1:19091/?token=secret",
+      "http://127.0.0.1:19091/#fragment",
+      "https://127.0.0.1:19091/",
+    ]) {
+      await assert.rejects(
+        () => f.adapter.verify({ ...request(f.workspace), deployment: { ...receipt, url } }),
+        /local preview URL/i,
+      );
+    }
+    assert.equal(fetchCalls, 0);
   } finally {
     await f.adapter.dispose();
     await rm(f.root, { recursive: true, force: true });
