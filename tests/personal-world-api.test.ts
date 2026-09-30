@@ -47,6 +47,8 @@ test("personal world and private memory API persist through the user session bou
     assert.equal(createdMemory.status, 201);
     const listedByB = await fetch(`${url}/api/user/memory`, { headers: authB });
     assert.deepEqual(await listedByB.json(), { memories: [] });
+    const malformedSharedQuery = await fetch(`${url}/api/user/memory/shared?teamId=${encodeURIComponent("team/id")}`, { headers: authA });
+    assert.equal(malformedSharedQuery.status, 400);
     const listedByA = await fetch(`${url}/api/user/memory?search=private`, { headers: authA });
     const listed = await listedByA.json() as any;
     assert.equal(listed.memories.length, 1);

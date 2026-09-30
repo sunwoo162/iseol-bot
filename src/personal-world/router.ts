@@ -102,6 +102,11 @@ export async function routePersonalWorldRequest(request: UserRequest, services: 
     if (request.method !== "GET") return response(405, { error: "method not allowed" });
     const teamId = url.searchParams.get("teamId");
     if (!teamId) return response(400, { error: "teamId is required" });
+    try {
+      assertIdentityId(teamId);
+    } catch {
+      return response(400, { error: "teamId is invalid" });
+    }
     return response(200, { memories: await services.memoryService.listSharedMemories(principal, teamId) });
   }
 
