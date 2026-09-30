@@ -4160,6 +4160,16 @@ This log records implementation and verification facts without secrets. It does 
 - Boundary: same-host/shared-root User Notification and notification stream document read/write coordination only; distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed the explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
 
+## 2026-09-30 continuation: durable LearningPlan document read/write synchronization
+
+- Status: **B — legacy LearningPlan public reads and writes now coordinate through the owning user/plan durable lock, and live Runtime/provider execution remains unverified**.
+- Evidence: `src/learning/store.ts`, `src/learning/plan-lock.ts`, `tests/learning-plan-store-lock.test.ts`, `tests/learning-persistence.test.ts`, `tests/learning-api.test.ts`, and the existing Learning plan/session regression suite.
+- TDD: RED reproduced public LearningPlan save/load/list calls completing while the owning plan lock was held; GREEN added locked public store boundaries, per-plan list reloads, and malformed plan identity filtering.
+- Verification: Learning plan/API/persistence focused regression `7/7`; Learning focused regression `116/116`; serial existing full test suite `754/754`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `dba46dc fix: synchronize learning plan store`; merged by PR #226 with merge commit `7b86444`.
+- Boundary: same-host/shared-root legacy LearningPlan document read/write coordination only; remaining raw Learning stores, distributed locking, live provider quality, operational Runtime/Agent throughput, weekly digest scheduling, external connector delivery, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed the explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
+
 ## 2026-09-30 continuation: durable StudyAttempt document read/write synchronization
 
 - Status: **B — StudyAttempt public reads and writes now coordinate through the owning session durable lock, and live Runtime/provider execution remains unverified**. Recording an attempt now keeps session resume revision and attempt persistence in the same session lock boundary.
