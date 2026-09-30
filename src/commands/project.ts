@@ -26,7 +26,7 @@ import { GoogleCalendarService } from "../services/calendar/google-calendar.js";
 import { FigmaWebhookService, parseFigmaFile } from "../services/figma.js";
 import { buildAutomationWebhookUrl, GitHubWebhookService, parseGitHubRepository, type RepositoryRef } from "../services/github.js";
 import { NotionService, parseNotionPage } from "../services/notion.js";
-import { deleteProject, findProject, findProjectByName, listProjects, saveProject, updateProject, withProjectCreateLock } from "../services/projects.js";
+import { deleteProject, findProject, findProjectByName, listProjects, saveProject, updateProject, withProjectCreateLock, withProjectDeleteLock } from "../services/projects.js";
 
 export const projectCommand = new SlashCommandBuilder()
   .setName("project")
@@ -139,108 +139,117 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
   const target = interaction.options.getString("name", true).trim();
 
   try {
-    const resolved = await resolveProjectCategory(interaction, target);
-    const project = resolved?.project;
-    const category = resolved?.category;
-    const channels = resolved?.channels;
-
-    if (!project || !channels) {
+    const initial = await resolveProjectCategory(interaction, target);
+    const initialProject = initial?.project;
+    if (!initialProject) {
       await interaction.editReply("❌ 이설로 생성한 프로젝트 정보를 찾을 수 없습니다.");
       return;
     }
 
-    const warnings: string[] = [];
-    const github = new GitHubWebhookService(config.githubToken);
-    const figmaWebhook = new FigmaWebhookService(
-      config.figmaToken,
-      config.publicBaseUrl,
-      config.figmaWebhookPasscode,
-    );
+    await withProjectDeleteLock(interaction.guild.id, initialProject.id, async () => {
+      const resolved = await resolveProjectCategory(interaction, target);
+      const project = resolved?.project;
+      const category = resolved?.category;
+      const channels = resolved?.channels;
 
-    if (project.frontendHookId !== undefined) {
-      try {
-        await github.deleteWebhook(project.frontend, project.frontendHookId);
-      } catch (error) {
-        console.warn(`Frontend GitHub webhook 삭제 실패 (${project.name}):`, error);
-        warnings.push("Frontend GitHub webhook");
+      if (!project || project.id !== initialProject.id || !channels) {
+        await interaction.editReply("❌ 이설로 생성한 프로젝트 정보를 찾을 수 없습니다.");
+        return;
       }
-    }
 
-    if (project.backendHookId !== undefined) {
-      try {
-        await github.deleteWebhook(project.backend, project.backendHookId);
-      } catch (error) {
-        console.warn(`Backend GitHub webhook 삭제 실패 (${project.name}):`, error);
-        warnings.push("Backend GitHub webhook");
-      }
-    }
+      const warnings: string[] = [];
+      const github = new GitHubWebhookService(config.githubToken);
+      const figmaWebhook = new FigmaWebhookService(
+        config.figmaToken,
+        config.publicBaseUrl,
+        config.figmaWebhookPasscode,
+      );
 
-    if (project.frontendAutomationHookId !== undefined) {
-      try {
-        await github.deleteWebhook(project.frontend, project.frontendAutomationHookId);
-      } catch (error) {
-        console.warn(`Frontend automation webhook 삭제 실패 (${project.name}):`, error);
-        warnings.push("Frontend automation webhook");
-      }
-    }
-
-    if (project.backendAutomationHookId !== undefined) {
-      try {
-        await github.deleteWebhook(project.backend, project.backendAutomationHookId);
-      } catch (error) {
-        console.warn(`Backend automation webhook 삭제 실패 (${project.name}):`, error);
-        warnings.push("Backend automation webhook");
-      }
-    }
-
-    if (project.figmaWebhookId) {
-      try {
-        await figmaWebhook.deleteWebhook(project.figmaWebhookId);
-      } catch (error) {
-        console.warn(`Figma webhook 삭제 실패 (${project.name}):`, error);
-        warnings.push("Figma webhook");
-      }
-    }
-
-    if (project.calendarId) {
-      if (config.googleClientId && config.googleClientSecret && config.googleRefreshToken) {
+      if (project.frontendHookId !== undefined) {
         try {
-          await new GoogleCalendarService(config.googleClientId, config.googleClientSecret, config.googleRefreshToken, config.googleRedirectUri)
-            .deleteProjectCalendar(project.calendarId);
-          await new CalendarStateStore().removeProject(project.id);
+          await github.deleteWebhook(project.frontend, project.frontendHookId);
         } catch (error) {
-          console.warn(`Google Calendar 삭제 실패 (${project.name}):`, error);
-          warnings.push("Google Calendar");
-        }
-      } else {
-        warnings.push("Google Calendar credentials missing");
-      }
-    }
-
-    if (category) {
-      const children = channels.filter((channel) => channel?.parentId === category.id);
-      for (const channel of children.values()) {
-        if (channel) {
-          await channel.delete(`${project.name} 프로젝트 방 삭제`);
+          console.warn(`Frontend GitHub webhook 삭제 실패 (${project.name}):`, error);
+          warnings.push("Frontend GitHub webhook");
         }
       }
-      await category.delete(`${project.name} 프로젝트 방 삭제`);
-    }
 
-    const deleted = await deleteProject(project.id);
-    if (!deleted) throw new Error("프로젝트 저장 정보를 삭제하지 못했습니다.");
+      if (project.backendHookId !== undefined) {
+        try {
+          await github.deleteWebhook(project.backend, project.backendHookId);
+        } catch (error) {
+          console.warn(`Backend GitHub webhook 삭제 실패 (${project.name}):`, error);
+          warnings.push("Backend GitHub webhook");
+        }
+      }
 
-    try {
-      await deleteDiscordProjectBinding(iseolModelRoot(), project.guildId, project.id);
-    } catch (error) {
-      console.warn(`Discord Project Workspace binding cleanup failed (${project.name}):`, error);
-      warnings.push("Iseol Project Workspace binding");
-    }
+      if (project.frontendAutomationHookId !== undefined) {
+        try {
+          await github.deleteWebhook(project.frontend, project.frontendAutomationHookId);
+        } catch (error) {
+          console.warn(`Frontend automation webhook 삭제 실패 (${project.name}):`, error);
+          warnings.push("Frontend automation webhook");
+        }
+      }
 
-    const warningText = warnings.length > 0
-      ? `\n⚠️ 외부 연동 정리 실패: ${warnings.join(", ")} (서버 로그 확인)`
-      : "";
-    await interaction.editReply(`✅ **${project.name}** 프로젝트 방과 저장 정보를 삭제했습니다.${warningText}`);
+      if (project.backendAutomationHookId !== undefined) {
+        try {
+          await github.deleteWebhook(project.backend, project.backendAutomationHookId);
+        } catch (error) {
+          console.warn(`Backend automation webhook 삭제 실패 (${project.name}):`, error);
+          warnings.push("Backend automation webhook");
+        }
+      }
+
+      if (project.figmaWebhookId) {
+        try {
+          await figmaWebhook.deleteWebhook(project.figmaWebhookId);
+        } catch (error) {
+          console.warn(`Figma webhook 삭제 실패 (${project.name}):`, error);
+          warnings.push("Figma webhook");
+        }
+      }
+
+      if (project.calendarId) {
+        if (config.googleClientId && config.googleClientSecret && config.googleRefreshToken) {
+          try {
+            await new GoogleCalendarService(config.googleClientId, config.googleClientSecret, config.googleRefreshToken, config.googleRedirectUri)
+              .deleteProjectCalendar(project.calendarId);
+            await new CalendarStateStore().removeProject(project.id);
+          } catch (error) {
+            console.warn(`Google Calendar 삭제 실패 (${project.name}):`, error);
+            warnings.push("Google Calendar");
+          }
+        } else {
+          warnings.push("Google Calendar credentials missing");
+        }
+      }
+
+      if (category) {
+        const children = channels.filter((channel) => channel?.parentId === category.id);
+        for (const channel of children.values()) {
+          if (channel) {
+            await channel.delete(`${project.name} 프로젝트 방 삭제`);
+          }
+        }
+        await category.delete(`${project.name} 프로젝트 방 삭제`);
+      }
+
+      const deleted = await deleteProject(project.id);
+      if (!deleted) throw new Error("프로젝트 저장 정보를 삭제하지 못했습니다.");
+
+      try {
+        await deleteDiscordProjectBinding(iseolModelRoot(), project.guildId, project.id);
+      } catch (error) {
+        console.warn(`Discord Project Workspace binding cleanup failed (${project.name}):`, error);
+        warnings.push("Iseol Project Workspace binding");
+      }
+
+      const warningText = warnings.length > 0
+        ? `\n⚠️ 외부 연동 정리 실패: ${warnings.join(", ")} (서버 로그 확인)`
+        : "";
+      await interaction.editReply(`✅ **${project.name}** 프로젝트 방과 저장 정보를 삭제했습니다.${warningText}`);
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
     await interaction.editReply(`❌ 프로젝트 방 삭제에 실패했습니다.\n\`${message}\``);

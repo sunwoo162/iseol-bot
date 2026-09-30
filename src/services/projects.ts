@@ -62,6 +62,17 @@ export class ProjectStore {
     );
   }
 
+  async withDeleteLock<T>(guildId: string, projectId: string, task: () => Promise<T>): Promise<T> {
+    const digest = createHash("sha256")
+      .update(`${this.file}:project-delete:${guildId}:${projectId}`)
+      .digest("hex");
+    return withDurableFileStateLock(
+      `${this.file}.delete.${digest}`,
+      task,
+      { waitForMs: 5 * 60 * 1_000 },
+    );
+  }
+
   private async readProjects(): Promise<StoredProject[]> {
     try {
       const content = await readFile(this.file, "utf8");
@@ -186,4 +197,8 @@ export function withProjectPollingLock<T>(task: () => Promise<T>): Promise<T> {
 
 export function withProjectCreateLock<T>(guildId: string, name: string, task: () => Promise<T>): Promise<T> {
   return defaultProjectStore.withCreateLock(guildId, name, task);
+}
+
+export function withProjectDeleteLock<T>(guildId: string, projectId: string, task: () => Promise<T>): Promise<T> {
+  return defaultProjectStore.withDeleteLock(guildId, projectId, task);
 }
