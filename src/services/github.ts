@@ -39,7 +39,7 @@ export function parseGitHubRepository(input: string): RepositoryRef {
     throw new Error("GitHub 저장소는 https://github.com/ORG/REPO 형식으로 입력해주세요.");
   };
   if (!raw || raw.includes("\\") || /%5c/i.test(raw) || /[?#]/.test(raw)) invalidRepository();
-  const normalized = raw.startsWith("http://") || raw.startsWith("https://")
+  const normalized = /^https?:\/\//i.test(raw)
     ? raw
     : `https://github.com/${raw}`;
 
@@ -78,7 +78,7 @@ export function parseGitHubRepository(input: string): RepositoryRef {
   }
 
   const owner = parts[0]!;
-  const repo = parts[1]!.replace(/\.git$/, "");
+  const repo = parts[1]!.replace(/\.git$/i, "");
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(owner) || !/^[A-Za-z0-9._-]+$/.test(repo) || !/[A-Za-z0-9]/.test(repo) || repo === ".git") {
     invalidRepository();
   }

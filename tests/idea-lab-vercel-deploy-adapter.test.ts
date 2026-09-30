@@ -30,6 +30,104 @@ function production(): PrototypeProduction {
   };
 }
 
+test("Vercel deployment rejects unsafe repository identities before provider mutation", async () => {
+  let fetchCalls = 0;
+  const adapter = createVercelPrototypeDeployAdapter({
+    token: "vercel-token",
+    projectId: "prj_test",
+    fetch: async () => {
+      fetchCalls += 1;
+      return Response.json({ id: "unexpected", url: "unexpected.vercel.app" });
+    },
+  });
+  const base = {
+    key: KEY,
+    campaignId: "camp-1",
+    productionId: "prod-1",
+    branch: "idea/camp-1/prod-1",
+    commitSha: COMMIT,
+  };
+
+  for (const repositoryUrl of [
+    "https://user:password@github.com/acme/prototype.git",
+    "https://github.com:444/acme/prototype.git",
+    "https://github.com/acme/./prototype.git",
+    "https://github.com/acme/prototype.git/extra",
+    "https://github.com/acme/prototype?",
+    "https://github.com/acme/prototype%5C.git",
+    "https://github.com/acme//prototype",
+    "https://github.com/acme/.git",
+  ]) {
+    await assert.rejects(
+      () => adapter.deploy({ ...base, repositoryUrl }),
+      /GitHub repository|GitHub 저장소/,
+    );
+  }
+  assert.equal(fetchCalls, 0);
+});
+
+test("Vercel reconciliation and verification reject unsafe repository identities before provider reads", async () => {
+  let fetchCalls = 0;
+  const adapter = createVercelPrototypeDeployAdapter({
+    token: "vercel-token",
+    projectId: "prj_test",
+    fetch: async () => {
+      fetchCalls += 1;
+      return Response.json({ deployments: [] });
+    },
+  });
+  const input = {
+    key: KEY,
+    campaignId: "camp-1",
+    productionId: "prod-1",
+    branch: "idea/camp-1/prod-1",
+    commitSha: COMMIT,
+    repositoryUrl: "https://github.com/acme/prototype%5C.git",
+  };
+  await assert.rejects(
+    () => adapter.reconcile(input),
+    /GitHub repository|GitHub 저장소/,
+  );
+  await assert.rejects(
+    () => adapter.verify({
+      ...input,
+      deployment: {
+        provider: "vercel",
+        deploymentId: "dpl_1",
+        url: "https://prototype.vercel.app",
+        commitSha: COMMIT,
+        deployedAt: NOW,
+      },
+    }),
+    /GitHub repository|GitHub 저장소/,
+  );
+  assert.equal(fetchCalls, 0);
+});
+
+test("Vercel deployment preserves uppercase HTTPS GitHub URL compatibility", async () => {
+  let requestBody: any;
+  const adapter = createVercelPrototypeDeployAdapter({
+    token: "vercel-token",
+    projectId: "prj_test",
+    fetch: async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return Response.json({ id: "dpl_upper", url: "upper.vercel.app", createdAt: Date.parse(NOW) });
+    },
+    now: () => NOW,
+  });
+  const deployed = await adapter.deploy({
+    key: KEY,
+    campaignId: "camp-1",
+    productionId: "prod-1",
+    branch: "idea/camp-1/prod-1",
+    commitSha: COMMIT,
+    repositoryUrl: "HTTPS://github.com/acme/prototype.GIT",
+  });
+  assert.equal(requestBody.gitSource.org, "acme");
+  assert.equal(requestBody.gitSource.repo, "prototype");
+  assert.equal(deployed.deploymentId, "dpl_upper");
+});
+
 test("lost Vercel create response reconciles by stable deployment metadata", async () => {
   const deployments: any[] = [];
   let createCalls = 0;
