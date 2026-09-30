@@ -215,3 +215,9 @@ The effective Run policy is the ordered combination of this global document and 
 - GitHub `pull_request` and `milestone` webhook dispatch shares the project deletion lock keyed by guild and project ID before PR review, Discord notification, or Calendar milestone synchronization.
 - It re-reads the project after acquiring the lifecycle lock and skips webhook side effects when the project was deleted while the repository snapshot was being resolved.
 - A live webhook may complete while deletion is waiting for the critical section, but a stale webhook snapshot cannot perform post-deletion automation work.
+
+## Project integration polling lifecycle synchronization
+
+- Figma version/comment polling and Notion update polling share a project deletion lock keyed by guild and project ID for the complete project integration cycle.
+- They re-read the project after acquiring the lifecycle lock and skip Discord notification, cursor update, and Project History side effects when deletion has already completed.
+- A live integration cycle may finish before deletion enters the critical section, but stale Figma/Notion snapshots cannot continue post-deletion polling work.
