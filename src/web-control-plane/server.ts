@@ -270,6 +270,16 @@ async function handleRequest(
     sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "growth route not found" });
     return;
   }
+  const isPublicPortfolioPath = url.pathname === "/api/public/portfolio" || url.pathname.startsWith("/api/public/portfolio/");
+  if (isPublicPortfolioPath && rawPathname.includes("\\")) {
+    sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "public portfolio not found" });
+    return;
+  }
+  const isUserPortfolioPath = url.pathname === "/api/user/portfolio" || url.pathname.startsWith("/api/user/portfolio/");
+  if (isUserPortfolioPath && rawPathname.includes("\\")) {
+    sendJson(res, 404, { "content-type": "application/json; charset=utf-8" }, { error: "portfolio route not found" });
+    return;
+  }
   if (url.pathname === "/api/events") {
     if (req.method !== "GET") {
       res.writeHead(405, { allow: "GET" }).end("method not allowed");

@@ -10,10 +10,11 @@ function response(status: number, body: unknown): UserResponse { return { status
 function bearer(headers: Record<string, string | undefined>): string | null { const value = headers.authorization; return value?.startsWith("Bearer ") ? value.slice(7).trim() || null : null; }
 function objectBody(body: unknown): Record<string, unknown> | null { return body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : null; }
 function stringValue(body: Record<string, unknown> | null, key: string): string | null { return typeof body?.[key] === "string" && (body[key] as string).trim() ? body[key] as string : null; }
-function idAfter(pathname: string, prefix: string): string | null { if (!pathname.startsWith(prefix)) return null; const value = decodeURIComponent(pathname.slice(prefix.length)); return value || null; }
+function decodePathValue(value: string): string | null { if (/%(?:2f|5c)/i.test(value)) return null; try { const decoded = decodeURIComponent(value); return decoded || null; } catch { return null; } }
+function idAfter(pathname: string, prefix: string): string | null { if (!pathname.startsWith(prefix)) return null; return decodePathValue(pathname.slice(prefix.length)); }
 
 export async function routePortfolioRequest(request: UserRequest, services: PortfolioRouteServices): Promise<UserResponse> {
-  const url = new URL(request.path, "http://iseol.local"); const token = bearer(request.headers); const principal = token ? await services.platformUserService.resolveAuthenticatedPrincipal(token) : null; if (!principal) return response(401, { error: "authentication required" }); if (!services.portfolioService) return response(503, { error: "portfolio unavailable" }); const portfolio = services.portfolioService;
+  const url = new URL(request.path, "http://iseol.local"); const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? ""; const isPortfolioPath = url.pathname === "/api/user/portfolio" || url.pathname.startsWith("/api/user/portfolio/"); if (isPortfolioPath && rawPathname.includes("\\")) return response(404, { error: "portfolio route not found" }); const token = bearer(request.headers); const principal = token ? await services.platformUserService.resolveAuthenticatedPrincipal(token) : null; if (!principal) return response(401, { error: "authentication required" }); if (!services.portfolioService) return response(503, { error: "portfolio unavailable" }); const portfolio = services.portfolioService;
   try {
     if (url.pathname === "/api/user/portfolio") {
       if (request.method === "GET") return response(200, await portfolio.listPortfolio(principal));
@@ -30,16 +31,14 @@ export async function routePortfolioRequest(request: UserRequest, services: Port
 export async function routePublicPortfolioRequest(request: UserRequest, services: PublicPortfolioRouteServices): Promise<UserResponse> {
   if (request.method !== "GET") return response(405, { error: "method not allowed" });
   if (!services.portfolioService) return response(503, { error: "portfolio unavailable" });
+  const url = new URL(request.path, "http://iseol.local");
+  const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
   const prefix = "/api/public/portfolio/";
-  if (!request.path.startsWith(prefix)) return response(404, { error: "public portfolio not found" });
-  let entryId: string;
-  try {
-    entryId = decodeURIComponent(request.path.slice(prefix.length));
-    assertIdentityId(entryId);
-  } catch {
-    return response(404, { error: "public portfolio not found" });
-  }
+  if (rawPathname.includes("\\")) return response(404, { error: "public portfolio not found" });
+  if (!url.pathname.startsWith(prefix)) return response(404, { error: "public portfolio not found" });
+  const entryId = decodePathValue(url.pathname.slice(prefix.length));
   if (!entryId) return response(404, { error: "public portfolio not found" });
+  try { assertIdentityId(entryId); } catch { return response(404, { error: "public portfolio not found" }); }
   const view = await services.portfolioService.getPublicEntry(entryId);
   return view ? response(200, view) : response(404, { error: "public portfolio not found" });
 }

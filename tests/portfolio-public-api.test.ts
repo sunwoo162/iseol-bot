@@ -3,6 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
+import { request as httpRequest } from "node:http";
 import test from "node:test";
 import { createActivityService } from "../src/activity/service.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
@@ -37,6 +38,17 @@ test("public portfolio API exposes only public or unlisted entries without a ses
     assert.equal("sourceId" in publicBody.evidence[0], false);
     assert.equal("projectId" in publicBody.evidence[0], false);
     assert.equal("reportId" in publicBody.evidence[0], false);
+    const queryResponse = await fetch(`http://127.0.0.1:${address.port}/api/public/portfolio/${publicEntry.id}?next=%2F`);
+    assert.equal(queryResponse.status, 200);
+    const rawBackslashStatus = await new Promise<number>((resolveRaw, rejectRaw) => {
+      const rawRequest = httpRequest({ hostname: "127.0.0.1", port: address.port, method: "GET", path: `/api/public/portfolio\\${publicEntry.id}` }, (rawResponse) => {
+        rawResponse.resume();
+        rawResponse.once("end", () => resolveRaw(rawResponse.statusCode ?? 0));
+      });
+      rawRequest.once("error", rejectRaw);
+      rawRequest.end();
+    });
+    assert.equal(rawBackslashStatus, 404);
     const malformedResponse = await fetch(`http://127.0.0.1:${address.port}/api/public/portfolio/${encodeURIComponent(`${publicEntry.id}/suffix`)}`);
     assert.equal(malformedResponse.status, 404);
     const privateResponse = await fetch(`http://127.0.0.1:${address.port}/api/public/portfolio/${privateEntry.id}`);
