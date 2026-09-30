@@ -2177,8 +2177,8 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 
 ## 2026-10-01 continuation: activity retraction malformed-path boundary
 
-- The authenticated activity retraction route now decodes and validates event identities before calling the activity service. Malformed or encoded-slash event paths, plus valid-but-unknown event identities, return bounded `404 activity event not found` responses instead of surfacing identity or service exceptions as HTTP 500.
-- Evidence: `src/growth/router.ts` and `tests/activity-growth-api.test.ts`. The RED regression observed `500 !== 404` for an encoded `eventId/suffix`; the GREEN route validates decoded identities, rejects malformed percent-encoding, keeps cross-owner events private, maps unknown events to 404, and verifies one compensating growth entry with repeated-retraction idempotence.
+- The authenticated growth and activity routes now fail closed when URL normalization would reinterpret a raw backslash as a route separator. Activity retraction continues to validate event identities before calling the activity service, and query-bearing retractions still resolve the parsed pathname identity.
+- Evidence: `src/growth/router.ts`, `src/web-control-plane/server.ts`, and `tests/activity-growth-api.test.ts`. The RED regression observed `200 !== 404` for a raw HTTP `/api/user/activity\\eventId` request; GREEN coverage rejects the raw request at the HTTP boundary, preserves `?next=%2F` retractions, keeps cross-owner events private, maps unknown events to 404, and verifies one compensating growth entry with repeated-retraction idempotence.
 - Verification: focused activity/growth tests pass `12/12`; `npm.cmd run test:iseol-user-product` passes `445/445`; root TypeScript and user UI production builds pass; isolated browser E2E passes with growth achievements/activity timeline and responsive `[390,768,1024,1440]` across 13 routes; `git diff --check` passes.
 
 ## 2026-10-01 continuation: private memory limit query boundary

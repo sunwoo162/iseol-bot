@@ -30,6 +30,9 @@ function identityIdFromPath(value: string): string | null {
 
 export async function routeGrowthRequest(request: UserRequest, services: GrowthRouteServices): Promise<UserResponse> {
   const url = new URL(request.path, "http://iseol.local");
+  const rawPathname = (request.rawPath ?? request.path).split("?", 1)[0] ?? "";
+  const isGrowthPath = ["/api/user/growth", "/api/user/activity"].some((prefix) => url.pathname === prefix || url.pathname.startsWith(`${prefix}/`));
+  if (isGrowthPath && rawPathname.includes("\\")) return response(404, { error: "growth route not found" });
   const token = bearer(request.headers);
   const principal = token ? await services.platformUserService.resolveAuthenticatedPrincipal(token) : null;
   if (!principal) return response(401, { error: "authentication required" });

@@ -3,6 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
+import { request as httpRequest } from "node:http";
 import test from "node:test";
 import { createActivityService } from "../src/activity/service.js";
 import { createGrowthService } from "../src/growth/read-model.js";
@@ -70,7 +71,16 @@ test("user activity API rejects client-submitted verified evidence and reads tru
       method: "DELETE", headers: otherHeaders,
     });
     assert.equal(crossOwnerRetraction.status, 404);
-    const retracted = await fetch(`${url}/api/user/activity/${trustedEvent.id}`, {
+    const rawBackslashStatus = await new Promise<number>((resolveRaw, rejectRaw) => {
+      const rawRequest = httpRequest({ hostname: "127.0.0.1", port: address.port, method: "DELETE", path: `/api/user/activity\\${trustedEvent.id}`, headers }, (rawResponse) => {
+        rawResponse.resume();
+        rawResponse.once("end", () => resolveRaw(rawResponse.statusCode ?? 0));
+      });
+      rawRequest.once("error", rejectRaw);
+      rawRequest.end();
+    });
+    assert.equal(rawBackslashStatus, 404);
+    const retracted = await fetch(`${url}/api/user/activity/${trustedEvent.id}?next=%2F`, {
       method: "DELETE", headers,
     });
     assert.equal(retracted.status, 200);
