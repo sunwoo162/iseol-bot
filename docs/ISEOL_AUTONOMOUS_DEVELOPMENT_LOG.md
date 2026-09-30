@@ -4719,3 +4719,13 @@ This log records implementation and verification facts without secrets. It does 
 - Implementation commit: `43f1065 fix: serialize GitHub automation poll state`; merged by PR #274 with merge commit `c877030`.
 - Boundary: same-host/shared-file GitHub automation poll cursor coordination only; distributed locking, live GitHub provider quality, external delivery success, operational Runtime/Agent throughput, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
 - Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
+
+## 2026-09-30 continuation: durable Contest vote state synchronization
+
+- Status: **B — Contest vote state reads and read-modify-write saves/updates now coordinate through a path-scoped durable file lock, while live Discord provider execution remains unverified**. Independent ContestVoteStore instances preserve concurrent vote records.
+- Evidence: `src/services/file-state-lock.ts`, `src/services/contest-votes.ts`, `tests/contest-votes-lock.test.ts`, and `tests/interaction-router.test.ts`.
+- TDD: RED reproduced the missing file-injected ContestVoteStore boundary before implementation; GREEN added the file-scoped store and stale-owner-aware locking around reads, saves, and updates while preserving the existing global function API.
+- Verification: Contest vote state focused regression `2/2`; existing interaction routing regression `7/7`; serial existing full test suite `754/754`; backend `tsc` build and `git diff --check` passed.
+- Implementation commit: `ad8d8ec fix: synchronize contest vote state`; merged by PR #276 with merge commit `aae07b9`.
+- Boundary: same-host/shared-file Contest vote state coordination only; distributed locking, live Discord provider quality, operational Runtime/Agent throughput, external delivery success, deployment, final approved design-source completeness, and AI Broadcast Room implementation remain unclaimed or separate boundaries.
+- Safety: no operational Runtime/Agent/browser restart or mutation, stale-lock repair outside isolated test roots, UNKNOWN replay, external AI/provider request, live connector delivery, deployment, data deletion, or approved/deferred design artifact change occurred. GitHub PR merge and branch cleanup followed explicitly requested workflow. Operational state remains **UNKNOWN** where not freshly verified.
