@@ -12,13 +12,24 @@ import {
 import { resolve } from "node:path";
 import { config } from "../../config.js";
 import { recordStoredProjectAction, type StoredProjectActionFact } from "../../discord-project/history-recorder.js";
-import { findProject, type StoredProject } from "../projects.js";
+import { findProject, withProjectDeleteLock, type StoredProject } from "../projects.js";
 import { GitHubWebhookService } from "../github.js";
 import { GitHubScheduleSyncService } from "../github-schedule-sync.js";
 import { CalendarStateStore } from "./calendar-state.js";
 import { GoogleCalendarService } from "./google-calendar.js";
 
 export type CalendarAction = "add" | "view" | "update" | "delete" | "issue";
+
+export async function withProjectCalendarLifecycleLock<T>(
+  project: StoredProject,
+  task: (current: StoredProject) => Promise<T>,
+): Promise<T | undefined> {
+  return withProjectDeleteLock(project.guildId, project.id, async () => {
+    const current = await findProject(project.id);
+    if (!current) return undefined;
+    return task(current);
+  });
+}
 
 export function parseCalendarCustomId(customId: string): { action: CalendarAction; projectId: string } | null {
   const match = /^calendar:(add|view|update|delete|issue):([A-Za-z0-9_-]+)$/.exec(customId);
@@ -127,7 +138,18 @@ export async function handleCalendarButton(interaction: ButtonInteraction): Prom
     return true;
   }
   await interaction.deferReply({ ephemeral: true });
-  const events = await calendarService().listEvents(project.calendarId);
+  const events = await withProjectCalendarLifecycleLock(project, async (current) => {
+    if (!current.calendarId) return null;
+    return calendarService().listEvents(current.calendarId);
+  });
+  if (events === undefined) {
+    await interaction.editReply("프로젝트 정보를 찾을 수 없습니다.");
+    return true;
+  }
+  if (events === null) {
+    await interaction.editReply("Google Calendar OAuth 설정이 필요합니다.");
+    return true;
+  }
   const lines = events.slice(0, 10).map((event) => `• **${event.summary ?? "제목 없음"}** · \`${event.id}\`\n  ${event.start?.dateTime ?? event.start?.date ?? "시간 없음"}`);
   await interaction.editReply(lines.length ? lines.join("\n") : "예정된 일정이 없습니다.");
   return true;
@@ -143,51 +165,58 @@ export async function handleCalendarModal(interaction: ModalSubmitInteraction): 
     return true;
   }
   await interaction.deferReply({ ephemeral: true });
-  if (action === "issue") {
-    const side = parseRepositorySide(interaction.fields.getTextInputValue("repository"));
-    const repository = project[side];
+  const handled = await withProjectCalendarLifecycleLock(project, async (current) => {
+    if (!current.calendarId) return false;
+    if (action === "issue") {
+      const side = parseRepositorySide(interaction.fields.getTextInputValue("repository"));
+      const repository = current[side];
+      const title = interaction.fields.getTextInputValue("title").trim();
+      const body = interaction.fields.getTextInputValue("body").trim();
+      const start = parseKstDateTime(interaction.fields.getTextInputValue("start"));
+      const end = parseKstDateTime(interaction.fields.getTextInputValue("end"));
+      if (new Date(end).getTime() <= new Date(start).getTime()) throw new Error("종료 시간은 시작 시간보다 뒤여야 합니다.");
+      const github = new GitHubWebhookService(config.githubToken);
+      const linked = await new GitHubScheduleSyncService(calendarService(), new CalendarStateStore()).createLinkedIssue(
+        current.id,
+        current.calendarId,
+        `${repository.owner}/${repository.repo}`,
+        { title, body, start, end },
+        { createIssue: (_repository, issueTitle, issueBody) => github.createIssue(repository, issueTitle, issueBody) },
+      );
+      await recordCalendarProjectHistory(
+        current,
+        githubIssueCalendarHistoryFact(linked.issueUrl, linked.issueNumber),
+      );
+      await interaction.editReply(`✅ GitHub Issue #${linked.issueNumber} + Google Calendar 일정 생성 완료\n${linked.issueUrl}`);
+      return true;
+    }
+    const service = calendarService();
+    if (action === "delete") {
+      const eventId = interaction.fields.getTextInputValue("event_id").trim();
+      await service.deleteEvent(current.calendarId, eventId);
+      await recordCalendarProjectHistory(current, calendarHistoryFact("deleted", eventId));
+      await interaction.editReply(`✅ 일정 \`${eventId}\` 삭제 완료`);
+      return true;
+    }
     const title = interaction.fields.getTextInputValue("title").trim();
-    const body = interaction.fields.getTextInputValue("body").trim();
     const start = parseKstDateTime(interaction.fields.getTextInputValue("start"));
     const end = parseKstDateTime(interaction.fields.getTextInputValue("end"));
     if (new Date(end).getTime() <= new Date(start).getTime()) throw new Error("종료 시간은 시작 시간보다 뒤여야 합니다.");
-    const github = new GitHubWebhookService(config.githubToken);
-    const linked = await new GitHubScheduleSyncService(calendarService(), new CalendarStateStore()).createLinkedIssue(
-      project.id,
-      project.calendarId,
-      `${repository.owner}/${repository.repo}`,
-      { title, body, start, end },
-      { createIssue: (_repository, issueTitle, issueBody) => github.createIssue(repository, issueTitle, issueBody) },
-    );
-    await recordCalendarProjectHistory(
-      project,
-      githubIssueCalendarHistoryFact(linked.issueUrl, linked.issueNumber),
-    );
-    await interaction.editReply(`✅ GitHub Issue #${linked.issueNumber} + Google Calendar 일정 생성 완료\n${linked.issueUrl}`);
-    return true;
-  }
-  const service = calendarService();
-  if (action === "delete") {
+    if (action === "add") {
+      const event = await service.createEvent(current.calendarId, { summary: title, start, end, metadata: { iseolProjectId: current.id, source: "discord" } });
+      await recordCalendarProjectHistory(current, calendarHistoryFact("created", event.id));
+      await interaction.editReply(`✅ **${title}** 일정 추가 완료\nEvent ID: \`${event.id}\``);
+      return true;
+    }
     const eventId = interaction.fields.getTextInputValue("event_id").trim();
-    await service.deleteEvent(project.calendarId, eventId);
-    await recordCalendarProjectHistory(project, calendarHistoryFact("deleted", eventId));
-    await interaction.editReply(`✅ 일정 \`${eventId}\` 삭제 완료`);
+    await service.updateEvent(current.calendarId, eventId, { summary: title, start, end, metadata: { iseolProjectId: current.id, source: "discord" } });
+    await recordCalendarProjectHistory(current, calendarHistoryFact("updated", eventId));
+    await interaction.editReply(`✅ **${title}** 일정 수정 완료`);
     return true;
+  });
+  if (handled !== true) {
+    await interaction.editReply("프로젝트 Calendar 연결 정보를 찾을 수 없습니다.");
   }
-  const title = interaction.fields.getTextInputValue("title").trim();
-  const start = parseKstDateTime(interaction.fields.getTextInputValue("start"));
-  const end = parseKstDateTime(interaction.fields.getTextInputValue("end"));
-  if (new Date(end).getTime() <= new Date(start).getTime()) throw new Error("종료 시간은 시작 시간보다 뒤여야 합니다.");
-  if (action === "add") {
-    const event = await service.createEvent(project.calendarId, { summary: title, start, end, metadata: { iseolProjectId: project.id, source: "discord" } });
-    await recordCalendarProjectHistory(project, calendarHistoryFact("created", event.id));
-    await interaction.editReply(`✅ **${title}** 일정 추가 완료\nEvent ID: \`${event.id}\``);
-    return true;
-  }
-  const eventId = interaction.fields.getTextInputValue("event_id").trim();
-  await service.updateEvent(project.calendarId, eventId, { summary: title, start, end, metadata: { iseolProjectId: project.id, source: "discord" } });
-  await recordCalendarProjectHistory(project, calendarHistoryFact("updated", eventId));
-  await interaction.editReply(`✅ **${title}** 일정 수정 완료`);
   return true;
 }
 
