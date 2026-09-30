@@ -1,4 +1,5 @@
 const FIGMA_API_BASE = "https://api.figma.com";
+const FIGMA_LINK_ERROR = "Figma 링크 형식이 올바르지 않습니다.";
 
 export const NO_FIGMA_VERSION = "__none__";
 
@@ -31,22 +32,56 @@ export type FigmaComment = {
 };
 
 export function parseFigmaFile(input: string): FigmaFileRef {
-  const url = new URL(input.trim());
+  const raw = input.trim();
+  if (!raw || raw.includes("\\") || /%5c/i.test(raw)) throw new Error(FIGMA_LINK_ERROR);
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(FIGMA_LINK_ERROR);
+  }
+
   const host = url.hostname.toLowerCase();
 
-  if (url.protocol !== "https:" || (host !== "figma.com" && host !== "www.figma.com")) {
+  if (url.protocol !== "https:"
+    || (host !== "figma.com" && host !== "www.figma.com")
+    || url.username
+    || url.password
+    || url.port) {
     throw new Error("Figma 링크는 https://www.figma.com/... 형식만 사용할 수 있습니다.");
+  }
+
+  const authorityEnd = raw.indexOf("://");
+  const pathStart = raw.indexOf("/", authorityEnd + 3);
+  const rawPath = (pathStart === -1 ? "" : raw.slice(pathStart)).split(/[?#]/, 1)[0] ?? "";
+  const rawPathParts = rawPath.split("/");
+  const pathParts = rawPathParts.at(-1) === "" ? rawPathParts.slice(0, -1) : rawPathParts;
+  for (const part of pathParts.slice(1)) {
+    let decodedPart: string;
+    try {
+      decodedPart = decodeURIComponent(part);
+    } catch {
+      throw new Error(FIGMA_LINK_ERROR);
+    }
+    if (!decodedPart || decodedPart === "." || decodedPart === ".." || /[\\/]/.test(decodedPart)) {
+      throw new Error(FIGMA_LINK_ERROR);
+    }
   }
 
   const parts = url.pathname.split("/").filter(Boolean);
   const supportedKinds = new Set(["design", "file", "board", "proto"]);
 
-  if (parts.length < 2 || !supportedKinds.has(parts[0] ?? "") || !parts[1]) {
+  const key = parts[1] ?? "";
+  if (parts.length < 2
+    || parts.length > 3
+    || !supportedKinds.has(parts[0] ?? "")
+    || !/^[A-Za-z0-9_-]{1,200}$/.test(key)) {
     throw new Error("Figma 메인 주소가 아니라 실제 디자인 파일 링크를 입력해주세요. 예: https://www.figma.com/design/...");
   }
 
   return {
-    key: parts[1],
+    key,
     url: url.toString(),
   };
 }

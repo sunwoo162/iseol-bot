@@ -2260,3 +2260,9 @@ The browser journey remains loopback-only and uses temporary data roots. Operati
 - Music YouTube input parsing now rejects credentials, non-default ports, raw or encoded backslashes, dot or empty path segments, arbitrary watch paths, and extra video path segments before playback validation. Existing `youtu.be`, `/watch`, `/watch/`, and `/shorts` forms plus HTTP/HTTPS compatibility remain supported.
 - Evidence: `src/services/music.ts`, `tests/music.test.ts`, and the `test:music` npm script. RED coverage observed that the extractor was not independently testable and accepted unsafe authority/path forms; GREEN coverage preserves supported video IDs and returns `null` for unsafe forms.
 - Boundary: this change only hardens local YouTube URL identity parsing; Discord music commands, play-dl/YouTube validation, external requests, playback, and playlist persistence remain unchanged.
+
+## 2026-10-01 continuation: Figma file identity boundary
+
+- Figma file parsing now returns bounded validation errors for empty or malformed input and rejects credentials, non-default ports, raw or encoded backslashes, dot or empty path segments, encoded separators, unsupported path depth, and invalid file-key identities before project creation or Figma API calls. Supported `figma.com`/`www.figma.com` design, file, board, and proto links retain their optional filename suffix and query parameters such as `node-id`.
+- Evidence: `src/services/figma.ts`, `tests/figma.test.ts`, and the `test:figma` npm script. RED coverage observed raw `Invalid URL` errors and accepted unsafe authority/path forms; GREEN coverage preserves supported public Figma links and returns bounded Figma-link errors for unsafe forms.
+- Boundary: this change only hardens local Figma URL/file-key parsing; Figma API requests, project channel creation, version/comment polling, and stored integration lifecycle behavior remain unchanged.
