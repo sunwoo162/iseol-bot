@@ -80,7 +80,8 @@ export async function routeCollaborationRequest(request: UserRequest, services: 
       if (applicationPath) { if (request.method !== "POST") return response(405, { error: "method not allowed" }); const message = stringValue(objectBody(request.body), "message"); if (!message) return response(400, { error: "message is required" }); return response(201, { application: (await recruitment.apply(principal, applicationPath, message)).application }); }
       const applicationId = rest?.startsWith("applications/") ? rest.slice("applications/".length) : null;
       if (applicationId) { if (request.method !== "POST") return response(405, { error: "method not allowed" }); const action = stringValue(objectBody(request.body), "action") as "accept" | "reject" | null; if (!action) return response(400, { error: "action is required" }); return response(200, { application: await recruitment.reviewApplication(principal, applicationId, action) }); }
-      if (!rest || request.method !== "GET") return response(405, { error: "method not allowed" }); const post = await recruitment.getPost(principal, rest); return post ? response(200, post) : response(404, { error: "recruitment post not found" });
+      if (!rest) return response(404, { error: "recruitment post not found" });
+      if (request.method !== "GET") return response(405, { error: "method not allowed" }); const post = await recruitment.getPost(principal, rest); return post ? response(200, post) : response(404, { error: "recruitment post not found" });
     }
 
     if (url.pathname.startsWith("/api/user/social")) {
