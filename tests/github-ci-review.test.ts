@@ -6,6 +6,8 @@ import {
   selectIseolReviewRun,
   validateCiArtifactForPull,
 } from "../src/services/review/github-ci-review.js";
+import { GitHubReviewService, parseReviewRepository } from "../src/services/review/github-review.js";
+import type { ReviewStateStore } from "../src/services/review/review-state.js";
 
 function singleFileZip(name: string, text: string): Buffer {
   const filename = Buffer.from(name, "utf8");
@@ -77,4 +79,49 @@ test("review artifact zip extracts and validates repository pull and head sha", 
   assert.doesNotThrow(() => validateCiArtifactForPull(parsed, "org/repo", 4, "head123"));
   assert.throws(() => validateCiArtifactForPull(parsed, "org/repo", 4, "different"), /HEAD SHA/);
   assert.throws(() => validateCiArtifactForPull(parsed, "evil/repo", 4, "head123"), /저장소/);
+});
+
+test("review repository identities preserve canonical inputs and reject unsafe forms", () => {
+  assert.deepEqual(parseReviewRepository("openai/iseol"), { owner: "openai", repo: "iseol" });
+  assert.deepEqual(parseReviewRepository("https://github.com/openai/iseol"), { owner: "openai", repo: "iseol" });
+  assert.deepEqual(parseReviewRepository("github/.github"), { owner: "github", repo: ".github" });
+
+  for (const value of [
+    "openai",
+    "openai/iseol/extra",
+    "openai\\iseol",
+    "https://github.com/openai/repo/../secret",
+    "https://github.com/openai/repo%252Fsecret",
+    "https://github.com/openai/%E0%A4%A",
+    "https://github.com/openai/iseol?redirect=/private",
+  ]) {
+    assert.throws(() => parseReviewRepository(value), /GitHub 저장소/);
+  }
+});
+
+test("review state canonicalizes shorthand and URL repository identities", async () => {
+  const reviewed = new Set<string>();
+  const lockIdentities: string[] = [];
+  const state = {
+    withReviewLock: async <T>(repository: string, pullNumber: number, headSha: string, task: () => Promise<T>): Promise<T> => {
+      lockIdentities.push(`${repository}:${pullNumber}:${headSha}`);
+      return task();
+    },
+    hasReviewed: async (repository: string, pullNumber: number, headSha: string) => reviewed.has(`${repository}:${pullNumber}:${headSha}`),
+    markReviewed: async (repository: string, pullNumber: number, headSha: string) => { reviewed.add(`${repository}:${pullNumber}:${headSha}`); },
+  } as unknown as ReviewStateStore;
+  const service = new GitHubReviewService("token", undefined, state);
+  const reviews: unknown[] = [];
+  (service as unknown as { octokit: unknown }).octokit = {
+    paginate: async () => [],
+    rest: { pulls: { listFiles: {}, createReview: async (input: unknown) => { reviews.push(input); return { data: {} }; } } },
+  };
+
+  const first = await service.reviewCiArtifact("org/repo", 4, "head123", artifact);
+  const second = await service.reviewCiArtifact("https://github.com/org/repo", 4, "head123", artifact);
+
+  assert.deepEqual(first, { skipped: false, findings: 0 });
+  assert.deepEqual(second, { skipped: true, findings: 0 });
+  assert.deepEqual(lockIdentities, ["org/repo:4:head123", "org/repo:4:head123"]);
+  assert.equal(reviews.length, 1);
 });

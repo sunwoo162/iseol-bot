@@ -38,7 +38,7 @@ export function parseGitHubRepository(input: string): RepositoryRef {
   const invalidRepository = (): never => {
     throw new Error("GitHub 저장소는 https://github.com/ORG/REPO 형식으로 입력해주세요.");
   };
-  if (!raw || raw.includes("\\") || /%5c/i.test(raw)) invalidRepository();
+  if (!raw || raw.includes("\\") || /%5c/i.test(raw) || /[?#]/.test(raw)) invalidRepository();
   const normalized = raw.startsWith("http://") || raw.startsWith("https://")
     ? raw
     : `https://github.com/${raw}`;
