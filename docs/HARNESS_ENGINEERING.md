@@ -83,3 +83,9 @@ The effective Run policy is the ordered combination of this global document and 
 - Figma version/comment notifications and Notion edit notifications share one ProjectStore integration-polling boundary because each external send is followed by a project cursor update.
 - The scheduler must hold the durable polling lock across project discovery, external Discord notification, and cursor persistence so another bot process cannot replay the same provider change.
 - The in-process scheduler guard remains useful for avoiding local overlap, but correctness depends on the durable lock shared by all processes.
+
+## GitHub review side-effect synchronization
+
+- CI artifact reviews and signed-webhook AI reviews use the same durable lock keyed by repository, pull request number, and head SHA.
+- The review lock covers the `hasReviewed` check, GitHub review publication, and successful review-state mark so concurrent workers cannot both pass the check and publish duplicate reviews.
+- Review-state file locking remains responsible for atomic state reads and writes; the per-review lock protects the longer external side-effect transaction across independent bot processes.
