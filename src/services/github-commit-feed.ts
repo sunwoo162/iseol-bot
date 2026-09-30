@@ -6,7 +6,7 @@ import { config } from "../config.js";
 import type { RepositoryRef } from "./github.js";
 import { startGitHubAutomationPolling } from "./github-automation-polling.js";
 import { GitHubUserService, listGitHubAccounts, type GitHubRepositoryEvent } from "./github-user.js";
-import { listProjects, type StoredProject } from "./projects.js";
+import { findProject, listProjects, withProjectDeleteLock, type StoredProject } from "./projects.js";
 import { withDurableFileStateLock } from "./file-state-lock.js";
 
 const DATA_FILE = resolve(process.cwd(), "data", "github-commit-feed.json");
@@ -91,6 +91,17 @@ export class GitHubCommitFeedStore {
 }
 
 const defaultGitHubCommitFeedStore = new GitHubCommitFeedStore();
+
+export async function withProjectCommitFeedLifecycleLock<T>(
+  project: StoredProject,
+  task: (current: StoredProject) => Promise<T>,
+): Promise<T | undefined> {
+  return withProjectDeleteLock(project.guildId, project.id, async () => {
+    const current = await findProject(project.id);
+    if (!current) return undefined;
+    return task(current);
+  });
+}
 
 function stateKey(project: StoredProject, side: RepositorySide): string {
   return `${project.id}:${side}`;
@@ -243,7 +254,9 @@ async function syncGitHubCommitFeedsUnlocked(client: Client): Promise<void> {
   for (const project of projects) {
     for (const side of ["frontend", "backend"] as const) {
       try {
-        await syncRepository(client, github, project, side, nextStates);
+        await withProjectCommitFeedLifecycleLock(project, async (current) => {
+          await syncRepository(client, github, current, side, nextStates);
+        });
       } catch (error) {
         console.error(`GitHub 연결 사용자 커밋 확인 실패 (${project.name}/${side})`, error);
       }
