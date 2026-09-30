@@ -54,3 +54,29 @@ test("contest vote state preserves concurrent updates from independent stores", 
   ]);
   await rm(dir, { recursive: true, force: true });
 });
+
+test("contest vote finalization lock serializes the same vote across store instances", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "iseol-contest-vote-finalization-lock-"));
+  const file = join(dir, "contest-votes.json");
+  const first = new ContestVoteStore(file);
+  const second = new ContestVoteStore(file);
+  let release!: () => void;
+  const firstStarted = new Promise<void>((resolveStarted) => {
+    void first.withVoteLock("vote-finalize", async () => {
+      resolveStarted();
+      await new Promise<void>((resolveRelease) => { release = resolveRelease; });
+    });
+  });
+  await firstStarted;
+
+  let secondSettled = false;
+  const secondRun = second.withVoteLock("vote-finalize", async () => {
+    secondSettled = true;
+  });
+  await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  assert.equal(secondSettled, false);
+  release();
+  await secondRun;
+  assert.equal(secondSettled, true);
+  await rm(dir, { recursive: true, force: true });
+});

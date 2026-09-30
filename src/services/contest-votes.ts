@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { ContestAttachment, ContestSource } from "./contests.js";
@@ -52,6 +52,11 @@ export function createContestVoteId(): string {
 
 export class ContestVoteStore {
   constructor(private readonly file = DATA_FILE) {}
+
+  async withVoteLock<T>(voteId: string, task: () => Promise<T>): Promise<T> {
+    const digest = createHash("sha256").update(voteId).digest("hex");
+    return withDurableFileStateLock(`${this.file}.finalize-${digest}`, task, { waitForMs: 60_000, pollIntervalMs: 25 });
+  }
 
   private async readVotes(): Promise<ContestVote[]> {
     try {
@@ -160,6 +165,10 @@ export class ContestVoteStore {
 }
 
 const defaultContestVoteStore = new ContestVoteStore();
+
+export function withContestVoteLock<T>(voteId: string, task: () => Promise<T>): Promise<T> {
+  return defaultContestVoteStore.withVoteLock(voteId, task);
+}
 
 export function saveContestVote(vote: Omit<ContestVote, "createdAt">): Promise<ContestVote> {
   return defaultContestVoteStore.save(vote);
