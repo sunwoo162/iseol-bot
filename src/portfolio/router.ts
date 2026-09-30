@@ -1,5 +1,6 @@
 import type { PlatformUserService } from "../platform-user/contracts.js";
 import type { UserRequest, UserResponse } from "../web-control-plane/user-router.js";
+import { assertIdentityId } from "../identity/contracts.js";
 import type { PortfolioService } from "./contracts.js";
 
 export type PortfolioRouteServices = { platformUserService: PlatformUserService; portfolioService?: PortfolioService };
@@ -31,7 +32,13 @@ export async function routePublicPortfolioRequest(request: UserRequest, services
   if (!services.portfolioService) return response(503, { error: "portfolio unavailable" });
   const prefix = "/api/public/portfolio/";
   if (!request.path.startsWith(prefix)) return response(404, { error: "public portfolio not found" });
-  const entryId = decodeURIComponent(request.path.slice(prefix.length));
+  let entryId: string;
+  try {
+    entryId = decodeURIComponent(request.path.slice(prefix.length));
+    assertIdentityId(entryId);
+  } catch {
+    return response(404, { error: "public portfolio not found" });
+  }
   if (!entryId) return response(404, { error: "public portfolio not found" });
   const view = await services.portfolioService.getPublicEntry(entryId);
   return view ? response(200, view) : response(404, { error: "public portfolio not found" });

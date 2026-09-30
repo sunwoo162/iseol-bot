@@ -37,6 +37,8 @@ test("public portfolio API exposes only public or unlisted entries without a ses
     assert.equal("sourceId" in publicBody.evidence[0], false);
     assert.equal("projectId" in publicBody.evidence[0], false);
     assert.equal("reportId" in publicBody.evidence[0], false);
+    const malformedResponse = await fetch(`http://127.0.0.1:${address.port}/api/public/portfolio/${encodeURIComponent(`${publicEntry.id}/suffix`)}`);
+    assert.equal(malformedResponse.status, 404);
     const privateResponse = await fetch(`http://127.0.0.1:${address.port}/api/public/portfolio/${privateEntry.id}`);
     assert.equal(privateResponse.status, 404);
   } finally { await server.closeForShutdown(); }
