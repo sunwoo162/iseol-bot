@@ -167,3 +167,9 @@ The effective Run policy is the ordered combination of this global document and 
 - `/scrum create` shares the project deletion lock keyed by guild and project ID before entering its daily-scrum channel ensure lock.
 - The command re-reads the project after acquiring the lifecycle lock and exits before Discord channel creation when deletion has already completed.
 - The nested channel lock still deduplicates concurrent scrum requests for a live project, while the outer lifecycle lock coordinates creation with project deletion.
+
+## Scrum channel deletion synchronization
+
+- `/scrum delete` shares the project deletion lock keyed by guild and project ID with project deletion and `/scrum create`.
+- The command re-reads the project after acquiring the lifecycle lock and exits before Discord channel or record cleanup when deletion has already completed.
+- Channel deletion and daily-scrum record cleanup stay inside the same lifecycle critical section, so stale requests cannot perform external cleanup for a removed project.
