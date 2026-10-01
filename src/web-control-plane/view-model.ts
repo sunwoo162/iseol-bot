@@ -3,6 +3,7 @@ import { evaluationDirectory, listEvaluationJsonFiles } from "../evaluation/stor
 import { loadHarnessRun } from "../harness/run-store.js";
 import { listIdeaLabCampaigns, loadIdeaLabCampaign } from "../idea-lab/campaign-store.js";
 import { listPrototypeProductions } from "../idea-lab/production-store.js";
+import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
 import { loadProjectHistory } from "../project-model/history-store.js";
 import { listPrototypeCandidates, loadPrototypeCandidate } from "../project-model/prototype-store.js";
 import { loadProjectWorkspace, listProjectWorkspaces } from "../project-model/workspace-store.js";
@@ -27,6 +28,7 @@ export async function buildProjectWorkspaceListView(modelRoot: string): Promise<
 export function toPrototypeCard(
   candidate: Awaited<ReturnType<typeof listPrototypeCandidates>>[number],
 ): WebPrototypeCard {
+  const deploymentUrl = safeDeploymentUrl(candidate.deployment.url);
   return {
     id: candidate.id,
     title: candidate.title,
@@ -34,7 +36,7 @@ export function toPrototypeCard(
     status: candidate.status,
     repository: { ...candidate.repository },
     deployment: {
-      url: candidate.deployment.url,
+      ...(deploymentUrl ? { url: deploymentUrl } : {}),
       ...(candidate.deployment.provider === undefined
         ? {}
         : { provider: candidate.deployment.provider }),
@@ -59,6 +61,36 @@ function safeRunSummary(value: string | undefined): string | undefined {
   return value
     .replace(/\b(token|cookie|secret|password)\s*[:=]\s*\S+/gi, "$1=[redacted]")
     .slice(0, 240);
+}
+
+function safeDeploymentUrl(value: string | undefined): string | undefined {
+  if (!value || /%(?![0-9a-f]{2})/i.test(value)) return undefined;
+  try {
+    assertCheckHttpUrl(value);
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
+function toProductionView(
+  production: Awaited<ReturnType<typeof listPrototypeProductions>>[number],
+  run: WebRunSummary | null,
+): WebIdeaLabProductionSummary {
+  const deploymentUrl = safeDeploymentUrl(production.deployment?.url);
+  return {
+    id: production.id,
+    campaignId: production.campaignId,
+    proposalId: production.proposalId,
+    runId: production.runId,
+    status: production.status,
+    branch: production.branch,
+    ...(production.commitSha ? { commitSha: production.commitSha } : {}),
+    ...(deploymentUrl ? { deploymentUrl } : {}),
+    ...(safeIdeaLabSummary(production.blockerSummary) ? { blockerSummary: safeIdeaLabSummary(production.blockerSummary) } : {}),
+    updatedAt: production.updatedAt,
+    ...(run ? { run } : {}),
+  };
 }
 
 function safeRunReason(value: string | undefined): string | undefined {
@@ -92,19 +124,7 @@ export async function buildIdeaLabView(
   const productionViews: WebIdeaLabProductionSummary[] = [];
   for (const production of productions) {
     const run = await buildRunSummary(harnessRoot, production.runId);
-    productionViews.push({
-      id: production.id,
-      campaignId: production.campaignId,
-      proposalId: production.proposalId,
-      runId: production.runId,
-      status: production.status,
-      branch: production.branch,
-      ...(production.commitSha ? { commitSha: production.commitSha } : {}),
-      ...(production.deployment?.url ? { deploymentUrl: production.deployment.url } : {}),
-      ...(safeIdeaLabSummary(production.blockerSummary) ? { blockerSummary: safeIdeaLabSummary(production.blockerSummary) } : {}),
-      updatedAt: production.updatedAt,
-      ...(run ? { run } : {}),
-    });
+    productionViews.push(toProductionView(production, run));
   }
   return { prototypes: prototypes.map(toPrototypeCard), campaigns: campaignViews, productions: productionViews };
 }
@@ -164,19 +184,7 @@ export async function buildIdeaLabCampaignDetail(
   const campaignProductions: WebIdeaLabProductionSummary[] = [];
   for (const production of productions.filter((item) => item.campaignId === campaignId)) {
     const run = await buildRunSummary(harnessRoot, production.runId);
-    campaignProductions.push({
-      id: production.id,
-      campaignId: production.campaignId,
-      proposalId: production.proposalId,
-      runId: production.runId,
-      status: production.status,
-      branch: production.branch,
-      ...(production.commitSha ? { commitSha: production.commitSha } : {}),
-      ...(production.deployment?.url ? { deploymentUrl: production.deployment.url } : {}),
-      ...(safeIdeaLabSummary(production.blockerSummary) ? { blockerSummary: safeIdeaLabSummary(production.blockerSummary) } : {}),
-      updatedAt: production.updatedAt,
-      ...(run ? { run } : {}),
-    });
+    campaignProductions.push(toProductionView(production, run));
   }
   const campaignSummary: WebIdeaLabCampaignSummary = {
     id: campaign.id,

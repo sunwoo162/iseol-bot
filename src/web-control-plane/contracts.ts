@@ -18,7 +18,7 @@ export type WebPrototypeCard = {
     commitSha: string;
   };
   deployment: {
-    url: string;
+    url?: string;
     provider?: string;
   };
   promotedProjectId?: string;

@@ -214,6 +214,64 @@ test("Idea Lab view exposes prototype experience metadata", async () => {
   assert.equal(view.prototypes[0]?.status, "candidate");
 });
 
+test("Idea Lab web views omit unsafe deployment URLs", async () => {
+  const { modelRoot, harnessRoot } = await fixture();
+  await saveIdeaLabCampaign(modelRoot, {
+    version: 1,
+    id: "campaign-unsafe",
+    seed: "Build a safe study tool",
+    constraints: [],
+    targetReadyCount: 1,
+    productionConcurrency: 1,
+    proposalIds: [],
+    productionIds: ["production-unsafe"],
+    status: "producing",
+    createdAt: "2026-09-07T00:00:00.000Z",
+    updatedAt: "2026-09-07T00:00:00.000Z",
+  });
+  await savePrototypeCandidate(modelRoot, {
+    ...candidate(),
+    id: "prototype-unsafe",
+    ideaLabOrigin: {
+      campaignId: "campaign-unsafe",
+      proposalId: "proposal-unsafe",
+      productionId: "production-unsafe",
+    },
+    deployment: {
+      ...candidate().deployment,
+      url: "https://preview.example.com/?token=secret",
+    },
+  });
+  await savePrototypeProduction(modelRoot, {
+    version: 1,
+    id: "production-unsafe",
+    campaignId: "campaign-unsafe",
+    proposalId: "proposal-unsafe",
+    runId: "run-active",
+    repositoryUrl: "https://github.com/example/repo",
+    sandboxRoot: "C:/sandbox",
+    worktreeRoot: "C:/sandbox/production-unsafe",
+    branch: "idea/campaign-unsafe/production-unsafe",
+    baseRef: "main",
+    status: "ready",
+    deployment: {
+      provider: "vercel",
+      url: "javascript:alert(1)",
+    },
+    createdAt: "2026-09-07T00:00:00.000Z",
+    updatedAt: "2026-09-07T00:00:00.000Z",
+  });
+
+  const view = await buildIdeaLabView(modelRoot, harnessRoot);
+  const unsafePrototype = view.prototypes.find((item) => item.id === "prototype-unsafe");
+  assert.deepEqual(unsafePrototype?.deployment, { provider: "vercel" });
+  assert.equal(view.productions.find((item) => item.id === "production-unsafe")?.deploymentUrl, undefined);
+
+  const detail = await buildIdeaLabCampaignDetail(modelRoot, harnessRoot, "campaign-unsafe");
+  assert.deepEqual(detail?.prototypes[0]?.deployment, { provider: "vercel" });
+  assert.equal(detail?.productions[0]?.deploymentUrl, undefined);
+});
+
 test("Project Workspace view exposes Genesis tree history and active Run summary", async () => {
   const { modelRoot, harnessRoot } = await fixture();
   const view = await buildProjectWorkspaceView(modelRoot, harnessRoot, "project-prototype-001");
