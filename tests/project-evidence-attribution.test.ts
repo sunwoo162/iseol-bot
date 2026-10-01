@@ -46,6 +46,14 @@ test("project evidence omits unsafe URL references but preserves safe and opaque
       { ...evidence("leading-space-opaque", "project-a", "run-a"), reference: " desktop-job:patch" },
       { ...evidence("opaque", "project-a", "run-a"), reference: "desktop-job:patch" },
       { ...evidence("build-opaque", "project-a", "run-a"), reference: "build://1" },
+      { ...evidence("nested-safe-url", "project-a", "run-a"), reference: "github:issue:https://github.com/team/repo/issues/42" },
+      { ...evidence("nested-credential-url", "project-a", "run-a"), reference: "github:issue:https://preview.example.test/?access_token=secret-value" },
+      { ...evidence("nested-fragment-credential", "project-a", "run-a"), reference: "desktop-job:job-1:https://preview.example.test/#oauth_token=secret-value" },
+      { ...evidence("reasoning-turn", "project-a", "run-a"), reference: "reasoning-turn:turn-1" },
+      { ...evidence("discord-binding", "project-a", "run-a"), reference: "discord-binding:guild-1:stored-1:project-1" },
+      { ...evidence("figma-reference", "project-a", "run-a"), reference: "figma:file-1:version:v1" },
+      { ...evidence("notion-reference", "project-a", "run-a"), reference: "notion:page-1:2026-09-25T12:00:00.000Z" },
+      { ...evidence("opaque-credential", "project-a", "run-a"), reference: "notion:page-1?access_token=secret-value" },
     ],
   });
   assert.deepEqual(selected, [
@@ -62,5 +70,13 @@ test("project evidence omits unsafe URL references but preserves safe and opaque
     { ...evidence("leading-space-opaque", "project-a", "run-a") },
     { ...evidence("opaque", "project-a", "run-a"), reference: "desktop-job:patch" },
     { ...evidence("build-opaque", "project-a", "run-a"), reference: "build://1" },
+    { ...evidence("nested-safe-url", "project-a", "run-a"), reference: "github:issue:https://github.com/team/repo/issues/42" },
+    { ...evidence("nested-credential-url", "project-a", "run-a") },
+    { ...evidence("nested-fragment-credential", "project-a", "run-a") },
+    { ...evidence("reasoning-turn", "project-a", "run-a"), reference: "reasoning-turn:turn-1" },
+    { ...evidence("discord-binding", "project-a", "run-a"), reference: "discord-binding:guild-1:stored-1:project-1" },
+    { ...evidence("figma-reference", "project-a", "run-a"), reference: "figma:file-1:version:v1" },
+    { ...evidence("notion-reference", "project-a", "run-a"), reference: "notion:page-1:2026-09-25T12:00:00.000Z" },
+    { ...evidence("opaque-credential", "project-a", "run-a") },
   ]);
 });

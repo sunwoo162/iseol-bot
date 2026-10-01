@@ -100,6 +100,7 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
     evidence: [
       { version: 1, id: "ev-test", kind: "test", stage: "TEST", recordedAt: at, summary: "npm test passed", reference: "test-run" },
       { version: 1, id: "ev-run-credential", kind: "deployment", stage: "DEPLOY", recordedAt: at, summary: "preview deployed", reference: "https://preview.example/?access_token=secret" },
+      { version: 1, id: "ev-nested-credential", kind: "deployment", stage: "DEPLOY", recordedAt: at, summary: "nested preview deployed", reference: "github:issue:https://preview.example/?access_token=secret" },
     ],
     updatedAt: at,
   };
@@ -137,13 +138,24 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
     summary: "preview deployment recorded",
     reference: "https://preview.example/#oauth_token=secret",
   });
+  await appendProjectHistoryEvent(root, {
+    version: 1,
+    id: "history-nested-credential",
+    projectId: "project-study",
+    type: "deployment-created",
+    at,
+    summary: "nested preview deployment recorded",
+    reference: "desktop-job:job-1:https://preview.example/#oauth_token=secret",
+  });
   const evidence = await collectProjectEvidence(root, join(root, "runs"), "project-study");
   assert.equal(evidence.deployment.url, undefined);
   const deploymentEvidence = evidence.evidence.find((item) => item.kind === "deployment");
   assert.ok(deploymentEvidence);
   assert.equal(deploymentEvidence.summary.includes("token=secret"), false);
   assert.equal(evidence.evidence.find((item) => item.id === "ev-run-credential")?.reference, undefined);
+  assert.equal(evidence.evidence.find((item) => item.id === "ev-nested-credential")?.reference, undefined);
   assert.equal(evidence.evidence.find((item) => item.id === "history-credential")?.reference, undefined);
+  assert.equal(evidence.evidence.find((item) => item.id === "history-nested-credential")?.reference, undefined);
   const draft = buildPortfolioDraft(evidence);
   assert.match(draft.overview, /Study Log/);
   assert.match(draft.readme, /공부 시간 기록/);
