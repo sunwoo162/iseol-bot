@@ -9,11 +9,19 @@ import { withDurableDiscordProgressNotificationLock } from "../src/discord-proje
 test("progress notifications are bounded and redact credential-like text", () => {
   const notification = formatProgressNotification({ id: "evt-1", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "Authorization: Bearer progress-bearer preview https://preview.example/?access_token=progress-token api_key=progress-key completed" });
   assert.ok(notification);
-  assert.match(notification.content, /\[redacted\]/);
+  assert.match(notification.content, /\[redacted(?:-url)?\]/);
   assert.match(notification.content, /\[redacted-url\]/);
   for (const secret of ["progress-bearer", "progress-token", "progress-key"]) {
     assert.equal(notification.content.includes(secret), false);
   }
+
+  const encoded = formatProgressNotification({ id: "evt-encoded", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "https%3A%2F%2Fpreview.example%2F%3Faccess_token%3Dencoded-progress-token" });
+  assert.ok(encoded);
+  assert.equal(encoded.content.includes("encoded-progress-token"), false);
+
+  const malformed = formatProgressNotification({ id: "evt-malformed", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "Authorization%3A%20Bearer%20malformed-progress-token%ZZ" });
+  assert.ok(malformed);
+  assert.equal(malformed.content.includes("malformed-progress-token"), false);
 });
 
 test("progress notification delivery is durable and idempotent", async () => {
