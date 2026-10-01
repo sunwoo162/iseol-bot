@@ -287,6 +287,7 @@ test("live Desktop results keep command output while durable copies omit it", as
   const resultRoot = await root();
   const transport = createDesktopAgentTransport({ registryRoot, expectedToken: "secret-token" });
   const server = await startDesktopAgentWebSocketServer({ host: "127.0.0.1", port: 0, transport });
+  const completedResults = new Map<string, DesktopJobResult>();
   let taskSeen!: () => void;
   const seen = new Promise<void>((resolve) => { taskSeen = resolve; });
   let release!: () => void;
@@ -297,6 +298,7 @@ test("live Desktop results keep command output while durable copies omit it", as
       url: server.url,
       hello,
       heartbeatIntervalMs: 25,
+      completedResults,
       onTask: async (pack) => {
         taskSeen();
         await releaseTask;
@@ -316,6 +318,16 @@ test("live Desktop results keep command output while durable copies omit it", as
     const durable = (await loadCompletedDesktopResults(resultRoot)).get("job-live-output");
     assert.equal("stdout" in (durable?.operations[0] ?? {}), false);
     assert.equal("stderr" in (durable?.operations[0] ?? {}), false);
+    await client.close();
+    client = await connectDesktopAgentWebSocketClient({
+      url: server.url,
+      hello,
+      heartbeatIntervalMs: 25,
+      completedResults,
+      onTask: async (pack) => result(pack.jobId),
+    } as any);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(transport.isAgentConnected("agent-001"), true);
   } finally {
     if (client) await client.close();
     await server.close();
