@@ -459,7 +459,7 @@ async function executeOperation(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), operation.timeoutMs);
   try {
-    const response = await fetchImpl(operation.url, { signal: controller.signal });
+    const response = await fetchImpl(operation.url, { redirect: "manual", signal: controller.signal });
     return {
       operationId: operation.id,
       ok: response.ok,
