@@ -74,6 +74,19 @@ test("Control Plane validation errors redact credential-shaped field names", asy
   assert.equal(nestedVariantsMessage.includes("x-api-secret"), false);
   assert.equal(nestedVariantsMessage.includes("hash-secret"), false);
   assert.equal(nestedVariantsMessage.includes("sig-secret"), false);
+
+  for (const [field, secret] of [["session_id", "solo-session-secret"], ["password_hash", "solo-hash-secret"]] as const) {
+    const solo = await routeWebControlPlaneRequest({
+      method: "POST",
+      path: "/api/idea-lab/campaigns",
+      headers: { authorization: "Bearer secret-token" },
+      body: { [`outer={${field}=${secret}}`]: true },
+    }, deps);
+    assert.equal(solo.status, 400);
+    const soloMessage = (solo.body as { error: string }).error;
+    assert.equal(soloMessage.includes(secret), false);
+    assert.match(soloMessage, /\[redacted\]/i);
+  }
 });
 
 test("routes Idea Lab and missing project reads", async () => {
