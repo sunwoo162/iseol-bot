@@ -216,6 +216,26 @@ test("Idea Lab view exposes prototype experience metadata", async () => {
 
 test("Idea Lab web views omit unsafe deployment URLs", async () => {
   const { modelRoot, harnessRoot } = await fixture();
+  const sourceRun = activeRun();
+  await saveHarnessRun(harnessRoot, {
+    ...sourceRun,
+    evidence: [...sourceRun.evidence, ...[
+      "preview https://preview.example/?%61ccess_token=secret",
+      "preview https://preview.example/?access_token%3Dsecret",
+      "preview https://preview.example/#oauth_token%3Dsecret",
+      "provider error (access_token=secret)",
+      "{\"access_token\":\"secret value\"}",
+      "{\"access_token\":\"secret\\\"suffix\"}",
+      "{\"access_token\":\"secret\nsuffix\"}",
+    ].map((summary, index) => ({
+      version: 1 as const,
+      id: `credential-evidence-${index}`,
+      kind: "deployment",
+      stage: "DEPLOY",
+      recordedAt: `2026-09-07T01:3${index}:00.000Z`,
+      summary,
+    }))],
+  });
   await saveIdeaLabCampaign(modelRoot, {
     version: 1,
     id: "campaign-unsafe",
@@ -258,6 +278,7 @@ test("Idea Lab web views omit unsafe deployment URLs", async () => {
     branch: "idea/campaign-unsafe/production-unsafe",
     baseRef: "main",
     status: "ready",
+    blockerSummary: "provider error (access_token=secret)",
     deployment: {
       provider: "vercel",
       url: "javascript:alert(1)",
@@ -270,12 +291,33 @@ test("Idea Lab web views omit unsafe deployment URLs", async () => {
   const unsafePrototype = view.prototypes.find((item) => item.id === "prototype-unsafe");
   assert.deepEqual(unsafePrototype?.repository, { branch: "main", commitSha: "abc123" });
   assert.deepEqual(unsafePrototype?.deployment, { provider: "vercel" });
-  assert.equal(view.productions.find((item) => item.id === "production-unsafe")?.deploymentUrl, undefined);
+  const unsafeProduction = view.productions.find((item) => item.id === "production-unsafe");
+  assert.equal(unsafeProduction?.deploymentUrl, undefined);
+  assert.equal(unsafeProduction?.blockerSummary, "provider error (access_token=[redacted])");
+  assert.deepEqual(unsafeProduction?.run?.evidence.slice(-7).map((item) => item.summary), [
+    "preview [redacted-url]",
+    "preview [redacted-url]",
+    "preview [redacted-url]",
+    "provider error (access_token=[redacted])",
+    "{\"access_token\":\"[redacted]\"}",
+    "{\"access_token\":\"[redacted]\"}",
+    "{\"access_token\":\"[redacted]\"}",
+  ]);
 
   const detail = await buildIdeaLabCampaignDetail(modelRoot, harnessRoot, "campaign-unsafe");
   assert.deepEqual(detail?.prototypes[0]?.repository, { branch: "main", commitSha: "abc123" });
   assert.deepEqual(detail?.prototypes[0]?.deployment, { provider: "vercel" });
   assert.equal(detail?.productions[0]?.deploymentUrl, undefined);
+  assert.equal(detail?.productions[0]?.blockerSummary, "provider error (access_token=[redacted])");
+  assert.deepEqual(detail?.productions[0]?.run?.evidence.slice(-7).map((item) => item.summary), [
+    "preview [redacted-url]",
+    "preview [redacted-url]",
+    "preview [redacted-url]",
+    "provider error (access_token=[redacted])",
+    "{\"access_token\":\"[redacted]\"}",
+    "{\"access_token\":\"[redacted]\"}",
+    "{\"access_token\":\"[redacted]\"}",
+  ]);
 });
 
 test("Project Workspace view exposes Genesis tree history and active Run summary", async () => {
