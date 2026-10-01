@@ -28,13 +28,13 @@ const legacy = {
   channels: {},
 };
 
-function workspace(status: "active" | "archived" = "active"): ProjectWorkspace {
+function workspace(status: "active" | "archived" = "active", deploymentUrl = "https://washer.example.com"): ProjectWorkspace {
   return {
     version: 1, id: "project-1", name: "Washer", status,
     genesis: {
       prototypeId: "prototype-1",
       repository: { url: "https://github.com/team-washer/web", branch: "main", commitSha: "abc123" },
-      deployment: { url: "https://washer.example.com" },
+      deployment: { url: deploymentUrl },
       runs: [], promotedAt: "2026-09-07T00:00:00.000Z",
     },
     tree: [
@@ -76,6 +76,20 @@ test("bound status exposes Workspace root Run and Genesis deployment", async () 
   assert.equal(result.workspace.node?.id, "root");
   assert.equal(result.workspace.runs[0]?.stage, "IMPLEMENT");
   assert.equal(result.workspace.deploymentUrl, "https://washer.example.com");
+});
+
+test("bound status omits unsafe Genesis deployment links", async () => {
+  const context: DiscordProjectContext = {
+    legacy,
+    state: "bound",
+    binding: { version: 1, guildId: "guild-1", storedProjectId: "legacy-1", projectId: "project-1", defaultNodeId: "root", createdAt: "2026-09-07T00:00:00.000Z", updatedAt: "2026-09-07T00:00:00.000Z" },
+    work: { projectId: "project-1", nodeId: "root" },
+  };
+  const result = await buildDiscordProjectStatus(context, {
+    loadWorkspace: async () => workspace("active", "https://washer.example.com/?token=secret"),
+    loadRun: async () => run(),
+  });
+  assert.equal(result.workspace.deploymentUrl, undefined);
 });
 
 test("bound status waits for the Project Workspace lock", async () => {
