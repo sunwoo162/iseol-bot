@@ -521,9 +521,10 @@ export async function executeDesktopTaskPack(
     try {
       result = await executeOperation(pack, operation, deps, maxOutputBytes);
     } catch (error) {
+      const rawSummary = error instanceof Error ? error.message : String(error);
       const summary = formatUserFacingError(error);
       results.push({ operationId: operation.id, ok: false, summary });
-      const protectedFailure = /outside Desktop|not allowed|inline evaluation|patch .*target/i.test(summary);
+      const protectedFailure = /outside Desktop|not allowed|inline evaluation|patch .*target/i.test(rawSummary);
       return failureResult(pack, protectedFailure ? "final-failure" : "retryable-failure", now(), results);
     }
     results.push(result);
