@@ -633,6 +633,9 @@ test("Project Workspace rejects preview URLs whose raw authority or path needs U
     "http://127.0.0.1:4173/%5C@attacker.example/",
     "http://127.0.0.1:4173/preview\n.html",
     "http://127.0.0.1:4173/preview\t.html",
+    "http://127.0.0.1:4173/?access_token=secret-value",
+    "http://127.0.0.1:4173/#oauth_token=secret-value",
+    "http://127.0.0.1:4173/#access_token%3Dsecret%ZZ",
   ]) {
     const observation = projectRunObservation({
       runId: "run-preview-invalid",

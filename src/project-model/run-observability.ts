@@ -1,4 +1,5 @@
 import type { HarnessEvidenceRecord, HarnessRunStatus, HarnessRunStage } from "../harness/contracts.js";
+import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
 
 export type UserProjectRunObservationStatus =
   | "not-started" | "running" | "waiting" | "completed" | "failed" | "unknown";
@@ -46,8 +47,8 @@ function httpPreviewUrl(reference: string | undefined): string | null {
   const raw = reference?.trim();
   if (!raw || raw !== reference || /[\\\u0000-\u001f\u007f]/.test(raw) || /%5c/i.test(raw)) return null;
   try {
+    assertCheckHttpUrl(raw);
     const url = new URL(raw);
-    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password || !url.hostname) return null;
     return url.toString();
   } catch {
     return null;
