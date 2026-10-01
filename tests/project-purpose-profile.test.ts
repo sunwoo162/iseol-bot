@@ -101,6 +101,7 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
       { version: 1, id: "ev-test", kind: "test", stage: "TEST", recordedAt: at, summary: "npm test passed", reference: "test-run" },
       { version: 1, id: "ev-run-credential", kind: "deployment", stage: "DEPLOY", recordedAt: at, summary: "preview deployed", reference: "https://preview.example/?access_token=secret" },
       { version: 1, id: "ev-nested-credential", kind: "deployment", stage: "DEPLOY", recordedAt: at, summary: "nested preview deployed", reference: "github:issue:https://preview.example/?access_token=secret" },
+      { version: 1, id: "ev-summary-credential", kind: "deployment", stage: "DEPLOY", recordedAt: at, summary: "Authorization: Bearer portfolio-bearer api_key=portfolio-key" },
     ],
     updatedAt: at,
   };
@@ -157,6 +158,9 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
   assert.equal(evidence.evidence.find((item) => item.id === "ev-nested-credential")?.reference, undefined);
   assert.equal(evidence.evidence.find((item) => item.id === "history-credential")?.reference, undefined);
   assert.equal(evidence.evidence.find((item) => item.id === "history-nested-credential")?.reference, undefined);
+  const summaryCredential = evidence.evidence.find((item) => item.id === "ev-summary-credential")?.summary ?? "";
+  assert.equal(summaryCredential.includes("portfolio-bearer"), false);
+  assert.equal(summaryCredential.includes("portfolio-key"), false);
   const draft = buildPortfolioDraft(evidence);
   assert.match(draft.overview, /Study Log/);
   assert.match(draft.readme, /공부 시간 기록/);

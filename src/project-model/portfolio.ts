@@ -4,6 +4,7 @@ import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
 import { loadProjectHistory } from "./history-store.js";
 import { loadProjectWorkspace } from "./workspace-store.js";
 import { sanitizeProjectEvidenceReference } from "./reference-safety.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 import type { ProjectWorkspace } from "./contracts.js";
 import type { ProjectPurpose } from "./execution-profile.js";
 
@@ -48,12 +49,7 @@ export type PortfolioDraft = {
 };
 
 function safeText(value: string, max = 500): string {
-  return value
-    .replace(/https?:\/\/[^/\s:@]+:[^@\s]+@/gi, "https://[redacted]@")
-    .replace(/\b(token|cookie|secret|password|api[_ -]?key)\s*[:=]\s*\S+/gi, "$1=[redacted]")
-    .replace(/[\r\n]+/g, " ")
-    .trim()
-    .slice(0, max);
+  return sanitizeCredentialText(value.replace(/[\r\n]+/g, " ").trim(), max);
 }
 
 function safeHttpUrl(value: string | undefined): string | undefined {
