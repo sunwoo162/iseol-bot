@@ -326,6 +326,29 @@ test("Run reconciliation failure blockers redact credential-shaped reasons", asy
   assert.equal((await loadProjectWorkRequest(root, "project-1", "reconcile-failure"))?.blocker?.includes("reconcile-secret"), false);
 });
 
+test("already failed Work Requests sanitize legacy blockers during reconciliation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-reconcile-legacy-error-safety-"));
+  const secret = "legacy failure token=legacy-reconcile-secret api_key=legacy-reconcile-api-secret";
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Legacy failure", objective: "Redact legacy blocker", idempotencyKey: "legacy-reconcile-failure", id: "legacy-reconcile-failure", at });
+  await updateProjectWorkRequest(root, "project-1", "legacy-reconcile-failure", {
+    status: "failed",
+    requestedRunId: "run-legacy-reconcile-failure",
+    runId: "run-legacy-reconcile-failure",
+    blocker: secret,
+  }, at);
+  const reconciled = await reconcileProjectWorkRequest({
+    root,
+    projectId: "project-1",
+    workId: "legacy-reconcile-failure",
+    at: "2026-09-20T12:01:00.000Z",
+    findRun: async () => ({ runId: "run-legacy-reconcile-failure", state: { stage: "IMPLEMENT", status: "FAILED_FINAL", reason: secret }, updatedAt: at }),
+  });
+  assert.equal(reconciled?.transition, "already-failed");
+  assert.equal(reconciled?.request.blocker?.includes("legacy-reconcile-secret"), false);
+  assert.match(reconciled?.request.blocker ?? "", /\[redacted\]/i);
+  assert.equal((await loadProjectWorkRequest(root, "project-1", "legacy-reconcile-failure"))?.blocker?.includes("legacy-reconcile-secret"), false);
+});
+
 test("an explicit retry lets the authoritative terminal Run reproject a failed request", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-work-retry-projection-"));
   await createProjectWorkRequest({ root, projectId: "project-1", title: "Retry", objective: "Retry", idempotencyKey: "retry", id: "retry", at });

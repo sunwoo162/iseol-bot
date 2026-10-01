@@ -289,14 +289,22 @@ async function reconcileProjectWorkRequestUnlocked(input: {
   const nextStatus = workStatusForRun(run.state.status);
   const terminalRun = ["DONE", "FAILED_FINAL", "CANCELLED"].includes(run.state.status);
   const terminalRequest = ["completed", "failed", "cancelled"].includes(request.status);
+  const sanitizeExistingFailure = async (): Promise<ProjectWorkRequest> => {
+    if (request.status !== "failed" || !request.blocker) return request;
+    const blocker = sanitizeCredentialText(request.blocker, 240);
+    if (blocker === request.blocker) return request;
+    return await updateProjectWorkRequest(input.root, input.projectId, input.workId, { blocker }, input.at) ?? { ...request, blocker };
+  };
   // A failed request may be deliberately reopened by the owner retry path before
   // the same durable Run reaches DONE. Preserve other terminal request states
   // against late observations, especially completed -> failed.
   if (terminalRequest && request.status !== nextStatus && !(request.status === "failed" && nextStatus === "completed")) {
-    return { request, revision: projectWorkRequestRevision(request), run: runView, execution: terminalRun ? "terminal" : "run-found", transition: alreadyProjected(request.status) };
+    const safeRequest = await sanitizeExistingFailure();
+    return { request: safeRequest, revision: projectWorkRequestRevision(safeRequest), run: runView, execution: terminalRun ? "terminal" : "run-found", transition: alreadyProjected(safeRequest.status) };
   }
   if (request.status === nextStatus) {
-    return { request, revision: projectWorkRequestRevision(request), run: runView, execution: terminalRun ? "terminal" : "run-found", transition: alreadyProjected(request.status) };
+    const safeRequest = await sanitizeExistingFailure();
+    return { request: safeRequest, revision: projectWorkRequestRevision(safeRequest), run: runView, execution: terminalRun ? "terminal" : "run-found", transition: alreadyProjected(safeRequest.status) };
   }
 
   const failureBlocker = sanitizeCredentialText(run.state.reason ?? `Harness Run is ${run.state.status}`, 240);
