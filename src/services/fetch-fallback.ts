@@ -244,7 +244,9 @@ const fetchWithAllconFallback: typeof globalThis.fetch = async (input, init) => 
       if (!isCertificateChainError(error)) throw error;
       console.warn("올콘 HTTPS 인증서 체인 검증 실패: 올콘 전용 비검증 curl fallback으로 재시도합니다.");
       const response = await fetchAllconWithCurl(url, buildCurlFallbackInit(input, init));
-      if (resolveAllconRedirect(url, response)) throw new TypeError("Allcon redirect rejected by redirect mode");
+      if (redirectMode === "error" && resolveAllconRedirect(url, response)) {
+        throw new TypeError("Allcon redirect rejected by redirect mode");
+      }
       return response;
     }
   }
