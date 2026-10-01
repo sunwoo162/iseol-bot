@@ -145,6 +145,27 @@ const SENSITIVE_HTTP_QUERY_KEYS = new Set([
   "xapikey", "xapitoken", "xauthtoken",
 ]);
 
+function isSensitiveHttpCredentialKey(key: string): boolean {
+  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return SENSITIVE_HTTP_QUERY_KEYS.has(normalizedKey) || SENSITIVE_HTTP_QUERY_KEYS.has(key.toLowerCase());
+}
+
+function assertSafeHttpFragment(fragment: string): void {
+  for (const parameter of fragment.split(/[?&#/]/)) {
+    const rawKey = parameter.split("=", 1)[0];
+    if (!rawKey) continue;
+    let key = rawKey;
+    try {
+      key = decodeURIComponent(rawKey);
+    } catch {
+      continue;
+    }
+    if (isSensitiveHttpCredentialKey(key)) {
+      throw new Error("Desktop CHECK_HTTP URL must not include credential-shaped fragment parameters");
+    }
+  }
+}
+
 function requireText(value: unknown, field: string): asserts value is string {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error(`Desktop Task Pack ${field} is required`);
@@ -203,11 +224,11 @@ export function assertCheckHttpUrl(value: unknown): asserts value is string {
     throw new Error("Desktop CHECK_HTTP URL must include a hostname");
   }
   for (const key of parsed.searchParams.keys()) {
-    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (SENSITIVE_HTTP_QUERY_KEYS.has(normalizedKey) || SENSITIVE_HTTP_QUERY_KEYS.has(key.toLowerCase())) {
+    if (isSensitiveHttpCredentialKey(key)) {
       throw new Error("Desktop CHECK_HTTP URL must not include credential-shaped query parameters");
     }
   }
+  assertSafeHttpFragment(parsed.hash.slice(1));
   const authority = /^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i.exec(value)?.[1] ?? "";
   if (authority.includes("@") || parsed.username || parsed.password) {
     throw new Error("Desktop CHECK_HTTP URL must not include credentials");
