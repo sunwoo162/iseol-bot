@@ -400,6 +400,41 @@ export async function renewDesktopJobLease(
   );
 }
 
+function assertDesktopResultReferences(pack: DesktopTaskPack, result: DesktopJobResult): void {
+  const operations = new Map(pack.operations.map((operation) => [operation.id, operation]));
+  const seen = new Set<string>();
+  const taskError = result.operations.length === 1 && result.operations[0]?.operationId === "__task__";
+  if (taskError) {
+    const [operationResult] = result.operations;
+    if (!operationResult || result.status !== "retryable-failure" || operationResult.ok || operationResult.reference !== undefined) {
+      throw new Error("Desktop task-level result is invalid");
+    }
+    return;
+  }
+  for (const operationResult of result.operations) {
+    if (seen.has(operationResult.operationId)) {
+      throw new Error(`Desktop result contains duplicate operation: ${operationResult.operationId}`);
+    }
+    seen.add(operationResult.operationId);
+    const operation = operations.get(operationResult.operationId);
+    if (!operation) {
+      throw new Error(`Desktop result contains unknown operation: ${operationResult.operationId}`);
+    }
+    if (operation.type !== "CHECK_HTTP" || operationResult.reference === undefined) continue;
+    if (operationResult.reference !== operation.url) {
+      throw new Error(`Desktop CHECK_HTTP result reference mismatch: ${operationResult.operationId}`);
+    }
+  }
+  if (result.status === "completed") {
+    if (seen.size !== operations.size) {
+      throw new Error("Desktop completed result must include every Task Pack operation");
+    }
+    if (result.operations.some((operation) => !operation.ok)) {
+      throw new Error("Desktop completed result cannot contain failed operations");
+    }
+  }
+}
+
 async function completeDesktopJobUnlocked(
   root: string,
   jobId: string,
@@ -411,6 +446,7 @@ async function completeDesktopJobUnlocked(
   if (result.jobId !== job.jobId) throw new Error(`Desktop Job result jobId mismatch: ${result.jobId}`);
   if (result.runId !== job.runId) throw new Error(`Desktop Job result runId mismatch: ${result.runId}`);
   if (result.agentId !== job.pack.agentId) throw new Error(`Desktop Job result agentId mismatch: ${result.agentId}`);
+  assertDesktopResultReferences(job.pack, result);
   if (job.status === "completed") {
     if (JSON.stringify(job.result) === JSON.stringify(result)) return job;
     throw new Error(`Desktop completed job is immutable: ${jobId}`);

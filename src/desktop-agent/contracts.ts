@@ -136,6 +136,41 @@ const MUTATION_TYPES = new Set<DesktopOperation["type"]>([
   "GIT_WORKTREE_CREATE",
   "GIT_COMMIT",
 ]);
+const SENSITIVE_HTTP_QUERY_KEYS = new Set([
+  "access_token", "accesstoken", "api_key", "apikey", "auth", "authorization", "bearer",
+  "cookie", "credential", "password", "passwd", "private_key", "privatekey", "refresh_token",
+  "refreshtoken", "secret", "session", "session_id", "sessionid", "sig", "signature", "token",
+  "apitoken", "authtoken", "bearertoken", "clientsecret", "idtoken", "jwt", "oauthtoken",
+  "authorizationtoken", "csrftoken", "oauth2token", "oauthaccesstoken", "secretkey", "sessiontoken",
+  "xaccesstoken", "xapikey", "xapitoken", "xauthtoken", "xoauthtoken",
+]);
+
+function isSensitiveHttpCredentialKey(key: string): boolean {
+  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return SENSITIVE_HTTP_QUERY_KEYS.has(normalizedKey) || SENSITIVE_HTTP_QUERY_KEYS.has(key.toLowerCase());
+}
+
+function assertSafeHttpFragment(fragment: string): void {
+  let decodedFragment = fragment;
+  try {
+    decodedFragment = decodeURIComponent(fragment);
+  } catch {
+    throw new Error("Desktop CHECK_HTTP URL fragment must use valid percent-encoding");
+  }
+  for (const parameter of decodedFragment.split(/[?&#/]/)) {
+    const rawKey = parameter.split("=", 1)[0];
+    if (!rawKey) continue;
+    let key = rawKey;
+    try {
+      key = decodeURIComponent(rawKey);
+    } catch {
+      throw new Error("Desktop CHECK_HTTP URL fragment must use valid percent-encoding");
+    }
+    if (isSensitiveHttpCredentialKey(key)) {
+      throw new Error("Desktop CHECK_HTTP URL must not include credential-shaped fragment parameters");
+    }
+  }
+}
 
 function requireText(value: unknown, field: string): asserts value is string {
   if (typeof value !== "string" || !value.trim()) {
@@ -194,6 +229,12 @@ export function assertCheckHttpUrl(value: unknown): asserts value is string {
   if (!parsed.hostname) {
     throw new Error("Desktop CHECK_HTTP URL must include a hostname");
   }
+  for (const key of parsed.searchParams.keys()) {
+    if (isSensitiveHttpCredentialKey(key)) {
+      throw new Error("Desktop CHECK_HTTP URL must not include credential-shaped query parameters");
+    }
+  }
+  assertSafeHttpFragment(parsed.hash.slice(1));
   const authority = /^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i.exec(value)?.[1] ?? "";
   if (authority.includes("@") || parsed.username || parsed.password) {
     throw new Error("Desktop CHECK_HTTP URL must not include credentials");
