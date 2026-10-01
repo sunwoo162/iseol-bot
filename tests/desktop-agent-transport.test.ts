@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import WebSocket from "ws";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +13,87 @@ import { startDesktopAgentWebSocketServer } from "../src/desktop-agent/ws-server
 import { connectDesktopAgentWebSocketClient } from "../src/desktop-agent/ws-client.js";
 import { loadCompletedDesktopResults, persistCompletedDesktopResult } from "../src/desktop-agent/result-store.js";
 import { withDurableDesktopJobLock } from "../src/desktop-agent/job-lock.js";
+
+test("Desktop Agent WebSocket close reasons redact credential-shaped transport errors", async () => {
+  const server = await startDesktopAgentWebSocketServer({
+    host: "127.0.0.1",
+    port: 0,
+    transport: {
+      acceptHello: async () => undefined,
+      handleMessage: async () => { throw new Error("transport token=desktop-secret"); },
+      disconnect: () => undefined,
+    } as any,
+  });
+  const socket = new WebSocket(server.url);
+  try {
+    await new Promise<void>((resolve, reject) => { socket.once("open", () => resolve()); socket.once("error", reject); });
+    socket.send(JSON.stringify({ version: 1, type: "hello", hello }));
+    await new Promise<void>((resolve, reject) => { socket.once("message", () => resolve()); socket.once("error", reject); });
+    const closed = new Promise<{ code: number; reason: string }>((resolve) => socket.once("close", (code, reason) => resolve({ code, reason: reason.toString() })));
+    socket.send(JSON.stringify({ version: 1, type: "heartbeat", at: "2026-09-08T02:00:00.000Z" }));
+    const result = await closed;
+    assert.equal(result.code, 4001);
+    assert.equal(result.reason.includes("desktop-secret"), false);
+    assert.match(result.reason, /\[redacted\]/i);
+  } finally {
+    if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    await server.close();
+  }
+});
+
+test("Desktop Agent WebSocket close reasons stay within the UTF-8 byte limit", async () => {
+  const server = await startDesktopAgentWebSocketServer({
+    host: "127.0.0.1",
+    port: 0,
+    transport: {
+      acceptHello: async () => undefined,
+      handleMessage: async () => { throw new Error("가".repeat(120)); },
+      disconnect: () => undefined,
+    } as any,
+  });
+  const socket = new WebSocket(server.url);
+  try {
+    await new Promise<void>((resolve, reject) => { socket.once("open", () => resolve()); socket.once("error", reject); });
+    socket.send(JSON.stringify({ version: 1, type: "hello", hello }));
+    await new Promise<void>((resolve, reject) => { socket.once("message", () => resolve()); socket.once("error", reject); });
+    const closed = new Promise<{ code: number; reason: string }>((resolve) => socket.once("close", (code, reason) => resolve({ code, reason: reason.toString() })));
+    socket.send(JSON.stringify({ version: 1, type: "heartbeat", at: "2026-09-08T02:00:00.000Z" }));
+    const result = await closed;
+    assert.equal(result.code, 4001);
+    assert.ok(Buffer.byteLength(result.reason, "utf8") <= 123);
+  } finally {
+    if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    await server.close();
+  }
+});
+
+test("Desktop Agent wire close reasons redact caller-supplied credentials", async () => {
+  const server = await startDesktopAgentWebSocketServer({
+    host: "127.0.0.1",
+    port: 0,
+    transport: {
+      acceptHello: async (_sessionId: string, _agentHello: DesktopAgentHello, wire: DesktopAgentWire) => {
+        wire.close(`token=wire-secret ${"가".repeat(100)}`);
+      },
+      handleMessage: async () => undefined,
+      disconnect: () => undefined,
+    } as any,
+  });
+  const socket = new WebSocket(server.url);
+  try {
+    await new Promise<void>((resolve, reject) => { socket.once("open", () => resolve()); socket.once("error", reject); });
+    const closed = new Promise<{ code: number; reason: string }>((resolve) => socket.once("close", (code, reason) => resolve({ code, reason: reason.toString() })));
+    socket.send(JSON.stringify({ version: 1, type: "hello", hello }));
+    const result = await closed;
+    assert.equal(result.code, 4000);
+    assert.equal(result.reason.includes("wire-secret"), false);
+    assert.match(result.reason, /\[redacted\]/i);
+    assert.ok(Buffer.byteLength(result.reason, "utf8") <= 123);
+  } finally {
+    if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    await server.close();
+  }
+});
 
 const hello: DesktopAgentHello = {
   version: 1,

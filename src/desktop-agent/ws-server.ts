@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import { assertDesktopProtocolVersion, type DesktopAgentHello } from "./contracts.js";
 import type { DesktopAgentTransport, DesktopAgentWire, DesktopClientMessage } from "./transport.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 export type StartDesktopAgentWebSocketServerOptions = {
   host: string;
@@ -12,6 +13,12 @@ export type StartDesktopAgentWebSocketServerOptions = {
 
 function parseFrame(data: WebSocket.RawData): unknown {
   return JSON.parse(data.toString());
+}
+
+function boundedCloseReason(message: string): string {
+  let result = sanitizeCredentialText(message, 120);
+  while (Buffer.byteLength(result, "utf8") > 123) result = result.slice(0, -1);
+  return result;
 }
 
 export async function startDesktopAgentWebSocketServer(
@@ -28,7 +35,7 @@ export async function startDesktopAgentWebSocketServer(
     let accepted = false;
     const wire: DesktopAgentWire = {
       send: (message) => socket.send(JSON.stringify(message)),
-      close: (reason) => socket.close(4000, reason?.slice(0, 120)),
+      close: (reason) => socket.close(4000, boundedCloseReason(reason ?? "")),
     };
 
     socket.on("message", async (data) => {
@@ -48,7 +55,7 @@ export async function startDesktopAgentWebSocketServer(
         await options.transport.handleMessage(sessionId, frame as DesktopClientMessage);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        socket.close(4001, message.slice(0, 120));
+        socket.close(4001, boundedCloseReason(message));
       }
     });
 
