@@ -103,7 +103,7 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
   await saveHarnessRun(join(root, "runs"), run);
   const workspace: ProjectWorkspace = {
     version: 1, id: "project-study", name: "Study Log", status: "active",
-    genesis: { prototypeId: "prototype-study", repository: { url: "https://user:password@example.test/study?token=secret", branch: "main", commitSha: "abc" }, deployment: { url: "https://study.test" }, runs: [], promotedAt: at },
+    genesis: { prototypeId: "prototype-study", repository: { url: "https://user:password@example.test/study?token=secret", branch: "main", commitSha: "abc" }, deployment: { url: "https://study.test/?token=secret" }, runs: [], promotedAt: at },
     tree: [
       { id: "root", kind: "root", title: "Study Log", status: "in-progress", runIds: ["run-portfolio"], createdAt: at, updatedAt: at },
       { id: "feature-timer", parentId: "root", kind: "feature", title: "공부 시간 기록", status: "done", runIds: ["run-portfolio"], createdAt: at, updatedAt: at },
@@ -126,6 +126,10 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
   }, { modelRoot: root, harnessRoot: join(root, "runs") });
   assert.equal((reloadedView.body as typeof savedView).purposeSelection?.purpose, "portfolio");
   const evidence = await collectProjectEvidence(root, join(root, "runs"), "project-study");
+  assert.equal(evidence.deployment.url, undefined);
+  const deploymentEvidence = evidence.evidence.find((item) => item.kind === "deployment");
+  assert.ok(deploymentEvidence);
+  assert.equal(deploymentEvidence.summary.includes("token=secret"), false);
   const draft = buildPortfolioDraft(evidence);
   assert.match(draft.overview, /Study Log/);
   assert.match(draft.readme, /공부 시간 기록/);
@@ -142,6 +146,7 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
   assert.equal((portfolio.body as { grounding: { grounded: boolean; documentGrounded: boolean } }).grounding.grounded, true);
   assert.equal((portfolio.body as { grounding: { documentGrounded: boolean } }).grounding.documentGrounded, true);
   assert.equal((portfolio.body as { evidence: Array<{ id: string }> }).evidence.some((item) => item.id === "ev-test"), true);
+  assert.equal(JSON.stringify(portfolio.body).includes("token=secret"), false);
   const document = (portfolio.body as { document: { sections: Array<{ id: string; content: string; generatedContent: string; included: boolean }>; readme: string } }).document;
   const edited = await routeWebControlPlaneRequest({
     method: "PUT", path: "/api/projects/project-study/portfolio", headers: {},

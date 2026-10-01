@@ -1,5 +1,6 @@
 import { loadHarnessRun } from "../harness/run-store.js";
 import type { HarnessEvidenceRecord, HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
+import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
 import { loadProjectHistory } from "./history-store.js";
 import { loadProjectWorkspace } from "./workspace-store.js";
 import type { ProjectWorkspace } from "./contracts.js";
@@ -19,7 +20,7 @@ export type ProjectEvidenceBundle = {
   projectName: string;
   objective: string;
   repository: { url: string; branch: string; commitSha: string };
-  deployment: { url: string; provider?: string };
+  deployment: { url?: string; provider?: string };
   features: Array<{ id: string; title: string; status: string; runIds: string[] }>;
   runs: Array<{ runId: string; stage: string; status: string; objective: string }>;
   evidence: ProjectEvidence[];
@@ -54,6 +55,16 @@ function safeText(value: string, max = 500): string {
     .slice(0, max);
 }
 
+function safeDeploymentUrl(value: string | undefined): string | undefined {
+  if (!value || /%(?![0-9a-f]{2})/i.test(value)) return undefined;
+  try {
+    assertCheckHttpUrl(value);
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
 function evidenceFromRun(run: HarnessRuntimeRunEnvelope): ProjectEvidence[] {
   return run.evidence.slice(0, 200).map((record: HarnessEvidenceRecord) => ({
     id: record.id,
@@ -78,9 +89,10 @@ export async function collectProjectEvidence(
     const run = await loadHarnessRun(runRoot, runId);
     if (run) runs.push(run);
   }
+  const deploymentUrl = safeDeploymentUrl(workspace.genesis.deployment.url);
   const evidence: ProjectEvidence[] = [
     { id: `project:${workspace.id}:repository`, kind: "repository", summary: `저장소 ${safeText(workspace.genesis.repository.url, 240)} (${safeText(workspace.genesis.repository.branch, 120)})`, reference: safeText(workspace.genesis.repository.commitSha, 120), source: "project" },
-    { id: `project:${workspace.id}:deployment`, kind: "deployment", summary: `배포 주소 ${safeText(workspace.genesis.deployment.url, 240)}`, source: "project" },
+    { id: `project:${workspace.id}:deployment`, kind: "deployment", summary: deploymentUrl ? `배포 주소 ${deploymentUrl}` : "배포 주소가 검증되지 않았습니다.", source: "project" },
     ...runs.flatMap(evidenceFromRun),
   ];
   const history = await loadProjectHistory(modelRoot, projectId);
@@ -92,7 +104,7 @@ export async function collectProjectEvidence(
     projectName: safeText(workspace.name, 160),
     objective: safeText(runs[0]?.request.objective ?? workspace.name),
     repository: { url: safeText(workspace.genesis.repository.url, 240), branch: safeText(workspace.genesis.repository.branch, 120), commitSha: safeText(workspace.genesis.repository.commitSha, 120) },
-    deployment: { url: workspace.genesis.deployment.url, ...(workspace.genesis.deployment.provider ? { provider: workspace.genesis.deployment.provider } : {}) },
+    deployment: { ...(deploymentUrl ? { url: deploymentUrl } : {}), ...(workspace.genesis.deployment.provider ? { provider: workspace.genesis.deployment.provider } : {}) },
     features: workspace.tree.filter((node) => node.kind === "feature" || node.kind === "task").map((node) => ({ id: node.id, title: safeText(node.title, 160), status: node.status, runIds: [...node.runIds] })),
     runs: runs.map((run) => ({ runId: run.request.runId, stage: run.state.stage, status: run.state.status, objective: safeText(run.request.objective) })),
     evidence,
