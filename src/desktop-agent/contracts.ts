@@ -84,6 +84,9 @@ export type DesktopTaskPack = {
   operations: DesktopOperation[];
 };
 
+/** Maximum delay accepted by Node's timer APIs without overflow/clamping. */
+export const MAX_DESKTOP_TIMEOUT_MS = 2_147_483_647;
+
 export type DesktopOperationResult = {
   operationId: string;
   ok: boolean;
@@ -162,7 +165,7 @@ function assertGitRef(value: unknown, field: string): asserts value is string {
 }
 
 function assertPositiveTimeout(value: unknown, field: string): asserts value is number {
-  if (!Number.isInteger(value) || Number(value) <= 0) {
+  if (!Number.isSafeInteger(value) || Number(value) <= 0 || Number(value) > MAX_DESKTOP_TIMEOUT_MS) {
     throw new Error(`Desktop ${field} must be a positive integer`);
   }
 }

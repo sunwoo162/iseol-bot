@@ -35,6 +35,7 @@ test("CHECK_HTTP accepts preview URLs but rejects unsafe URL syntax and timeouts
 
   assert.doesNotThrow(() => assertDesktopTaskPack(check("http://127.0.0.1:3000/health?ready=1#preview")));
   assert.doesNotThrow(() => assertDesktopTaskPack(check("https://preview.example.test/result")));
+  assert.doesNotThrow(() => assertDesktopTaskPack(check("http://127.0.0.1:3000/health", 2_147_483_647)));
 
   for (const url of [
     "ftp://preview.example.test/result",
@@ -51,7 +52,7 @@ test("CHECK_HTTP accepts preview URLs but rejects unsafe URL syntax and timeouts
     assert.throws(() => assertDesktopTaskPack(check(url)), /CHECK_HTTP|URL|unsafe|credential|control/i, url);
   }
 
-  for (const timeoutMs of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+  for (const timeoutMs of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648, Number.MAX_SAFE_INTEGER]) {
     assert.throws(() => assertDesktopTaskPack(check("http://127.0.0.1:3000/health", timeoutMs)), /timeout/i, String(timeoutMs));
   }
 });

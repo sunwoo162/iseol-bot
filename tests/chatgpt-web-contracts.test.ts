@@ -62,6 +62,14 @@ test("CHECK_HTTP intents reject unsafe URL syntax", () => {
       url,
     );
   }
+  assert.doesNotThrow(() => assertDesktopIntent({ ...commonIntent, kind: "CHECK_HTTP", url: "http://127.0.0.1:3000", timeoutMs: 2_147_483_647 }));
+  for (const timeoutMs of [2_147_483_648, Number.MAX_SAFE_INTEGER]) {
+    assert.throws(
+      () => assertDesktopIntent({ ...commonIntent, kind: "CHECK_HTTP", url: "http://127.0.0.1:3000", timeoutMs }),
+      /timeout/i,
+      String(timeoutMs),
+    );
+  }
 });
 test("desktop intents reject unsafe or unknown execution fields", () => {
   for (const [key, value] of Object.entries({ command: "x", shell: true, env: { X: "1" }, token: "secret", force: true })) {

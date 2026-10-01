@@ -1,5 +1,5 @@
 import type { HarnessRunStage } from "../harness/contracts.js";
-import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
+import { assertCheckHttpUrl, MAX_DESKTOP_TIMEOUT_MS } from "../desktop-agent/contracts.js";
 import { assertNoCredentialShapedWebData } from "./credential-safety.js";
 
 export const ISEOL_CHATGPT_WEB_PROTOCOL_VERSION = 1 as const;
@@ -118,7 +118,9 @@ function stringArray(value: unknown, field: string): string[] {
   return value as string[];
 }
 function positiveTimeout(value: unknown, field: string): number {
-  if (!Number.isInteger(value) || Number(value) <= 0) throw new Error(`${field} must be a positive integer`);
+  if (!Number.isSafeInteger(value) || Number(value) <= 0 || Number(value) > MAX_DESKTOP_TIMEOUT_MS) {
+    throw new Error(`${field} must be a positive integer within the supported timer range`);
+  }
   return Number(value);
 }
 function exactKeys(value: Record<string, unknown>, allowed: readonly string[], label: string): void {
