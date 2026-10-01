@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/pro
 import { dirname, resolve } from "node:path";
 import type { DesktopJobResult } from "./contracts.js";
 import { withDurableDesktopJobLock } from "./job-lock.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 const DEFAULT_RETENTION = 256;
 
@@ -29,7 +30,7 @@ function durableResult(result: DesktopJobResult): DesktopJobResult {
     ...result,
     operations: result.operations.map(({ stdout: _stdout, stderr: _stderr, summary, ...operation }) => ({
       ...operation,
-      summary: summary.replace(/\b(token|cookie|secret|password|authorization)\s*[:=]\s*\S+/gi, "$1=[redacted]"),
+      summary: sanitizeCredentialText(summary),
     })),
   };
 }

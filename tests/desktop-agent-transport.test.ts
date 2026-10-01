@@ -282,12 +282,13 @@ test("durable Agent results are bounded and omit command output", async () => {
     await persistCompletedDesktopResult(resultRoot, {
       ...result(jobId),
       completedAt: `2026-09-08T02:00:0${jobId === "job-a" ? "1" : jobId === "job-b" ? "2" : "3"}.000Z`,
-      operations: [{ operationId: "op-1", ok: true, summary: "done", stdout: "ISEOL_SECRET_SENTINEL" }],
+      operations: [{ operationId: "op-1", ok: true, summary: "preview https://preview.example/?access_token=desktop-secret", stdout: "ISEOL_SECRET_SENTINEL" }],
     }, 2);
   }
   const loaded = await loadCompletedDesktopResults(resultRoot);
   assert.deepEqual([...loaded.keys()], ["job-b", "job-c"]);
   assert.doesNotMatch(JSON.stringify([...loaded.values()]), /ISEOL_SECRET_SENTINEL/);
+  assert.equal(loaded.get("job-b")?.operations[0]?.summary, "preview [redacted-url]");
 });
 
 test("durable Agent result persistence waits for the Job lock", async () => {
