@@ -1,4 +1,5 @@
 import type { PlatformUserService } from "../platform-user/contracts.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 import type { UserRequest, UserResponse } from "../web-control-plane/user-router.js";
 import { INTEGRATION_PROVIDERS, type IntegrationDeliveryInput, type IntegrationProvider, type IntegrationService } from "./contracts.js";
 import type { SettingsService } from "../settings/contracts.js";
@@ -61,9 +62,10 @@ export async function routeIntegrationsRequest(request: UserRequest, services: I
     const delivery = await services.integrationService.dispatchDelivery(principal, queued.id);
     return response(200, { delivery });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "integration request failed";
-    if (/invalid|identity conflict/i.test(message)) return response(400, { error: message });
-    if (/not found/i.test(message)) return response(404, { error: message });
+    const rawMessage = error instanceof Error ? error.message : "integration request failed";
+    const message = sanitizeCredentialText(rawMessage, 240);
+    if (/invalid|identity conflict/i.test(rawMessage)) return response(400, { error: message });
+    if (/not found/i.test(rawMessage)) return response(404, { error: message });
     return response(409, { error: message });
   }
 }
