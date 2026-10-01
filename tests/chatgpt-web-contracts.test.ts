@@ -47,6 +47,30 @@ test("desktop intents accept only the supported structured vocabulary", () => {
   for (const intent of intents) assert.doesNotThrow(() => assertDesktopIntent(intent));
   assert.throws(() => assertDesktopIntent({ ...commonIntent, kind: "SHELL", command: "rm -rf ." }), /unsupported.*intent/i);
 });
+test("CHECK_HTTP intents reject unsafe URL syntax", () => {
+  for (const url of [
+    "ftp://preview.example.test/result",
+    "http://user:password@preview.example.test/result",
+    "http://@preview.example.test/result",
+    "http://preview.example.test\\result",
+    "http://preview.example.test/%5Cresult",
+    `http://preview.example.test/result${String.fromCharCode(10)}`,
+  ]) {
+    assert.throws(
+      () => assertDesktopIntent({ ...commonIntent, kind: "CHECK_HTTP", url, timeoutMs: 5_000 }),
+      /CHECK_HTTP|URL|credential|control/i,
+      url,
+    );
+  }
+  assert.doesNotThrow(() => assertDesktopIntent({ ...commonIntent, kind: "CHECK_HTTP", url: "http://127.0.0.1:3000", timeoutMs: 2_147_483_647 }));
+  for (const timeoutMs of [2_147_483_648, Number.MAX_SAFE_INTEGER]) {
+    assert.throws(
+      () => assertDesktopIntent({ ...commonIntent, kind: "CHECK_HTTP", url: "http://127.0.0.1:3000", timeoutMs }),
+      /timeout/i,
+      String(timeoutMs),
+    );
+  }
+});
 test("desktop intents reject unsafe or unknown execution fields", () => {
   for (const [key, value] of Object.entries({ command: "x", shell: true, env: { X: "1" }, token: "secret", force: true })) {
     assert.throws(
