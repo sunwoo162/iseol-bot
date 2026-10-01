@@ -5,6 +5,7 @@ import {
   type HarnessPreflightRecord,
 } from "./contracts.js";
 import { resolveHarnessPolicy } from "./policy-resolver.js";
+import { formatUserFacingError } from "../security/user-error.js";
 
 export type PrepareDevelopmentRunOptions = {
   iseolRoot: string;
@@ -41,7 +42,7 @@ export async function prepareDevelopmentRun(
       policy,
     };
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = formatUserFacingError(error);
     return { version: 1, runId: request.runId, status: "blocked", reason };
   }
 }

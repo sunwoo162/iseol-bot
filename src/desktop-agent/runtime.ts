@@ -12,6 +12,7 @@ import {
   desktopOperationMutates,
 } from "./contracts.js";
 import { assertWorkspaceAccess, verifyDesktopTaskPolicy } from "./workspace-guard.js";
+import { formatUserFacingError } from "../security/user-error.js";
 import {
   assertBoundedProcessRequest,
   assertOwnedProcessTemp,
@@ -510,7 +511,7 @@ export async function executeDesktopTaskPack(
         ]);
         policyVerified = true;
       } catch (error) {
-        const summary = error instanceof Error ? error.message : String(error);
+        const summary = formatUserFacingError(error);
         results.push({ operationId: operation.id, ok: false, summary });
         return failureResult(pack, "retryable-failure", now(), results);
       }
@@ -520,7 +521,7 @@ export async function executeDesktopTaskPack(
     try {
       result = await executeOperation(pack, operation, deps, maxOutputBytes);
     } catch (error) {
-      const summary = error instanceof Error ? error.message : String(error);
+      const summary = formatUserFacingError(error);
       results.push({ operationId: operation.id, ok: false, summary });
       const protectedFailure = /outside Desktop|not allowed|inline evaluation|patch .*target/i.test(summary);
       return failureResult(pack, protectedFailure ? "final-failure" : "retryable-failure", now(), results);

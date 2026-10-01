@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import { assertDesktopProtocolVersion, type DesktopAgentHello, type DesktopJobResult, type DesktopTaskPack } from "./contracts.js";
 import { toDurableDesktopResult } from "./result-store.js";
+import { formatUserFacingError } from "../security/user-error.js";
 
 export type ConnectDesktopAgentWebSocketClientOptions = {
   url: string;
@@ -78,7 +79,7 @@ export async function connectDesktopAgentWebSocketClient(
           operations: [{
             operationId: "__task__",
             ok: false,
-            summary: error instanceof Error ? error.message : String(error),
+            summary: formatUserFacingError(error),
           }],
         };
         completedResults.set(result.jobId, toDurableDesktopResult(result));
