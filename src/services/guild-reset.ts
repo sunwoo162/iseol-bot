@@ -13,6 +13,7 @@ import { clearCalendarProjectState } from "./calendar/calendar-state.js";
 import { clearGitHubAutomationPollingProject } from "./github-automation-poll-state.js";
 import { clearGitHubCommitFeedProject } from "./github-commit-feed.js";
 import { withProjectGuildLifecycleLock } from "./projects.js";
+import { formatUserFacingError } from "../security/user-error.js";
 
 const DATA_DIR = resolve(process.cwd(), "data");
 const PROJECTS_FILE = resolve(DATA_DIR, "projects.json");
@@ -129,7 +130,7 @@ async function removeProjectHooks(projects: ProjectRecord[], warnings: string[])
         await github.deleteWebhook(project.frontend, project.frontendHookId);
         removed += 1;
       } catch (error) {
-        warnings.push(`Frontend GitHub webhook 삭제 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+        warnings.push(`Frontend GitHub webhook 삭제 실패: ${formatUserFacingError(error)}`);
       }
     }
 
@@ -138,7 +139,7 @@ async function removeProjectHooks(projects: ProjectRecord[], warnings: string[])
         await github.deleteWebhook(project.backend, project.backendHookId);
         removed += 1;
       } catch (error) {
-        warnings.push(`Backend GitHub webhook 삭제 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+        warnings.push(`Backend GitHub webhook 삭제 실패: ${formatUserFacingError(error)}`);
       }
     }
   }
@@ -159,19 +160,19 @@ export async function resetGuildState(guild: Guild): Promise<GuildResetSummary> 
     try {
       await clearGitHubCommitFeedProject(projectId);
     } catch (error) {
-      warnings.push(`GitHub commit feed state 삭제 실패 (${projectId}): ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+      warnings.push(`GitHub commit feed state 삭제 실패 (${projectId}): ${formatUserFacingError(error)}`);
     }
 
     try {
       await clearGitHubAutomationPollingProject(projectId);
     } catch (error) {
-      warnings.push(`GitHub automation polling state 삭제 실패 (${projectId}): ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+      warnings.push(`GitHub automation polling state 삭제 실패 (${projectId}): ${formatUserFacingError(error)}`);
     }
 
     try {
       await clearCalendarProjectState(projectId);
     } catch (error) {
-      warnings.push(`Calendar state 삭제 실패 (${projectId}): ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+      warnings.push(`Calendar state 삭제 실패 (${projectId}): ${formatUserFacingError(error)}`);
     }
   }
 
@@ -238,7 +239,7 @@ async function resetGuildStateUnlocked(guild: Guild): Promise<GuildResetExecutio
       await channel.delete("이설 관리자 서버 초기화");
       deletedChannels += 1;
     } catch (error) {
-      warnings.push(`채널 삭제 실패 (${channel.name}): ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+      warnings.push(`채널 삭제 실패 (${channel.name}): ${formatUserFacingError(error)}`);
     }
   }
 
@@ -250,7 +251,7 @@ async function resetGuildStateUnlocked(guild: Guild): Promise<GuildResetExecutio
       await category.delete("이설 관리자 서버 초기화");
       deletedChannels += 1;
     } catch (error) {
-      warnings.push(`카테고리 삭제 실패 (${category.name}): ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+      warnings.push(`카테고리 삭제 실패 (${category.name}): ${formatUserFacingError(error)}`);
     }
   }
 
@@ -275,7 +276,7 @@ async function resetGuildStateUnlocked(guild: Guild): Promise<GuildResetExecutio
     const modelRoot = config.iseolModelRoot || resolve(process.cwd(), "data", "iseol");
     removedProjectBindings = await deleteDiscordProjectBindingsForGuild(modelRoot, guild.id);
   } catch (error) {
-    warnings.push(`Project Workspace binding 삭제 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`);
+    warnings.push(`Project Workspace binding 삭제 실패: ${formatUserFacingError(error)}`);
   }
 
   const [removedGitHubAccounts] = await Promise.all([
