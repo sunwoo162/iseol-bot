@@ -14,6 +14,8 @@ test("personal record surfaces format timestamps with the authenticated account 
   assert.match(portfolio, /profile\.timezone/);
   assert.doesNotMatch(portfolio, /new Date\(event\.occurredAt\)\.toLocaleString\('ko-KR'\)/);
   assert.doesNotMatch(portfolio, /new Date\(item\.occurredAt\)\.toLocaleString\('ko-KR'\)/);
+  assert.match(portfolio, /formatWorldDate\(timezone, entry\.updatedAt\)/);
+  assert.doesNotMatch(portfolio, /new Date\(entry\.updatedAt\)\.toLocaleDateString/);
   assert.match(memory, /formatWorldDateTime/);
   assert.match(memory, /useUser/);
   assert.match(memory, /profile\.timezone/);
