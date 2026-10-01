@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAllconCurlArgs, isAllconUrl } from "../src/services/fetch-fallback.js";
+import {
+  buildAllconCurlArgs,
+  fetchAllconWithValidatedRedirects,
+  isAllconUrl,
+  parseAllconCurlOutput,
+  resolveAllconRedirect,
+} from "../src/services/fetch-fallback.js";
 
 test("Allcon fallback accepts only HTTPS canonical hosts", () => {
   assert.equal(isAllconUrl("https://all-con.co.kr/list/contest"), true);
@@ -38,4 +44,40 @@ test("Allcon curl fallback rejects a URL outside its allowlist before spawning c
     () => buildAllconCurlArgs("https://attacker.example/redirect"),
     /Allcon fallback URL is not allowed/,
   );
+});
+
+test("Allcon redirect targets stay within the HTTPS canonical host allowlist", () => {
+  const currentUrl = "https://www.all-con.co.kr/list/contest";
+  assert.equal(
+    resolveAllconRedirect(currentUrl, new Response(null, { status: 302, headers: { location: "/next" } })),
+    "https://www.all-con.co.kr/next",
+  );
+  assert.equal(resolveAllconRedirect(currentUrl, new Response(null, { status: 200 })), null);
+  assert.throws(
+    () => resolveAllconRedirect(currentUrl, new Response(null, { status: 302, headers: { location: "https://attacker.example/" } })),
+    /Allcon redirect target is not allowed/,
+  );
+});
+
+test("native Allcon redirect handling validates every hop before fetching it", async () => {
+  const calls: string[] = [];
+  const fetcher: typeof fetch = async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    calls.push(url);
+    return new Response(null, { status: 302, headers: { location: "https://attacker.example/" } });
+  };
+
+  await assert.rejects(
+    () => fetchAllconWithValidatedRedirects("https://www.all-con.co.kr/start", undefined, fetcher),
+    /Allcon redirect target is not allowed/,
+  );
+  assert.deepEqual(calls, ["https://www.all-con.co.kr/start"]);
+});
+
+test("Allcon curl output preserves status and uses null bodies for no-body statuses", () => {
+  assert.deepEqual(parseAllconCurlOutput("html\n__ISEOL_CURL_STATUS__200"), { body: "html", status: 200 });
+  for (const status of [204, 205, 304]) {
+    assert.deepEqual(parseAllconCurlOutput(`ignored\n__ISEOL_CURL_STATUS__${status}`), { body: null, status });
+  }
+  assert.throws(() => parseAllconCurlOutput("body\n__ISEOL_CURL_STATUS__100"), /status is invalid/);
 });
