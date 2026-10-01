@@ -54,6 +54,10 @@ test("project evidence omits unsafe URL references but preserves safe and opaque
       { ...evidence("figma-reference", "project-a", "run-a"), reference: "figma:file-1:version:v1" },
       { ...evidence("notion-reference", "project-a", "run-a"), reference: "notion:page-1:2026-09-25T12:00:00.000Z" },
       { ...evidence("opaque-credential", "project-a", "run-a"), reference: "notion:page-1?access_token=secret-value" },
+      { ...evidence("opaque-session-token", "project-a", "run-a"), reference: "notion:page-1?session_token=secret-value" },
+      { ...evidence("opaque-jwt", "project-a", "run-a"), reference: "notion:page-1#jwt=secret-value" },
+      { ...evidence("opaque-authorization", "project-a", "run-a"), reference: "notion:page-1?authorization=secret-value" },
+      { ...evidence("opaque-oauth-access-token", "project-a", "run-a"), reference: "notion:page-1?oauth_access_token=secret-value" },
     ],
   });
   assert.deepEqual(selected, [
@@ -78,5 +82,9 @@ test("project evidence omits unsafe URL references but preserves safe and opaque
     { ...evidence("figma-reference", "project-a", "run-a"), reference: "figma:file-1:version:v1" },
     { ...evidence("notion-reference", "project-a", "run-a"), reference: "notion:page-1:2026-09-25T12:00:00.000Z" },
     { ...evidence("opaque-credential", "project-a", "run-a") },
+    { ...evidence("opaque-session-token", "project-a", "run-a") },
+    { ...evidence("opaque-jwt", "project-a", "run-a") },
+    { ...evidence("opaque-authorization", "project-a", "run-a") },
+    { ...evidence("opaque-oauth-access-token", "project-a", "run-a") },
   ]);
 });

@@ -1,21 +1,27 @@
-import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
+import { assertCheckHttpUrl, isSensitiveHttpCredentialKey } from "../desktop-agent/contracts.js";
 
 const OPAQUE_REFERENCE_SCHEMES = new Set([
   "build", "calendar", "desktop-job", "discord", "discord-binding", "figma",
   "github", "history", "notion", "pull-request", "reasoning-turn",
 ]);
 
-const CREDENTIAL_ASSIGNMENT = /\b(access[_ -]?token|oauth[_ -]?token|token|cookie|secret|password|api[_ -]?key|client[_ -]?secret)\b\s*[:=]/i;
 const BEARER_CREDENTIAL = /\bBearer\s+[^\s,;}]+/i;
 
 function containsCredentialLikeContent(value: string): boolean {
-  if (CREDENTIAL_ASSIGNMENT.test(value) || BEARER_CREDENTIAL.test(value)) return true;
+  let decoded = value;
   try {
-    const decoded = decodeURIComponent(value);
-    return CREDENTIAL_ASSIGNMENT.test(decoded) || BEARER_CREDENTIAL.test(decoded);
+    decoded = decodeURIComponent(value);
   } catch {
-    return false;
+    return true;
   }
+  for (const candidate of [value, decoded]) {
+    if (BEARER_CREDENTIAL.test(candidate)) return true;
+    for (const parameter of candidate.split(/[?&#/]/)) {
+      const rawKey = parameter.split("=", 1)[0];
+      if (rawKey && isSensitiveHttpCredentialKey(rawKey)) return true;
+    }
+  }
+  return false;
 }
 
 export function sanitizeProjectEvidenceReference(value: string): string | undefined {

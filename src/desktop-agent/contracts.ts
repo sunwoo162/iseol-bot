@@ -145,7 +145,7 @@ const SENSITIVE_HTTP_QUERY_KEYS = new Set([
   "xaccesstoken", "xapikey", "xapitoken", "xauthtoken", "xoauthtoken",
 ]);
 
-function isSensitiveHttpCredentialKey(key: string): boolean {
+export function isSensitiveHttpCredentialKey(key: string): boolean {
   const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
   return SENSITIVE_HTTP_QUERY_KEYS.has(normalizedKey) || SENSITIVE_HTTP_QUERY_KEYS.has(key.toLowerCase());
 }
