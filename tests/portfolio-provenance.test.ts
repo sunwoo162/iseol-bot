@@ -89,7 +89,7 @@ test("project provenance is available to the owner but is not exposed by public 
   const projectService = {
     async listProjects() { return [{ id: "project-owner-only", name: "Owner project" }]; },
     async getProject() {
-      return { evidence: [{ id: "project-evidence-1", provider: "local-runtime", summary: "Runtime artifact", recordedAt: at }] };
+      return { evidence: [{ id: "project-evidence-1", provider: "local-runtime", summary: "Runtime artifact api_key=project-evidence-secret", recordedAt: at }] };
     },
   } as unknown as UserProjectService;
   const activity = createActivityService(join(root, "platform"), { now: () => at });
@@ -102,14 +102,20 @@ test("project provenance is available to the owner but is not exposed by public 
   assert.equal(evidence?.id, "project-evidence:project-owner-only:project-evidence-1");
 
   const entry = await portfolio.createEntry(owner, {
-    title: "Runtime artifact portfolio",
-    summary: "A verified project artifact.",
+    title: "Runtime artifact api_key=portfolio-title-secret",
+    summary: "Public Bearer portfolio-entry-token project artifact.",
     visibility: "public",
     evidenceIds: [evidence!.id],
   });
+  const publicEntries = await portfolio.listPublicEntries(owner.userId);
+  assert.equal(publicEntries[0]?.title.includes("portfolio-title-secret"), false);
+  assert.equal(publicEntries[0]?.summary.includes("portfolio-entry-token"), false);
   const publicView = await portfolio.getPublicEntry(entry.id);
   assert.equal(publicView?.evidence.length, 1);
   assert.equal("projectId" in (publicView?.evidence[0] ?? {}), false);
+  assert.equal(publicView?.entry.title.includes("portfolio-title-secret"), false);
+  assert.equal(publicView?.entry.summary.includes("portfolio-entry-token"), false);
+  assert.equal(publicView?.evidence[0]?.summary.includes("project-evidence-secret"), false);
 });
 
 test("portfolio entry mutations across service instances preserve both patches", async () => {
