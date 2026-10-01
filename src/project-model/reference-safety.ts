@@ -7,44 +7,55 @@ const OPAQUE_REFERENCE_SCHEMES = new Set([
 
 const BEARER_CREDENTIAL = /\bBearer\s+[^\s,;}]+/i;
 
-function containsCredentialLikeContent(value: string): boolean {
-  let decoded = value;
-  try {
-    decoded = decodeURIComponent(value);
-  } catch {
-    return true;
-  }
-  for (const candidate of [value, decoded]) {
-    if (BEARER_CREDENTIAL.test(candidate)) return true;
-    for (const parameter of candidate.split(/[?&#/]/)) {
-      const rawKey = parameter.split("=", 1)[0];
-      if (rawKey && isSensitiveHttpCredentialKey(rawKey)) return true;
+function decodedRepresentations(value: string): string[] | undefined {
+  const representations = [value];
+  let current = value;
+  for (let index = 0; index < 2 && current.includes("%"); index += 1) {
+    try {
+      const decoded = decodeURIComponent(current);
+      if (decoded === current) break;
+      representations.push(decoded);
+      current = decoded;
+    } catch {
+      return undefined;
     }
   }
+  if (current.includes("%")) return undefined;
+  return representations;
+}
+
+function containsCredentialLikeContent(value: string): boolean {
+  const queryOrFragment = /[?#]([\s\S]*)/.exec(value)?.[1];
+  if (queryOrFragment === undefined) return BEARER_CREDENTIAL.test(value);
+  for (const parameter of queryOrFragment.split(/[&#/]/)) {
+    const rawKey = parameter.trim().split(/[=:]/, 1)[0];
+    if (rawKey && isSensitiveHttpCredentialKey(rawKey)) return true;
+  }
+  if (BEARER_CREDENTIAL.test(value)) return true;
   return false;
+}
+
+function assertSafeReferenceRepresentation(value: string): void {
+  const scheme = /^[A-Za-z][A-Za-z\d+.-]*:/.exec(value)?.[0]?.slice(0, -1).toLowerCase();
+  if (scheme && /^https?:\/\//i.test(value)) {
+    assertCheckHttpUrl(value);
+  } else if (scheme && !OPAQUE_REFERENCE_SCHEMES.has(scheme)) {
+    throw new Error("unsupported project evidence reference scheme");
+  }
+  if (containsCredentialLikeContent(value)) throw new Error("credential-shaped project evidence reference");
+  const nestedHttpUrl = /(https?:\/\/\S+)/i.exec(value)?.[1];
+  if (nestedHttpUrl) assertCheckHttpUrl(nestedHttpUrl);
 }
 
 export function sanitizeProjectEvidenceReference(value: string): string | undefined {
   const candidate = value.trim();
-  const scheme = /^[A-Za-z][A-Za-z\d+.-]*:/.exec(candidate)?.[0]?.slice(0, -1).toLowerCase();
   if (candidate !== value || /[\u0000-\u001f\u007f]/.test(value) || candidate.startsWith("//") || /%(?![0-9a-f]{2})/i.test(candidate)) return undefined;
-  if (containsCredentialLikeContent(candidate)) return undefined;
-  if (/^https?:\/\//i.test(candidate)) {
-    try {
-      assertCheckHttpUrl(value);
-      return value;
-    } catch {
-      return undefined;
-    }
+  const representations = decodedRepresentations(candidate);
+  if (!representations) return undefined;
+  try {
+    for (const representation of representations) assertSafeReferenceRepresentation(representation);
+  } catch {
+    return undefined;
   }
-  const nestedHttpUrl = /(https?:\/\/\S+)/i.exec(candidate)?.[1];
-  if (nestedHttpUrl) {
-    try {
-      assertCheckHttpUrl(nestedHttpUrl);
-    } catch {
-      return undefined;
-    }
-  }
-  if (scheme && !OPAQUE_REFERENCE_SCHEMES.has(scheme)) return undefined;
   return value;
 }
