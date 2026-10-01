@@ -299,13 +299,14 @@ async function reconcileProjectWorkRequestUnlocked(input: {
     return { request, revision: projectWorkRequestRevision(request), run: runView, execution: terminalRun ? "terminal" : "run-found", transition: alreadyProjected(request.status) };
   }
 
+  const failureBlocker = sanitizeCredentialText(run.state.reason ?? `Harness Run is ${run.state.status}`, 240);
   const updated = await updateProjectWorkRequest(input.root, input.projectId, input.workId, {
     status: nextStatus,
     runId: run.runId,
     blocker: nextStatus === "waiting"
       ? `Harness Run is ${run.state.status}`
       : nextStatus === "failed"
-        ? run.state.reason ?? `Harness Run is ${run.state.status}`
+        ? failureBlocker
         : undefined,
   }, input.at);
   return {
@@ -314,7 +315,7 @@ async function reconcileProjectWorkRequestUnlocked(input: {
     run: runView,
     execution: terminalRun ? "terminal" : "run-found",
     transition: "updated",
-    ...(nextStatus === "waiting" ? { blocker: `Harness Run is ${run.state.status}` } : nextStatus === "failed" ? { blocker: run.state.reason ?? `Harness Run is ${run.state.status}` } : {}),
+    ...(nextStatus === "waiting" ? { blocker: `Harness Run is ${run.state.status}` } : nextStatus === "failed" ? { blocker: failureBlocker } : {}),
   };
 }
 

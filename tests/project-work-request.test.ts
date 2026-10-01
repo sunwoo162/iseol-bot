@@ -308,6 +308,24 @@ test("Run waiting and final failure statuses map without inventing completion", 
   assert.equal(failed?.execution, "terminal");
 });
 
+test("Run reconciliation failure blockers redact credential-shaped reasons", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-reconcile-error-safety-"));
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Reconcile failure", objective: "Redact Run failure", idempotencyKey: "reconcile-failure", id: "reconcile-failure", at });
+  await updateProjectWorkRequest(root, "project-1", "reconcile-failure", { status: "running", requestedRunId: "run-reconcile-failure", runId: "run-reconcile-failure" }, at);
+  const secret = "Harness failed token=reconcile-secret api_key=reconcile-api-secret https://preview.example/?access_token=reconcile-url-secret";
+  const failed = await reconcileProjectWorkRequest({
+    root,
+    projectId: "project-1",
+    workId: "reconcile-failure",
+    at: "2026-09-20T12:01:00.000Z",
+    findRun: async () => ({ runId: "run-reconcile-failure", state: { stage: "IMPLEMENT", status: "FAILED_FINAL", reason: secret }, updatedAt: at }),
+  });
+  assert.equal(failed?.request.status, "failed");
+  for (const value of ["reconcile-secret", "reconcile-api-secret", "reconcile-url-secret"]) assert.equal(failed?.blocker?.includes(value), false);
+  assert.match(failed?.blocker ?? "", /\[redacted\]|\[redacted-url\]/i);
+  assert.equal((await loadProjectWorkRequest(root, "project-1", "reconcile-failure"))?.blocker?.includes("reconcile-secret"), false);
+});
+
 test("an explicit retry lets the authoritative terminal Run reproject a failed request", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-work-retry-projection-"));
   await createProjectWorkRequest({ root, projectId: "project-1", title: "Retry", objective: "Retry", idempotencyKey: "retry", id: "retry", at });
