@@ -5,6 +5,9 @@
 > 2026-09-21 update: the original table below is retained as historical evidence.
 > The dated review appended below supersedes its current-status claims (including
 > browser unavailability, pending production recovery, and Discord bootstrap wiring).
+> 2026-10-02 scope decision: the NPC user product is the active completion scope.
+> AI 방송실/Broadcast Room is explicitly excluded from this work and remains
+> deferred; its implementation files and historical records are preserved.
 > Start at [docs index](README.md); operational observations are in
 > [system review](audits/2026-09-21-system-review.md).
 
@@ -26,7 +29,7 @@ evidence that a ChatGPT Web live run or a deployment succeeded.
 | IDEA-05 | Recovery barrier | WAITING_EXTERNAL production suppresses automatic campaign recovery while preserving budget/state | `src/idea-lab/runtime-service.ts` | runtime-service and recovery suites | Implemented and isolated-tested | Historical production request remains UNKNOWN in old Runtime |
 | PROJ-01 | Project Workspace | Prototype promotion preserves origin, workspace tree/history and Run projections | `src/project-model`, `GET /api/projects/:id` | project model/promotion/tree/router suites | Implemented and isolated-tested | Long-running work-request UI/API is partial |
 | PROJ-02 | Purpose profiles | User-facing purpose selection maps to bounded execution profile and durable portfolio evidence | `src/project-model/execution-profile.ts`, portfolio stores | purpose-profile and portfolio suites | Implemented and isolated-tested | Live user acceptance still required |
-| PROJ-03 | Project execution | Prepare/start project Run through existing control-plane actions | `POST /api/projects/:id/execution-start` | purpose-profile/router suites | Partially implemented | Explicit resume UX remains; queue execute now delegates to this official path |
+| PROJ-03 | Project execution | Prepare/start project Run through existing control-plane actions | `POST /api/projects/:id/execution-start` | purpose-profile/router suites and isolated user-product browser journey | Implemented and isolated-tested | Live operational Runtime throughput and external Agent execution remain unverified |
 | PROJ-05 | Work queue | Durable project work request creation, dependency gating, explicit execution, cancellation, single-worker claim, bounded user scheduling and read-only reconciliation | `src/project-model/work-request.ts`, `src/project-model/user-project-router.ts`, `/api/user/projects/:id/schedule` | `tests/project-work-request.test.ts`, `tests/user-project-api.test.ts`, browser scheduler journey | Implemented and isolated-tested | Live operational Runtime throughput remains unverified; automatic startup execution is intentionally disabled |
 | PROJ-06 | Queue scheduler | Explicit owner-triggered dependency-ready scheduling with bounded active concurrency, approval checkpoint, and same-project request serialization | `src/project-model/user-project-service.ts`, `src/project-model/user-project-router.ts`, `user-ui/src/pages/Projects.tsx` | user-project API/UI contracts and isolated browser scheduler journey | Implemented and isolated-tested | Live operational Runtime throughput remains unverified; startup/recovery auto scheduling is intentionally disabled |
 | PROJ-04 | Project history | Durable tree/history records connect Runs and evidence | `src/project-model/history-store.ts`, `workspace-store.ts` | project model/history suites | Implemented and isolated-tested | Commit/PR/deploy evidence needs live provider verification |
@@ -58,6 +61,31 @@ An item is complete only when its durable contract, user/API path, and
 appropriate tests exist. Live ChatGPT Web, production Desktop, external
 credentials, and deployment claims require separate evidence and are therefore
 listed as live or rollout work until actually performed.
+
+## 2026-10-02 현재 완료 범위 및 검증 기준
+
+이번 문서 갱신의 기준은 NPC 사용자 제품의 실제 코드·API·UI와 격리 브라우저 검증이다.
+아래 범위는 구현 및 로컬/격리 검증이 완료되었으며, 외부 서비스의 운영 성공을 의미하지 않는다.
+
+| 범위 | 현재 상태 | 검증 증거 | 남은 경계 |
+|---|---|---|---|
+| 개인 세계·캐릭터·성장·활동 | 구현 및 격리 브라우저 검증 완료 | `npm run test:iseol-user-product` 470/470, isolated browser E2E | 실제 외부 활동 provider 연결 |
+| 학습·세션·복습·코드 분석 | 구현 및 격리 브라우저 검증 완료 | learning journey, session completion, review scheduling, local syntax/evaluation journeys | 외부 Runtime 기반 AI 설명 |
+| 프로젝트 작업실·큐·승인·실행 상태 | 구현 및 격리 브라우저 검증 완료 | project workspace, cancellation, dependency, approval, runtime/local-agent journeys | 운영 Runtime throughput 및 실제 Agent 실행 |
+| 친구·채팅·팀·커뮤니티·알림 | 구현 및 격리 브라우저 검증 완료 | private messaging, team ACL/chat, community, notification, safety journeys | 실제 외부 Discord/운영 소셜 연동 |
+| 포트폴리오·공개/비공개·공유·JSON export | 구현 및 격리 브라우저 검증 완료 | portfolio, public route, share control, export/download journeys | 실제 배포/외부 provider evidence |
+| 인증·설정·권한·세션 격리 | 구현 및 격리 브라우저 검증 완료 | two-account isolation, settings persistence, logout/re-login journeys | 운영 환경의 외부 credential 검증 |
+| AI 방송실/Broadcast Room | 이번 범위에서 제외·보류 | 관련 파일과 역사적 기록 보존 | 별도 명세 승인 전 개발/검증하지 않음 |
+
+### 2026-10-02 검증 실행 기록
+
+- `npm test`: 826/826 통과.
+- `npm run test:iseol-user-product`: 470/470 통과.
+- `npm run test:iseol-browser-e2e`: 2개 격리 계정, 390/768/1024/1440 반응형 뷰포트와 주요 NPC 사용자 여정 통과.
+- TypeScript 검사와 user UI build 통과. 기존 chunk-size 경고만 남음.
+- 외부 ChatGPT Web 세션, 운영 Runtime/Agent, Discord/GitHub/Vercel 실계정 및 실제 배포는 이 검증에 포함하지 않음.
+
+이 절은 아래의 과거 조사 및 당시 상태표보다 우선한다. 과거 기록은 당시 판단과 증거 경계를 보존하기 위해 수정하지 않는다.
 
 ## 2026-09-21 전 영역 재검토
 
