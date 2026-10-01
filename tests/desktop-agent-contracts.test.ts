@@ -27,6 +27,35 @@ test("desktop protocol version is strict", () => {
   assert.throws(() => assertDesktopProtocolVersion(2), /Unsupported Iseol Desktop protocol version/);
 });
 
+test("CHECK_HTTP accepts preview URLs but rejects unsafe URL syntax and timeouts", () => {
+  const check = (url: string, timeoutMs = 1_000) => ({
+    ...basePack(),
+    operations: [{ id: "http", type: "CHECK_HTTP", url, timeoutMs }],
+  });
+
+  assert.doesNotThrow(() => assertDesktopTaskPack(check("http://127.0.0.1:3000/health?ready=1#preview")));
+  assert.doesNotThrow(() => assertDesktopTaskPack(check("https://preview.example.test/result")));
+
+  for (const url of [
+    "ftp://preview.example.test/result",
+    "file:///C:/secret.txt",
+    "preview.example.test/result",
+    " http://127.0.0.1:3000/health",
+    "http://127.0.0.1:3000/health ",
+    "http://user:password@preview.example.test/result",
+    "http://@preview.example.test/result",
+    "http://preview.example.test\\result",
+    "http://preview.example.test/%5Cresult",
+    `http://preview.example.test/result${String.fromCharCode(10)}`,
+  ]) {
+    assert.throws(() => assertDesktopTaskPack(check(url)), /CHECK_HTTP|URL|unsafe|credential|control/i, url);
+  }
+
+  for (const timeoutMs of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(() => assertDesktopTaskPack(check("http://127.0.0.1:3000/health", timeoutMs)), /timeout/i, String(timeoutMs));
+  }
+});
+
 test("task pack requires stable execution identity", () => {
   for (const field of ["jobId", "runId", "workspaceRoot", "idempotencyKey"] as const) {
     const pack = { ...basePack(), [field]: "" };

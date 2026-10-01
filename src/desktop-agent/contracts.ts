@@ -161,6 +161,42 @@ function assertGitRef(value: unknown, field: string): asserts value is string {
   }
 }
 
+function assertPositiveTimeout(value: unknown, field: string): asserts value is number {
+  if (!Number.isInteger(value) || Number(value) <= 0) {
+    throw new Error(`Desktop ${field} must be a positive integer`);
+  }
+}
+
+export function assertCheckHttpUrl(value: unknown): asserts value is string {
+  requireText(value, "url");
+  if (value !== value.trim()) {
+    throw new Error("Desktop CHECK_HTTP URL must not have surrounding whitespace");
+  }
+  if (/[\u0000-\u001f\u007f]/.test(value)) {
+    throw new Error("Desktop CHECK_HTTP URL contains a control character");
+  }
+  if (value.includes("\\") || /%5c/i.test(value)) {
+    throw new Error("Desktop CHECK_HTTP URL must not contain backslashes");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("Desktop CHECK_HTTP URL must be a valid absolute URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Desktop CHECK_HTTP URL must use http or https");
+  }
+  if (!parsed.hostname) {
+    throw new Error("Desktop CHECK_HTTP URL must include a hostname");
+  }
+  const authority = /^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i.exec(value)?.[1] ?? "";
+  if (authority.includes("@") || parsed.username || parsed.password) {
+    throw new Error("Desktop CHECK_HTTP URL must not include credentials");
+  }
+}
+
 function assertOperation(value: unknown): asserts value is DesktopOperation {
   if (!value || typeof value !== "object") throw new Error("Desktop operation must be an object");
   const operation = value as Record<string, unknown>;
@@ -175,6 +211,10 @@ function assertOperation(value: unknown): asserts value is DesktopOperation {
   }
   if (operation.type === "GIT_INSPECT" && "includeRemote" in operation && typeof operation.includeRemote !== "boolean") {
     throw new Error("Desktop Git inspect includeRemote must be a boolean");
+  }
+  if (operation.type === "CHECK_HTTP") {
+    assertCheckHttpUrl(operation.url);
+    assertPositiveTimeout(operation.timeoutMs, "CHECK_HTTP timeoutMs");
   }
 
   if (operation.type === "GIT_WORKTREE_CREATE") {

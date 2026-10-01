@@ -1,4 +1,5 @@
 import type { HarnessRunStage } from "../harness/contracts.js";
+import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
 import { assertNoCredentialShapedWebData } from "./credential-safety.js";
 
 export const ISEOL_CHATGPT_WEB_PROTOCOL_VERSION = 1 as const;
@@ -170,7 +171,10 @@ export function assertDesktopIntent(value: unknown): asserts value is DesktopInt
     text(item.cwd, "cwd"); text(item.message, "message"); if (item.expectedHead !== undefined) text(item.expectedHead, "expectedHead"); return;
   }
   if (kind === "CHECK_HTTP") {
-    exactKeys(item, [...COMMON_INTENT_KEYS, "url", "timeoutMs"], "Desktop intent"); text(item.url, "url"); positiveTimeout(item.timeoutMs, "timeoutMs"); return;
+    exactKeys(item, [...COMMON_INTENT_KEYS, "url", "timeoutMs"], "Desktop intent");
+    assertCheckHttpUrl(item.url);
+    positiveTimeout(item.timeoutMs, "timeoutMs");
+    return;
   }
   throw new Error(`Unsupported Desktop intent kind: ${kind}`);
 }
