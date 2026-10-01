@@ -8,6 +8,7 @@ import {
 } from "discord.js";
 import type { GitHubWebhookService } from "../services/github.js";
 import { findProject, withProjectDeleteLock, type StoredProject } from "../services/projects.js";
+import { formatUserFacingError } from "../security/user-error.js";
 
 type OrganizationInviter = Pick<GitHubWebhookService, "inviteOrganizationMember">;
 
@@ -80,7 +81,7 @@ export async function handleProjectJoinModal(
       await interaction.editReply("프로젝트 정보를 찾을 수 없습니다.");
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    const message = formatUserFacingError(error);
     await interaction.editReply(
       `❌ GitHub Organization 초대에 실패했습니다.\n\`${message}\`\n\n이미 멤버/초대 대기 중인지, 또는 토큰에 Organization Members 쓰기 권한이 있는지 확인해주세요.`,
     );

@@ -18,6 +18,7 @@ import {
 import { findProject, listProjects, withProjectDeleteLock, type StoredProject } from "../services/projects.js";
 import { seoulDateKey } from "../services/voice-time.js";
 import { withDiscordChannelEnsureLock } from "../services/discord-channel-ensure-lock.js";
+import { formatUserFacingError } from "../security/user-error.js";
 
 export const scrumCommand = new SlashCommandBuilder()
   .setName("scrum")
@@ -266,7 +267,7 @@ async function handleCreateScrumChannel(interaction: ChatInputCommandInteraction
 
         await interaction.editReply(`✅ **${current.name}** 프로젝트에 데일리 스크럼 채널을 생성했습니다.\n<#${channel.id}>`);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+        const message = formatUserFacingError(error);
         await interaction.editReply(`❌ 데일리 스크럼 채널 생성에 실패했습니다.\n\`${message}\``);
       }
     });
@@ -308,7 +309,7 @@ async function handleDeleteScrumChannel(interaction: ChatInputCommandInteraction
         `✅ **${current.name}** 프로젝트의 데일리 스크럼 채널을 삭제했습니다.\n저장된 스크럼 기록 **${cleared.toLocaleString("ko-KR")}개**도 함께 정리했습니다.`,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      const message = formatUserFacingError(error);
       await interaction.editReply(`❌ 데일리 스크럼 채널 삭제에 실패했습니다.\n\`${message}\``);
     }
   });

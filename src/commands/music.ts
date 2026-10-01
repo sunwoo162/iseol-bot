@@ -15,6 +15,7 @@ import {
   stopMusic,
   type MusicTrack,
 } from "../services/music.js";
+import { formatUserFacingError } from "../security/user-error.js";
 import {
   assertUserInBotVoiceChannel,
   getGuildVoiceConnection,
@@ -245,7 +246,7 @@ export async function handleMusicCommand(interaction: ChatInputCommandInteractio
       await interaction.editReply("⏹️ 음악 반복 재생을 정지했습니다.");
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    const message = formatUserFacingError(error);
     await interaction.editReply(`❌ 음악 명령 처리 실패\n\`${message}\``);
   }
 }

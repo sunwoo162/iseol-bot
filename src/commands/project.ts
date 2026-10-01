@@ -13,6 +13,7 @@ import {
 } from "discord.js";
 import { resolve } from "node:path";
 import { config } from "../config.js";
+import { formatUserFacingError } from "../security/user-error.js";
 import { createDiscordProjectBinding, deleteDiscordProjectBinding } from "../discord-project/binding-store.js";
 import { resolveDiscordProjectContext } from "../discord-project/context-resolver.js";
 import { bindDiscordProjectWorkspace, discordProjectBindingHistoryFact, listDiscordProjectBindingChoices, withStoredProjectLifecycleLock } from "../discord-project/project-command-actions.js";
@@ -288,7 +289,7 @@ async function handleDeleteProject(interaction: ChatInputCommandInteraction): Pr
       : "";
     await interaction.editReply(`✅ **${deletedProject.name}** 프로젝트 방과 저장 정보를 삭제했습니다.${warningText}`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    const message = formatUserFacingError(error);
     await interaction.editReply(`❌ 프로젝트 방 삭제에 실패했습니다.\n\`${message}\``);
   }
 }
@@ -505,7 +506,7 @@ export async function handleProjectCommand(interaction: ChatInputCommandInteract
     }
   });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    const message = formatUserFacingError(error);
     await interaction.editReply(`❌ 프로젝트 생성에 실패했습니다.\n\`${message}\``);
   }
 }
@@ -563,7 +564,7 @@ async function handleBindProject(interaction: ChatInputCommandInteraction): Prom
     }
     await interaction.editReply(`✅ **${binding.projectId}** Project Workspace에 연결했습니다.`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = formatUserFacingError(error);
     await interaction.editReply(`❌ Project Workspace 연결 실패\n\`${message}\``);
   }
 }
@@ -633,7 +634,7 @@ async function handleProjectStatus(interaction: ChatInputCommandInteraction): Pr
     }
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = formatUserFacingError(error);
     await interaction.editReply(`❌ 프로젝트 상태 조회 실패\n\`${message}\``);
   }
 }
