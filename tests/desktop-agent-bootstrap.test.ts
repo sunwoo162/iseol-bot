@@ -63,6 +63,24 @@ test("Agent client config requires secure public transport and explicit roots", 
     ISEOL_DESKTOP_AGENT_REQUIRED_OS_USER: "IseolRunner",
   });
   assert.deepEqual(config.workspaceRoots, ["C:\\A", "C:\\B"]);
+
+  const base = {
+    ISEOL_DESKTOP_AGENT_TOKEN: "secret",
+    ISEOL_DESKTOP_AGENT_ID: "agent-001",
+    ISEOL_DESKTOP_AGENT_WORKSPACE_ROOTS: "C:\\A",
+    ISEOL_DESKTOP_AGENT_REQUIRED_OS_USER: "IseolRunner",
+  };
+  assert.doesNotThrow(() => resolveDesktopAgentClientConfig({ ...base, ISEOL_DESKTOP_AGENT_URL: "ws://[::1]:8791" }));
+  for (const url of [
+    "wss://user:password@iseol.example.com/desktop",
+    "wss://iseol.example.com\\@attacker.example.com/desktop",
+    "wss://iseol.example.com/%5Cdesktop",
+    "wss://iseol.example.com/desktop\n",
+    "wss://iseol.example.com/desktop\t",
+    " wss://iseol.example.com/desktop ",
+  ]) {
+    assert.throws(() => resolveDesktopAgentClientConfig({ ...base, ISEOL_DESKTOP_AGENT_URL: url }), /Desktop Agent/);
+  }
 });
 
 test("persistent Agent reconnect uses bounded exponential backoff", async () => {
