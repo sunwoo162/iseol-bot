@@ -180,6 +180,16 @@ test("the local AI adapter fails closed when localhost Runtime is unavailable or
 
 test("the local AI adapter rejects non-loopback endpoints", () => {
   assert.throws(() => createOllamaAiChatRuntimeDispatcher({ baseUrl: "https://example.com", model: "local-test-model" }), /loopback/);
+  for (const baseUrl of [
+    "http://127.0.0.1:11434\\@attacker.example",
+    "http://127.0.0.1:11434/%5C@attacker.example",
+    "http://127.0.0.1:11434/api?",
+    "http://127.0.0.1:11434/api#fragment",
+    "http://127.0.0.1:11434/api\n",
+    "http://127.0.0.1:11434/api\t",
+  ]) {
+    assert.throws(() => createOllamaAiChatRuntimeDispatcher({ baseUrl, model: "local-test-model" }), /Local AI Runtime/);
+  }
 });
 
 test("local AI Runtime configuration is disabled by default and requires an explicit model when enabled", () => {

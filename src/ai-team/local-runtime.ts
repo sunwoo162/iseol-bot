@@ -19,8 +19,12 @@ export type OllamaAiTeamRuntimeConfig = {
 };
 
 function loopback(value: string): string {
+  const raw = value.trim();
+  if (!raw || raw !== value || /[\\\u0000-\u001f\u007f]/.test(raw) || /%5c/i.test(raw) || raw.includes("?") || raw.includes("#")) {
+    throw new Error("Local AI Runtime URL is invalid");
+  }
   let parsed: URL;
-  try { parsed = new URL(value); } catch { throw new Error("Local AI Runtime URL is invalid"); }
+  try { parsed = new URL(raw); } catch { throw new Error("Local AI Runtime URL is invalid"); }
   if (!(parsed.protocol === "http:" || parsed.protocol === "https:") || !["127.0.0.1", "localhost", "::1"].includes(parsed.hostname)) throw new Error("Local AI Runtime URL must use a loopback endpoint");
   if (parsed.username || parsed.password) throw new Error("Local AI Runtime URL must not contain credentials");
   return parsed.toString().replace(/\/$/, "");

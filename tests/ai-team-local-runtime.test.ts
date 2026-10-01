@@ -70,4 +70,14 @@ test("AI Team local discussion dispatcher maps a structured answer and keeps mal
 
 test("AI Team local Runtime rejects non-loopback endpoints", () => {
   assert.throws(() => createOllamaAiTeamProposalDispatcher({ baseUrl: "https://example.com", model: "qwen-local" }), /loopback/);
+  for (const baseUrl of [
+    "http://127.0.0.1:11434\\@attacker.example",
+    "http://127.0.0.1:11434/%5C@attacker.example",
+    "http://127.0.0.1:11434/api?",
+    "http://127.0.0.1:11434/api#fragment",
+    "http://127.0.0.1:11434/api\n",
+    "http://127.0.0.1:11434/api\t",
+  ]) {
+    assert.throws(() => createOllamaAiTeamProposalDispatcher({ baseUrl, model: "qwen-local" }), /Local AI Runtime/);
+  }
 });
