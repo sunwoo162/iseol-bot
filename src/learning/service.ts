@@ -19,8 +19,10 @@ import { withDurableLearningActionLock } from "./action-lock.js";
 import { withDurableLearningFeedbackCompletionLock } from "./feedback-completion-lock.js";
 import { withDurableLearningGoalLock } from "./goal-lock.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
+function safeRuntimeBlocker(value: string): string { return sanitizeCredentialText(value, 500); }
 function principalTimezone(principal: Principal): string | undefined {
   const candidate = (principal as Principal & { timezone?: unknown }).timezone;
   return typeof candidate === "string" && candidate.trim() ? candidate : undefined;
@@ -814,11 +816,11 @@ export function createLearningService(root: string, options: LearningServiceOpti
           complete: (lesson) => this.completeLearningContent(principal, request.id, lesson),
         }));
         if (result.status === "completed") return await this.completeLearningContent(principal, request.id, result.lesson);
-        const waiting: LearningContentRequest = { ...request, state: "waiting-runtime", ...(result.blocker ? { blocker: result.blocker } : {}), updatedAt: now() };
+        const waiting: LearningContentRequest = { ...request, state: "waiting-runtime", ...(result.blocker ? { blocker: safeRuntimeBlocker(result.blocker) } : {}), updatedAt: now() };
         await saveLearningContentRequest(root, waiting);
         return waiting;
       } catch (error) {
-        const waiting: LearningContentRequest = { ...request, state: "waiting-runtime", blocker: error instanceof Error ? error.message : "local learning content Runtime did not complete", updatedAt: now() };
+        const waiting: LearningContentRequest = { ...request, state: "waiting-runtime", blocker: error instanceof Error ? safeRuntimeBlocker(error.message) : "local learning content Runtime did not complete", updatedAt: now() };
         await saveLearningContentRequest(root, waiting);
         return waiting;
       }
@@ -891,7 +893,7 @@ export function createLearningService(root: string, options: LearningServiceOpti
           complete: (response) => this.completeLearningSessionAction(principal, action.id, response),
         }));
         if (result.status === "completed") return result.action;
-        const waiting: LearningSessionAction = { ...action, blocker: result.blocker?.slice(0, 500) ?? "local learning action Runtime accepted the request but has not returned a response" };
+        const waiting: LearningSessionAction = { ...action, blocker: result.blocker ? safeRuntimeBlocker(result.blocker) : "local learning action Runtime accepted the request but has not returned a response" };
         await saveLearningSessionActionUnlocked(root, waiting);
         return waiting;
       } catch {
@@ -994,10 +996,10 @@ export function createLearningService(root: string, options: LearningServiceOpti
         if (result.status === "completed") {
           return (await loadLearningAnswerReceiptUnlocked(root, principal.userId, answer.id)) ?? answer;
         }
-        const waiting: LearningFeedback = { ...feedback, blocker: result.blocker ?? "local learning evaluator accepted the request but has not returned feedback", updatedAt: now() };
+        const waiting: LearningFeedback = { ...feedback, blocker: result.blocker ? safeRuntimeBlocker(result.blocker) : "local learning evaluator accepted the request but has not returned feedback", updatedAt: now() };
         await saveLearningFeedback(root, waiting);
       } catch (error) {
-        const waiting: LearningFeedback = { ...feedback, blocker: error instanceof Error ? error.message : "local learning evaluator did not complete", updatedAt: now() };
+        const waiting: LearningFeedback = { ...feedback, blocker: error instanceof Error ? safeRuntimeBlocker(error.message) : "local learning evaluator did not complete", updatedAt: now() };
         await saveLearningFeedback(root, waiting);
       }
         return answer;
@@ -1128,12 +1130,12 @@ export function createLearningService(root: string, options: LearningServiceOpti
           const reEvaluatedAnswer = await loadLearningAnswerReceipt(root, principal.userId, updatedAnswer.id);
           if (reEvaluatedFeedback && reEvaluatedAnswer) return { dispute: { ...dispute, status: "recorded", blocker: undefined, updatedAt: now() }, feedback: reEvaluatedFeedback, answer: reEvaluatedAnswer };
         }
-        const blocker = evaluationResult.status === "completed" ? "local learning evaluator completed but the re-evaluation record could not be reloaded" : evaluationResult.blocker ?? "local learning evaluator accepted re-evaluation but has not returned feedback";
+        const blocker = evaluationResult.status === "completed" ? "local learning evaluator completed but the re-evaluation record could not be reloaded" : evaluationResult.blocker ? safeRuntimeBlocker(evaluationResult.blocker) : "local learning evaluator accepted re-evaluation but has not returned feedback";
         const waitingDispute: LearningFeedbackDispute = { ...dispute, blocker, updatedAt: now() };
         await saveLearningFeedbackDisputeUnlocked(root, waitingDispute);
         return { dispute: waitingDispute, feedback: updatedFeedback, answer: updatedAnswer };
       } catch (error) {
-        const waitingDispute: LearningFeedbackDispute = { ...dispute, blocker: error instanceof Error ? error.message : "local learning evaluator did not complete re-evaluation", updatedAt: now() };
+        const waitingDispute: LearningFeedbackDispute = { ...dispute, blocker: error instanceof Error ? safeRuntimeBlocker(error.message) : "local learning evaluator did not complete re-evaluation", updatedAt: now() };
         await saveLearningFeedbackDisputeUnlocked(root, waitingDispute);
         return { dispute: waitingDispute, feedback: updatedFeedback, answer: updatedAnswer };
         }
