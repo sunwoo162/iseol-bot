@@ -57,12 +57,16 @@ export function toPrototypeCard(
 }
 
 const SUMMARY_BEARER_CREDENTIAL = /\bBearer\s+[^\s,;}]+/gi;
+const SUMMARY_URL_CREDENTIAL_ASSIGNMENT = /([?&#])([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*([^\s&#,;}]+)/g;
 const SUMMARY_CREDENTIAL_ASSIGNMENT = /(^|[\s?&#,;])([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*([^\s,;}]+)/g;
 
 function safeSummary(value: string | undefined): string | undefined {
   if (!value) return undefined;
   return value
     .replace(SUMMARY_BEARER_CREDENTIAL, "Bearer [redacted]")
+    .replace(SUMMARY_URL_CREDENTIAL_ASSIGNMENT, (match, prefix: string, key: string) => (
+      isSensitiveHttpCredentialKey(key) ? `${prefix}${key}=[redacted]` : match
+    ))
     .replace(SUMMARY_CREDENTIAL_ASSIGNMENT, (match, prefix: string, key: string) => (
       isSensitiveHttpCredentialKey(key) ? `${prefix}${key}=[redacted]` : match
     ))
