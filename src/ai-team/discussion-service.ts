@@ -7,9 +7,11 @@ import { withDurableAiTeamDiscussionLock } from "./discussion-lock.js";
 import { listAiTeamDiscussions, listAiTeamDiscussionsUnlocked, loadAiTeamDiscussionUnlocked, saveAiTeamDiscussionUnlocked } from "./discussion-store.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
 function required(value: string, label: string, max: number): string { const result = value.trim(); if (!result || result.length > max) throw new Error(label + " is required"); return result; }
+function safeRuntimeBlocker(value: string): string { return sanitizeCredentialText(value, 240); }
 function boundedList(values: string[], label: string): string[] { if (values.length > 8) throw new Error(label + " has too many items"); return values.map((value) => required(value, label, 500)); }
 function validateResult(result: AiTeamDiscussionResult): Exclude<AiTeamDiscussionResult, { status: "waiting" }> {
   if (result.status !== "completed") throw new Error("AI discussion result is not complete");
@@ -63,9 +65,9 @@ export function createAiTeamDiscussionService(options: AiTeamDiscussionServiceOp
         if (!options.dispatcher) { const result = waiting({ projectId, teamId: context.teamId, agent, requestId, question, at, blocker: "AI Team Runtime is not configured" }); return persistDiscussion(options, principal, result); }
         try {
           const dispatched = await dispatchForUser(principal.userId, () => options.dispatcher!({ principal, projectId, teamId: context.teamId, agentId, assignmentRole: agent.assignmentRole, capabilities: [...agent.capabilities] as TeamCapability[], question }));
-          if (dispatched.status === "waiting") { const result = waiting({ projectId, teamId: context.teamId, agent, requestId, question, at, blocker: required(dispatched.blocker, "AI discussion blocker", 240) }); return persistDiscussion(options, principal, result); }
+          if (dispatched.status === "waiting") { const result = waiting({ projectId, teamId: context.teamId, agent, requestId, question, at, blocker: safeRuntimeBlocker(required(dispatched.blocker, "AI discussion blocker", 240)) }); return persistDiscussion(options, principal, result); }
           const normalized = validateResult(dispatched); const discussion: AiTeamDiscussion = { version: 1, id: "ai-discussion-" + randomUUID(), projectId, teamId: context.teamId, agentId, assignmentRole: agent.assignmentRole, capabilities: [...agent.capabilities], approvalScope: agent.approvalScope, requestId, question, ...normalized, source: "local-runtime", createdAt: at, updatedAt: at }; return persistDiscussion(options, principal, discussion);
-        } catch (error) { const blocker = error instanceof Error ? error.message.slice(0, 240) : "AI Team Runtime discussion failed"; const result = waiting({ projectId, teamId: context.teamId, agent, requestId, question, at, blocker }); return persistDiscussion(options, principal, result); }
+        } catch (error) { const blocker = error instanceof Error ? safeRuntimeBlocker(error.message) : "AI Team Runtime discussion failed"; const result = waiting({ projectId, teamId: context.teamId, agent, requestId, question, at, blocker }); return persistDiscussion(options, principal, result); }
       }, { waitForMs: 2_000 });
       }, { waitForMs: 2_000 });
     },
