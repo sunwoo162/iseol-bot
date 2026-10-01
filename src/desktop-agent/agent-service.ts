@@ -57,6 +57,11 @@ function assertSecureAgentUrl(value: string): string {
   if (!raw || raw !== value || /[\\\u0000-\u001f\u007f]/.test(raw) || /%5c/i.test(raw)) {
     throw new Error("Desktop Agent URL is invalid");
   }
+  const schemeSeparator = raw.indexOf("://");
+  if (schemeSeparator >= 0) {
+    const authority = raw.slice(schemeSeparator + 3).split(/[\/?#]/, 1)[0] ?? "";
+    if (authority.includes("@")) throw new Error("Desktop Agent URL must not contain credentials");
+  }
   let url: URL;
   try { url = new URL(raw); } catch { throw new Error("Desktop Agent URL is invalid"); }
   const host = url.hostname.toLowerCase();

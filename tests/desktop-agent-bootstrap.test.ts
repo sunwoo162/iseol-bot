@@ -73,6 +73,8 @@ test("Agent client config requires secure public transport and explicit roots", 
   assert.doesNotThrow(() => resolveDesktopAgentClientConfig({ ...base, ISEOL_DESKTOP_AGENT_URL: "ws://[::1]:8791" }));
   for (const url of [
     "wss://user:password@iseol.example.com/desktop",
+    "wss://@iseol.example.com/desktop",
+    "wss://:@iseol.example.com/desktop",
     "wss://iseol.example.com\\@attacker.example.com/desktop",
     "wss://iseol.example.com/%5Cdesktop",
     "wss://iseol.example.com/desktop\n",
