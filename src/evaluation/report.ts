@@ -5,6 +5,7 @@ import {
   type EvaluationScenarioSummary,
   type InvariantResult,
 } from "./contracts.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 export type BuildEvaluationReportInput = {
   evaluationId: string;
@@ -18,13 +19,10 @@ export type BuildEvaluationReportInput = {
   summary: string;
 };
 
-const SECRET_ASSIGNMENT = /\b(token|cookie|secret|password)\s*[:=]\s*[^\s,;]+/gi;
-const BEARER_SECRET = /\bBearer\s+[^\s,;]+/gi;
-
 function sanitizeText(value: string, maxLength: number): string {
-  const redacted = value
-    .replace(BEARER_SECRET, "Bearer [REDACTED]")
-    .replace(SECRET_ASSIGNMENT, (_match, key: string) => `${key}=[REDACTED]`);
+  const redacted = sanitizeCredentialText(value, maxLength)
+    .replace(/\[redacted-url\]/gi, "[REDACTED]")
+    .replace(/\[redacted\]/gi, "[REDACTED]");
   if (redacted.length <= maxLength) return redacted;
   return redacted.slice(0, maxLength);
 }
