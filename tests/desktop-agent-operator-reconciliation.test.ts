@@ -98,6 +98,30 @@ test("Desktop results cannot introduce unknown or duplicate operations", async (
     }),
     /duplicate operation/i,
   );
+  const taskError = await completeDesktopJob(f.root, f.job.jobId, "session", {
+    ...base,
+    status: "retryable-failure",
+    operations: [{ operationId: "__task__", ok: false, summary: "Agent task failed" }],
+  });
+  assert.equal(taskError.status, "completed");
+});
+
+test("completed Desktop results must include every Task Pack operation", async () => {
+  const url = "http://127.0.0.1:4173/health?ready=1";
+  const f = await fixture({ id: "http", type: "CHECK_HTTP", url, timeoutMs: 2_000 });
+  await acquireDesktopJobLease(f.root, f.job.jobId, "session", "2026-09-20T01:00:01.000Z", 60_000);
+  await assert.rejects(
+    completeDesktopJob(f.root, f.job.jobId, "session", {
+      version: 1,
+      jobId: f.job.jobId,
+      runId: f.job.runId,
+      agentId: f.job.pack.agentId,
+      status: "completed",
+      completedAt: "2026-09-20T01:00:02.000Z",
+      operations: [],
+    }),
+    /every Task Pack operation/i,
+  );
 });
 
 test("verified result from another Run is rejected without changing the pending job", async () => {

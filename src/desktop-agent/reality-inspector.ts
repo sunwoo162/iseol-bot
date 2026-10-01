@@ -174,12 +174,12 @@ export function createDesktopRealityInspector(
         agentId: job.pack.agentId,
         status: "completed",
         completedAt: at,
-        operations: [{
-          operationId: operation.id,
+        operations: job.pack.operations.map((item) => ({
+          operationId: item.id,
           ok: true,
-          summary: "Recovered existing Git commit",
-          reference: identity.head,
-        }],
+          summary: item.id === operation.id ? "Recovered existing Git commit" : "Recovered existing Desktop operation",
+          ...(item.id === operation.id ? { reference: identity.head } : {}),
+        })),
       };
       await completeDesktopJob(input.jobRoot, job.jobId, sessionId, reconciledResult);
       reality.desktopCommit = {

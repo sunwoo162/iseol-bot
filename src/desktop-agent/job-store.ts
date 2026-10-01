@@ -403,6 +403,14 @@ export async function renewDesktopJobLease(
 function assertDesktopResultReferences(pack: DesktopTaskPack, result: DesktopJobResult): void {
   const operations = new Map(pack.operations.map((operation) => [operation.id, operation]));
   const seen = new Set<string>();
+  const taskError = result.operations.length === 1 && result.operations[0]?.operationId === "__task__";
+  if (taskError) {
+    const [operationResult] = result.operations;
+    if (!operationResult || result.status !== "retryable-failure" || operationResult.ok || operationResult.reference !== undefined) {
+      throw new Error("Desktop task-level result is invalid");
+    }
+    return;
+  }
   for (const operationResult of result.operations) {
     if (seen.has(operationResult.operationId)) {
       throw new Error(`Desktop result contains duplicate operation: ${operationResult.operationId}`);
@@ -416,6 +424,9 @@ function assertDesktopResultReferences(pack: DesktopTaskPack, result: DesktopJob
     if (operationResult.reference !== operation.url) {
       throw new Error(`Desktop CHECK_HTTP result reference mismatch: ${operationResult.operationId}`);
     }
+  }
+  if (result.status === "completed" && seen.size !== operations.size) {
+    throw new Error("Desktop completed result must include every Task Pack operation");
   }
 }
 

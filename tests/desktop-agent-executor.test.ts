@@ -79,7 +79,16 @@ class FakeTransport {
   sendTask(_agentId: string, pack: DesktopTaskPack) {
     this.sendCount += 1;
     this.sentAttempts.push(pack.attempt);
-    this.nextResult = { ...this.nextResult, jobId: pack.jobId, runId: pack.runId, agentId: pack.agentId };
+    this.nextResult = {
+      ...this.nextResult,
+      jobId: pack.jobId,
+      runId: pack.runId,
+      agentId: pack.agentId,
+      operations: this.nextResult.operations.map((operation, index) => ({
+        ...operation,
+        operationId: pack.operations[index]?.id ?? operation.operationId,
+      })),
+    };
   }
   async awaitResult(_jobId: string, timeoutMs: number) {
     this.lastAwaitTimeoutMs = timeoutMs;
