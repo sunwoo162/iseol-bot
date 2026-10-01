@@ -58,6 +58,10 @@ test("Allcon redirect targets stay within the HTTPS canonical host allowlist", (
     () => resolveAllconRedirect(currentUrl, new Response(null, { status: 302, headers: { location: "https://attacker.example/" } })),
     /Allcon redirect target is not allowed/,
   );
+  assert.throws(
+    () => resolveAllconRedirect(currentUrl, new Response(null, { status: 302, headers: { location: "https://all-con.co.kr/next" } })),
+    /Allcon redirect target is not allowed/,
+  );
 });
 
 test("native Allcon redirect handling validates every hop before fetching it", async () => {
@@ -73,6 +77,27 @@ test("native Allcon redirect handling validates every hop before fetching it", a
     /Allcon redirect target is not allowed/,
   );
   assert.deepEqual(calls, ["https://www.all-con.co.kr/start"]);
+});
+
+test("native Allcon redirects preserve Fetch method rules", async () => {
+  const run = async (status: number, method: string, body: string | undefined) => {
+    const requests: Array<{ method?: string; body?: BodyInit | null }> = [];
+    let call = 0;
+    const fetcher: typeof fetch = async (_input, init) => {
+      requests.push({ method: init?.method, body: init?.body });
+      call += 1;
+      return call === 1
+        ? new Response(null, { status, headers: { location: "/next" } })
+        : new Response("ok", { status: 200 });
+    };
+    await fetchAllconWithValidatedRedirects("https://www.all-con.co.kr/start", { method, body }, fetcher);
+    return requests;
+  };
+
+  assert.deepEqual((await run(302, "PUT", undefined)).map((request) => request.method), ["PUT", "PUT"]);
+  assert.deepEqual((await run(302, "POST", "payload")).map((request) => request.method), ["POST", "GET"]);
+  assert.deepEqual((await run(303, "DELETE", "payload")).map((request) => request.method), ["DELETE", "GET"]);
+  assert.deepEqual((await run(307, "PUT", undefined)).map((request) => request.method), ["PUT", "PUT"]);
 });
 
 test("Allcon curl output preserves status and uses null bodies for no-body statuses", () => {

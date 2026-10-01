@@ -41,6 +41,21 @@ function assertCurlFallbackRequestSupported(
   return method;
 }
 
+function buildCurlFallbackInit(
+  input: Parameters<typeof globalThis.fetch>[0],
+  init?: Parameters<typeof globalThis.fetch>[1],
+): Parameters<typeof globalThis.fetch>[1] {
+  const method = assertCurlFallbackRequestSupported(input, init);
+  const inheritedHeaders = input instanceof Request && init?.headers === undefined
+    ? new Headers(input.headers)
+    : init?.headers;
+  return {
+    ...init,
+    method,
+    ...(inheritedHeaders === undefined ? {} : { headers: inheritedHeaders }),
+  };
+}
+
 export function isAllconUrl(url: string | null): boolean {
   if (!url || url.includes("\\") || /%5c/i.test(url)) return false;
 
@@ -69,7 +84,9 @@ export function resolveAllconRedirect(currentUrl: string, response: Response): s
     throw new Error("Allcon redirect target is invalid");
   }
 
-  if (!isAllconUrl(target)) throw new Error("Allcon redirect target is not allowed");
+  if (!isAllconUrl(target) || new URL(target).origin !== new URL(currentUrl).origin) {
+    throw new Error("Allcon redirect target is not allowed");
+  }
   return target;
 }
 
@@ -186,8 +203,7 @@ export async function fetchAllconWithValidatedRedirects(
     } catch (error) {
       if (!isCertificateChainError(error)) throw error;
       console.warn("올콘 HTTPS 인증서 체인 검증 실패: 올콘 전용 비검증 curl fallback으로 재시도합니다.");
-      const method = assertCurlFallbackRequestSupported(currentInput, currentInit);
-      response = await fetchAllconWithCurl(currentUrl, { ...currentInit, method });
+      response = await fetchAllconWithCurl(currentUrl, buildCurlFallbackInit(currentInput, currentInit));
     }
 
     const nextUrl = resolveAllconRedirect(currentUrl, response);
@@ -195,12 +211,13 @@ export async function fetchAllconWithValidatedRedirects(
     if (redirectCount >= MAX_ALLCON_REDIRECTS) throw new Error("Allcon redirect limit exceeded");
 
     const method: string = requestMethod(currentInput, currentInit);
-    const nextMethod: string = (response.status === 301 || response.status === 302 || response.status === 303)
-      && method !== "GET"
-      && method !== "HEAD"
+    const nextMethod: string = ((response.status === 301 || response.status === 302) && method === "POST")
+      || (response.status === 303 && method !== "GET" && method !== "HEAD")
       ? "GET"
       : method;
-    if ((response.status === 307 || response.status === 308) && method !== "GET" && method !== "HEAD") {
+    const hasBody = (currentInit?.body !== undefined && currentInit.body !== null)
+      || (currentInput instanceof Request && currentInput.body !== null);
+    if (hasBody && nextMethod !== "GET" && nextMethod !== "HEAD") {
       throw new Error("Allcon redirects with a request body are not supported");
     }
 
@@ -226,7 +243,9 @@ const fetchWithAllconFallback: typeof globalThis.fetch = async (input, init) => 
     } catch (error) {
       if (!isCertificateChainError(error)) throw error;
       console.warn("올콘 HTTPS 인증서 체인 검증 실패: 올콘 전용 비검증 curl fallback으로 재시도합니다.");
-      return fetchAllconWithCurl(url, init);
+      const response = await fetchAllconWithCurl(url, buildCurlFallbackInit(input, init));
+      if (resolveAllconRedirect(url, response)) throw new TypeError("Allcon redirect rejected by redirect mode");
+      return response;
     }
   }
 
