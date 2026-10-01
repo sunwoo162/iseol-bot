@@ -14,6 +14,12 @@ export type RepositoryOwner = {
 export type RepositoryVisibility = "public" | "private";
 
 const GITHUB_AUTOMATION_EVENTS = ["pull_request", "milestone"] as const;
+const DISCORD_WEBHOOK_HOSTS = new Set([
+  "discord.com",
+  "www.discord.com",
+  "discordapp.com",
+  "www.discordapp.com",
+]);
 
 export function buildAutomationWebhookUrl(publicBaseUrl: string): string {
   const raw = publicBaseUrl.trim();
@@ -35,6 +41,45 @@ export function buildAutomationWebhookUrl(publicBaseUrl: string): string {
   url.search = "";
   url.hash = "";
   return url.toString();
+}
+
+export function isDiscordProjectWebhookUrl(target: string): boolean {
+  const raw = target.trim();
+  if (
+    !raw
+    || raw !== target
+    || /[\\\u0000-\u001f\u007f]/.test(raw)
+    || /%5c/i.test(raw)
+    || raw.includes("?")
+    || raw.includes("#")
+  ) return false;
+
+  const schemeSeparator = raw.indexOf("://");
+  const pathStart = schemeSeparator === -1 ? -1 : raw.indexOf("/", schemeSeparator + 3);
+  if (pathStart === -1 || !/^\/api\/webhooks\/[0-9]+\/[^/?#%]+\/github$/.test(raw.slice(pathStart))) {
+    return false;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+
+  if (
+    url.protocol !== "https:"
+    || !DISCORD_WEBHOOK_HOSTS.has(url.hostname.toLowerCase())
+    || url.username
+    || url.password
+    || url.port
+    || url.search
+    || url.hash
+  ) {
+    return false;
+  }
+
+  return /^\/api\/webhooks\/[0-9]+\/[^/?#%]+\/github$/.test(url.pathname);
 }
 
 const GITHUB_EVENTS = [
@@ -179,13 +224,7 @@ export class GitHubWebhookService {
     let deleted = 0;
     for (const hook of hooks) {
       const target = typeof hook.config.url === "string" ? hook.config.url : "";
-      if (!target) continue;
-      let url: URL;
-      try { url = new URL(target); } catch { continue; }
-      const host = url.hostname.toLowerCase();
-      const isDiscord = host === "discord.com" || host === "www.discord.com" || host === "discordapp.com" || host === "www.discordapp.com";
-      const isProjectWebhook = url.pathname.includes("/api/webhooks/") && url.pathname.endsWith("/github");
-      if (!isDiscord || !isProjectWebhook) continue;
+      if (!isDiscordProjectWebhookUrl(target)) continue;
       await this.deleteWebhook(repository, hook.id);
       deleted += 1;
     }
