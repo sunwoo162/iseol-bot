@@ -9,6 +9,7 @@ import { evaluateProposalDistinctness } from "./distinctness.js";
 import { loadHarnessRun } from "../harness/run-store.js";
 import { ExternalRequestBudgetExhaustedError, ExternalRequestOutcomeUnknownError } from "../chatgpt-web/request-budget.js";
 import { withDurableIdeaLabCampaignLock } from "./campaign-lock.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 export class IdeaLabCampaignBlockedError extends Error {
   constructor(message: string) {
@@ -43,9 +44,7 @@ const ACTIVE_PRODUCTION_STATUSES = new Set<PrototypeProduction["status"]>([
 ]);
 
 function safeSummary(value: string): string {
-  return value
-    .replace(/\b(token|cookie|secret|password)\s*[:=]\s*\S+/gi, "$1=[redacted]")
-    .slice(0, 240);
+  return sanitizeCredentialText(value);
 }
 
 function proposalDraft(proposal: IdeaProposal): IdeaProposalDraft {
