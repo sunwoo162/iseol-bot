@@ -264,6 +264,36 @@ test("runtime checks HTTP without exposing a shell command surface", async () =>
   }
 });
 
+test("runtime does not follow CHECK_HTTP redirects", async () => {
+  const { allowed, workspace } = await fixture();
+  let targetHits = 0;
+  const server = createServer((req, res) => {
+    if (req.url === "/redirect") {
+      res.statusCode = 302;
+      res.setHeader("location", "/target");
+      res.end();
+      return;
+    }
+    if (req.url === "/target") targetHits += 1;
+    res.statusCode = 200;
+    res.end();
+  });
+  await new Promise<void>((resolveReady) => server.listen(0, "127.0.0.1", resolveReady));
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const pack = policyPack(workspace, join(workspace, "docs", "HARNESS_ENGINEERING.md"), [
+      { id: "redirect", type: "CHECK_HTTP", url: `http://127.0.0.1:${address.port}/redirect`, timeoutMs: 2_000 },
+    ]);
+    const result = await executeDesktopTaskPack(pack, { allowedRoots: [allowed] });
+    assert.equal(result.status, "retryable-failure");
+    assert.match(result.operations[0]?.summary ?? "", /302/);
+    assert.equal(targetHits, 0);
+  } finally {
+    await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+  }
+});
+
 test("Git commit publish pushes the exact commit to the current origin branch", async () => {
   const { allowed, workspace, harnessPath } = await fixture();
   initGit(workspace);
