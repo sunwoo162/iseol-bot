@@ -35,7 +35,7 @@ export async function startDesktopAgentWebSocketServer(
     let accepted = false;
     const wire: DesktopAgentWire = {
       send: (message) => socket.send(JSON.stringify(message)),
-      close: (reason) => socket.close(4000, reason?.slice(0, 120)),
+      close: (reason) => socket.close(4000, boundedCloseReason(reason ?? "")),
     };
 
     socket.on("message", async (data) => {

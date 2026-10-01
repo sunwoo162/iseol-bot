@@ -67,6 +67,34 @@ test("Desktop Agent WebSocket close reasons stay within the UTF-8 byte limit", a
   }
 });
 
+test("Desktop Agent wire close reasons redact caller-supplied credentials", async () => {
+  const server = await startDesktopAgentWebSocketServer({
+    host: "127.0.0.1",
+    port: 0,
+    transport: {
+      acceptHello: async (_sessionId: string, _agentHello: DesktopAgentHello, wire: DesktopAgentWire) => {
+        wire.close(`token=wire-secret ${"가".repeat(100)}`);
+      },
+      handleMessage: async () => undefined,
+      disconnect: () => undefined,
+    } as any,
+  });
+  const socket = new WebSocket(server.url);
+  try {
+    await new Promise<void>((resolve, reject) => { socket.once("open", () => resolve()); socket.once("error", reject); });
+    const closed = new Promise<{ code: number; reason: string }>((resolve) => socket.once("close", (code, reason) => resolve({ code, reason: reason.toString() })));
+    socket.send(JSON.stringify({ version: 1, type: "hello", hello }));
+    const result = await closed;
+    assert.equal(result.code, 4000);
+    assert.equal(result.reason.includes("wire-secret"), false);
+    assert.match(result.reason, /\[redacted\]/i);
+    assert.ok(Buffer.byteLength(result.reason, "utf8") <= 123);
+  } finally {
+    if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    await server.close();
+  }
+});
+
 const hello: DesktopAgentHello = {
   version: 1,
   agentId: "agent-001",
