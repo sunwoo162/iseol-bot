@@ -2,6 +2,7 @@ import type { ActivityService } from "../activity/contracts.js";
 import { assertIdentityId } from "../identity/contracts.js";
 import type { PlatformUserService } from "../platform-user/contracts.js";
 import type { UserRequest, UserResponse } from "../web-control-plane/user-router.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 import type { GrowthService } from "./contracts.js";
 
 export type GrowthRouteServices = {
@@ -95,7 +96,8 @@ export async function routeGrowthRequest(request: UserRequest, services: GrowthR
     try {
       event = await services.activityService.retractActivityEvent(principal, eventId);
     } catch (error) {
-      if (error instanceof Error && /not found/i.test(error.message)) return response(404, { error: error.message });
+      const rawMessage = error instanceof Error ? error.message : "activity request failed";
+      if (/not found/i.test(rawMessage)) return response(404, { error: sanitizeCredentialText(rawMessage, 240) });
       throw error;
     }
     const growth = await services.growthService.applyGrowthProjection(event);
