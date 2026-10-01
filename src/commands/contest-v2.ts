@@ -15,6 +15,7 @@ import {
   listContestVotesByUser,
   type ContestVote,
 } from "../services/contest-votes.js";
+import { formatUserFacingError } from "../security/user-error.js";
 
 export const contestCommandV2 = new SlashCommandBuilder()
   .setName("contest")
@@ -125,7 +126,7 @@ export async function handleContestCommandV2(interaction: ChatInputCommandIntera
         embeds: myVotesEmbeds(votes),
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      const message = formatUserFacingError(error);
       await interaction.editReply(`❌ 투표한 공모전 조회 실패\n\`${message}\``);
     }
     return;
@@ -153,7 +154,7 @@ export async function handleContestCommandV2(interaction: ChatInputCommandIntera
         "참가대상별 채널에는 각 채널 조건에 맞는 공모전만 게시됩니다.",
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      const message = formatUserFacingError(error);
       await interaction.editReply(`❌ 공모전 전체 재게시 실패\n\`${message}\``);
     }
     return;
@@ -183,7 +184,7 @@ export async function handleContestCommandV2(interaction: ChatInputCommandIntera
       "이후 **1시간마다** 같은 참가대상 조건으로 새 공모전을 확인합니다. 기존 공모전 채널의 필터 설정은 변경하지 않습니다.",
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    const message = formatUserFacingError(error);
     await interaction.editReply(`❌ 참가대상별 공모전 채널 생성 실패\n\`${message}\``);
   }
 }

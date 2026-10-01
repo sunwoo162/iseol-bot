@@ -37,11 +37,13 @@ function sanitizeRawCredentialText(value: string, maxLength: number): string {
       isSensitiveCredentialKey(key) ? `${prefix}${key}=[redacted]` : match
     ))
     .replace(SENSITIVE_CREDENTIAL_ASSIGNMENT, (match, prefix: string, keyQuote: string, key: string, separator: string, value: string) => {
+      if (value === "[redacted") return match;
       const quote = value.startsWith('"') || value.startsWith("'") ? value[0] : "";
       return `${prefix}${keyQuote}${key}${keyQuote}${separator}${quote}[redacted]${quote}`;
     })
     .replace(CREDENTIAL_ASSIGNMENT, (match, prefix: string, keyQuote: string, key: string, separator: string, value: string) => {
       if (!isSensitiveCredentialKey(key)) return match;
+      if (value === "[redacted") return match;
       const quote = value.startsWith('"') || value.startsWith("'") ? value[0] : "";
       return `${prefix}${keyQuote}${key}${keyQuote}${separator}${quote}[redacted]${quote}`;
     })

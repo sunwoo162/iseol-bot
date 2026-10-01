@@ -20,6 +20,7 @@ import {
   syncContestFeed,
   type ContestAudienceFilter,
 } from "../services/contest-feed.js";
+import { formatUserFacingError } from "../security/user-error.js";
 import {
   findContestVote,
   listContestVotesByUser,
@@ -214,7 +215,7 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
         `기존에 올라온 공모전은 삭제하지 않고, 앞으로 새로 수집되는 공모전에 적용됩니다.${added > 0 ? `\n조건에 맞는 미게시 공모전 **${added}개**를 바로 추가했습니다.` : ""}`,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      const message = formatUserFacingError(error);
       await interaction.editReply(`❌ 공모전 참가대상 필터 설정 실패\n\`${message}\``);
     }
     return;
@@ -235,7 +236,7 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
         embeds,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      const message = formatUserFacingError(error);
       await interaction.editReply(`❌ 투표한 공모전 조회 실패\n\`${message}\``);
     }
     return;
@@ -248,7 +249,7 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
       const contest = await repostContest(interaction.client, interaction.guild.id, name);
       await interaction.editReply(`✅ **${contest.title}** 공모전을 중복 기록과 상관없이 다시 게시했습니다.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      const message = formatUserFacingError(error);
       await interaction.editReply(`❌ 공모전 재게시 실패\n\`${message}\``);
     }
     return;
@@ -271,7 +272,7 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
 
     await interaction.editReply(`✅ 공모전 자동 수집 공간을 만들었습니다.\n<#${state.channelId}>에 현재 진행 중인 IT 공모전 **${added}개**를 게시했고, 이후 **1시간마다** 새 공모전을 확인합니다.\n기본 참가대상 필터는 **전체**입니다.`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    const message = formatUserFacingError(error);
     await interaction.editReply(`❌ 공모전 자동 수집 설정에 실패했습니다.\n\`${message}\``);
   }
 }
@@ -388,7 +389,7 @@ export async function handleContestVoteButton(interaction: ButtonInteraction): P
     });
   } catch (error) {
     console.error(`공모전 투표 처리 실패 (${voteId})`, error);
-    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    const message = formatUserFacingError(error);
     await interaction.followUp({ content: `❌ 투표 처리에 실패했습니다.\n\`${message}\``, ephemeral: true }).catch(() => undefined);
   } finally {
     processingVotes.delete(voteId);

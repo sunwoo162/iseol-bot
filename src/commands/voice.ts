@@ -16,6 +16,7 @@ import {
   getDailyStudySeconds,
   stopStudySessionsForGuild,
 } from "../services/voice-time.js";
+import { formatUserFacingError } from "../security/user-error.js";
 
 export const voiceCommand = new SlashCommandBuilder()
   .setName("voice")
@@ -60,7 +61,7 @@ export async function handleVoiceCommand(interaction: ChatInputCommandInteractio
         allowedMentions: { users: [] },
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+      const message = formatUserFacingError(error);
       await interaction.editReply(`❌ 공부 잔디 생성 실패\n\`${message}\``);
     }
     return;
@@ -117,7 +118,7 @@ export async function handleVoiceCommand(interaction: ChatInputCommandInteractio
       );
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    const message = formatUserFacingError(error);
     await interaction.editReply(`❌ 음성 명령 처리 실패\n\`${message}\``);
   }
 }

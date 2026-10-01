@@ -8,6 +8,7 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import { config } from "../config.js";
+import { formatUserFacingError } from "../security/user-error.js";
 import {
   findGitHubAccount,
   GitHubUserService,
@@ -83,7 +84,7 @@ async function handleConnect(interaction: ChatInputCommandInteraction): Promise<
       `✅ <@${interaction.user.id}> 계정을 GitHub **@${profile.login}**에 연결했습니다.\n이제 프로젝트 저장소에 커밋하면 연결 사용자 로그에 Discord 계정이 함께 표시됩니다.`,
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    const message = formatUserFacingError(error);
     await interaction.editReply(`❌ GitHub 계정 연결 실패\n\`${message}\``);
   }
 }
@@ -121,7 +122,7 @@ async function handleProfile(interaction: ChatInputCommandInteraction): Promise<
       totalCommitContributions = calendar.totalCommitContributions ?? null;
       grass = await renderGitHubGrass(calendar);
     } catch (error) {
-      grassWarning = error instanceof Error ? error.message : "GitHub 잔디를 불러오지 못했습니다.";
+      grassWarning = formatUserFacingError(error, "GitHub 잔디를 불러오지 못했습니다.");
       console.warn(`GitHub 잔디 조회 실패 (${profile.login})`, error);
     }
 
@@ -214,7 +215,7 @@ async function handleProfile(interaction: ChatInputCommandInteraction): Promise<
 
     await interaction.editReply({ embeds: [embed], components: [profileButton] });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.";
+    const message = formatUserFacingError(error);
     await interaction.editReply(`❌ GitHub 프로필 조회 실패\n\`${message}\``);
   }
 }
