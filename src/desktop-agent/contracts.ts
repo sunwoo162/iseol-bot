@@ -155,7 +155,7 @@ function assertSafeHttpFragment(fragment: string): void {
   try {
     decodedFragment = decodeURIComponent(fragment);
   } catch {
-    // Keep the raw fragment for validation when it contains malformed escapes.
+    throw new Error("Desktop CHECK_HTTP URL fragment must use valid percent-encoding");
   }
   for (const parameter of decodedFragment.split(/[?&#/]/)) {
     const rawKey = parameter.split("=", 1)[0];
@@ -164,7 +164,7 @@ function assertSafeHttpFragment(fragment: string): void {
     try {
       key = decodeURIComponent(rawKey);
     } catch {
-      continue;
+      throw new Error("Desktop CHECK_HTTP URL fragment must use valid percent-encoding");
     }
     if (isSensitiveHttpCredentialKey(key)) {
       throw new Error("Desktop CHECK_HTTP URL must not include credential-shaped fragment parameters");
