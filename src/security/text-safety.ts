@@ -38,7 +38,7 @@ function sanitizeRawCredentialText(value: string, maxLength: number): string {
 
 export function sanitizeCredentialText(value: string, maxLength = 240): string {
   const sanitized = sanitizeRawCredentialText(value, maxLength);
-  if (!/%[0-9a-f]{2}/i.test(value)) return sanitized;
+  if (!value.includes("%")) return sanitized;
   const decoded = decodeForCredentialInspection(value);
   if (decoded === undefined) return "[redacted]".slice(0, maxLength);
   const decodedSanitized = sanitizeRawCredentialText(decoded, Math.max(maxLength, decoded.length));

@@ -22,6 +22,10 @@ test("progress notifications are bounded and redact credential-like text", () =>
   const malformed = formatProgressNotification({ id: "evt-malformed", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "Authorization%3A%20Bearer%20malformed-progress-token%ZZ" });
   assert.ok(malformed);
   assert.equal(malformed.content.includes("malformed-progress-token"), false);
+
+  const malformedOnly = formatProgressNotification({ id: "evt-malformed-only", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "access_token%ZZ=malformed-only-progress-token" });
+  assert.ok(malformedOnly);
+  assert.equal(malformedOnly.content.includes("malformed-only-progress-token"), false);
 });
 
 test("progress notification delivery is durable and idempotent", async () => {
