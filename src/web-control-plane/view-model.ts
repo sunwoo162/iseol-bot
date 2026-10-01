@@ -3,7 +3,7 @@ import { evaluationDirectory, listEvaluationJsonFiles } from "../evaluation/stor
 import { loadHarnessRun } from "../harness/run-store.js";
 import { listIdeaLabCampaigns, loadIdeaLabCampaign } from "../idea-lab/campaign-store.js";
 import { listPrototypeProductions } from "../idea-lab/production-store.js";
-import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
+import { assertCheckHttpUrl, isSensitiveHttpCredentialKey } from "../desktop-agent/contracts.js";
 import { loadProjectHistory } from "../project-model/history-store.js";
 import { listPrototypeCandidates, loadPrototypeCandidate } from "../project-model/prototype-store.js";
 import { loadProjectWorkspace, listProjectWorkspaces } from "../project-model/workspace-store.js";
@@ -56,18 +56,25 @@ export function toPrototypeCard(
   };
 }
 
-function safeIdeaLabSummary(value: string | undefined): string | undefined {
+const SUMMARY_BEARER_CREDENTIAL = /\bBearer\s+[^\s,;}]+/gi;
+const SUMMARY_CREDENTIAL_ASSIGNMENT = /(^|[\s?&#,;])([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*([^\s,;}]+)/g;
+
+function safeSummary(value: string | undefined): string | undefined {
   if (!value) return undefined;
   return value
-    .replace(/\b(token|cookie|secret|password)\s*[:=]\s*\S+/gi, "$1=[redacted]")
+    .replace(SUMMARY_BEARER_CREDENTIAL, "Bearer [redacted]")
+    .replace(SUMMARY_CREDENTIAL_ASSIGNMENT, (match, prefix: string, key: string) => (
+      isSensitiveHttpCredentialKey(key) ? `${prefix}${key}=[redacted]` : match
+    ))
     .slice(0, 240);
 }
 
+function safeIdeaLabSummary(value: string | undefined): string | undefined {
+  return safeSummary(value);
+}
+
 function safeRunSummary(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  return value
-    .replace(/\b(token|cookie|secret|password)\s*[:=]\s*\S+/gi, "$1=[redacted]")
-    .slice(0, 240);
+  return safeSummary(value);
 }
 
 function safeHttpUrl(value: string | undefined): string | undefined {

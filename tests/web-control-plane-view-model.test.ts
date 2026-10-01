@@ -216,6 +216,18 @@ test("Idea Lab view exposes prototype experience metadata", async () => {
 
 test("Idea Lab web views omit unsafe deployment URLs", async () => {
   const { modelRoot, harnessRoot } = await fixture();
+  const sourceRun = activeRun();
+  await saveHarnessRun(harnessRoot, {
+    ...sourceRun,
+    evidence: [...sourceRun.evidence, {
+      version: 1,
+      id: "credential-evidence",
+      kind: "deployment",
+      stage: "DEPLOY",
+      recordedAt: "2026-09-07T01:30:00.000Z",
+      summary: "preview access_token=secret",
+    }],
+  });
   await saveIdeaLabCampaign(modelRoot, {
     version: 1,
     id: "campaign-unsafe",
@@ -258,6 +270,7 @@ test("Idea Lab web views omit unsafe deployment URLs", async () => {
     branch: "idea/campaign-unsafe/production-unsafe",
     baseRef: "main",
     status: "ready",
+    blockerSummary: "preview access_token=secret",
     deployment: {
       provider: "vercel",
       url: "javascript:alert(1)",
@@ -270,12 +283,17 @@ test("Idea Lab web views omit unsafe deployment URLs", async () => {
   const unsafePrototype = view.prototypes.find((item) => item.id === "prototype-unsafe");
   assert.deepEqual(unsafePrototype?.repository, { branch: "main", commitSha: "abc123" });
   assert.deepEqual(unsafePrototype?.deployment, { provider: "vercel" });
-  assert.equal(view.productions.find((item) => item.id === "production-unsafe")?.deploymentUrl, undefined);
+  const unsafeProduction = view.productions.find((item) => item.id === "production-unsafe");
+  assert.equal(unsafeProduction?.deploymentUrl, undefined);
+  assert.equal(unsafeProduction?.blockerSummary, "preview access_token=[redacted]");
+  assert.equal(unsafeProduction?.run?.evidence.at(-1)?.summary, "preview access_token=[redacted]");
 
   const detail = await buildIdeaLabCampaignDetail(modelRoot, harnessRoot, "campaign-unsafe");
   assert.deepEqual(detail?.prototypes[0]?.repository, { branch: "main", commitSha: "abc123" });
   assert.deepEqual(detail?.prototypes[0]?.deployment, { provider: "vercel" });
   assert.equal(detail?.productions[0]?.deploymentUrl, undefined);
+  assert.equal(detail?.productions[0]?.blockerSummary, "preview access_token=[redacted]");
+  assert.equal(detail?.productions[0]?.run?.evidence.at(-1)?.summary, "preview access_token=[redacted]");
 });
 
 test("Project Workspace view exposes Genesis tree history and active Run summary", async () => {
