@@ -28,10 +28,18 @@ function ensureAvatarUrl(value: string | undefined): string | undefined {
   const trimmed = value.trim();
   if (!trimmed) return "";
   if (trimmed.length > 2_048) throw new Error("Agent avatar URL must be at most 2048 characters");
+  if (/[\\\u0000-\u001f\u007f]/.test(trimmed) || /%5c/i.test(trimmed)) {
+    throw new Error("Agent avatar URL must be an http, https, or image data URL");
+  }
   if (trimmed.startsWith("data:image/")) return trimmed;
   try {
     const url = new URL(trimmed);
-    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("unsupported protocol");
+    if (
+      (url.protocol !== "http:" && url.protocol !== "https:")
+      || url.username
+      || url.password
+      || !url.hostname
+    ) throw new Error("unsupported avatar URL");
     return trimmed;
   } catch {
     throw new Error("Agent avatar URL must be an http, https, or image data URL");

@@ -126,6 +126,17 @@ test("agent profile rejects invalid names, oversized text, and unsafe avatar URL
 
   await assert.rejects(() => service.updateProfile(owner, { name: "   " }), /Agent name is required/);
   await assert.rejects(() => service.updateProfile(owner, { name: "x".repeat(41) }), /Agent name must be between/);
-  await assert.rejects(() => service.updateProfile(owner, { avatarUrl: "javascript:alert(1)" }), /avatar URL/);
+  for (const avatarUrl of [
+    "javascript:alert(1)",
+    "https://user:password@example.com/avatar.png",
+    "https://example.com\\@attacker.example.com/avatar.png",
+    "https://example.com/%5Cavatar.png",
+    "https://example.com/avatar\n.png",
+    "https://example.com/avatar\t.png",
+  ]) {
+    await assert.rejects(() => service.updateProfile(owner, { avatarUrl }), /avatar URL/);
+  }
+  const dataUrl = await service.updateProfile(owner, { avatarUrl: "data:image/png;base64,AAAA" });
+  assert.equal(dataUrl.avatarUrl, "data:image/png;base64,AAAA");
   await assert.rejects(() => service.updateProfile(owner, { personality: "x".repeat(501) }), /personality must be/);
 });
