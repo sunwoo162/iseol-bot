@@ -2,16 +2,19 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { AppShell } from '../components/Navigation';
 import { Icon } from '../components/Icon';
+import { formatWorldDateTime } from '../domain/worldState';
 import { appendMemory, deleteMemory, listMemories, listSharedMemories, listTeams, updateMemory, updateMemorySharing, type MemoryRecord, type TeamRecord, UserApiError } from '../api/userApi';
 import { userFacingError } from '../errorMessage';
+import { useUser } from '../store/useUser';
 
 type Draft = { kind: string; content: string; source: string };
 const emptyDraft: Draft = { kind: '', content: '', source: '' };
 
 function errorMessage(error: unknown): string { return userFacingError(error, '개인 기억을 처리하지 못했습니다.'); }
-function timeLabel(value: string): string { return new Date(value).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }); }
-
 export default function MemoryVault() {
+  const profile = useUser();
+  const timezone = profile.status === 'ready' ? profile.timezone : undefined;
+  const timeLabel = (value: string): string => formatWorldDateTime(timezone, value);
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [teams, setTeams] = useState<TeamRecord[]>([]);
   const [sharedMemories, setSharedMemories] = useState<Array<{ memory: MemoryRecord; teamName: string }>>([]);
