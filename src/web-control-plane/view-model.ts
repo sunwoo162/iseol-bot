@@ -7,6 +7,7 @@ import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
 import { loadProjectHistory } from "../project-model/history-store.js";
 import { listPrototypeCandidates, loadPrototypeCandidate } from "../project-model/prototype-store.js";
 import { loadProjectWorkspace, listProjectWorkspaces } from "../project-model/workspace-store.js";
+import type { ProjectGenesis } from "../project-model/contracts.js";
 import type {
   EvaluationView,
   IdeaLabView,
@@ -18,6 +19,7 @@ import type {
   WebIdeaLabProductionSummary,
   WebPrototypeCard,
   WebPrototypeDetail,
+  WebProjectGenesis,
   WebRunSummary,
 } from "./contracts.js";
 
@@ -76,6 +78,24 @@ function safeHttpUrl(value: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function toProjectGenesisView(genesis: ProjectGenesis): WebProjectGenesis {
+  const repositoryUrl = safeHttpUrl(genesis.repository.url);
+  const deploymentUrl = safeHttpUrl(genesis.deployment.url);
+  return {
+    ...structuredClone(genesis),
+    repository: {
+      ...(repositoryUrl ? { url: repositoryUrl } : {}),
+      branch: genesis.repository.branch,
+      commitSha: genesis.repository.commitSha,
+    },
+    deployment: {
+      ...(deploymentUrl ? { url: deploymentUrl } : {}),
+      ...(genesis.deployment.provider === undefined ? {} : { provider: genesis.deployment.provider }),
+      ...(genesis.deployment.deploymentId === undefined ? {} : { deploymentId: genesis.deployment.deploymentId }),
+    },
+  };
 }
 
 function toProductionView(
@@ -254,7 +274,7 @@ export async function buildProjectWorkspaceView(
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
     },
-    genesis: structuredClone(workspace.genesis),
+    genesis: toProjectGenesisView(workspace.genesis),
     tree: workspace.tree.map((node) => ({ ...node, runIds: [...node.runIds] })),
     history: history.map((event) => ({ ...event })),
     runs,

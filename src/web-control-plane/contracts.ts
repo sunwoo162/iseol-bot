@@ -109,7 +109,7 @@ export type ProjectWorkspaceView = {
     createdAt: string;
     updatedAt: string;
   };
-  genesis: ProjectGenesis;
+  genesis: WebProjectGenesis;
   tree: ProjectTreeNode[];
   history: ProjectHistoryEvent[];
   runs: WebRunSummary[];
@@ -126,6 +126,11 @@ export type ProjectWorkspaceView = {
     verificationStages: string[];
     documentationRequired: boolean;
   };
+};
+
+export type WebProjectGenesis = Omit<ProjectGenesis, "repository" | "deployment"> & {
+  repository: Omit<ProjectGenesis["repository"], "url"> & { url?: string };
+  deployment: Omit<ProjectGenesis["deployment"], "url"> & { url?: string };
 };
 export type WebEvaluationFailedScenario = {
   scenarioId: string;
