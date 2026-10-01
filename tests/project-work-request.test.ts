@@ -158,6 +158,24 @@ test("execution waits for dependencies and connects exactly one durable Run", as
   assert.equal(executions, 1);
 });
 
+test("execution failure blockers redact credential-shaped worker errors", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-error-safety-"));
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Failure", objective: "Redact worker failure", idempotencyKey: "failure", at, id: "failure" });
+  const secret = "worker failed token=work-secret api_key=work-api-secret https://preview.example/?access_token=work-url-secret";
+  const result = await executeProjectWorkRequest({
+    root,
+    projectId: "project-1",
+    id: "failure",
+    runId: "run-failure",
+    at,
+    execute: async () => { throw new Error(secret); },
+  });
+  assert.equal(result.status, "failed");
+  for (const value of ["work-secret", "work-api-secret", "work-url-secret"]) assert.equal(result.blocker?.includes(value), false);
+  assert.match(result.blocker ?? "", /\[redacted\]|\[redacted-url\]/i);
+  assert.equal((await loadProjectWorkRequest(root, "project-1", "failure"))?.blocker?.includes("work-secret"), false);
+});
+
 test("a claim without a Run remains non-retryable after a worker crash", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-work-crash-"));
   await createProjectWorkRequest({ root, projectId: "project-1", title: "Crash", objective: "Crash boundary", idempotencyKey: "crash", at, id: "crash" });

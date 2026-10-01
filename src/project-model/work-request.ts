@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { removeOwnedLock } from "../lock-utils.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 import { assertProjectModelId } from "./contracts.js";
 import { renameWithTransientRetry } from "../desktop-agent/atomic-file.js";
 import { withDurableProjectWorkRequestLock } from "./work-request-lock.js";
@@ -200,7 +201,7 @@ export async function executeProjectWorkRequest(input: {
     }, input.at);
     return { status: execution.status === "not-configured" ? "waiting" : execution.status === "created" ? "started" : "already-active", request: updated ?? claimed, runId: execution.runId, ...(execution.status === "not-configured" ? { blocker: "Project Runtime is not configured" } : {}) };
   } catch (error) {
-    const blocker = error instanceof Error ? error.message.slice(0, 240) : "work request execution failed";
+    const blocker = error instanceof Error ? sanitizeCredentialText(error.message, 240) : "work request execution failed";
     const updated = await updateProjectWorkRequest(input.root, input.projectId, input.id, { status: "failed", blocker }, input.at);
     return { status: "failed", request: updated ?? claimed, blocker };
   }
