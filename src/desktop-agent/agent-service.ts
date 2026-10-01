@@ -40,6 +40,12 @@ function required(env: AgentEnv, name: string): string {
   return value;
 }
 
+function requiredRaw(env: AgentEnv, name: string): string {
+  const value = env[name];
+  if (!value?.trim()) throw new Error(`${name} is required`);
+  return value;
+}
+
 function positiveInt(value: string | undefined, fallback: number, name: string): number {
   const parsed = value?.trim() ? Number(value) : fallback;
   if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer`);
@@ -47,8 +53,20 @@ function positiveInt(value: string | undefined, fallback: number, name: string):
 }
 
 function assertSecureAgentUrl(value: string): string {
-  const url = new URL(value);
-  const loopback = ["127.0.0.1", "::1", "localhost"].includes(url.hostname);
+  const raw = value.trim();
+  if (!raw || raw !== value || /[\\\u0000-\u001f\u007f]/.test(raw) || /%5c/i.test(raw)) {
+    throw new Error("Desktop Agent URL is invalid");
+  }
+  const schemeSeparator = raw.indexOf("://");
+  if (schemeSeparator >= 0) {
+    const authority = raw.slice(schemeSeparator + 3).split(/[\/?#]/, 1)[0] ?? "";
+    if (authority.includes("@")) throw new Error("Desktop Agent URL must not contain credentials");
+  }
+  let url: URL;
+  try { url = new URL(raw); } catch { throw new Error("Desktop Agent URL is invalid"); }
+  const host = url.hostname.toLowerCase();
+  const loopback = ["127.0.0.1", "::1", "[::1]", "localhost"].includes(host);
+  if (url.username || url.password) throw new Error("Desktop Agent URL must not contain credentials");
   if (url.protocol !== "wss:" && !(url.protocol === "ws:" && loopback)) {
     throw new Error("Desktop Agent wss:// transport is required for public connections");
   }
@@ -56,7 +74,7 @@ function assertSecureAgentUrl(value: string): string {
 }
 
 export function resolveDesktopAgentClientConfig(env: AgentEnv): DesktopAgentClientConfig {
-  const url = assertSecureAgentUrl(required(env, "ISEOL_DESKTOP_AGENT_URL"));
+  const url = assertSecureAgentUrl(requiredRaw(env, "ISEOL_DESKTOP_AGENT_URL"));
   const token = required(env, "ISEOL_DESKTOP_AGENT_TOKEN");
   const agentId = required(env, "ISEOL_DESKTOP_AGENT_ID");
   assertDesktopAgentId(agentId);
