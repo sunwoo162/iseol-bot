@@ -15,6 +15,7 @@ import { loadHarnessRun, saveHarnessRun } from "./run-store.js";
 import { withDurableHarnessRunLock } from "./run-lock.js";
 import { nextHarnessStage, transitionRunState } from "./state-machine.js";
 import { ideaLabSkipReason } from "../idea-lab/completion-profile.js";
+import { formatUserFacingError } from "../security/user-error.js";
 
 export type HarnessStageExecutionResult =
   | { type: "completed"; evidence: HarnessEvidenceRecord[] }
@@ -221,7 +222,7 @@ async function superviseHarnessRunUnlocked(
           });
         }
       } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
+        const reason = formatUserFacingError(error);
         run = updateRun(
           run,
           transitionRunState(run.state, { type: "final-failure", at, reason }),
