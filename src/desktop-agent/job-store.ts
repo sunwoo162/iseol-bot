@@ -402,9 +402,17 @@ export async function renewDesktopJobLease(
 
 function assertDesktopResultReferences(pack: DesktopTaskPack, result: DesktopJobResult): void {
   const operations = new Map(pack.operations.map((operation) => [operation.id, operation]));
+  const seen = new Set<string>();
   for (const operationResult of result.operations) {
+    if (seen.has(operationResult.operationId)) {
+      throw new Error(`Desktop result contains duplicate operation: ${operationResult.operationId}`);
+    }
+    seen.add(operationResult.operationId);
     const operation = operations.get(operationResult.operationId);
-    if (operation?.type !== "CHECK_HTTP" || operationResult.reference === undefined) continue;
+    if (!operation) {
+      throw new Error(`Desktop result contains unknown operation: ${operationResult.operationId}`);
+    }
+    if (operation.type !== "CHECK_HTTP" || operationResult.reference === undefined) continue;
     if (operationResult.reference !== operation.url) {
       throw new Error(`Desktop CHECK_HTTP result reference mismatch: ${operationResult.operationId}`);
     }

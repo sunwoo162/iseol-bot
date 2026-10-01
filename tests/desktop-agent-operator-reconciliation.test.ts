@@ -70,6 +70,36 @@ test("CHECK_HTTP results cannot replace the Task Pack URL reference", async () =
   );
 });
 
+test("Desktop results cannot introduce unknown or duplicate operations", async () => {
+  const f = await fixture({ id: "inspect", type: "GIT_INSPECT", cwd: "." });
+  await acquireDesktopJobLease(f.root, f.job.jobId, "session", "2026-09-20T01:00:01.000Z", 60_000);
+  const base = {
+    version: 1 as const,
+    jobId: f.job.jobId,
+    runId: f.job.runId,
+    agentId: f.job.pack.agentId,
+    status: "completed" as const,
+    completedAt: "2026-09-20T01:00:02.000Z",
+  };
+  await assert.rejects(
+    completeDesktopJob(f.root, f.job.jobId, "session", {
+      ...base,
+      operations: [{ operationId: "unexpected", ok: true, summary: "HTTP 200", reference: "https://preview.example.test/result?token=secret" }],
+    }),
+    /unknown operation/i,
+  );
+  await assert.rejects(
+    completeDesktopJob(f.root, f.job.jobId, "session", {
+      ...base,
+      operations: [
+        { operationId: "inspect", ok: true, summary: "first" },
+        { operationId: "inspect", ok: true, summary: "duplicate" },
+      ],
+    }),
+    /duplicate operation/i,
+  );
+});
+
 test("verified result from another Run is rejected without changing the pending job", async () => {
   const f = await fixture({ id: "inspect", type: "GIT_INSPECT", cwd: "." });
   const resultRoot = join(f.root, "wrong-results");
