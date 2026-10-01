@@ -13,6 +13,7 @@ import { recordDesktopIntent } from "./intent-store.js";
 import { validateDesktopIntent } from "./intent-compiler.js";
 import { assertActiveWebWorkerResult, recoverWebWorkerSession } from "./recovery.js";
 import type { RequestBudgetStore } from "./request-budget.js";
+import { formatUserFacingError } from "../security/user-error.js";
 
 export type WebDesktopIntentRunnerInput = {
   run: HarnessRuntimeRunEnvelope;
@@ -407,7 +408,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
               commitAuthorized: input.commitAuthorized ?? false,
             }, intent);
           } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
+            const reason = formatUserFacingError(error);
             await recordDesktopIntent(input.workerRoot, { intent, status: "rejected", reason, recordedAt: now() });
             rejectedCount += 1;
             rejectedFeedback.push({ kind: "reasoning-rejection", summary: reason, reference: `intent:${intent.intentId}` });
@@ -422,7 +423,7 @@ export function createWebReasoningExecutor(input: CreateWebReasoningExecutorInpu
           try {
             desktopResult = await input.runDesktopIntent({ run, session, intent });
           } catch (error) {
-            return { type: "retryable-failure", reason: error instanceof Error ? error.message : String(error) };
+            return { type: "retryable-failure", reason: formatUserFacingError(error) };
           }
           if (desktopResult.type !== "completed") return desktopResult;
           accumulatedEvidence.push(...desktopResult.evidence);
