@@ -2,6 +2,7 @@ import { IMPLEMENT_DONE_PAYLOAD } from "./patch-frame-contract.js";
 import { createHash } from "node:crypto";
 import type { HarnessEvidenceKind, HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import type { ReasoningTurn, WebWorkerSession } from "./contracts.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 export type WebPromptKind = "initial" | "feedback" | "recovery";
 export type WebPromptEvidence = {
@@ -43,9 +44,7 @@ function sha256(value: string): string {
 }
 
 function redact(value: string): string {
-  return value
-    .replace(/(Authorization\s*:\s*Bearer\s+)[^\s,;]+/gi, "$1[REDACTED]")
-    .replace(/\b([A-Za-z0-9_]*(?:TOKEN|COOKIE|SECRET|PASSWORD|API_KEY)[A-Za-z0-9_]*)\s*[:=]\s*([^\s,;]+)/gi, "$1=[REDACTED]");
+  return sanitizeCredentialText(value, Math.max(value.length, 1));
 }
 
 function stable(value: unknown): unknown {

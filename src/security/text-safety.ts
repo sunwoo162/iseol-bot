@@ -7,6 +7,12 @@ const URL_CREDENTIAL_ASSIGNMENT = /([?&#])([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*([^\
 const CREDENTIAL_ASSIGNMENT = /(^|[^A-Za-z0-9_-])(["']?)([A-Za-z][A-Za-z0-9_-]*)\2\s*([:=])\s*("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^\s,;}\)\]]+)/g;
 const MALFORMED_ASSIGNMENT_CONTEXT = /(?:^|[\s,{?&#])[^,\s?&#:=]{1,120}%[^,\s?&#:=]{0,120}\s*[:=]\s*[^\s,;}]+|(?:https?|wss?)%[^,\s]*:\/\//i;
 
+const CREDENTIAL_KEY_HINT = /token|cookie|secret|password|api[_ -]?key/i;
+
+function isSensitiveCredentialKey(key: string): boolean {
+  return isSensitiveHttpCredentialKey(key) || CREDENTIAL_KEY_HINT.test(key);
+}
+
 function decodeForCredentialInspection(value: string): string | undefined {
   let current = value;
   for (let index = 0; index < 2 && /%[0-9a-f]{2}/i.test(current); index += 1) {
@@ -27,10 +33,10 @@ function sanitizeRawCredentialText(value: string, maxLength: number): string {
     .replace(BEARER_CREDENTIAL, "Bearer [redacted]")
     .replace(HTTP_URL, (url) => sanitizeProjectEvidenceReference(url) ?? "[redacted-url]")
     .replace(URL_CREDENTIAL_ASSIGNMENT, (match, prefix: string, key: string) => (
-      isSensitiveHttpCredentialKey(key) ? `${prefix}${key}=[redacted]` : match
+      isSensitiveCredentialKey(key) ? `${prefix}${key}=[redacted]` : match
     ))
     .replace(CREDENTIAL_ASSIGNMENT, (match, prefix: string, keyQuote: string, key: string, separator: string, value: string) => {
-      if (!isSensitiveHttpCredentialKey(key)) return match;
+      if (!isSensitiveCredentialKey(key)) return match;
       const quote = value.startsWith('"') || value.startsWith("'") ? value[0] : "";
       return `${prefix}${keyQuote}${key}${keyQuote}${separator}${quote}[redacted]${quote}`;
     })
