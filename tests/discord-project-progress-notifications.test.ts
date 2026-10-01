@@ -7,10 +7,13 @@ import { deliverProgressNotification, dispatchProgressNotification, formatProgre
 import { withDurableDiscordProgressNotificationLock } from "../src/discord-project/progress-notification-lock.js";
 
 test("progress notifications are bounded and redact credential-like text", () => {
-  const notification = formatProgressNotification({ id: "evt-1", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "token=secret-value completed" });
+  const notification = formatProgressNotification({ id: "evt-1", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "Authorization: Bearer progress-bearer preview https://preview.example/?access_token=progress-token api_key=progress-key completed" });
   assert.ok(notification);
   assert.match(notification.content, /\[redacted\]/);
-  assert.equal(notification.content.includes("secret-value"), false);
+  assert.match(notification.content, /\[redacted-url\]/);
+  for (const secret of ["progress-bearer", "progress-token", "progress-key"]) {
+    assert.equal(notification.content.includes(secret), false);
+  }
 });
 
 test("progress notification delivery is durable and idempotent", async () => {

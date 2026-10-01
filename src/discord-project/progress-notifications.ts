@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { assertProjectModelId } from "../project-model/contracts.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 import { withDurableDiscordProgressNotificationLock } from "./progress-notification-lock.js";
 
 export type ProgressNotificationEvent = {
@@ -44,7 +45,7 @@ function notificationFile(root: string, projectId: string): string {
 
 function safe(value: string | undefined, max = 240): string {
   if (!value) return "";
-  return value.replace(/[\r\n\t]+/g, " ").replace(/(?:bearer|token|secret|password)\s*[:=]\s*\S+/gi, "[redacted]").slice(0, max);
+  return sanitizeCredentialText(value.replace(/[\r\n\t]+/g, " "), max);
 }
 
 export function formatProgressNotification(event: ProgressNotificationEvent): DiscordProgressNotification | null {
