@@ -149,12 +149,21 @@ test("an explicitly configured local plan Runtime proposal is validated, persist
 test("a waiting or invalid local plan Runtime proposal leaves the goal as a draft", async () => {
   const waitingRoot = await mkdtemp(join(tmpdir(), "iseol-learning-plan-runtime-waiting-"));
   const waitingOwner = principal("runtime-plan-waiting");
+  const waitingSecret = "local learning Runtime unavailable token=plan-secret https://preview.example/?access_token=plan-url-secret";
   const waitingService = createLearningService(waitingRoot, {
     now: () => at,
-    planDispatcher: async () => ({ status: "waiting", blocker: "local learning Runtime unavailable" }),
+    planDispatcher: async () => ({ status: "waiting", blocker: waitingSecret }),
   });
   const waitingGoal = await waitingService.createLearningGoal(waitingOwner, { subjectText: "복습", duration: { days: 2 }, dailyMinutes: 20 });
-  await assert.rejects(() => waitingService.createLearningPlanPreview(waitingOwner, waitingGoal.id, waitingGoal.revision), /waiting|unavailable/i);
+  let waitingError: unknown;
+  await assert.rejects(() => waitingService.createLearningPlanPreview(waitingOwner, waitingGoal.id, waitingGoal.revision), (error) => {
+    waitingError = error;
+    return /waiting|unavailable/i.test(error instanceof Error ? error.message : String(error));
+  });
+  assert.ok(waitingError instanceof Error);
+  assert.equal(waitingError.message.includes("plan-secret"), false);
+  assert.equal(waitingError.message.includes("plan-url-secret"), false);
+  assert.match(waitingError.message, /\[redacted\]|\[redacted-url\]/i);
   assert.deepEqual(await waitingService.getLearningGoal(waitingOwner, waitingGoal.id), waitingGoal);
   assert.deepEqual(await waitingService.listLearningPlanVersions(waitingOwner, waitingGoal.id), []);
 
@@ -168,6 +177,26 @@ test("a waiting or invalid local plan Runtime proposal leaves the goal as a draf
   await assert.rejects(() => invalidService.createLearningPlanPreview(invalidOwner, invalidGoal.id, invalidGoal.revision), /invalid|budget|minutes/i);
   assert.deepEqual(await invalidService.getLearningGoal(invalidOwner, invalidGoal.id), invalidGoal);
   assert.deepEqual(await invalidService.listLearningPlanVersions(invalidOwner, invalidGoal.id), []);
+});
+
+test("a plan Runtime exception is redacted before reaching the caller", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-plan-runtime-error-safety-"));
+  const owner = principal("runtime-plan-error");
+  const secret = "plan Runtime failed token=plan-exception-secret api_key=plan-api-secret";
+  const service = createLearningService(root, {
+    now: () => at,
+    planDispatcher: async () => { throw new Error(secret); },
+  });
+  const goal = await service.createLearningGoal(owner, { subjectText: "예외 경계", duration: { days: 1 }, dailyMinutes: 20 });
+  let error: unknown;
+  await assert.rejects(() => service.createLearningPlanPreview(owner, goal.id, goal.revision), (candidate) => {
+    error = candidate;
+    return true;
+  });
+  assert.ok(error instanceof Error);
+  assert.equal(error.message.includes("plan-exception-secret"), false);
+  assert.equal(error.message.includes("plan-api-secret"), false);
+  assert.match(error.message, /\[redacted\]/i);
 });
 
 test("concurrent learning plan previews across service instances remain one version", async () => {

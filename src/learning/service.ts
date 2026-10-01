@@ -432,8 +432,13 @@ export function createLearningService(root: string, options: LearningServiceOpti
       const timezone = principalTimezone(principal);
       if (options.planDispatcher) {
         const inputHash = createHash("sha256").update(JSON.stringify({ goalId: goal.id, inputRevision: goal.revision, input: goal.input, optionalSettings: goal.optionalSettings ?? null, timezone: timezone ?? null })).digest("hex");
-        const dispatch = await dispatchForUser(principal.userId, () => options.planDispatcher!({ principal, goal, requestId: `learning-plan-${inputHash.slice(0, 24)}`, inputHash, ...(timezone ? { timezone } : {}) }));
-        if (dispatch.status !== "completed") throw new Error(`Learning plan Runtime ${dispatch.status}: ${dispatch.blocker ?? "waiting for a local Runtime response"}`);
+        let dispatch: Awaited<ReturnType<NonNullable<LearningServiceOptions["planDispatcher"]>>>;
+        try {
+          dispatch = await dispatchForUser(principal.userId, () => options.planDispatcher!({ principal, goal, requestId: `learning-plan-${inputHash.slice(0, 24)}`, inputHash, ...(timezone ? { timezone } : {}) }));
+        } catch (error) {
+          throw new Error(error instanceof Error ? safeRuntimeBlocker(error.message) : "Learning plan Runtime failed");
+        }
+        if (dispatch.status !== "completed") throw new Error(`Learning plan Runtime ${dispatch.status}: ${safeRuntimeBlocker(dispatch.blocker ?? "waiting for a local Runtime response")}`);
         const proposal = validatePlanProposal(dispatch.proposal, goal, learningDate(at, timezone).date);
         const interpretation: GoalInterpretation = {
           version: 1, id: "goal-interpretation-" + randomUUID(), userId: principal.userId, goalId: goal.id, inputRevision: goal.revision,
