@@ -63,12 +63,17 @@ test("Control Plane validation errors redact credential-shaped field names", asy
     method: "POST",
     path: "/api/idea-lab/campaigns",
     headers: { authorization: "Bearer secret-token" },
-    body: { "outer={client_secret=control-secret,jwt=jwt-secret}": true },
+    body: { "outer={client_secret=control-secret,jwt=jwt-secret,private_key=private-secret,session_id=session-secret,xapikey=x-api-secret,password_hash=hash-secret,sig=sig-secret}": true },
   }, deps);
   assert.equal(nestedVariants.status, 400);
   const nestedVariantsMessage = (nestedVariants.body as { error: string }).error;
   assert.equal(nestedVariantsMessage.includes("control-secret"), false);
   assert.equal(nestedVariantsMessage.includes("jwt-secret"), false);
+  assert.equal(nestedVariantsMessage.includes("private-secret"), false);
+  assert.equal(nestedVariantsMessage.includes("session-secret"), false);
+  assert.equal(nestedVariantsMessage.includes("x-api-secret"), false);
+  assert.equal(nestedVariantsMessage.includes("hash-secret"), false);
+  assert.equal(nestedVariantsMessage.includes("sig-secret"), false);
 });
 
 test("routes Idea Lab and missing project reads", async () => {

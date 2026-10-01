@@ -4,7 +4,7 @@ import { sanitizeProjectEvidenceReference } from "../project-model/reference-saf
 const BEARER_CREDENTIAL = /\bBearer\s+[^\s,;}]+/gi;
 const HTTP_URL = /https?:\/\/[^\s,;}]+/gi;
 const URL_CREDENTIAL_ASSIGNMENT = /([?&#])([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*([^\s&#,;}]+)/g;
-const SENSITIVE_CREDENTIAL_ASSIGNMENT = /(^|[^A-Za-z0-9_-])(["']?)((?:access[_-]?token|refresh[_-]?token|authorization|api[_ -]?token|token|cookie|secret|password|api[_ -]?key|client[_-]?secret|x-api-key|jwt|[A-Za-z][A-Za-z0-9_-]*(?:token|secret|password|auth|cookie|credential|signature|session)))\2\s*([:=])\s*("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^\s,;}\)\]]+)/gi;
+const SENSITIVE_CREDENTIAL_ASSIGNMENT = /(^|[^A-Za-z0-9_-])(["']?)((?:access[_-]?token|refresh[_-]?token|authorization|api[_ -]?token|token|bearer|cookie|credential|secret|password|passwd|private[_-]?key|api[_ -]?key|client[_-]?secret|x-api-key|jwt|sig|[A-Za-z][A-Za-z0-9_-]*(?:token|secret|password|auth|cookie|credential|signature|session|key|jwt|sig)))\2\s*([:=])\s*("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^\s,;}\)\]]+)/gi;
 const CREDENTIAL_ASSIGNMENT = /(^|[^A-Za-z0-9_-])(["']?)([A-Za-z][A-Za-z0-9_-]*)\2\s*([:=])\s*("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^\s,;}\)\]]+)/g;
 const MALFORMED_ASSIGNMENT_CONTEXT = /(?:^|[\s,{?&#])[^,\s?&#:=]{1,120}%[^,\s?&#:=]{0,120}\s*[:=]\s*[^\s,;}]+|(?:https?|wss?)%[^,\s]*:\/\//i;
 
