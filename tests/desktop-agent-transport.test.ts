@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DesktopAgentHello, DesktopJobResult, DesktopTaskPack } from "../src/desktop-agent/contracts.js";
@@ -242,7 +242,10 @@ test("completed result is replayed after disconnect before delivery", async () =
         executions += 1;
         taskSeen();
         await releaseTask;
-        return result(pack.jobId);
+        return {
+          ...result(pack.jobId),
+          operations: [{ operationId: "op-1", ok: true, summary: "preview https://preview.example/?access_token=replay-secret", stdout: "REPLAY_STDOUT_SENTINEL" }],
+        };
       },
       persistResult: async (value) => {
         await persistCompletedDesktopResult(resultRoot, value);
@@ -264,7 +267,10 @@ test("completed result is replayed after disconnect before delivery", async () =
       onTask: async (pack) => result(pack.jobId),
     } as any);
     try {
-      assert.equal((await transport.awaitResult("job-replay", 1_000)).jobId, "job-replay");
+      const replayed = await transport.awaitResult("job-replay", 1_000);
+      assert.equal(replayed.jobId, "job-replay");
+      assert.equal(replayed.operations[0]?.summary, "preview [redacted-url]");
+      assert.equal("stdout" in (replayed.operations[0] ?? {}), false);
       assert.equal(executions, 1);
       assert.equal(restartedResults.size, 1);
     } finally {
@@ -274,6 +280,27 @@ test("completed result is replayed after disconnect before delivery", async () =
     if (first) await first.close();
     await server.close();
   }
+});
+
+test("legacy Desktop result files are sanitized before replay", async () => {
+  const resultRoot = await root();
+  const legacy = {
+    ...result("job-legacy"),
+    operations: [{
+      operationId: "op-1",
+      ok: true,
+      summary: "preview https://preview.example/?access_token=legacy-secret",
+      stdout: "LEGACY_STDOUT_SENTINEL",
+      stderr: "LEGACY_STDERR_SENTINEL",
+    }],
+  };
+  await writeFile(join(resultRoot, "job-legacy.json"), JSON.stringify(legacy), "utf8");
+
+  const loaded = await loadCompletedDesktopResults(resultRoot);
+  const recovered = loaded.get("job-legacy");
+  assert.equal(recovered?.operations[0]?.summary, "preview [redacted-url]");
+  assert.equal("stdout" in (recovered?.operations[0] ?? {}), false);
+  assert.equal("stderr" in (recovered?.operations[0] ?? {}), false);
 });
 
 test("durable Agent results are bounded and omit command output", async () => {

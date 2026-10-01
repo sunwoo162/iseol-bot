@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { assertDesktopProtocolVersion, type DesktopAgentHello, type DesktopJobResult, type DesktopTaskPack } from "./contracts.js";
+import { toDurableDesktopResult } from "./result-store.js";
 
 export type ConnectDesktopAgentWebSocketClientOptions = {
   url: string;
@@ -43,7 +44,9 @@ export async function connectDesktopAgentWebSocketClient(
             socket.send(JSON.stringify({ version: 1, type: "heartbeat", at: now() }));
           }
         }, options.heartbeatIntervalMs);
-        for (const result of completedResults.values()) {
+        for (const rawResult of completedResults.values()) {
+          const result = toDurableDesktopResult(rawResult);
+          completedResults.set(result.jobId, result);
           if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ version: 1, type: "result", result, replay: true }));
           }
@@ -55,7 +58,7 @@ export async function connectDesktopAgentWebSocketClient(
       const pack = frame.pack as DesktopTaskPack;
       try {
         const cached = completedResults.get(pack.jobId);
-        const result = cached ?? await options.onTask(pack);
+        const result = toDurableDesktopResult(cached ?? await options.onTask(pack));
         if (!cached) {
           await options.persistResult?.(result);
           completedResults.set(result.jobId, result);
@@ -77,9 +80,9 @@ export async function connectDesktopAgentWebSocketClient(
             summary: error instanceof Error ? error.message : String(error),
           }],
         };
-        completedResults.set(result.jobId, result);
+        completedResults.set(result.jobId, toDurableDesktopResult(result));
         if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ version: 1, type: "result", result }));
+          socket.send(JSON.stringify({ version: 1, type: "result", result: toDurableDesktopResult(result) }));
         }
       }
     });
