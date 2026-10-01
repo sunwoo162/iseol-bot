@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { DesktopTaskPack } from "../src/desktop-agent/contracts.js";
-import { createDesktopJob, desktopJobRevision, acquireDesktopJobLease } from "../src/desktop-agent/job-store.js";
+import { completeDesktopJob, createDesktopJob, desktopJobRevision, acquireDesktopJobLease } from "../src/desktop-agent/job-store.js";
 import { consumeDesktopJobContainmentApproval, containDesktopJobAsOperator, inspectDesktopJobReconciliation, issueDesktopJobContainmentApproval, reconcileVerifiedDesktopJobResult } from "../src/desktop-agent/operator-reconciliation.js";
 import { persistCompletedDesktopResult } from "../src/desktop-agent/result-store.js";
 
@@ -50,6 +50,24 @@ test("verified result reconciliation requires exact job, run, and agent identity
   assert.equal(reconciled.status, "reconciled");
   const duplicate = await reconcileVerifiedDesktopJobResult({ jobRoot: f.root, resultRoot, jobId: f.job.jobId, now: "2026-09-20T01:00:07.000Z" });
   assert.equal(duplicate.status, "already-reconciled");
+});
+
+test("CHECK_HTTP results cannot replace the Task Pack URL reference", async () => {
+  const url = "http://127.0.0.1:4173/health?ready=1";
+  const f = await fixture({ id: "http", type: "CHECK_HTTP", url, timeoutMs: 2_000 });
+  await acquireDesktopJobLease(f.root, f.job.jobId, "session", "2026-09-20T01:00:01.000Z", 60_000);
+  await assert.rejects(
+    completeDesktopJob(f.root, f.job.jobId, "session", {
+      version: 1,
+      jobId: f.job.jobId,
+      runId: f.job.runId,
+      agentId: f.job.pack.agentId,
+      status: "completed",
+      completedAt: "2026-09-20T01:00:02.000Z",
+      operations: [{ operationId: "http", ok: true, summary: "HTTP 200", reference: "https://preview.example.test/result?token=secret" }],
+    }),
+    /reference mismatch/i,
+  );
 });
 
 test("verified result from another Run is rejected without changing the pending job", async () => {

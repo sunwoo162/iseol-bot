@@ -140,6 +140,7 @@ const SENSITIVE_HTTP_QUERY_KEYS = new Set([
   "access_token", "accesstoken", "api_key", "apikey", "auth", "authorization", "bearer",
   "cookie", "credential", "password", "passwd", "private_key", "privatekey", "refresh_token",
   "refreshtoken", "secret", "session", "session_id", "sessionid", "sig", "signature", "token",
+  "authtoken", "bearertoken", "clientsecret", "idtoken", "xapikey",
 ]);
 
 function requireText(value: unknown, field: string): asserts value is string {

@@ -400,6 +400,17 @@ export async function renewDesktopJobLease(
   );
 }
 
+function assertDesktopResultReferences(pack: DesktopTaskPack, result: DesktopJobResult): void {
+  const operations = new Map(pack.operations.map((operation) => [operation.id, operation]));
+  for (const operationResult of result.operations) {
+    const operation = operations.get(operationResult.operationId);
+    if (operation?.type !== "CHECK_HTTP" || operationResult.reference === undefined) continue;
+    if (operationResult.reference !== operation.url) {
+      throw new Error(`Desktop CHECK_HTTP result reference mismatch: ${operationResult.operationId}`);
+    }
+  }
+}
+
 async function completeDesktopJobUnlocked(
   root: string,
   jobId: string,
@@ -411,6 +422,7 @@ async function completeDesktopJobUnlocked(
   if (result.jobId !== job.jobId) throw new Error(`Desktop Job result jobId mismatch: ${result.jobId}`);
   if (result.runId !== job.runId) throw new Error(`Desktop Job result runId mismatch: ${result.runId}`);
   if (result.agentId !== job.pack.agentId) throw new Error(`Desktop Job result agentId mismatch: ${result.agentId}`);
+  assertDesktopResultReferences(job.pack, result);
   if (job.status === "completed") {
     if (JSON.stringify(job.result) === JSON.stringify(result)) return job;
     throw new Error(`Desktop completed job is immutable: ${jobId}`);

@@ -49,6 +49,11 @@ test("CHECK_HTTP accepts preview URLs but rejects unsafe URL syntax and timeouts
     "http://preview.example.test/%5Cresult",
     "http://preview.example.test/result?token=secret-value",
     "http://preview.example.test/result?api_key=secret-value",
+    "http://preview.example.test/result?client_secret=secret-value",
+    "http://preview.example.test/result?id_token=secret-value",
+    "http://preview.example.test/result?auth_token=secret-value",
+    "http://preview.example.test/result?bearer_token=secret-value",
+    "http://preview.example.test/result?x-api-key=secret-value",
     `http://preview.example.test/result${String.fromCharCode(10)}`,
   ]) {
     assert.throws(() => assertDesktopTaskPack(check(url)), /CHECK_HTTP|URL|unsafe|credential|control/i, url);
