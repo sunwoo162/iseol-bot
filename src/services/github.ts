@@ -45,7 +45,13 @@ export function buildAutomationWebhookUrl(publicBaseUrl: string): string {
 
 export function isDiscordProjectWebhookUrl(target: string): boolean {
   const raw = target.trim();
-  if (!raw || raw !== target || raw.includes("\\") || /%5c/i.test(raw)) return false;
+  if (!raw || raw !== target || raw.includes("\\") || /%5c/i.test(raw) || raw.includes("?") || raw.includes("#")) return false;
+
+  const schemeSeparator = raw.indexOf("://");
+  const pathStart = schemeSeparator === -1 ? -1 : raw.indexOf("/", schemeSeparator + 3);
+  if (pathStart === -1 || !/^\/api\/webhooks\/[0-9]+\/[^/?#%]+\/github$/.test(raw.slice(pathStart))) {
+    return false;
+  }
 
   let url: URL;
   try {
