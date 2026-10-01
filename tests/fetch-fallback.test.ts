@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildAllconCurlArgs,
   fetchAllconWithValidatedRedirects,
+  getAllconRedirectMode,
   isAllconUrl,
   parseAllconCurlOutput,
   resolveAllconRedirect,
@@ -36,7 +37,7 @@ test("Allcon curl fallback never follows an unvalidated redirect", () => {
   assert.equal(args.at(-1), "https://www.all-con.co.kr/list/contest");
   assert.equal(args.includes("--insecure"), true);
   assert.equal(args.includes("x-test: yes"), true);
-  assert.equal(args.some((value) => value.includes("%{http_code}")), true);
+  assert.equal(args.some((value) => value.includes("%{http_code}") && value.includes("%{redirect_url}")), true);
 });
 
 test("Allcon curl fallback rejects a URL outside its allowlist before spawning curl", () => {
@@ -75,9 +76,27 @@ test("native Allcon redirect handling validates every hop before fetching it", a
 });
 
 test("Allcon curl output preserves status and uses null bodies for no-body statuses", () => {
-  assert.deepEqual(parseAllconCurlOutput("html\n__ISEOL_CURL_STATUS__200"), { body: "html", status: 200 });
+  assert.deepEqual(parseAllconCurlOutput("html\n__ISEOL_CURL_STATUS__200\t"), { body: "html", location: null, status: 200 });
+  assert.deepEqual(
+    parseAllconCurlOutput("ignored\n__ISEOL_CURL_STATUS__302\thttps://www.all-con.co.kr/next"),
+    { body: "ignored", location: "https://www.all-con.co.kr/next", status: 302 },
+  );
   for (const status of [204, 205, 304]) {
-    assert.deepEqual(parseAllconCurlOutput(`ignored\n__ISEOL_CURL_STATUS__${status}`), { body: null, status });
+    assert.deepEqual(parseAllconCurlOutput(`ignored\n__ISEOL_CURL_STATUS__${status}\t`), { body: null, location: null, status });
   }
   assert.throws(() => parseAllconCurlOutput("body\n__ISEOL_CURL_STATUS__100"), /status is invalid/);
+});
+
+test("Allcon curl fallback fails closed for non-GET requests with bodies", () => {
+  assert.throws(
+    () => buildAllconCurlArgs("https://www.all-con.co.kr/list/contest", { method: "POST", body: "payload" }),
+    /supports only GET requests without a body/,
+  );
+});
+
+test("Allcon redirect mode preserves Request semantics when init is omitted", () => {
+  const source = "https://www.all-con.co.kr/list/contest";
+  assert.equal(getAllconRedirectMode(new Request(source, { redirect: "error" })), "error");
+  assert.equal(getAllconRedirectMode(new Request(source, { redirect: "manual" })), "manual");
+  assert.equal(getAllconRedirectMode(new Request(source, { redirect: "error" }), { redirect: "follow" }), "follow");
 });
