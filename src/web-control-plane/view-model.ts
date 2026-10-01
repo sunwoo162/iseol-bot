@@ -290,14 +290,10 @@ export async function buildProjectWorkspaceView(
     } : {}),
   };
 }
-const EVALUATION_SECRET_ASSIGNMENT = /\b(token|cookie|secret|password)\s*[:=]\s*[^\s,;]+/gi;
-const EVALUATION_BEARER_SECRET = /\bBearer\s+[^\s,;]+/gi;
-
 function safeEvaluationText(value: string, maxLength = 240): string {
-  return value
-    .replace(EVALUATION_BEARER_SECRET, "Bearer [REDACTED]")
-    .replace(EVALUATION_SECRET_ASSIGNMENT, (_match, key: string) => `${key}=[REDACTED]`)
-    .slice(0, maxLength);
+  return sanitizeCredentialText(value, maxLength)
+    .replace(/\[redacted-url\]/gi, "[REDACTED]")
+    .replace(/\[redacted\]/gi, "[REDACTED]");
 }
 
 function toEvaluationSummary(
