@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calendarDateForTimeZone, formatWorldDate, formatWorldDateTime } from "../user-ui/src/domain/worldState.js";
+import { calendarDateForTimeZone, formatWorldDate, formatWorldDateTime, formatWorldTime } from "../user-ui/src/domain/worldState.js";
 
 test("world mission calendar dates follow the account timezone across a UTC date boundary", () => {
   const instant = "2026-09-28T00:30:00.000Z";
@@ -28,4 +28,10 @@ test("world activity labels use the account timezone at a UTC date boundary", ()
 test("world activity labels fall back safely for an invalid timestamp or timezone", () => {
   assert.equal(formatWorldDate("not/a-timezone", "2026-09-28T00:30:00.000Z"), "Sep 28, 2026");
   assert.equal(formatWorldDateTime("Asia/Seoul", "not-a-timestamp"), "날짜 확인 불가");
+});
+
+test("world chat time labels use the account timezone across a UTC date boundary", () => {
+  const instant = "2026-09-28T00:30:00.000Z";
+  assert.equal(formatWorldTime("America/Los_Angeles", instant), "5:30 PM");
+  assert.equal(formatWorldTime("Asia/Seoul", instant), "9:30 AM");
 });

@@ -45,6 +45,10 @@ export function formatWorldDateTime(timezone: string | undefined, value: string)
   return formatWorldTimestamp(timezone, value, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+export function formatWorldTime(timezone: string | undefined, value: string): string {
+  return formatWorldTimestamp(timezone, value, { timeStyle: 'short' });
+}
+
 export type WorldMissionState = "recorded" | "next-action";
 
 export type WorldMission = {

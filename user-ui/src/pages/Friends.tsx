@@ -3,13 +3,16 @@ import { Link } from 'react-router';
 import { AppShell } from '../components/Navigation';
 import { UserCharacterAsset } from '../components/CharacterAssets';
 import { Icon } from '../components/Icon';
+import { formatWorldTime } from '../domain/worldState';
 import { blockUser, createFriendRequest, listBlocks, listDirectMessages, listFriendRequests, listFriends, listProfiles, reportUser, respondToFriendRequest, sendDirectMessage, unblockUser, type DirectMessage, type FriendRequest, type PublicProfile, type SocialBlock, UserApiError } from '../api/userApi';
 import { userFacingError } from '../errorMessage';
+import { useUser } from '../store/useUser';
 
 type Tab = 'friends' | 'messages' | 'requests';
-function timeOf(value: string): string { return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
-
 export default function Friends() {
+  const profile = useUser();
+  const timezone = profile.status === 'ready' ? profile.timezone : undefined;
+  const timeOf = (value: string): string => formatWorldTime(timezone, value);
   const [tab, setTab] = useState<Tab>('friends');
   const [friends, setFriends] = useState<PublicProfile[]>([]);
   const [profiles, setProfiles] = useState<PublicProfile[]>([]);
