@@ -79,7 +79,7 @@ listed as live or rollout work until actually performed.
 
 ### 2026-10-02 검증 실행 기록
 
-- `npm test`: 826/826 통과.
+- `npm test`: bounded 6-batch runner 기준 820/820 통과.
 - `npm run test:iseol-user-product`: 470/470 통과.
 - `npm run test:iseol-browser-e2e`: 2개 격리 계정, 390/768/1024/1440 반응형 뷰포트와 주요 NPC 사용자 여정 통과.
 - TypeScript 검사와 user UI build 통과. 기존 chunk-size 경고만 남음.
