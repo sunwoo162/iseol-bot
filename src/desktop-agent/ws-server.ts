@@ -15,6 +15,12 @@ function parseFrame(data: WebSocket.RawData): unknown {
   return JSON.parse(data.toString());
 }
 
+function boundedCloseReason(message: string): string {
+  let result = sanitizeCredentialText(message, 120);
+  while (Buffer.byteLength(result, "utf8") > 123) result = result.slice(0, -1);
+  return result;
+}
+
 export async function startDesktopAgentWebSocketServer(
   options: StartDesktopAgentWebSocketServerOptions,
 ) {
@@ -49,7 +55,7 @@ export async function startDesktopAgentWebSocketServer(
         await options.transport.handleMessage(sessionId, frame as DesktopClientMessage);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        socket.close(4001, sanitizeCredentialText(message, 120));
+        socket.close(4001, boundedCloseReason(message));
       }
     });
 
