@@ -1,5 +1,6 @@
 import type { HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import { withDurableHarnessRunLock } from "../harness/run-lock.js";
+import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
 import type { ProjectWorkspace } from "../project-model/contracts.js";
 import { withDurableProjectWorkspaceLock } from "../project-model/workspace-lock.js";
 import type { DiscordProjectContext } from "./contracts.js";
@@ -24,6 +25,16 @@ export type DiscordProjectStatusDependencies = {
   loadWorkspace(projectId: string): Promise<ProjectWorkspace | null>;
   loadRun(runId: string): Promise<HarnessRuntimeRunEnvelope | null>;
 };
+
+function safeDeploymentUrl(value: string | undefined): string | undefined {
+  if (!value || /%(?![0-9a-f]{2})/i.test(value)) return undefined;
+  try {
+    assertCheckHttpUrl(value);
+    return value;
+  } catch {
+    return undefined;
+  }
+}
 
 function legacyView(context: DiscordProjectContext): Omit<DiscordProjectStatusView, "workspace"> {
   return {
@@ -71,13 +82,14 @@ async function buildDiscordProjectStatusUnlocked(
     if (!run) continue;
     runs.push({ runId, stage: run.state.stage, status: run.state.status, updatedAt: run.updatedAt });
   }
+  const deploymentUrl = safeDeploymentUrl(workspace.genesis.deployment.url);
   return {
     ...base,
     workspace: {
       state: "bound",
       projectName: workspace.name,
       projectStatus: workspace.status,
-      deploymentUrl: workspace.genesis.deployment.url,
+      ...(deploymentUrl ? { deploymentUrl } : {}),
       node: { ...node, runIds: [...node.runIds] },
       runs,
     },
