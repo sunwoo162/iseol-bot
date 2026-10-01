@@ -224,7 +224,7 @@ test("Idea Lab web views omit unsafe deployment URLs", async () => {
       "preview https://preview.example/?access_token%3Dsecret",
       "preview https://preview.example/#oauth_token%3Dsecret",
       "provider error (access_token=secret)",
-      "{\"access_token\":\"secret\"}",
+      "{\"access_token\":\"secret value\"}",
     ].map((summary, index) => ({
       version: 1 as const,
       id: `credential-evidence-${index}`,
