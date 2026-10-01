@@ -6,6 +6,8 @@ import { join, resolve } from "node:path";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { createNotificationService } from "../src/notifications/service.js";
+import { routeNotificationsRequest } from "../src/notifications/router.js";
+import type { NotificationService } from "../src/notifications/contracts.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createSettingsService } from "../src/settings/service.js";
 import { createTeamChatService } from "../src/team-chat/service.js";
@@ -71,4 +73,51 @@ test("notification API is authenticated, owner-scoped, readable, and reload-safe
   } finally {
     await new Promise<void>((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose()));
   }
+});
+
+test("notification API errors redact credential-shaped service messages", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-notification-error-safety-"));
+  const users = createPlatformUserService(join(root, "platform"), { now: () => "2026-09-28T00:00:00.000Z" });
+  const user = await users.createUser({ id: "notification-error-user", email: "notification-error@example.com", displayName: "Error", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-29T00:00:00.000Z" });
+  const secret = "notification service failed token=notification-secret api_key=notification-api-secret https://notify.example/?access_token=notification-url-secret";
+  const notificationService = {
+    listNotifications: async () => ({ notifications: [], unreadCount: 0 }),
+    markRead: async () => { throw new Error(secret); },
+  } as unknown as NotificationService;
+  const response = await routeNotificationsRequest({
+    method: "POST",
+    path: "/api/user/notifications/notification-1/read",
+    headers: { authorization: `Bearer ${session.token}` },
+    body: {},
+  }, { platformUserService: users, notificationService });
+  const message = (response.body as { error?: string }).error ?? "";
+  assert.equal(response.status, 409);
+  for (const value of ["notification-secret", "notification-api-secret", "notification-url-secret"]) assert.equal(message.includes(value), false);
+  assert.match(message, /\[redacted\]|\[redacted-url\]/i);
+});
+
+test("notification API error classification survives fail-closed credential sanitization", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-notification-error-classification-"));
+  const users = createPlatformUserService(join(root, "platform"), { now: () => "2026-09-28T00:00:00.000Z" });
+  const user = await users.createUser({ id: "notification-classification-user", email: "notification-classification@example.com", displayName: "Classification", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-29T00:00:00.000Z" });
+  const routeWithError = (error: string) => routeNotificationsRequest({
+    method: "POST",
+    path: "/api/user/notifications/notification-1/read",
+    headers: { authorization: `Bearer ${session.token}` },
+    body: {},
+  }, {
+    platformUserService: users,
+    notificationService: {
+      listNotifications: async () => ({ notifications: [], unreadCount: 0 }),
+      markRead: async () => { throw new Error(error); },
+    } as unknown as NotificationService,
+  });
+  const notFound = await routeWithError("notification not found access_token%ZZ=secret");
+  const invalid = await routeWithError("invalid notification token%ZZ=secret");
+  assert.equal(notFound.status, 404);
+  assert.equal(invalid.status, 400);
+  assert.equal((notFound.body as { error: string }).error.includes("secret"), false);
+  assert.equal((invalid.body as { error: string }).error.includes("secret"), false);
 });
