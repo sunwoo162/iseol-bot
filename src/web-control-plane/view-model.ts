@@ -60,7 +60,7 @@ export function toPrototypeCard(
 const SUMMARY_BEARER_CREDENTIAL = /\bBearer\s+[^\s,;}]+/gi;
 const SUMMARY_HTTP_URL = /https?:\/\/[^\s,;}]+/gi;
 const SUMMARY_URL_CREDENTIAL_ASSIGNMENT = /([?&#])([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*([^\s&#,;}]+)/g;
-const SUMMARY_CREDENTIAL_ASSIGNMENT = /(^|[^A-Za-z0-9_-])(["']?)([A-Za-z][A-Za-z0-9_-]*)\2\s*([:=])\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s,;}\)\]]+)/g;
+const SUMMARY_CREDENTIAL_ASSIGNMENT = /(^|[^A-Za-z0-9_-])(["']?)([A-Za-z][A-Za-z0-9_-]*)\2\s*([:=])\s*("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^\s,;}\)\]]+)/g;
 
 function safeSummary(value: string | undefined): string | undefined {
   if (!value) return undefined;

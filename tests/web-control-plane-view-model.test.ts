@@ -225,6 +225,8 @@ test("Idea Lab web views omit unsafe deployment URLs", async () => {
       "preview https://preview.example/#oauth_token%3Dsecret",
       "provider error (access_token=secret)",
       "{\"access_token\":\"secret value\"}",
+      "{\"access_token\":\"secret\\\"suffix\"}",
+      "{\"access_token\":\"secret\nsuffix\"}",
     ].map((summary, index) => ({
       version: 1 as const,
       id: `credential-evidence-${index}`,
@@ -292,11 +294,13 @@ test("Idea Lab web views omit unsafe deployment URLs", async () => {
   const unsafeProduction = view.productions.find((item) => item.id === "production-unsafe");
   assert.equal(unsafeProduction?.deploymentUrl, undefined);
   assert.equal(unsafeProduction?.blockerSummary, "provider error (access_token=[redacted])");
-  assert.deepEqual(unsafeProduction?.run?.evidence.slice(-5).map((item) => item.summary), [
+  assert.deepEqual(unsafeProduction?.run?.evidence.slice(-7).map((item) => item.summary), [
     "preview [redacted-url]",
     "preview [redacted-url]",
     "preview [redacted-url]",
     "provider error (access_token=[redacted])",
+    "{\"access_token\":\"[redacted]\"}",
+    "{\"access_token\":\"[redacted]\"}",
     "{\"access_token\":\"[redacted]\"}",
   ]);
 
@@ -305,11 +309,13 @@ test("Idea Lab web views omit unsafe deployment URLs", async () => {
   assert.deepEqual(detail?.prototypes[0]?.deployment, { provider: "vercel" });
   assert.equal(detail?.productions[0]?.deploymentUrl, undefined);
   assert.equal(detail?.productions[0]?.blockerSummary, "provider error (access_token=[redacted])");
-  assert.deepEqual(detail?.productions[0]?.run?.evidence.slice(-5).map((item) => item.summary), [
+  assert.deepEqual(detail?.productions[0]?.run?.evidence.slice(-7).map((item) => item.summary), [
     "preview [redacted-url]",
     "preview [redacted-url]",
     "preview [redacted-url]",
     "provider error (access_token=[redacted])",
+    "{\"access_token\":\"[redacted]\"}",
+    "{\"access_token\":\"[redacted]\"}",
     "{\"access_token\":\"[redacted]\"}",
   ]);
 });
