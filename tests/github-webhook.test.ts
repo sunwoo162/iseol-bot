@@ -57,6 +57,8 @@ test("discord project webhook identities require a canonical HTTPS webhook path"
     "https://discord.com/api/webhooks/123/token/extra/github",
     "https://discord.com/api/webhooks/123/token/./github",
     "https://discord.com/api/webhooks/123/junk/../token/github",
+    "https://discord.com/api/webhooks/123/to\nken/github",
+    "https://discord.com/api/webhooks/123/to\tken/github",
     "https://discord.com/api/webhooks/123/to%2Fken/github",
     "https://discord.com\\@attacker.example.com/api/webhooks/123/token/github",
     "https://discord.com/api/webhooks/123/to%5Cken/github",
