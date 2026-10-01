@@ -241,6 +241,10 @@ test("Idea Lab web views omit unsafe deployment URLs", async () => {
       ...candidate().deployment,
       url: "https://preview.example.com/?token=secret",
     },
+    repository: {
+      ...candidate().repository,
+      url: "https://user:password@example.com/repo?token=secret",
+    },
   });
   await savePrototypeProduction(modelRoot, {
     version: 1,
@@ -264,10 +268,12 @@ test("Idea Lab web views omit unsafe deployment URLs", async () => {
 
   const view = await buildIdeaLabView(modelRoot, harnessRoot);
   const unsafePrototype = view.prototypes.find((item) => item.id === "prototype-unsafe");
+  assert.deepEqual(unsafePrototype?.repository, { branch: "main", commitSha: "abc123" });
   assert.deepEqual(unsafePrototype?.deployment, { provider: "vercel" });
   assert.equal(view.productions.find((item) => item.id === "production-unsafe")?.deploymentUrl, undefined);
 
   const detail = await buildIdeaLabCampaignDetail(modelRoot, harnessRoot, "campaign-unsafe");
+  assert.deepEqual(detail?.prototypes[0]?.repository, { branch: "main", commitSha: "abc123" });
   assert.deepEqual(detail?.prototypes[0]?.deployment, { provider: "vercel" });
   assert.equal(detail?.productions[0]?.deploymentUrl, undefined);
 });

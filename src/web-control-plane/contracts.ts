@@ -13,7 +13,7 @@ export type WebPrototypeCard = {
   concept: string;
   status: PrototypeCandidateStatus;
   repository: {
-    url: string;
+    url?: string;
     branch: string;
     commitSha: string;
   };
