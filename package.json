@@ -20,6 +20,7 @@
                     "test:idea-lab-runtime-config":  "node --import tsx --test tests/idea-lab-runtime-config.test.ts",
                     "test:local-preview":  "node --import tsx --test tests/idea-lab-local-preview.test.ts",
                     "test:contests":  "node --import tsx --test tests/contests.test.ts",
+                    "test:fetch-fallback":  "node --import tsx --test tests/fetch-fallback.test.ts",
                     "test:github-account-links":  "node --import tsx --test tests/github-account-links-lock.test.ts",
                     "test:platform-user":  "node --import tsx --test tests/platform-user-isolation.test.ts",
                     "test:collaboration":  "node --import tsx --test tests/team-membership-acl.test.ts tests/team-chat.test.ts tests/recruitment-flow.test.ts tests/social-messaging.test.ts tests/social-safety.test.ts tests/social-safety-api.test.ts tests/collaboration-api.test.ts tests/team-chat-api.test.ts tests/user-notifications.test.ts tests/user-notifications-api.test.ts",
