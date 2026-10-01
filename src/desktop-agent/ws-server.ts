@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import { assertDesktopProtocolVersion, type DesktopAgentHello } from "./contracts.js";
 import type { DesktopAgentTransport, DesktopAgentWire, DesktopClientMessage } from "./transport.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 export type StartDesktopAgentWebSocketServerOptions = {
   host: string;
@@ -48,7 +49,7 @@ export async function startDesktopAgentWebSocketServer(
         await options.transport.handleMessage(sessionId, frame as DesktopClientMessage);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        socket.close(4001, message.slice(0, 120));
+        socket.close(4001, sanitizeCredentialText(message, 120));
       }
     });
 
