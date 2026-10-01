@@ -169,6 +169,26 @@ function normalizeUrl(href: string, baseUrl: string): string | null {
   }
 }
 
+export function normalizeContestCandidateUrl(href: string, sourceUrl: string): string | null {
+  const normalized = normalizeUrl(href, sourceUrl);
+  if (!normalized) return null;
+
+  try {
+    const source = new URL(sourceUrl);
+    const candidate = new URL(normalized);
+    if (candidate.protocol !== source.protocol
+      || candidate.origin !== source.origin
+      || candidate.username
+      || candidate.password
+      || candidate.port) {
+      return null;
+    }
+    return candidate.toString();
+  } catch {
+    return null;
+  }
+}
+
 function normalizeTitle(value: string): string {
   return value
     .normalize("NFKC")
@@ -195,7 +215,7 @@ function extractCandidates(html: string, source: SourceDefinition): Candidate[] 
     const body = match[2];
     if (!href || !body) continue;
 
-    const url = normalizeUrl(href, source.baseUrl);
+    const url = normalizeContestCandidateUrl(href, source.baseUrl);
     if (!url || !source.detailUrlPattern.test(url)) continue;
 
     const title = stripTags(body);
