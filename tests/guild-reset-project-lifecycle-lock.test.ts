@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile, rm, writeFile } from "node:fs/promises";
-import type { Guild } from "discord.js";
+import { ChannelType, type Guild } from "discord.js";
 import { resetGuildState } from "../src/services/guild-reset.js";
 import { deleteProject, withProjectDeleteLock, type StoredProject } from "../src/services/projects.js";
 
@@ -131,6 +131,50 @@ test("guild reset clears project-scoped polling, Calendar state, and GitHub acco
     assert.deepEqual(JSON.parse(await readFile("data/github-users.json", "utf8")), [
       { guildId: "other-guild", discordUserId: "active-user", githubLogin: "active-login", connectedAt: "2026-09-30T00:00:00.000Z" },
     ]);
+  } finally {
+    for (const file of DATA_FILES) {
+      const content = previous.get(file);
+      if (content) await writeFile(file, content);
+      else await rm(file, { force: true });
+    }
+  }
+});
+
+test("guild reset redacts credential-shaped channel deletion warnings", async () => {
+  const previous = new Map<string, Buffer>();
+  for (const file of DATA_FILES) {
+    try { previous.set(file, await readFile(file)); } catch { /* test creates the file */ }
+  }
+
+  const project: StoredProject = {
+    id: "guild-reset-warning-redaction",
+    name: "Guild reset warning redaction",
+    guildId: "guild-reset-warning-redaction-guild",
+    categoryId: "guild-reset-warning-redaction-category",
+    organization: "iseol",
+    frontend: { owner: "iseol", repo: "frontend" },
+    backend: { owner: "iseol", repo: "backend" },
+  };
+  const category = {
+    id: project.categoryId,
+    name: "📁 warning redaction",
+    type: ChannelType.GuildCategory,
+    parentId: null,
+    delete: async () => { throw new Error("token=reset-secret"); },
+  };
+  const guild = {
+    id: project.guildId,
+    name: "Guild reset warning redaction",
+    channels: { fetch: async () => new Map([[category.id, category]]) },
+  } as unknown as Guild;
+
+  try {
+    await writeFile("data/projects.json", JSON.stringify([project], null, 2), "utf8");
+    const summary = await resetGuildState(guild);
+
+    assert.equal(summary.warnings.length, 1);
+    assert.match(summary.warnings[0], /\[redacted\]/);
+    assert.doesNotMatch(summary.warnings[0], /reset-secret/);
   } finally {
     for (const file of DATA_FILES) {
       const content = previous.get(file);
