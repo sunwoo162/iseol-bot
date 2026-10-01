@@ -74,6 +74,10 @@ test("local preview verification rejects non-canonical listener URLs before read
       "http://127.0.0.1:19091/?token=secret",
       "http://127.0.0.1:19091/#fragment",
       "https://127.0.0.1:19091/",
+      "http://127.0.0.1:19091/../",
+      "http://127.0.0.1:19091/%2e%2e/",
+      "http://@127.0.0.1:19091/",
+      "http://127.0.0.1:019091/",
     ]) {
       await assert.rejects(
         () => f.adapter.verify({ ...request(f.workspace), deployment: { ...receipt, url } }),

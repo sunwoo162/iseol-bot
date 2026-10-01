@@ -46,13 +46,15 @@ function listenerUrl(host: "127.0.0.1" | "::1", port: number): string {
 }
 
 function assertListenerUrl(value: string, host: "127.0.0.1" | "::1", port: number): void {
+  const expected = listenerUrl(host, port);
+  if (value !== expected) throw new Error("local preview URL is outside the configured listener");
   let parsed: URL;
   try {
     parsed = new URL(value);
   } catch {
     throw new Error("local preview URL is invalid");
   }
-  if (parsed.href !== listenerUrl(host, port)) throw new Error("local preview URL is outside the configured listener");
+  if (parsed.href !== expected) throw new Error("local preview URL is outside the configured listener");
 }
 
 function alive(owner: OwnedPreview): boolean {
