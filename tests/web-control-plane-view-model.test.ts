@@ -223,6 +223,8 @@ test("Idea Lab web views omit unsafe deployment URLs", async () => {
       "preview https://preview.example/?%61ccess_token=secret",
       "preview https://preview.example/?access_token%3Dsecret",
       "preview https://preview.example/#oauth_token%3Dsecret",
+      "provider error (access_token=secret)",
+      "{\"access_token\":\"secret\"}",
     ].map((summary, index) => ({
       version: 1 as const,
       id: `credential-evidence-${index}`,
@@ -274,7 +276,7 @@ test("Idea Lab web views omit unsafe deployment URLs", async () => {
     branch: "idea/campaign-unsafe/production-unsafe",
     baseRef: "main",
     status: "ready",
-    blockerSummary: "preview https://preview.example/?%61ccess_token=secret",
+    blockerSummary: "provider error (access_token=secret)",
     deployment: {
       provider: "vercel",
       url: "javascript:alert(1)",
@@ -289,22 +291,26 @@ test("Idea Lab web views omit unsafe deployment URLs", async () => {
   assert.deepEqual(unsafePrototype?.deployment, { provider: "vercel" });
   const unsafeProduction = view.productions.find((item) => item.id === "production-unsafe");
   assert.equal(unsafeProduction?.deploymentUrl, undefined);
-  assert.equal(unsafeProduction?.blockerSummary, "preview [redacted-url]");
-  assert.deepEqual(unsafeProduction?.run?.evidence.slice(-3).map((item) => item.summary), [
+  assert.equal(unsafeProduction?.blockerSummary, "provider error (access_token=[redacted])");
+  assert.deepEqual(unsafeProduction?.run?.evidence.slice(-5).map((item) => item.summary), [
     "preview [redacted-url]",
     "preview [redacted-url]",
     "preview [redacted-url]",
+    "provider error (access_token=[redacted])",
+    "{\"access_token\":\"[redacted]\"}",
   ]);
 
   const detail = await buildIdeaLabCampaignDetail(modelRoot, harnessRoot, "campaign-unsafe");
   assert.deepEqual(detail?.prototypes[0]?.repository, { branch: "main", commitSha: "abc123" });
   assert.deepEqual(detail?.prototypes[0]?.deployment, { provider: "vercel" });
   assert.equal(detail?.productions[0]?.deploymentUrl, undefined);
-  assert.equal(detail?.productions[0]?.blockerSummary, "preview [redacted-url]");
-  assert.deepEqual(detail?.productions[0]?.run?.evidence.slice(-3).map((item) => item.summary), [
+  assert.equal(detail?.productions[0]?.blockerSummary, "provider error (access_token=[redacted])");
+  assert.deepEqual(detail?.productions[0]?.run?.evidence.slice(-5).map((item) => item.summary), [
     "preview [redacted-url]",
     "preview [redacted-url]",
     "preview [redacted-url]",
+    "provider error (access_token=[redacted])",
+    "{\"access_token\":\"[redacted]\"}",
   ]);
 });
 
