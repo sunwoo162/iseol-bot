@@ -72,8 +72,12 @@ test("CHECK_HTTP intents reject unsafe URL syntax", () => {
     "http://preview.example.test/result?authorization_token=secret-value",
     "http://preview.example.test/result?csrf_token=secret-value",
     "http://preview.example.test/result?oauth2_token=secret-value",
+    "http://preview.example.test/result?x-oauth-token=secret-value",
+    "http://preview.example.test/result?oauth_access_token=secret-value",
     "http://preview.example.test/result#access_token=secret-value",
     "http://preview.example.test/result#oauth_token=secret-value",
+    "http://preview.example.test/result#access_token%3Dsecret-value",
+    "http://preview.example.test/result#foo%26oauth_token%3Dsecret-value",
     `http://preview.example.test/result${String.fromCharCode(10)}`,
   ]) {
     assert.throws(

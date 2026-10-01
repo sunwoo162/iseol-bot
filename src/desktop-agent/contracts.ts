@@ -141,8 +141,8 @@ const SENSITIVE_HTTP_QUERY_KEYS = new Set([
   "cookie", "credential", "password", "passwd", "private_key", "privatekey", "refresh_token",
   "refreshtoken", "secret", "session", "session_id", "sessionid", "sig", "signature", "token",
   "apitoken", "authtoken", "bearertoken", "clientsecret", "idtoken", "jwt", "oauthtoken",
-  "authorizationtoken", "csrftoken", "oauth2token", "secretkey", "sessiontoken", "xaccesstoken",
-  "xapikey", "xapitoken", "xauthtoken",
+  "authorizationtoken", "csrftoken", "oauth2token", "oauthaccesstoken", "secretkey", "sessiontoken",
+  "xaccesstoken", "xapikey", "xapitoken", "xauthtoken", "xoauthtoken",
 ]);
 
 function isSensitiveHttpCredentialKey(key: string): boolean {
@@ -151,7 +151,13 @@ function isSensitiveHttpCredentialKey(key: string): boolean {
 }
 
 function assertSafeHttpFragment(fragment: string): void {
-  for (const parameter of fragment.split(/[?&#/]/)) {
+  let decodedFragment = fragment;
+  try {
+    decodedFragment = decodeURIComponent(fragment);
+  } catch {
+    // Keep the raw fragment for validation when it contains malformed escapes.
+  }
+  for (const parameter of decodedFragment.split(/[?&#/]/)) {
     const rawKey = parameter.split("=", 1)[0];
     if (!rawKey) continue;
     let key = rawKey;
