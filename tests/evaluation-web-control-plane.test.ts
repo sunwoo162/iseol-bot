@@ -22,7 +22,7 @@ function report(input: {
   status?: EvaluationReport["status"];
   secret?: boolean;
 }): EvaluationReport {
-  const secret = input.secret ? " token=super-secret-token" : "";
+  const secret = input.secret ? " token=super-secret-token api_key=evaluation-api-secret https://preview.example/?access_token=evaluation-url-secret https%3A%2F%2Fpreview.example%2F%3Faccess_token%3Devaluation-encoded-secret" : "";
   return {
     version: 1, evaluationId: input.evaluationId, suiteId: input.suiteId,
     status: input.status ?? "failed",
@@ -68,7 +68,9 @@ test("Evaluation view redacts durable diagnostics and missing roots render empty
   const root = await fixture();
   const view = await buildEvaluationView(root);
   const serialized = JSON.stringify(view);
-  assert.equal(serialized.includes("super-secret-token"), false);
+  for (const secret of ["super-secret-token", "evaluation-api-secret", "evaluation-url-secret", "evaluation-encoded-secret"]) {
+    assert.equal(serialized.includes(secret), false);
+  }
   assert.match(serialized, /REDACTED/i);
   const missing = await buildEvaluationView(join(root, "missing"));
   assert.deepEqual(missing, { quick: null, soak: null });
