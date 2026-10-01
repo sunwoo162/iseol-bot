@@ -71,7 +71,7 @@ test("Evaluation view redacts durable diagnostics and missing roots render empty
   for (const secret of ["super-secret-token", "evaluation-api-secret", "evaluation-url-secret", "evaluation-encoded-secret"]) {
     assert.equal(serialized.includes(secret), false);
   }
-  assert.match(serialized, /REDACTED/i);
+  assert.match(serialized, /\[REDACTED\]/);
   const missing = await buildEvaluationView(join(root, "missing"));
   assert.deepEqual(missing, { quick: null, soak: null });
   assert.equal(JSON.stringify(missing).includes(root), false);

@@ -291,7 +291,9 @@ export async function buildProjectWorkspaceView(
   };
 }
 function safeEvaluationText(value: string, maxLength = 240): string {
-  return sanitizeCredentialText(value, maxLength);
+  return sanitizeCredentialText(value, maxLength)
+    .replace(/\[redacted-url\]/gi, "[REDACTED]")
+    .replace(/\[redacted\]/gi, "[REDACTED]");
 }
 
 function toEvaluationSummary(
