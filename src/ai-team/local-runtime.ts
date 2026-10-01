@@ -19,9 +19,14 @@ export type OllamaAiTeamRuntimeConfig = {
 };
 
 function loopback(value: string): string {
+  const raw = value.trim();
+  if (!raw || raw !== value || /[\\\u0000-\u001f\u007f]/.test(raw) || /%5c/i.test(raw) || raw.includes("?") || raw.includes("#")) {
+    throw new Error("Local AI Runtime URL is invalid");
+  }
   let parsed: URL;
-  try { parsed = new URL(value); } catch { throw new Error("Local AI Runtime URL is invalid"); }
-  if (!(parsed.protocol === "http:" || parsed.protocol === "https:") || !["127.0.0.1", "localhost", "::1"].includes(parsed.hostname)) throw new Error("Local AI Runtime URL must use a loopback endpoint");
+  try { parsed = new URL(raw); } catch { throw new Error("Local AI Runtime URL is invalid"); }
+  const host = parsed.hostname.toLowerCase();
+  if (!(parsed.protocol === "http:" || parsed.protocol === "https:") || !["127.0.0.1", "localhost", "::1", "[::1]"].includes(host)) throw new Error("Local AI Runtime URL must use a loopback endpoint");
   if (parsed.username || parsed.password) throw new Error("Local AI Runtime URL must not contain credentials");
   return parsed.toString().replace(/\/$/, "");
 }
@@ -161,7 +166,8 @@ export function createOllamaAiTeamDiscussionDispatcher(options: OllamaAiTeamRunt
 
 export function resolveOllamaAiTeamRuntimeConfig(env: Record<string, string | undefined> = process.env): OllamaAiTeamRuntimeConfig {
   const enabled = env.ISEOL_LOCAL_AI_RUNTIME_ENABLED?.trim().toLowerCase() === "true";
-  const baseUrl = env.ISEOL_LOCAL_AI_RUNTIME_URL?.trim() || "http://127.0.0.1:11434";
+  const configuredBaseUrl = env.ISEOL_LOCAL_AI_RUNTIME_URL;
+  const baseUrl = configuredBaseUrl === undefined || !configuredBaseUrl.trim() ? "http://127.0.0.1:11434" : configuredBaseUrl;
   const model = env.ISEOL_LOCAL_AI_RUNTIME_MODEL?.trim() || "";
   const timeoutText = env.ISEOL_LOCAL_AI_RUNTIME_TIMEOUT_MS?.trim() || "120000";
   const timeoutMs = Number(timeoutText);

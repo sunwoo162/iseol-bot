@@ -70,4 +70,22 @@ test("AI Team local discussion dispatcher maps a structured answer and keeps mal
 
 test("AI Team local Runtime rejects non-loopback endpoints", () => {
   assert.throws(() => createOllamaAiTeamProposalDispatcher({ baseUrl: "https://example.com", model: "qwen-local" }), /loopback/);
+  assert.doesNotThrow(() => createOllamaAiTeamProposalDispatcher({ baseUrl: "http://[::1]:11434", model: "qwen-local" }));
+  for (const baseUrl of [
+    "http://127.0.0.1:11434\\@attacker.example",
+    "http://127.0.0.1:11434/%5C@attacker.example",
+    "http://127.0.0.1:11434/api?",
+    "http://127.0.0.1:11434/api#fragment",
+    "http://127.0.0.1:11434/api\n",
+    "http://127.0.0.1:11434/api\t",
+  ]) {
+    assert.throws(() => createOllamaAiTeamProposalDispatcher({ baseUrl, model: "qwen-local" }), /Local AI Runtime/);
+  }
+});
+
+test("AI Team Runtime configuration preserves malformed URL input for strict validation", () => {
+  const whitespaceUrl = " http://127.0.0.1:11434 ";
+  const config = resolveOllamaAiTeamRuntimeConfig({ ISEOL_LOCAL_AI_RUNTIME_ENABLED: "true", ISEOL_LOCAL_AI_RUNTIME_URL: whitespaceUrl, ISEOL_LOCAL_AI_RUNTIME_MODEL: "qwen-local" });
+  assert.equal(config.baseUrl, whitespaceUrl);
+  assert.throws(() => createOllamaAiTeamProposalDispatcher({ baseUrl: config.baseUrl, model: config.model }), /Local AI Runtime URL/);
 });

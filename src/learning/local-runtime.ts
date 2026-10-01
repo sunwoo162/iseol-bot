@@ -26,9 +26,14 @@ export type OllamaLearningRuntimeConfig = {
 };
 
 function loopback(value: string): string {
+  const raw = value.trim();
+  if (!raw || raw !== value || /[\\\u0000-\u001f\u007f]/.test(raw) || /%5c/i.test(raw) || raw.includes("?") || raw.includes("#")) {
+    throw new Error("Local learning Runtime URL is invalid");
+  }
   let parsed: URL;
-  try { parsed = new URL(value); } catch { throw new Error("Local learning Runtime URL is invalid"); }
-  if (!(parsed.protocol === "http:" || parsed.protocol === "https:") || !["127.0.0.1", "localhost", "::1"].includes(parsed.hostname)) {
+  try { parsed = new URL(raw); } catch { throw new Error("Local learning Runtime URL is invalid"); }
+  const host = parsed.hostname.toLowerCase();
+  if (!(parsed.protocol === "http:" || parsed.protocol === "https:") || !["127.0.0.1", "localhost", "::1", "[::1]"].includes(host)) {
     throw new Error("Local learning Runtime URL must use a loopback endpoint");
   }
   if (parsed.username || parsed.password) throw new Error("Local learning Runtime URL must not contain credentials");
@@ -176,7 +181,8 @@ export function createOllamaLearningFeedbackDispatcher(options: OllamaLearningRu
 
 export function resolveOllamaLearningRuntimeConfig(env: Record<string, string | undefined> = process.env): OllamaLearningRuntimeConfig {
   const enabled = env.ISEOL_LEARNING_RUNTIME_ENABLED?.trim().toLowerCase() === "true";
-  const baseUrl = env.ISEOL_LEARNING_RUNTIME_URL?.trim() || DEFAULT_BASE_URL;
+  const configuredBaseUrl = env.ISEOL_LEARNING_RUNTIME_URL;
+  const baseUrl = configuredBaseUrl === undefined || !configuredBaseUrl.trim() ? DEFAULT_BASE_URL : configuredBaseUrl;
   const model = env.ISEOL_LEARNING_RUNTIME_MODEL?.trim() || "";
   const timeoutText = env.ISEOL_LEARNING_RUNTIME_TIMEOUT_MS?.trim() || "120000";
   const timeoutMs = Number(timeoutText);

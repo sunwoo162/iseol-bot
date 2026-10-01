@@ -180,10 +180,25 @@ test("the local AI adapter fails closed when localhost Runtime is unavailable or
 
 test("the local AI adapter rejects non-loopback endpoints", () => {
   assert.throws(() => createOllamaAiChatRuntimeDispatcher({ baseUrl: "https://example.com", model: "local-test-model" }), /loopback/);
+  assert.doesNotThrow(() => createOllamaAiChatRuntimeDispatcher({ baseUrl: "http://[::1]:11434", model: "local-test-model" }));
+  for (const baseUrl of [
+    "http://127.0.0.1:11434\\@attacker.example",
+    "http://127.0.0.1:11434/%5C@attacker.example",
+    "http://127.0.0.1:11434/api?",
+    "http://127.0.0.1:11434/api#fragment",
+    "http://127.0.0.1:11434/api\n",
+    "http://127.0.0.1:11434/api\t",
+  ]) {
+    assert.throws(() => createOllamaAiChatRuntimeDispatcher({ baseUrl, model: "local-test-model" }), /Local AI Runtime/);
+  }
 });
 
 test("local AI Runtime configuration is disabled by default and requires an explicit model when enabled", () => {
   assert.deepEqual(resolveOllamaAiChatRuntimeConfig({}), { enabled: false, baseUrl: "http://127.0.0.1:11434", model: "", timeoutMs: 120_000 });
   assert.throws(() => resolveOllamaAiChatRuntimeConfig({ ISEOL_LOCAL_AI_RUNTIME_ENABLED: "true" }), /MODEL is required/);
   assert.deepEqual(resolveOllamaAiChatRuntimeConfig({ ISEOL_LOCAL_AI_RUNTIME_ENABLED: "true", ISEOL_LOCAL_AI_RUNTIME_MODEL: "qwen-local", ISEOL_LOCAL_AI_RUNTIME_TIMEOUT_MS: "5000" }), { enabled: true, baseUrl: "http://127.0.0.1:11434", model: "qwen-local", timeoutMs: 5000 });
+  const whitespaceUrl = " http://127.0.0.1:11434 ";
+  const configured = resolveOllamaAiChatRuntimeConfig({ ISEOL_LOCAL_AI_RUNTIME_ENABLED: "true", ISEOL_LOCAL_AI_RUNTIME_URL: whitespaceUrl, ISEOL_LOCAL_AI_RUNTIME_MODEL: "qwen-local" });
+  assert.equal(configured.baseUrl, whitespaceUrl);
+  assert.throws(() => createOllamaAiChatRuntimeDispatcher({ baseUrl: configured.baseUrl, model: configured.model }), /Local AI Runtime URL/);
 });
