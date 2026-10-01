@@ -142,12 +142,12 @@ test("report sanitizes credential-shaped text and caps per-scenario diagnostics"
     invariants: [],
     scenarios: [{
       scenarioId: "security-1", evaluationId: "eval-2", seed: "seed-2", status: "passed",
-      diagnostic: `token=super-secret password=hunter2 ${"x".repeat(600)}`,
+      diagnostic: `token=super-secret password=hunter2 https://preview.example/?access_token=diagnostic-secret ${"x".repeat(600)}`,
     }],
-    liveBlockers: ["cookie=session-cookie"],
-    summary: "Bearer abcdef secret=my-secret-value",
+    liveBlockers: ["cookie=session-cookie", "preview https://preview.example/#oauth_token=blocker-secret"],
+    summary: "Bearer abcdef secret=my-secret-value https://preview.example/?access_token=summary-secret",
   });
-  assert.doesNotMatch(JSON.stringify(report), /super-secret|hunter2|session-cookie|abcdef|my-secret-value/);
+  assert.doesNotMatch(JSON.stringify(report), /super-secret|hunter2|diagnostic-secret|session-cookie|blocker-secret|abcdef|my-secret-value|summary-secret/);
   assert.match(report.summary, /REDACTED/);
   assert.match(report.liveBlockers[0] ?? "", /REDACTED/);
   assert.ok((report.scenarios[0]?.diagnostic?.length ?? 0) <= 256);
