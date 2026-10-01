@@ -27,9 +27,22 @@ test("progress notifications are bounded and redact credential-like text", () =>
   assert.ok(malformedOnly);
   assert.equal(malformedOnly.content.includes("malformed-only-progress-token"), false);
 
+  for (const [id, summary, secret] of [
+    ["evt-split-authorization", "authoriz%ZZation=split-authorization-token", "split-authorization-token"],
+    ["evt-split-access-key", "access%ZZkey=split-access-key-token", "split-access-key-token"],
+  ] as const) {
+    const splitKey = formatProgressNotification({ id, type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary });
+    assert.ok(splitKey);
+    assert.equal(splitKey.content.includes(secret), false);
+  }
+
   const percentage = formatProgressNotification({ id: "evt-percentage", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "Progress 50% complete" });
   assert.ok(percentage);
   assert.equal(percentage.content, "Project project-1: Progress 50% complete");
+
+  const tokenBudget = formatProgressNotification({ id: "evt-token-budget", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "Token budget 50% complete" });
+  assert.ok(tokenBudget);
+  assert.equal(tokenBudget.content, "Project project-1: Token budget 50% complete");
 });
 
 test("progress notification delivery is durable and idempotent", async () => {
