@@ -6,10 +6,35 @@ import type { AddressInfo } from "node:net";
 import { request as httpRequest } from "node:http";
 import test from "node:test";
 import { createActivityService } from "../src/activity/service.js";
+import type { ActivityService } from "../src/activity/contracts.js";
 import { createGrowthService } from "../src/growth/read-model.js";
+import type { GrowthService } from "../src/growth/contracts.js";
+import { routeGrowthRequest } from "../src/growth/router.js";
 import type { Principal } from "../src/identity/contracts.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
+
+test("activity API redacts credential-shaped retract errors without changing not-found status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-growth-error-redaction-"));
+  const platformRoot = join(root, "platform");
+  const platform = createPlatformUserService(platformRoot, { now: () => "2026-09-25T12:00:00.000Z" });
+  const user = await platform.createUser({ id: "growth-error-user", email: "growth-error@example.com", displayName: "Growth Error", timezone: "Asia/Seoul" });
+  const session = await platform.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-26T12:00:00.000Z" });
+  const failingActivity = {
+    retractActivityEvent: async () => { throw new Error("activity not found token%ZZ=growth-secret"); },
+  } as unknown as ActivityService;
+  const growth = {
+    applyGrowthProjection: async () => null,
+    getGrowthSnapshot: async () => { throw new Error("unreachable"); },
+  } as unknown as GrowthService;
+
+  const result = await routeGrowthRequest({ method: "DELETE", path: "/api/user/activity/activity-error", headers: { authorization: `Bearer ${session.token}` } }, { platformUserService: platform, activityService: failingActivity, growthService: growth });
+
+  assert.equal(result.status, 404);
+  const message = (result.body as { error: string }).error;
+  assert.equal(message.includes("growth-secret"), false);
+  assert.match(message, /\[redacted\]/i);
+});
 
 test("user activity API rejects client-submitted verified evidence and reads trusted growth", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-growth-api-"));
