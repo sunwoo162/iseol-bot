@@ -15,7 +15,7 @@ import {
 import type { ProjectWorkspace } from "../src/project-model/contracts.js";
 import { loadProjectWorkspace, saveProjectWorkspace, setProjectPurpose } from "../src/project-model/workspace-store.js";
 import { withDurableProjectWorkspaceLock } from "../src/project-model/workspace-lock.js";
-import { loadProjectHistory } from "../src/project-model/history-store.js";
+import { appendProjectHistoryEvent, loadProjectHistory } from "../src/project-model/history-store.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 import { loadHarnessRun } from "../src/harness/run-store.js";
@@ -97,13 +97,17 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
     request: { version: 1, runId: "run-portfolio", mode: "project-workspace", objective: "공부 기록 서비스", targetRoot: root },
     preflight: { version: 1, runId: "run-portfolio", status: "ready", policy: { version: 1, loadedAt: at, sources: [], effectiveSha256: "a".repeat(64) } },
     state: { version: 1, stage: "TEST", status: "DONE", completedStages: ["PREFLIGHT", "TEST"], skippedStages: [], updatedAt: at },
-    evidence: [{ version: 1, id: "ev-test", kind: "test", stage: "TEST", recordedAt: at, summary: "npm test passed", reference: "test-run" }],
+    evidence: [
+      { version: 1, id: "ev-test", kind: "test", stage: "TEST", recordedAt: at, summary: "npm test passed", reference: "test-run" },
+      { version: 1, id: "ev-run-credential", kind: "deployment", stage: "DEPLOY", recordedAt: at, summary: "preview deployed", reference: "https://preview.example/?access_token=secret" },
+      { version: 1, id: "ev-nested-credential", kind: "deployment", stage: "DEPLOY", recordedAt: at, summary: "nested preview deployed", reference: "github:issue:https://preview.example/?access_token=secret" },
+    ],
     updatedAt: at,
   };
   await saveHarnessRun(join(root, "runs"), run);
   const workspace: ProjectWorkspace = {
     version: 1, id: "project-study", name: "Study Log", status: "active",
-    genesis: { prototypeId: "prototype-study", repository: { url: "https://user:password@example.test/study?token=secret", branch: "main", commitSha: "abc" }, deployment: { url: "https://study.test" }, runs: [], promotedAt: at },
+    genesis: { prototypeId: "prototype-study", repository: { url: "https://user:password@example.test/study?token=secret", branch: "main", commitSha: "abc" }, deployment: { url: "https://study.test/?token=secret" }, runs: [], promotedAt: at },
     tree: [
       { id: "root", kind: "root", title: "Study Log", status: "in-progress", runIds: ["run-portfolio"], createdAt: at, updatedAt: at },
       { id: "feature-timer", parentId: "root", kind: "feature", title: "공부 시간 기록", status: "done", runIds: ["run-portfolio"], createdAt: at, updatedAt: at },
@@ -125,7 +129,33 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
     method: "GET", path: "/api/projects/project-study", headers: {},
   }, { modelRoot: root, harnessRoot: join(root, "runs") });
   assert.equal((reloadedView.body as typeof savedView).purposeSelection?.purpose, "portfolio");
+  await appendProjectHistoryEvent(root, {
+    version: 1,
+    id: "history-credential",
+    projectId: "project-study",
+    type: "deployment-created",
+    at,
+    summary: "preview deployment recorded",
+    reference: "https://preview.example/#oauth_token=secret",
+  });
+  await appendProjectHistoryEvent(root, {
+    version: 1,
+    id: "history-nested-credential",
+    projectId: "project-study",
+    type: "deployment-created",
+    at,
+    summary: "nested preview deployment recorded",
+    reference: "desktop-job:job-1:https://preview.example/#oauth_token=secret",
+  });
   const evidence = await collectProjectEvidence(root, join(root, "runs"), "project-study");
+  assert.equal(evidence.deployment.url, undefined);
+  const deploymentEvidence = evidence.evidence.find((item) => item.kind === "deployment");
+  assert.ok(deploymentEvidence);
+  assert.equal(deploymentEvidence.summary.includes("token=secret"), false);
+  assert.equal(evidence.evidence.find((item) => item.id === "ev-run-credential")?.reference, undefined);
+  assert.equal(evidence.evidence.find((item) => item.id === "ev-nested-credential")?.reference, undefined);
+  assert.equal(evidence.evidence.find((item) => item.id === "history-credential")?.reference, undefined);
+  assert.equal(evidence.evidence.find((item) => item.id === "history-nested-credential")?.reference, undefined);
   const draft = buildPortfolioDraft(evidence);
   assert.match(draft.overview, /Study Log/);
   assert.match(draft.readme, /공부 시간 기록/);
@@ -142,6 +172,7 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
   assert.equal((portfolio.body as { grounding: { grounded: boolean; documentGrounded: boolean } }).grounding.grounded, true);
   assert.equal((portfolio.body as { grounding: { documentGrounded: boolean } }).grounding.documentGrounded, true);
   assert.equal((portfolio.body as { evidence: Array<{ id: string }> }).evidence.some((item) => item.id === "ev-test"), true);
+  assert.equal(JSON.stringify(portfolio.body).includes("token=secret"), false);
   const document = (portfolio.body as { document: { sections: Array<{ id: string; content: string; generatedContent: string; included: boolean }>; readme: string } }).document;
   const edited = await routeWebControlPlaneRequest({
     method: "PUT", path: "/api/projects/project-study/portfolio", headers: {},
