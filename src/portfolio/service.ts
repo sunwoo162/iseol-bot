@@ -3,11 +3,15 @@ import { assertIdentityId, assertTimestamp, type Principal } from "../identity/c
 import type { PortfolioEntry, PortfolioEntryInput, PortfolioEvidence, PortfolioService, PortfolioServiceOptions, PortfolioSnapshot, PublicPortfolioView } from "./contracts.js";
 import { withDurablePortfolioEntryLock } from "./entry-lock.js";
 import { findPortfolioEntryUnlocked, listPortfolioEntriesUnlocked, loadPortfolioEntryUnlocked, savePortfolioEntry, savePortfolioEntryUnlocked } from "./store.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
 function required(value: string, label: string, max: number): string { const trimmed = value.trim(); if (!trimmed || trimmed.length > max) throw new Error(`${label} is required`); return trimmed; }
 function actorFromProvider(provider?: string): PortfolioEvidence["actorType"] { return provider && /agent|ai|chatgpt|runtime/i.test(provider) ? "ai" : "system"; }
 function validateVisibility(value: string): asserts value is PortfolioEntry["visibility"] { if (!["public", "unlisted", "private"].includes(value)) throw new Error("Invalid portfolio visibility"); }
+function safePublicText(value: string): string { return sanitizeCredentialText(value, Math.max(value.length, 1)); }
+function safePublicEntry(entry: PortfolioEntry): PortfolioEntry { return { ...entry, title: safePublicText(entry.title), summary: safePublicText(entry.summary) }; }
+function safePublicEvidence(evidence: PortfolioEvidence): PortfolioEvidence { return { ...evidence, summary: safePublicText(evidence.summary) }; }
 
 export function createPortfolioService(root: string, options: PortfolioServiceOptions): PortfolioService {
   const now = options.now ?? (() => new Date().toISOString());
@@ -62,7 +66,7 @@ export function createPortfolioService(root: string, options: PortfolioServiceOp
     async listPortfolio(principal) { ensurePrincipal(principal); return readSnapshot(principal); },
     async listPublicEntries(userId) {
       assertIdentityId(userId);
-      return (await readEntries(userId)).filter((entry) => entry.visibility === "public");
+      return (await readEntries(userId)).filter((entry) => entry.visibility === "public").map(safePublicEntry);
     },
     async createEntry(principal, input) { ensurePrincipal(principal); await validateEntryInput(principal, input); const at = now(); assertTimestamp(at, "portfolio timestamp"); const entry: PortfolioEntry = { version: 1, id: `portfolio-${randomUUID()}`, userId: principal.userId, title: required(input.title, "Portfolio title", 200), summary: required(input.summary, "Portfolio summary", 10_000), visibility: input.visibility, evidenceIds: [...new Set(input.evidenceIds)], createdAt: at, updatedAt: at }; await savePortfolioEntry(root, entry); return entry; },
     async updateEntry(principal, entryId, patch) { ensurePrincipal(principal); assertIdentityId(entryId); return withDurablePortfolioEntryLock(root, principal.userId, entryId, async () => { const current = await loadPortfolioEntryUnlocked(root, principal.userId, entryId); if (!current || current.userId !== principal.userId) throw new Error("Portfolio entry not found"); const nextInput: PortfolioEntryInput = { title: patch.title ?? current.title, summary: patch.summary ?? current.summary, visibility: patch.visibility ?? current.visibility, evidenceIds: patch.evidenceIds ?? current.evidenceIds }; await validateEntryInput(principal, nextInput); const next: PortfolioEntry = { ...current, title: required(nextInput.title, "Portfolio title", 200), summary: required(nextInput.summary, "Portfolio summary", 10_000), visibility: nextInput.visibility, evidenceIds: [...new Set(nextInput.evidenceIds)], updatedAt: now() }; await savePortfolioEntryUnlocked(root, next); return next; }, { waitForMs: 2_000 }); },
@@ -76,12 +80,13 @@ export function createPortfolioService(root: string, options: PortfolioServiceOp
         if (!entry || entry.visibility === "private") return null;
         const evidence = await collectEvidence({ userId: entry.userId, sessionId: "public-portfolio", roles: ["user"] });
         const evidenceById = new Map(evidence.map((item) => [item.id, item]));
-        const { userId: _userId, evidenceIds: _evidenceIds, ...publicEntry } = entry;
+        const { userId: _userId, evidenceIds: _evidenceIds, ...publicEntry } = safePublicEntry(entry);
         return {
           entry: publicEntry,
           evidence: entry.evidenceIds
             .map((id) => evidenceById.get(id))
             .filter((item): item is PortfolioEvidence => Boolean(item && item.verificationStatus === "verified"))
+            .map(safePublicEvidence)
             .map(({ id: _id, sourceId: _sourceId, projectId: _projectId, reportId: _reportId, ...item }) => item),
         };
       }, { waitForMs: 2_000 });
