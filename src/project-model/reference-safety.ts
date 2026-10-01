@@ -6,6 +6,7 @@ const OPAQUE_REFERENCE_SCHEMES = new Set([
 ]);
 
 const BEARER_CREDENTIAL = /\bBearer\s+[^\s,;}]+/i;
+const NESTED_URI_SCHEME = /(?:^|[^A-Za-z0-9+.-])(?:https?|javascript|file|data|blob|ftp|ws|wss|mailto|vbscript):/i;
 
 function decodedRepresentations(value: string): string[] | undefined {
   const representations = [value];
@@ -43,8 +44,17 @@ function assertSafeReferenceRepresentation(value: string): void {
     throw new Error("unsupported project evidence reference scheme");
   }
   if (containsCredentialLikeContent(value)) throw new Error("credential-shaped project evidence reference");
-  const nestedHttpUrl = /(https?:\/\/\S+)/i.exec(value)?.[1];
-  if (nestedHttpUrl) assertCheckHttpUrl(nestedHttpUrl);
+  if (!scheme || /^https?:\/\//i.test(value)) return;
+  const payload = value.slice(scheme.length + 1);
+  if (scheme === "github" && /^issue:/i.test(payload)) {
+    const issueUrl = payload.slice("issue:".length);
+    if (!/^https?:\/\/\S+$/i.test(issueUrl)) throw new Error("github issue reference must contain one HTTP URL");
+    const authorityEnd = issueUrl.indexOf("://") + 3;
+    if (NESTED_URI_SCHEME.test(issueUrl.slice(authorityEnd))) throw new Error("github issue reference contains an extra URI");
+    assertCheckHttpUrl(issueUrl);
+    return;
+  }
+  if (NESTED_URI_SCHEME.test(payload)) throw new Error("opaque reference contains a nested URI");
 }
 
 export function sanitizeProjectEvidenceReference(value: string): string | undefined {
