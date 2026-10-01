@@ -122,9 +122,10 @@ test("syntax-only verifier evidence cannot be promoted to verified correctness f
 
 test("an evaluator failure keeps the answer pending and does not invent feedback", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-learning-evaluator-waiting-"));
+  const secret = "local evaluator timed out token=evaluator-secret https://preview.example/?access_token=evaluator-url-secret";
   const service = createLearningService(root, {
     now: () => at,
-    feedbackDispatcher: async () => ({ status: "waiting", blocker: "local evaluator timed out" }),
+    feedbackDispatcher: async () => ({ status: "waiting", blocker: secret }),
   } as any);
   const owner = principal("evaluator-waiting");
   const plan = await service.createLearningPlan(owner, { title: "Evaluator", description: "Evaluator", goals: ["Practice"] });
@@ -135,6 +136,9 @@ test("an evaluator failure keeps the answer pending and does not invent feedback
   assert.equal(answer.status, "evaluation-pending");
   const feedback = await service.getLearningAnswerFeedback(owner, answer.id);
   assert.equal(feedback?.status, "pending");
+  assert.equal(feedback?.blocker?.includes("evaluator-secret"), false);
+  assert.equal(feedback?.blocker?.includes("evaluator-url-secret"), false);
   assert.match(feedback?.blocker ?? "", /timed out/i);
+  assert.match(feedback?.blocker ?? "", /\[redacted\]|\[redacted-url\]/i);
   assert.equal(feedback?.evaluation, undefined);
 });

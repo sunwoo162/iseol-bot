@@ -32,6 +32,19 @@ test("learning session actions are owner-bound, idempotent, and distinguish self
   await assert.rejects(() => service.recordLearningSessionAction(other, session.id, { actionId: "other", type: "self-report" }), /not found|forbidden/i);
 });
 
+test("learning action Runtime blockers redact credential-shaped text", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-action-blocker-safety-"));
+  const secret = "action token=action-secret api_key=action-api-secret https://preview.example/?access_token=action-url-secret";
+  const service = createLearningService(root, { now: () => at, actionDispatcher: async () => ({ status: "waiting" as const, blocker: secret }) });
+  const owner = principal("action-blocker-owner");
+  const plan = await service.createLearningPlan(owner, { title: "Action blocker", description: "Action blocker", goals: ["Practice"] });
+  const session = await service.startLearningSession(owner, plan.id);
+  const action = await service.recordLearningSessionAction(owner, session.id, { actionId: "blocker-safe", type: "hint", contentRef: "concept-1" });
+  assert.equal(action.status, "waiting-runtime");
+  for (const value of ["action-secret", "action-api-secret", "action-url-secret"]) assert.equal(action.blocker?.includes(value), false);
+  assert.match(action.blocker ?? "", /\[redacted\]|\[redacted-url\]/i);
+});
+
 test("learning session action lists wait for each durable action lock before projecting state", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-learning-action-read-lock-"));
   const owner = principal("action-read-lock-owner");

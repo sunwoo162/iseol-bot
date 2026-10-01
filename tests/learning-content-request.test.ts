@@ -41,11 +41,13 @@ test("an explicitly injected local content Runtime can complete later through an
   let complete: ((lesson: Parameters<NonNullable<LearningContentDispatcher>>[0]["complete"] extends (input: infer T) => Promise<unknown> ? T : never) => Promise<unknown>) | undefined;
   const dispatcher: LearningContentDispatcher = async (request) => {
     complete = request.complete;
-    return { status: "accepted", blocker: "local content Runtime is processing" };
+    return { status: "accepted", blocker: "local content Runtime is processing token=content-secret" };
   };
   const { service, owner, session, preview } = await started(root, dispatcher);
   const queued = await service.requestLearningSessionContent(owner, session.id);
   assert.equal(queued.state, "waiting-runtime");
+  assert.equal(queued.blocker?.includes("content-secret"), false);
+  assert.match(queued.blocker ?? "", /Runtime/i);
   assert.ok(complete);
 
   await complete!({
@@ -67,6 +69,17 @@ test("an explicitly injected local content Runtime can complete later through an
     blocks: [{ id: "other", kind: "concept", conceptIds: [], minutes: 1, title: "무시", content: "무시되어야 합니다." }],
   });
   assert.equal(JSON.stringify(await service.getLearningSessionContent(owner, session.id)), before);
+});
+
+test("learning content Runtime exception blockers are redacted before durable storage", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-content-error-safety-"));
+  const secret = "content exception token=content-error-secret https://preview.example/?access_token=content-error-url";
+  const { service, owner, session } = await started(root, async () => { throw new Error(secret); });
+  const request = await service.requestLearningSessionContent(owner, session.id);
+  assert.equal(request.state, "waiting-runtime");
+  assert.equal(request.blocker?.includes("content-error-secret"), false);
+  assert.equal(request.blocker?.includes("content-error-url"), false);
+  assert.match(request.blocker ?? "", /\[redacted\]|\[redacted-url\]/i);
 });
 
 test("learning content reservation waits for a competing shared session lock", async () => {

@@ -11,7 +11,8 @@ function principal(userId: string): Principal { return { userId, sessionId: `${u
 
 test("feedback disputes preserve the reason, mark the answer disputed, and wait for re-evaluation Runtime", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-learning-dispute-"));
-  const service = createLearningService(root, { now: () => at });
+  const secret = "re-evaluation token=dispute-secret https://preview.example/?access_token=dispute-url-secret";
+  const service = createLearningService(root, { now: () => at, feedbackDispatcher: async () => ({ status: "waiting" as const, blocker: secret }) });
   const owner = principal("dispute-owner");
   const other = principal("dispute-other");
   const plan = await service.createLearningPlan(owner, { title: "Dispute", description: "Dispute", goals: ["Practice"] });
@@ -26,7 +27,10 @@ test("feedback disputes preserve the reason, mark the answer disputed, and wait 
   assert.equal(result.dispute.status, "waiting-runtime");
   assert.equal(result.dispute.feedbackId, feedback.id);
   assert.equal(result.dispute.answerId, answer.id);
+  assert.equal(result.dispute.blocker.includes("dispute-secret"), false);
+  assert.equal(result.dispute.blocker.includes("dispute-url-secret"), false);
   assert.match(result.dispute.blocker, /re-evaluation|재평가/i);
+  assert.match(result.dispute.blocker, /\[redacted\]|\[redacted-url\]/i);
   assert.equal(result.feedback.status, "disputed");
   assert.equal(result.answer.status, "disputed");
   assert.match(result.feedback.blocker, /dispute|이의/i);
