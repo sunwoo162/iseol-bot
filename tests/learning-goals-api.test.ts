@@ -6,9 +6,28 @@ import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { createLearningService } from "../src/learning/service.js";
+import type { LearningService } from "../src/learning/contracts.js";
 import { routeLearningRequest } from "../src/learning/router.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
+
+test("learning API redacts credential-shaped service errors without changing not-found status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-learning-error-redaction-"));
+  const platformRoot = join(root, "platform");
+  const platform = createPlatformUserService(platformRoot, { now: () => "2026-09-26T12:00:00.000Z" });
+  const user = await platform.createUser({ id: "learning-error-user", email: "learning-error@example.com", displayName: "Learning Error", timezone: "Asia/Seoul" });
+  const session = await platform.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-27T12:00:00.000Z" });
+  const failingLearning = {
+    listLearningGoals: async () => { throw new Error("learning not found token%ZZ=learning-secret"); },
+  } as unknown as LearningService;
+
+  const result = await routeLearningRequest({ method: "GET", path: "/api/user/learning/goals", headers: { authorization: `Bearer ${session.token}` } }, { platformUserService: platform, learningService: failingLearning });
+
+  assert.equal(result.status, 404);
+  const message = (result.body as { error: string }).error;
+  assert.equal(message.includes("learning-secret"), false);
+  assert.match(message, /\[redacted\]/i);
+});
 
 test("learning goal API stores the required input and does not expose another user's goal", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-learning-goal-api-"));

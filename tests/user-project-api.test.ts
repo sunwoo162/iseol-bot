@@ -10,9 +10,29 @@ import { createGrowthService } from "../src/growth/read-model.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createSettingsService } from "../src/settings/service.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
+import type { UserProjectService } from "../src/project-model/user-project-service.js";
+import { routeUserProjectRequest } from "../src/project-model/user-project-router.js";
 import { loadHarnessRun, saveHarnessRun } from "../src/harness/run-store.js";
 import { transitionRunState } from "../src/harness/state-machine.js";
 import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
+
+test("user project API redacts credential-shaped service errors without changing not-found status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-user-project-error-redaction-"));
+  const platformRoot = join(root, "platform");
+  const platform = createPlatformUserService(platformRoot, { now: () => "2026-09-25T12:00:00.000Z" });
+  const user = await platform.createUser({ id: "project-error-user", email: "project-error@example.com", displayName: "Project Error", timezone: "Asia/Seoul" });
+  const session = await platform.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-26T12:00:00.000Z" });
+  const failingProjects = {
+    listProjects: async () => { throw new Error("project not found token%ZZ=project-secret"); },
+  } as unknown as UserProjectService;
+
+  const result = await routeUserProjectRequest({ method: "GET", path: "/api/user/projects", headers: { authorization: `Bearer ${session.token}` } }, { platformUserService: platform, userProjectService: failingProjects });
+
+  assert.equal(result.status, 404);
+  const message = (result.body as { error: string }).error;
+  assert.equal(message.includes("project-secret"), false);
+  assert.match(message, /\[redacted\]/i);
+});
 
 test("user project API binds project and work request to the authenticated user", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-user-project-api-"));

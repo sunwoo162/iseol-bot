@@ -7,8 +7,28 @@ import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { createMemoryService } from "../src/memory/service.js";
 import { createAiChatService } from "../src/ai-chat/service.js";
+import type { AiChatService } from "../src/ai-chat/contracts.js";
+import { routeAiChatRequest } from "../src/ai-chat/router.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
+
+test("AI chat API redacts credential-shaped service errors without changing not-found status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-chat-error-redaction-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => "2026-09-26T12:00:00.000Z" });
+  const user = await users.createUser({ id: "ai-chat-error-user", email: "ai-chat-error@example.com", displayName: "AI Chat Error", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-27T12:00:00.000Z" });
+  const failingChat = {
+    listConversations: async () => { throw new Error("AI chat not found token%ZZ=ai-chat-secret"); },
+  } as unknown as AiChatService;
+
+  const result = await routeAiChatRequest({ method: "GET", path: "/api/user/ai-chat/conversations", headers: { authorization: `Bearer ${session.token}` } }, { platformUserService: users, aiChatService: failingChat });
+
+  assert.equal(result.status, 404);
+  const message = (result.body as { error: string }).error;
+  assert.equal(message.includes("ai-chat-secret"), false);
+  assert.match(message, /\[redacted\]/i);
+});
 
 test("AI chat API keeps conversations private and reports Runtime waiting honestly", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-ai-chat-api-")); const platformRoot = join(root, "platform");

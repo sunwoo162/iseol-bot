@@ -2,6 +2,7 @@ import type { PlatformUserService } from "../platform-user/contracts.js";
 import type { UserRequest, UserResponse } from "../web-control-plane/user-router.js";
 import type { LearningService } from "./contracts.js";
 import type { UserProjectService } from "../project-model/user-project-service.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 export type LearningRouteServices = {
   platformUserService: PlatformUserService;
@@ -406,9 +407,10 @@ export async function routeLearningRequest(request: UserRequest, services: Learn
     }
     return response(404, { error: "not found" });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "learning request failed";
-    if (/not found/i.test(message)) return response(404, { error: message });
-    if (/conflict/i.test(message)) return response(409, { error: message });
+    const rawMessage = error instanceof Error ? error.message : "learning request failed";
+    const message = sanitizeCredentialText(rawMessage, 240);
+    if (/not found/i.test(rawMessage)) return response(404, { error: message });
+    if (/conflict/i.test(rawMessage)) return response(409, { error: message });
     return response(400, { error: message });
   }
 }

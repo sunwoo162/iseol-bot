@@ -2,6 +2,7 @@ import type { PlatformUserService } from "../platform-user/contracts.js";
 import type { UserRequest, UserResponse } from "../web-control-plane/user-router.js";
 import type { AiChatService } from "./contracts.js";
 import type { AiChatAttachmentInput, AiChatContextSelection } from "./contracts.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 export type AiChatRouteServices = { platformUserService: PlatformUserService; aiChatService?: AiChatService };
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
@@ -63,5 +64,5 @@ export async function routeAiChatRequest(request: UserRequest, services: AiChatR
     if (request.method !== "GET") return response(405, { error: "method not allowed" });
     const conversation = await chat.getConversation(principal, conversationId);
     return conversation ? response(200, { conversation }) : response(404, { error: "AI chat conversation not found" });
-  } catch (error) { const message = error instanceof Error ? error.message : "AI chat request failed"; if (/not found/i.test(message)) return response(404, { error: message }); return response(400, { error: message }); }
+  } catch (error) { const rawMessage = error instanceof Error ? error.message : "AI chat request failed"; const message = sanitizeCredentialText(rawMessage, 240); if (/not found/i.test(rawMessage)) return response(404, { error: message }); return response(400, { error: message }); }
 }
