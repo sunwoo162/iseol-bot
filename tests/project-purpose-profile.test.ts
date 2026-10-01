@@ -15,7 +15,7 @@ import {
 import type { ProjectWorkspace } from "../src/project-model/contracts.js";
 import { loadProjectWorkspace, saveProjectWorkspace, setProjectPurpose } from "../src/project-model/workspace-store.js";
 import { withDurableProjectWorkspaceLock } from "../src/project-model/workspace-lock.js";
-import { loadProjectHistory } from "../src/project-model/history-store.js";
+import { appendProjectHistoryEvent, loadProjectHistory } from "../src/project-model/history-store.js";
 import { saveHarnessRun } from "../src/harness/run-store.js";
 import type { HarnessRuntimeRunEnvelope } from "../src/harness/contracts.js";
 import { loadHarnessRun } from "../src/harness/run-store.js";
@@ -97,7 +97,10 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
     request: { version: 1, runId: "run-portfolio", mode: "project-workspace", objective: "공부 기록 서비스", targetRoot: root },
     preflight: { version: 1, runId: "run-portfolio", status: "ready", policy: { version: 1, loadedAt: at, sources: [], effectiveSha256: "a".repeat(64) } },
     state: { version: 1, stage: "TEST", status: "DONE", completedStages: ["PREFLIGHT", "TEST"], skippedStages: [], updatedAt: at },
-    evidence: [{ version: 1, id: "ev-test", kind: "test", stage: "TEST", recordedAt: at, summary: "npm test passed", reference: "test-run" }],
+    evidence: [
+      { version: 1, id: "ev-test", kind: "test", stage: "TEST", recordedAt: at, summary: "npm test passed", reference: "test-run" },
+      { version: 1, id: "ev-run-credential", kind: "deployment", stage: "DEPLOY", recordedAt: at, summary: "preview deployed", reference: "https://preview.example/?access_token=secret" },
+    ],
     updatedAt: at,
   };
   await saveHarnessRun(join(root, "runs"), run);
@@ -125,11 +128,22 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
     method: "GET", path: "/api/projects/project-study", headers: {},
   }, { modelRoot: root, harnessRoot: join(root, "runs") });
   assert.equal((reloadedView.body as typeof savedView).purposeSelection?.purpose, "portfolio");
+  await appendProjectHistoryEvent(root, {
+    version: 1,
+    id: "history-credential",
+    projectId: "project-study",
+    type: "deployment-created",
+    at,
+    summary: "preview deployment recorded",
+    reference: "https://preview.example/#oauth_token=secret",
+  });
   const evidence = await collectProjectEvidence(root, join(root, "runs"), "project-study");
   assert.equal(evidence.deployment.url, undefined);
   const deploymentEvidence = evidence.evidence.find((item) => item.kind === "deployment");
   assert.ok(deploymentEvidence);
   assert.equal(deploymentEvidence.summary.includes("token=secret"), false);
+  assert.equal(evidence.evidence.find((item) => item.id === "ev-run-credential")?.reference, undefined);
+  assert.equal(evidence.evidence.find((item) => item.id === "history-credential")?.reference, undefined);
   const draft = buildPortfolioDraft(evidence);
   assert.match(draft.overview, /Study Log/);
   assert.match(draft.readme, /공부 시간 기록/);

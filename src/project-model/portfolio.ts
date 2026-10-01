@@ -3,6 +3,7 @@ import type { HarnessEvidenceRecord, HarnessRuntimeRunEnvelope } from "../harnes
 import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
 import { loadProjectHistory } from "./history-store.js";
 import { loadProjectWorkspace } from "./workspace-store.js";
+import { sanitizeProjectEvidenceReference } from "./reference-safety.js";
 import type { ProjectWorkspace } from "./contracts.js";
 import type { ProjectPurpose } from "./execution-profile.js";
 
@@ -66,14 +67,17 @@ function safeDeploymentUrl(value: string | undefined): string | undefined {
 }
 
 function evidenceFromRun(run: HarnessRuntimeRunEnvelope): ProjectEvidence[] {
-  return run.evidence.slice(0, 200).map((record: HarnessEvidenceRecord) => ({
-    id: record.id,
-    kind: record.kind,
-    summary: safeText(record.summary),
-    ...(record.reference ? { reference: safeText(record.reference, 240) } : {}),
-    source: "run",
-    runId: run.request.runId,
-  }));
+  return run.evidence.slice(0, 200).map((record: HarnessEvidenceRecord) => {
+    const reference = record.reference === undefined ? undefined : sanitizeProjectEvidenceReference(record.reference);
+    return {
+      id: record.id,
+      kind: record.kind,
+      summary: safeText(record.summary),
+      ...(reference ? { reference: safeText(reference, 240) } : {}),
+      source: "run" as const,
+      runId: run.request.runId,
+    };
+  });
 }
 
 export async function collectProjectEvidence(
@@ -96,9 +100,17 @@ export async function collectProjectEvidence(
     ...runs.flatMap(evidenceFromRun),
   ];
   const history = await loadProjectHistory(modelRoot, projectId);
-  evidence.push(...history.slice(0, 200).map((event) => ({
-    id: event.id, kind: event.type, summary: safeText(event.summary), ...(event.reference ? { reference: safeText(event.reference, 240) } : {}), source: "history" as const, ...(event.runId ? { runId: event.runId } : {}),
-  })));
+  evidence.push(...history.slice(0, 200).map((event) => {
+    const reference = event.reference === undefined ? undefined : sanitizeProjectEvidenceReference(event.reference);
+    return {
+      id: event.id,
+      kind: event.type,
+      summary: safeText(event.summary),
+      ...(reference ? { reference: safeText(reference, 240) } : {}),
+      source: "history" as const,
+      ...(event.runId ? { runId: event.runId } : {}),
+    };
+  }));
   return {
     projectId: workspace.id,
     projectName: safeText(workspace.name, 160),
