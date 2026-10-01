@@ -5,10 +5,11 @@ import { Icon } from '../components/Icon';
 import { AICharacter } from '../components/Character';
 import { createUserProject, getRuntimeStatus, UserApiError, type UserProject, type UserRuntimeStatus } from '../api/userApi';
 import { buildIdeaLabRuntimeView } from '../domain/ideaLabState';
+import { userFacingError } from '../errorMessage';
 
 type Phase = 'input' | 'clarifying' | 'confirming' | 'creating' | 'created';
 
-function errorMessage(error: unknown): string { return error instanceof UserApiError ? error.message : error instanceof Error ? error.message : '아이디어 프로젝트를 저장하지 못했습니다.'; }
+function errorMessage(error: unknown): string { return userFacingError(error, '아이디어 프로젝트를 저장하지 못했습니다.'); }
 function projectName(idea: string): string { const compact = idea.replace(/\s+/g, ' ').trim(); return (compact.slice(0, 56) || '새 아이디어 프로젝트').replace(/[.!?。！？]+$/, ''); }
 
 export default function IdeaLab() {

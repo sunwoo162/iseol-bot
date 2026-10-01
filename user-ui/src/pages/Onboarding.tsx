@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { UserCharacterAsset, AICompanionAsset } from '../components/CharacterAssets';
 import { completeOnboarding, type CharacterType } from '../store/userStore';
 import { Icon, type IconName } from '../components/Icon';
+import { userFacingError } from '../errorMessage';
 
 const TOTAL_STEPS = 7;
 
@@ -42,7 +43,7 @@ export default function Onboarding() {
         await completeOnboarding(name || '이설이', selectedChar, selectedInterests, selectedActivities);
         navigate('/world');
       } catch (error) {
-        setSaveError(error instanceof Error ? error.message : '온보딩 정보를 저장하지 못했습니다.');
+        setSaveError(userFacingError(error, '온보딩 정보를 저장하지 못했습니다.'));
       } finally {
         setSaving(false);
       }

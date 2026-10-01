@@ -4,8 +4,9 @@ import { AppShell } from '../components/Navigation';
 import { Icon } from '../components/Icon';
 import { AICompanionAsset, UserCharacterAsset } from '../components/CharacterAssets';
 import { approveAiChatExecutionPlan, createAiChatConversation, createAiChatExecutionPlanWorkRequest, getAiAgentProfile, getAiChatConversation, getRuntimeStatus, getSettings, listAiChatConversations, listUserProjects, rejectAiChatExecutionPlan, sendAiChatMessage, type AiAgentProfile, type AiChatAttachmentInput, type AiChatContextSelection, type AiChatConversation, type UserProject, type UserRuntimeStatus, UserApiError } from '../api/userApi';
+import { userFacingError } from '../errorMessage';
 
-function errorMessage(error: unknown): string { return error instanceof UserApiError ? error.message : error instanceof Error ? error.message : 'AI 대화를 불러오지 못했습니다.'; }
+function errorMessage(error: unknown): string { return userFacingError(error, 'AI 대화를 불러오지 못했습니다.'); }
 function timeLabel(value: string): string { return new Date(value).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }); }
 function latestProjectContextId(conversation: AiChatConversation): string | null { return [...conversation.messages].reverse().find((message) => message.role === 'user')?.projectId ?? null; }
 const DEFAULT_CONTEXT_SELECTION: AiChatContextSelection = { memory: true, projectFiles: true, learningHistory: true, activityTimeline: true, teamDocs: true };

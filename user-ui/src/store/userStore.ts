@@ -1,5 +1,6 @@
 import { appendMemory, clearSession, getGrowth, getMe, getWorld, logOut, updateWorld, type CharacterType, type GrowthSnapshot, type MemoryRecord, type UserCharacter, type UserWorld } from '../api/userApi';
 import { UserApiError } from '../api/userApi';
+import { userFacingError } from '../errorMessage';
 
 export type { CharacterType } from '../api/userApi';
 
@@ -86,7 +87,7 @@ export async function loadProfile(): Promise<UserProfile> {
       if (error instanceof UserApiError && error.status === 401) {
         _profile = { ...defaultProfile, status: 'unauthenticated', error: undefined };
       } else {
-        _profile = { ..._profile, status: 'error', error: error instanceof Error ? error.message : '사용자 정보를 불러오지 못했습니다.' };
+        _profile = { ..._profile, status: 'error', error: userFacingError(error, '사용자 정보를 불러오지 못했습니다.') };
       }
     }
     _listeners.forEach((listener) => listener());

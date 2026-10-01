@@ -5,9 +5,10 @@ import { UserCharacterAsset } from '../components/CharacterAssets';
 import { Icon, type IconName } from '../components/Icon';
 import { getProfile, updateProfile, type PublicProfile, UserApiError } from '../api/userApi';
 import { useUser } from '../store/useUser';
+import { userFacingError } from '../errorMessage';
 
 function errorMessage(error: unknown): string {
-  return error instanceof UserApiError ? error.message : error instanceof Error ? error.message : '프로필을 불러오지 못했습니다.';
+  return userFacingError(error, '프로필을 불러오지 못했습니다.');
 }
 
 const growthStatItems: Array<{ key: keyof NonNullable<PublicProfile['publicGrowth']>['stats']; label: string; icon: IconName }> = [

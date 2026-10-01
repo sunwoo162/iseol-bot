@@ -8,6 +8,7 @@ import { LevelBadge, XPBar } from '../components/UI';
 import { updateCharacter } from '../api/userApi';
 import { useUser } from '../store/useUser';
 import { loadProfile } from '../store/userStore';
+import { userFacingError } from '../errorMessage';
 
 const accessories = [
   { id: 'cap', name: '블루 캡', icon: '🧢', unlocked: true },
@@ -144,7 +145,7 @@ export function CharacterCustomize() {
       await loadProfile();
       setSaveMessage('캐릭터 설정을 저장했습니다.');
     } catch (error) {
-      setSaveMessage(error instanceof Error ? error.message : '캐릭터 설정을 저장하지 못했습니다.');
+      setSaveMessage(userFacingError(error, '캐릭터 설정을 저장하지 못했습니다.'));
     } finally {
       setSaving(false);
     }

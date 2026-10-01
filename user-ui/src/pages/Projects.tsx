@@ -3,8 +3,9 @@ import { Link, useParams } from 'react-router';
 import { AppShell } from '../components/Navigation';
 import { Btn, SectionHeader, StatusBadge } from '../components/UI';
 import { acceptAiTeamProposal, cancelProjectWorkRequest, createProjectWorkRequest, createUserProject, getSettings, getUserProject, getUserProjectFile, listAiTeamDiscussions, listAiTeamProposals, listUserProjects, pauseUserProjectRun, rejectAiTeamProposal, requestAiTeamDiscussion, requestAiTeamProposal, resumeUserProjectRun, retryUserProjectRun, scheduleUserProjectRuns, startUserProjectRun, updateUserProjectTeam, type AiTeamDiscussion, type AiTeamProposal, type UserProject, type UserProjectView, type UserProjectWorkspaceDiffHunk, type UserProjectWorkspaceDiffLine, type UserProjectWorkspaceFilePreview, UserApiError } from '../api/userApi';
+import { userFacingError } from '../errorMessage';
 
-function message(error: unknown): string { return error instanceof UserApiError ? error.message : error instanceof Error ? error.message : '프로젝트 요청을 처리하지 못했습니다.'; }
+function message(error: unknown): string { return userFacingError(error, '프로젝트 요청을 처리하지 못했습니다.'); }
 function date(value: string): string { return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium' }).format(new Date(value)); }
 type ProjectListItem = UserProject & { runtime: UserProjectView["runtime"] };
 function projectRuntimeSummary(runtime: ProjectListItem["runtime"]): string {
