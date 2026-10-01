@@ -6,9 +6,28 @@ import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { createPlatformUserService } from "../src/platform-user/service.js";
+import type { SettingsService } from "../src/settings/contracts.js";
 import { routeSettingsRequest } from "../src/settings/router.js";
 import { createSettingsService } from "../src/settings/service.js";
 import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
+
+test("settings API redacts credential-shaped service errors while preserving validation status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-settings-error-redaction-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => "2026-09-26T12:00:00.000Z" });
+  const user = await users.createUser({ id: "settings-error-user", email: "settings-error@example.com", displayName: "Settings Error", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-27T12:00:00.000Z" });
+  const failingSettings = {
+    getSettings: async () => { throw new Error("Invalid settings token%ZZ=settings-secret"); },
+  } as unknown as SettingsService;
+
+  const result = await routeSettingsRequest({ method: "GET", path: "/api/user/settings", headers: { authorization: `Bearer ${session.token}` } }, { platformUserService: users, settingsService: failingSettings });
+
+  assert.equal(result.status, 400);
+  const message = (result.body as { error: string }).error;
+  assert.equal(message.includes("settings-secret"), false);
+  assert.match(message, /\[redacted\]/i);
+});
 
 test("settings API persists authenticated permission changes and fails closed", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-settings-api-"));

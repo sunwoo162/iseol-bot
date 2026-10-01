@@ -5,6 +5,7 @@ import type { UserProjectService, UserProjectTeamMode } from "./user-project-ser
 import type { SettingsService } from "../settings/contracts.js";
 import type { AiTeamProposalService } from "../ai-team/contracts.js";
 import type { AiTeamDiscussionService } from "../ai-team/contracts.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 export type UserProjectRouteServices = { platformUserService: PlatformUserService; userProjectService?: UserProjectService; aiTeamProposalService?: AiTeamProposalService; aiTeamDiscussionService?: AiTeamDiscussionService; settingsService?: SettingsService; enqueueProjectRun?: (runId: string) => Promise<"accepted" | "already-active" | "not-configured"> };
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
@@ -202,9 +203,10 @@ export async function routeUserProjectRequest(request: UserRequest, services: Us
     }
     return response(404, { error: "not found" });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "project request failed";
-    if (/not found/i.test(message)) return response(404, { error: message });
-    if (/already|queued|waiting|running|terminal|runtime/i.test(message)) return response(409, { error: message });
+    const rawMessage = error instanceof Error ? error.message : "project request failed";
+    const message = sanitizeCredentialText(rawMessage, 240);
+    if (/not found/i.test(rawMessage)) return response(404, { error: message });
+    if (/already|queued|waiting|running|terminal|runtime/i.test(rawMessage)) return response(409, { error: message });
     return response(400, { error: message });
   }
 }

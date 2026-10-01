@@ -1,5 +1,6 @@
 import type { PlatformUserService } from "../platform-user/contracts.js";
 import type { UserRequest, UserResponse } from "../web-control-plane/user-router.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 import type { SettingsService, UserSettingsPatch } from "./contracts.js";
 
 export type SettingsRouteServices = { platformUserService: PlatformUserService; settingsService?: SettingsService };
@@ -35,8 +36,9 @@ export async function routeSettingsRequest(request: UserRequest, services: Setti
     };
     return response(200, { settings: await services.settingsService.updateSettings(principal, patch) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "settings request failed";
-    if (/invalid|boolean|required/i.test(message)) return response(400, { error: message });
+    const rawMessage = error instanceof Error ? error.message : "settings request failed";
+    const message = sanitizeCredentialText(rawMessage, 240);
+    if (/invalid|boolean|required/i.test(rawMessage)) return response(400, { error: message });
     return response(409, { error: message });
   }
 }

@@ -1,6 +1,7 @@
 import type { PlatformUserService } from "../platform-user/contracts.js";
 import type { UserRequest, UserResponse } from "../web-control-plane/user-router.js";
 import type { StudyService } from "./contracts.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 export type StudyRouteServices = { platformUserService: PlatformUserService; studyService?: StudyService };
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
@@ -18,7 +19,7 @@ const decodePathValue = (value: string): string | null => {
   }
 };
 const idAfter = (pathname: string, prefix: string): string | null => { if (!pathname.startsWith(prefix)) return null; return decodePathValue(pathname.slice(prefix.length)); };
-function errorResponse(error: unknown): UserResponse { const message = error instanceof Error ? error.message : "study request failed"; if (/not found/i.test(message)) return response(404, { error: message }); if (/access|required|invalid|private|manager/i.test(message)) return response(/access|manager|private/i.test(message) ? 403 : 400, { error: message }); return response(409, { error: message }); }
+function errorResponse(error: unknown): UserResponse { const rawMessage = error instanceof Error ? error.message : "study request failed"; const message = sanitizeCredentialText(rawMessage, 240); if (/not found/i.test(rawMessage)) return response(404, { error: message }); if (/access|required|invalid|private|manager/i.test(rawMessage)) return response(/access|manager|private/i.test(rawMessage) ? 403 : 400, { error: message }); return response(409, { error: message }); }
 
 export async function routeStudyRequest(request: UserRequest, services: StudyRouteServices): Promise<UserResponse> {
   const url = new URL(request.path, "http://iseol.local");

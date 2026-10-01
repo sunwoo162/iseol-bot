@@ -6,9 +6,29 @@ import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { createPlatformUserService } from "../src/platform-user/service.js";
+import type { StudyService } from "../src/study/contracts.js";
+import { routeStudyRequest } from "../src/study/router.js";
 import { createTeamService } from "../src/teams/service.js";
 import { createStudyService } from "../src/study/service.js";
 import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
+
+test("study API redacts credential-shaped service errors without changing not-found status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-study-error-redaction-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => "2026-09-27T14:30:00.000Z" });
+  const user = await users.createUser({ id: "study-error-user", email: "study-error@example.com", displayName: "Study Error", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-28T14:30:00.000Z" });
+  const failingStudy = {
+    listStudySpaces: async () => { throw new Error("study not found token%ZZ=study-secret"); },
+  } as unknown as StudyService;
+
+  const result = await routeStudyRequest({ method: "GET", path: "/api/user/studies", headers: { authorization: `Bearer ${session.token}` } }, { platformUserService: users, studyService: failingStudy });
+
+  assert.equal(result.status, 404);
+  const message = (result.body as { error: string }).error;
+  assert.equal(message.includes("study-secret"), false);
+  assert.match(message, /\[redacted\]/i);
+});
 
 test("study API keeps team access, shared task metadata, and private submissions separate", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-study-api-"));

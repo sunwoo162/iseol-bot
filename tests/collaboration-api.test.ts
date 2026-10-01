@@ -6,10 +6,30 @@ import type { AddressInfo } from "node:net";
 import { request as httpRequest } from "node:http";
 import test from "node:test";
 import { createPlatformUserService } from "../src/platform-user/service.js";
+import type { TeamService } from "../src/teams/contracts.js";
+import { routeCollaborationRequest } from "../src/collaboration-router.js";
 import { createRecruitmentService } from "../src/recruitment/service.js";
 import { createSocialService } from "../src/social/service.js";
 import { createTeamService } from "../src/teams/service.js";
 import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
+
+test("collaboration API redacts credential-shaped team errors without changing not-found status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-collaboration-error-redaction-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => "2026-09-25T12:00:00.000Z" });
+  const user = await users.createUser({ id: "collab-error-user", email: "collab-error@example.com", displayName: "Collaboration Error", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-26T12:00:00.000Z" });
+  const failingTeams = {
+    listTeams: async () => { throw new Error("team not found token%ZZ=team-secret"); },
+  } as unknown as TeamService;
+
+  const result = await routeCollaborationRequest({ method: "GET", path: "/api/user/teams", headers: { authorization: `Bearer ${session.token}` } }, { platformUserService: users, teamService: failingTeams });
+
+  assert.equal(result.status, 404);
+  const message = (result.body as { error: string }).error;
+  assert.equal(message.includes("team-secret"), false);
+  assert.match(message, /\[redacted\]/i);
+});
 
 test("collaboration API persists teams, recruitment, membership, friendship, and ACL-bound messages", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-collaboration-api-"));
