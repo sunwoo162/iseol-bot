@@ -62,9 +62,10 @@ export async function routeIntegrationsRequest(request: UserRequest, services: I
     const delivery = await services.integrationService.dispatchDelivery(principal, queued.id);
     return response(200, { delivery });
   } catch (error) {
-    const message = error instanceof Error ? sanitizeCredentialText(error.message, 240) : "integration request failed";
-    if (/invalid|identity conflict/i.test(message)) return response(400, { error: message });
-    if (/not found/i.test(message)) return response(404, { error: message });
+    const rawMessage = error instanceof Error ? error.message : "integration request failed";
+    const message = sanitizeCredentialText(rawMessage, 240);
+    if (/invalid|identity conflict/i.test(rawMessage)) return response(400, { error: message });
+    if (/not found/i.test(rawMessage)) return response(404, { error: message });
     return response(409, { error: message });
   }
 }

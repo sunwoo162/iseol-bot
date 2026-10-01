@@ -91,3 +91,31 @@ test("integration API errors redact credential-shaped provider messages", async 
   for (const value of ["integration-secret", "integration-api-secret", "integration-url-secret"]) assert.equal(message.includes(value), false);
   assert.match(message, /\[redacted\]|\[redacted-url\]/i);
 });
+
+test("integration API error classification survives fail-closed credential sanitization", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-integrations-error-classification-"));
+  const users = createPlatformUserService(join(root, "platform"), { now: () => "2026-09-28T00:00:00.000Z" });
+  const settings = createSettingsService(join(root, "platform"), { now: () => "2026-09-28T00:00:00.000Z" });
+  const user = await users.createUser({ id: "integration-classification-user", email: "integration-classification@example.com", displayName: "Classification", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-29T00:00:00.000Z" });
+  const routeWithError = (error: string) => routeIntegrationsRequest({
+    method: "POST",
+    path: "/api/user/integrations/github/deliveries",
+    headers: { authorization: `Bearer ${session.token}` },
+    body: { sourceType: "project.lifecycle", sourceId: "project-classification", eventType: "project.completed", eventVersion: 1 },
+  }, {
+    platformUserService: users,
+    settingsService: settings,
+    integrationService: {
+      enqueueDelivery: async () => { throw new Error(error); },
+      dispatchDelivery: async () => { throw new Error("unused"); },
+      listDeliveries: async () => [],
+    },
+  });
+  const notFound = await routeWithError("integration not found access_token%ZZ=secret");
+  const invalid = await routeWithError("invalid token%ZZ=secret");
+  assert.equal(notFound.status, 404);
+  assert.equal(invalid.status, 400);
+  assert.equal((notFound.body as { error: string }).error.includes("secret"), false);
+  assert.equal((invalid.body as { error: string }).error.includes("secret"), false);
+});
