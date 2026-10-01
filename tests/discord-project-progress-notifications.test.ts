@@ -7,10 +7,42 @@ import { deliverProgressNotification, dispatchProgressNotification, formatProgre
 import { withDurableDiscordProgressNotificationLock } from "../src/discord-project/progress-notification-lock.js";
 
 test("progress notifications are bounded and redact credential-like text", () => {
-  const notification = formatProgressNotification({ id: "evt-1", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "token=secret-value completed" });
+  const notification = formatProgressNotification({ id: "evt-1", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "Authorization: Bearer progress-bearer preview https://preview.example/?access_token=progress-token api_key=progress-key completed" });
   assert.ok(notification);
-  assert.match(notification.content, /\[redacted\]/);
-  assert.equal(notification.content.includes("secret-value"), false);
+  assert.match(notification.content, /\[redacted(?:-url)?\]/);
+  assert.match(notification.content, /\[redacted-url\]/);
+  for (const secret of ["progress-bearer", "progress-token", "progress-key"]) {
+    assert.equal(notification.content.includes(secret), false);
+  }
+
+  const encoded = formatProgressNotification({ id: "evt-encoded", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "https%3A%2F%2Fpreview.example%2F%3Faccess_token%3Dencoded-progress-token" });
+  assert.ok(encoded);
+  assert.equal(encoded.content.includes("encoded-progress-token"), false);
+
+  const malformed = formatProgressNotification({ id: "evt-malformed", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "Authorization%3A%20Bearer%20malformed-progress-token%ZZ" });
+  assert.ok(malformed);
+  assert.equal(malformed.content.includes("malformed-progress-token"), false);
+
+  const malformedOnly = formatProgressNotification({ id: "evt-malformed-only", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "access_token%ZZ=malformed-only-progress-token" });
+  assert.ok(malformedOnly);
+  assert.equal(malformedOnly.content.includes("malformed-only-progress-token"), false);
+
+  for (const [id, summary, secret] of [
+    ["evt-split-authorization", "authoriz%ZZation=split-authorization-token", "split-authorization-token"],
+    ["evt-split-access-key", "access%ZZkey=split-access-key-token", "split-access-key-token"],
+  ] as const) {
+    const splitKey = formatProgressNotification({ id, type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary });
+    assert.ok(splitKey);
+    assert.equal(splitKey.content.includes(secret), false);
+  }
+
+  const percentage = formatProgressNotification({ id: "evt-percentage", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "Progress 50% complete" });
+  assert.ok(percentage);
+  assert.equal(percentage.content, "Project project-1: Progress 50% complete");
+
+  const tokenBudget = formatProgressNotification({ id: "evt-token-budget", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "Token budget 50% complete" });
+  assert.ok(tokenBudget);
+  assert.equal(tokenBudget.content, "Project project-1: Token budget 50% complete");
 });
 
 test("progress notification delivery is durable and idempotent", async () => {
