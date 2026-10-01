@@ -107,7 +107,7 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
   await saveHarnessRun(join(root, "runs"), run);
   const workspace: ProjectWorkspace = {
     version: 1, id: "project-study", name: "Study Log", status: "active",
-    genesis: { prototypeId: "prototype-study", repository: { url: "https://user:password@example.test/study?token=secret", branch: "main", commitSha: "abc" }, deployment: { url: "https://study.test/?token=secret" }, runs: [], promotedAt: at },
+    genesis: { prototypeId: "prototype-study", repository: { url: "https://user:password@example.test/study?access_token=secret", branch: "main", commitSha: "abc" }, deployment: { url: "https://study.test/?token=secret" }, runs: [], promotedAt: at },
     tree: [
       { id: "root", kind: "root", title: "Study Log", status: "in-progress", runIds: ["run-portfolio"], createdAt: at, updatedAt: at },
       { id: "feature-timer", parentId: "root", kind: "feature", title: "공부 시간 기록", status: "done", runIds: ["run-portfolio"], createdAt: at, updatedAt: at },
@@ -148,6 +148,7 @@ test("portfolio draft is grounded in durable workspace and run evidence", async 
     reference: "desktop-job:job-1:https://preview.example/#oauth_token=secret",
   });
   const evidence = await collectProjectEvidence(root, join(root, "runs"), "project-study");
+  assert.equal(evidence.repository.url, undefined);
   assert.equal(evidence.deployment.url, undefined);
   const deploymentEvidence = evidence.evidence.find((item) => item.kind === "deployment");
   assert.ok(deploymentEvidence);

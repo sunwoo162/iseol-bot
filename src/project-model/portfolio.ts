@@ -20,7 +20,7 @@ export type ProjectEvidenceBundle = {
   projectId: string;
   projectName: string;
   objective: string;
-  repository: { url: string; branch: string; commitSha: string };
+  repository: { url?: string; branch: string; commitSha: string };
   deployment: { url?: string; provider?: string };
   features: Array<{ id: string; title: string; status: string; runIds: string[] }>;
   runs: Array<{ runId: string; stage: string; status: string; objective: string }>;
@@ -56,7 +56,7 @@ function safeText(value: string, max = 500): string {
     .slice(0, max);
 }
 
-function safeDeploymentUrl(value: string | undefined): string | undefined {
+function safeHttpUrl(value: string | undefined): string | undefined {
   if (!value || /%(?![0-9a-f]{2})/i.test(value)) return undefined;
   try {
     assertCheckHttpUrl(value);
@@ -93,9 +93,10 @@ export async function collectProjectEvidence(
     const run = await loadHarnessRun(runRoot, runId);
     if (run) runs.push(run);
   }
-  const deploymentUrl = safeDeploymentUrl(workspace.genesis.deployment.url);
+  const repositoryUrl = safeHttpUrl(workspace.genesis.repository.url);
+  const deploymentUrl = safeHttpUrl(workspace.genesis.deployment.url);
   const evidence: ProjectEvidence[] = [
-    { id: `project:${workspace.id}:repository`, kind: "repository", summary: `저장소 ${safeText(workspace.genesis.repository.url, 240)} (${safeText(workspace.genesis.repository.branch, 120)})`, reference: safeText(workspace.genesis.repository.commitSha, 120), source: "project" },
+    { id: `project:${workspace.id}:repository`, kind: "repository", summary: repositoryUrl ? `저장소 ${repositoryUrl} (${safeText(workspace.genesis.repository.branch, 120)})` : `저장소 주소가 검증되지 않았습니다. (${safeText(workspace.genesis.repository.branch, 120)})`, reference: safeText(workspace.genesis.repository.commitSha, 120), source: "project" },
     { id: `project:${workspace.id}:deployment`, kind: "deployment", summary: deploymentUrl ? `배포 주소 ${deploymentUrl}` : "배포 주소가 검증되지 않았습니다.", source: "project" },
     ...runs.flatMap(evidenceFromRun),
   ];
@@ -115,7 +116,7 @@ export async function collectProjectEvidence(
     projectId: workspace.id,
     projectName: safeText(workspace.name, 160),
     objective: safeText(runs[0]?.request.objective ?? workspace.name),
-    repository: { url: safeText(workspace.genesis.repository.url, 240), branch: safeText(workspace.genesis.repository.branch, 120), commitSha: safeText(workspace.genesis.repository.commitSha, 120) },
+    repository: { ...(repositoryUrl ? { url: repositoryUrl } : {}), branch: safeText(workspace.genesis.repository.branch, 120), commitSha: safeText(workspace.genesis.repository.commitSha, 120) },
     deployment: { ...(deploymentUrl ? { url: deploymentUrl } : {}), ...(workspace.genesis.deployment.provider ? { provider: workspace.genesis.deployment.provider } : {}) },
     features: workspace.tree.filter((node) => node.kind === "feature" || node.kind === "task").map((node) => ({ id: node.id, title: safeText(node.title, 160), status: node.status, runIds: [...node.runIds] })),
     runs: runs.map((run) => ({ runId: run.request.runId, stage: run.state.stage, status: run.state.status, objective: safeText(run.request.objective) })),
@@ -147,7 +148,7 @@ export function buildPortfolioDraft(bundle: ProjectEvidenceBundle, generatedAt =
     ...(testEvidence.length > 0 ? [{ id: "verification", text: "테스트 또는 빌드 결과가 개발 기록에 남아 있습니다.", evidenceIds: testEvidence.map((item) => item.id) }] : []),
   ].filter((claim) => claim.evidenceIds.length > 0).map((claim) => ({ ...claim, text: humanize(claim.text) }));
   const features = bundle.features.map((feature) => `${feature.title} (${feature.status})`);
-  const technology = [`저장소: ${bundle.repository.url}`, `브랜치: ${bundle.repository.branch}`, `기준 커밋: ${bundle.repository.commitSha}`];
+  const technology = [`저장소: ${bundle.repository.url ?? "검증되지 않은 저장소 주소"}`, `브랜치: ${bundle.repository.branch}`, `기준 커밋: ${bundle.repository.commitSha}`];
   const troubleshooting = bundle.evidence.filter((item) => /fail|error|recover|reject|실패|복구/i.test(item.summary)).map((item) => `${item.summary} [근거: ${item.id}]`);
   const readme = [`# ${bundle.projectName}`, "", bundle.objective, "", "## 주요 기능", ...(features.length ? features.map((item) => `- ${item}`) : ["- 기록된 기능이 없습니다."]), "", "## 검증", ...(testEvidence.length ? testEvidence.map((item) => `- ${item.summary}`) : ["- 기록된 테스트 또는 빌드 근거가 없습니다."])].join("\n");
   const purpose = bundle.purpose;
