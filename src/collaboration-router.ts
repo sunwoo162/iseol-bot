@@ -4,6 +4,7 @@ import type { SocialService } from "./social/contracts.js";
 import type { TeamService } from "./teams/contracts.js";
 import type { TeamChatService } from "./team-chat/contracts.js";
 import type { UserRequest, UserResponse } from "./web-control-plane/user-router.js";
+import { sanitizeCredentialText } from "./security/text-safety.js";
 
 export type CollaborationRouteServices = { platformUserService: PlatformUserService; teamService?: TeamService; teamChatService?: TeamChatService; socialService?: SocialService; recruitmentService?: RecruitmentService };
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
@@ -24,7 +25,7 @@ function idAfter(pathname: string, prefix: string): string | null {
   if (!pathname.startsWith(prefix)) return null;
   return decodePathValue(pathname.slice(prefix.length));
 }
-function errorResponse(error: unknown): UserResponse { const message = error instanceof Error ? error.message : "collaboration request failed"; if (/not found/i.test(message)) return response(404, { error: message }); if (/access|required|requires|invalid|cannot|already|blocked/i.test(message)) return response(/access|manager|member|messaging|requires|blocked/i.test(message) ? 403 : 400, { error: message }); return response(409, { error: message }); }
+function errorResponse(error: unknown): UserResponse { const rawMessage = error instanceof Error ? error.message : "collaboration request failed"; const message = sanitizeCredentialText(rawMessage, 240); if (/not found/i.test(rawMessage)) return response(404, { error: message }); if (/access|required|requires|invalid|cannot|already|blocked/i.test(rawMessage)) return response(/access|manager|member|messaging|requires|blocked/i.test(rawMessage) ? 403 : 400, { error: message }); return response(409, { error: message }); }
 
 export async function routeCollaborationRequest(request: UserRequest, services: CollaborationRouteServices): Promise<UserResponse> {
   const url = new URL(request.path, "http://iseol.local");

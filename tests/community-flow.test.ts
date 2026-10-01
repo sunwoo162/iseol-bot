@@ -8,6 +8,7 @@ import test from "node:test";
 import type { Principal } from "../src/identity/contracts.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
 import { createCommunityService } from "../src/community/service.js";
+import type { CommunityService } from "../src/community/contracts.js";
 import { routeCommunityRequest } from "../src/community/router.js";
 import { withDurableCommunityLikeLock } from "../src/community/like-lock.js";
 import { saveLikeUnlocked } from "../src/community/store.js";
@@ -17,6 +18,25 @@ import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
 
 const at = "2026-09-26T00:00:00.000Z";
 const principal = (userId: string): Principal => ({ userId, sessionId: `${userId}-session`, roles: ["user"] });
+
+test("community API redacts credential-shaped service errors without changing status classification", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-community-error-redaction-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => at });
+  const user = await users.createUser({ id: "community-error-user", email: "community-error@example.com", displayName: "Community Error", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-27T00:00:00.000Z" });
+  const headers = { authorization: `Bearer ${session.token}` };
+  const failingCommunity = {
+    listPosts: async () => { throw new Error("community not found token%ZZ=community-secret"); },
+  } as unknown as CommunityService;
+
+  const result = await routeCommunityRequest({ method: "GET", path: "/api/user/community", headers }, { platformUserService: users, communityService: failingCommunity });
+
+  assert.equal(result.status, 400);
+  const message = (result.body as { error: string }).error;
+  assert.equal(message.includes("community-secret"), false);
+  assert.match(message, /\[redacted\]/i);
+});
 
 test("community posts and likes are durable, public, and user-attributed", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-community-")); const platform = join(root, "platform"); const users = createPlatformUserService(platform, { now: () => at });

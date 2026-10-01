@@ -1,6 +1,7 @@
 import type { PlatformUserService } from "../platform-user/contracts.js";
 import type { UserRequest, UserResponse } from "../web-control-plane/user-router.js";
 import { assertIdentityId } from "../identity/contracts.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 import type { PortfolioService } from "./contracts.js";
 
 export type PortfolioRouteServices = { platformUserService: PlatformUserService; portfolioService?: PortfolioService };
@@ -25,7 +26,7 @@ export async function routePortfolioRequest(request: UserRequest, services: Port
     }
     if (url.pathname === "/api/user/portfolio/export") { if (request.method !== "GET") return response(405, { error: "method not allowed" }); const format = url.searchParams.get("format") as "json" | "markdown" | null; if (!format) return response(400, { error: "format is required" }); return response(200, await portfolio.exportPortfolio(principal, format)); }
     const entryId = idAfter(url.pathname, "/api/user/portfolio/"); if (!entryId) return response(404, { error: "portfolio entry not found" }); if (request.method !== "PATCH") return response(405, { error: "method not allowed" }); const body = objectBody(request.body); const evidenceIds = body?.evidenceIds === undefined ? undefined : Array.isArray(body.evidenceIds) && body.evidenceIds.every((item) => typeof item === "string") ? body.evidenceIds as string[] : null; if (evidenceIds === null) return response(400, { error: "evidenceIds must be an array" }); return response(200, { entry: await portfolio.updateEntry(principal, entryId, { ...(typeof body?.title === "string" ? { title: body.title } : {}), ...(typeof body?.summary === "string" ? { summary: body.summary } : {}), ...(body?.visibility === "public" || body?.visibility === "unlisted" || body?.visibility === "private" ? { visibility: body.visibility } : {}), ...(evidenceIds ? { evidenceIds } : {}) }) });
-  } catch (error) { const message = error instanceof Error ? error.message : "portfolio request failed"; if (/not found/i.test(message)) return response(404, { error: message }); if (/verified|invalid|required|unsupported/i.test(message)) return response(400, { error: message }); return response(409, { error: message }); }
+  } catch (error) { const rawMessage = error instanceof Error ? error.message : "portfolio request failed"; const message = sanitizeCredentialText(rawMessage, 240); if (/not found/i.test(rawMessage)) return response(404, { error: message }); if (/verified|invalid|required|unsupported/i.test(rawMessage)) return response(400, { error: message }); return response(409, { error: message }); }
 }
 
 export async function routePublicPortfolioRequest(request: UserRequest, services: PublicPortfolioRouteServices): Promise<UserResponse> {

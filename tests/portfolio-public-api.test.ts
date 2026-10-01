@@ -7,11 +7,31 @@ import { request as httpRequest } from "node:http";
 import test from "node:test";
 import { createActivityService } from "../src/activity/service.js";
 import { createPlatformUserService } from "../src/platform-user/service.js";
+import type { PortfolioService } from "../src/portfolio/contracts.js";
+import { routePortfolioRequest } from "../src/portfolio/router.js";
 import { createUserProjectService } from "../src/project-model/user-project-service.js";
 import { createPortfolioService } from "../src/portfolio/service.js";
 import { withDurablePortfolioEntryLock } from "../src/portfolio/entry-lock.js";
 import { savePortfolioEntryUnlocked } from "../src/portfolio/store.js";
 import { startWebControlPlaneServer } from "../src/web-control-plane/server.js";
+
+test("authenticated portfolio API redacts credential-shaped service errors without changing not-found status", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-portfolio-error-redaction-"));
+  const platformRoot = join(root, "platform");
+  const users = createPlatformUserService(platformRoot, { now: () => "2026-09-26T12:00:00.000Z" });
+  const user = await users.createUser({ id: "portfolio-error-user", email: "portfolio-error@example.com", displayName: "Portfolio Error", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-27T12:00:00.000Z" });
+  const failingPortfolio = {
+    listPortfolio: async () => { throw new Error("portfolio not found token%ZZ=portfolio-secret"); },
+  } as unknown as PortfolioService;
+
+  const result = await routePortfolioRequest({ method: "GET", path: "/api/user/portfolio", headers: { authorization: `Bearer ${session.token}` } }, { platformUserService: users, portfolioService: failingPortfolio });
+
+  assert.equal(result.status, 404);
+  const message = (result.body as { error: string }).error;
+  assert.equal(message.includes("portfolio-secret"), false);
+  assert.match(message, /\[redacted\]/i);
+});
 
 test("public portfolio API exposes only public or unlisted entries without a session", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-public-portfolio-api-"));
