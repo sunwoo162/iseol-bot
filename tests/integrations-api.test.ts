@@ -64,3 +64,30 @@ test("user integration status and delivery route remain authenticated, owner-sco
     // The temporary root is intentionally left to the process cleanup boundary used by the existing API tests.
   }
 });
+
+test("integration API errors redact credential-shaped provider messages", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-integrations-error-safety-"));
+  const users = createPlatformUserService(join(root, "platform"), { now: () => "2026-09-28T00:00:00.000Z" });
+  const settings = createSettingsService(join(root, "platform"), { now: () => "2026-09-28T00:00:00.000Z" });
+  const user = await users.createUser({ id: "integration-error-user", email: "integration-error@example.com", displayName: "Error", timezone: "Asia/Seoul" });
+  const session = await users.createSession({ userId: user.id, roles: ["user"], expiresAt: "2026-09-29T00:00:00.000Z" });
+  const secret = "provider failed token=integration-secret api_key=integration-api-secret https://provider.example/?access_token=integration-url-secret";
+  const response = await routeIntegrationsRequest({
+    method: "POST",
+    path: "/api/user/integrations/github/deliveries",
+    headers: { authorization: `Bearer ${session.token}` },
+    body: { sourceType: "project.lifecycle", sourceId: "project-error", eventType: "project.completed", eventVersion: 1 },
+  }, {
+    platformUserService: users,
+    settingsService: settings,
+    integrationService: {
+      enqueueDelivery: async () => { throw new Error(secret); },
+      dispatchDelivery: async () => { throw new Error("unused"); },
+      listDeliveries: async () => [],
+    },
+  });
+  const message = (response.body as { error?: string }).error ?? "";
+  assert.equal(response.status, 409);
+  for (const value of ["integration-secret", "integration-api-secret", "integration-url-secret"]) assert.equal(message.includes(value), false);
+  assert.match(message, /\[redacted\]|\[redacted-url\]/i);
+});
