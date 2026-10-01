@@ -9,6 +9,7 @@ import { XPBar, LevelBadge, StatCard, StatusBadge } from '../components/UI';
 import { getRuntimeStatus, getUserProject, listActivityEvents, listAiTeamProposals, listDueReviewItems, listLearningPlans, listUserProjects, recordWorldMissionCompletion, type AiTeamProposal, type LearningPlan, type ReviewItem, type UserActivityEvent, type UserProject, type UserProjectView, type UserRuntimeStatus, UserApiError } from '../api/userApi';
 import { useUser } from '../store/useUser';
 import { buildWorldMissions } from '../domain/worldState';
+import { userFacingError } from '../errorMessage';
 
 const zones: Array<{ path: string; icon: IconName; label: string; desc: string; color: string; bg: string }> = [
   { path: '/idea-lab', icon: 'lightbulb', label: 'Idea Lab', desc: '새 프로젝트 구상', color: '#f59e0b', bg: 'linear-gradient(135deg, #fef3c7, #fde68a)' },
@@ -21,7 +22,7 @@ const zones: Array<{ path: string; icon: IconName; label: string; desc: string; 
 
 function worldErrorMessage(error: unknown): string {
   if (error instanceof UserApiError && error.status === 401) return '로그인이 필요합니다.';
-  return error instanceof Error ? error.message : '세계 데이터를 불러오지 못했습니다.';
+  return userFacingError(error, '세계 데이터를 불러오지 못했습니다.');
 }
 
 function projectRuntimeBadge(status: string): 'running' | 'success' | 'warning' | 'pending' | 'error' | 'unknown' {
@@ -121,7 +122,7 @@ export default function MyWorld() {
       setMissionStatus('미션 완료 기록을 저장했습니다. 검증된 활동 근거나 XP로 표시하지 않습니다.');
       await refreshWorld();
     } catch (error) {
-      setMissionStatus(error instanceof Error ? error.message : '미션 완료 기록을 저장하지 못했습니다.');
+      setMissionStatus(userFacingError(error, '미션 완료 기록을 저장하지 못했습니다.'));
     } finally {
       setMissionBusy(null);
     }

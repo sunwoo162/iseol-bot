@@ -17,9 +17,10 @@ import {
   type UserActivityEvent,
   UserApiError,
 } from '../api/userApi';
+import { userFacingError } from '../errorMessage';
 
 function message(error: unknown): string {
-  return error instanceof UserApiError ? error.message : error instanceof Error ? error.message : '포트폴리오를 불러오지 못했습니다.';
+  return userFacingError(error, '포트폴리오를 불러오지 못했습니다.');
 }
 
 function activityEventLabel(eventType: string): string {

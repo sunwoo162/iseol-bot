@@ -3,10 +3,11 @@ import { Link } from 'react-router';
 import { AppShell } from '../components/Navigation';
 import { Icon } from '../components/Icon';
 import { createCommunityComment, createCommunityPost, listCommunityPosts, reportCommunityContent, toggleCommunityLike, type CommunityPost, UserApiError } from '../api/userApi';
+import { userFacingError } from '../errorMessage';
 
 const categories: Array<'전체' | CommunityPost['category']> = ['전체', '개발 이야기', '학습 이야기', '프로젝트 공유', '질문 · 답변', '팀 모집'];
 const colors: Record<CommunityPost['category'], string> = { '개발 이야기': '#3b82f6', '학습 이야기': '#10b981', '프로젝트 공유': '#8b5cf6', '질문 · 답변': '#f59e0b', '팀 모집': '#f43f5e' };
-function message(error: unknown): string { return error instanceof UserApiError ? error.message : error instanceof Error ? error.message : '커뮤니티를 불러오지 못했습니다.'; }
+function message(error: unknown): string { return userFacingError(error, '커뮤니티를 불러오지 못했습니다.'); }
 function reportDraftKey(targetType: 'post' | 'comment', targetId: string): string { return `${targetType}:${targetId}`; }
 
 export default function Community() {

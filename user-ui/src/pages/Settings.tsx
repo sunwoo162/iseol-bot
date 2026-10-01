@@ -5,6 +5,7 @@ import { Icon, type IconName } from '../components/Icon';
 import { changePassword, exportActivity, getAiAgentProfile, getMe, getRuntimeStatus, getSettings, getUserIntegrations, updateAiAgentProfile, updateSettings, type AiAgentProfile, type UserIntegration, type UserIntegrationProvider, type UserRuntimeStatus, type UserSettings, UserApiError } from '../api/userApi';
 import { signOut } from '../store/userStore';
 import { useUser } from '../store/useUser';
+import { userFacingError } from '../errorMessage';
 
 const sections = ['계정', '캐릭터', 'AI 설정', '알림', '개인정보', '연동 환경'];
 const notificationControls = [
@@ -153,7 +154,7 @@ export default function Settings() {
       setAgentProfile(agentResult.profile);
       return result.settings;
     }).catch((error) => {
-      setSettingsError(error instanceof UserApiError ? error.message : '설정을 불러오지 못했습니다.');
+      setSettingsError(userFacingError(error, '설정을 불러오지 못했습니다.'));
       throw error;
     });
     settingsLoadRef.current = settingsLoad;
@@ -201,7 +202,7 @@ export default function Settings() {
       setAgentProfile(result.profile);
       setSettingsStatus('개인 AI 프로필을 저장했습니다.');
     } catch (error) {
-      setSettingsError(error instanceof UserApiError ? error.message : '개인 AI 프로필을 저장하지 못했습니다.');
+      setSettingsError(userFacingError(error, '개인 AI 프로필을 저장하지 못했습니다.'));
     } finally { setAgentBusy(false); }
   }
 
@@ -221,7 +222,7 @@ export default function Settings() {
       await signOut();
       navigate('/login', { replace: true });
     } catch (error) {
-      setSettingsError(error instanceof UserApiError ? error.message : '비밀번호를 변경하지 못했습니다.');
+      setSettingsError(userFacingError(error, '비밀번호를 변경하지 못했습니다.'));
     } finally { setSettingsBusy(false); }
   }
 
@@ -249,7 +250,7 @@ export default function Settings() {
         setNotifSettings(result.settings.notifications); setPrivacySettings(result.settings.privacy);
         if (settingsQueueRef.current === queuedOperation) setSettingsStatus('설정을 저장했습니다.');
       } catch (error) {
-        if (settingsQueueRef.current === queuedOperation) setSettingsError(error instanceof UserApiError ? error.message : '설정 저장에 실패했습니다.');
+        if (settingsQueueRef.current === queuedOperation) setSettingsError(userFacingError(error, '설정 저장에 실패했습니다.'));
       } finally {
         if (settingsQueueRef.current === queuedOperation) setSettingsBusy(false);
       }
@@ -267,7 +268,7 @@ export default function Settings() {
       downloadActivity(result.filename, result.content);
       setSettingsStatus(format === 'json' ? '활동 기록 내보내기를 시작했습니다.' : 'Markdown 활동 기록 내보내기를 시작했습니다.');
     } catch (error) {
-      setSettingsError(error instanceof UserApiError ? error.message : '활동 기록을 내보내지 못했습니다.');
+      setSettingsError(userFacingError(error, '활동 기록을 내보내지 못했습니다.'));
     } finally { setSettingsBusy(false); }
   }
 

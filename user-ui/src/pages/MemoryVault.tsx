@@ -3,11 +3,12 @@ import { Link } from 'react-router';
 import { AppShell } from '../components/Navigation';
 import { Icon } from '../components/Icon';
 import { appendMemory, deleteMemory, listMemories, listSharedMemories, listTeams, updateMemory, updateMemorySharing, type MemoryRecord, type TeamRecord, UserApiError } from '../api/userApi';
+import { userFacingError } from '../errorMessage';
 
 type Draft = { kind: string; content: string; source: string };
 const emptyDraft: Draft = { kind: '', content: '', source: '' };
 
-function errorMessage(error: unknown): string { return error instanceof UserApiError ? error.message : error instanceof Error ? error.message : '개인 기억을 처리하지 못했습니다.'; }
+function errorMessage(error: unknown): string { return userFacingError(error, '개인 기억을 처리하지 못했습니다.'); }
 function timeLabel(value: string): string { return new Date(value).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }); }
 
 export default function MemoryVault() {

@@ -63,6 +63,7 @@ import {
   type StudyAttempt,
   UserApiError,
 } from '../api/userApi';
+import { userFacingError } from '../errorMessage';
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
@@ -70,7 +71,7 @@ function formatDate(value: string): string {
 
 function errorMessage(error: unknown): string {
   if (error instanceof UserApiError && error.status === 401) return '로그인이 필요합니다.';
-  return error instanceof Error ? error.message : '학습 데이터를 처리하지 못했습니다.';
+  return userFacingError(error, '학습 데이터를 처리하지 못했습니다.');
 }
 
 function codingPracticeStatus(attempt: CodingAttempt | undefined): string {

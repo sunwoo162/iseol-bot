@@ -4,6 +4,7 @@ import { AppShell } from '../components/Navigation';
 import { UserCharacterAsset } from '../components/CharacterAssets';
 import { Icon } from '../components/Icon';
 import { blockUser, createFriendRequest, listBlocks, listDirectMessages, listFriendRequests, listFriends, listProfiles, reportUser, respondToFriendRequest, sendDirectMessage, unblockUser, type DirectMessage, type FriendRequest, type PublicProfile, type SocialBlock, UserApiError } from '../api/userApi';
+import { userFacingError } from '../errorMessage';
 
 type Tab = 'friends' | 'messages' | 'requests';
 function timeOf(value: string): string { return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
@@ -28,45 +29,45 @@ export default function Friends() {
       setLoading(true); setError('');
       const [friendResult, requestResult, blockResult] = await Promise.all([listFriends(), listFriendRequests(), listBlocks()]);
       setFriends(friendResult.friends); setRequests(requestResult.requests); setBlocks(blockResult.blocks);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : '친구 정보를 불러오지 못했습니다.'); }
+    } catch (caught) { setError(userFacingError(caught, '친구 정보를 불러오지 못했습니다.')); }
     finally { setLoading(false); }
   };
   useEffect(() => { void load(); }, []);
   useEffect(() => {
     if (!selected) { setMessages([]); return; }
-    void listDirectMessages(selected.userId).then((result) => setMessages(result.messages)).catch((caught) => setError(caught instanceof Error ? caught.message : '메시지를 불러오지 못했습니다.'));
+    void listDirectMessages(selected.userId).then((result) => setMessages(result.messages)).catch((caught) => setError(userFacingError(caught, '메시지를 불러오지 못했습니다.')));
   }, [selected]);
 
   const searchUsers = async (value: string) => {
     setSearch(value);
     if (!value.trim()) { setProfiles([]); return; }
     try { setProfiles((await listProfiles(value)).profiles.filter((profile) => !friends.some((friend) => friend.userId === profile.userId))); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : '사용자 검색에 실패했습니다.'); }
+    catch (caught) { setError(userFacingError(caught, '사용자 검색에 실패했습니다.')); }
   };
   const send = async () => {
     if (!selected || !input.trim()) return;
     try { const result = await sendDirectMessage(selected.userId, input.trim()); setMessages((items) => [...items, result.message]); setInput(''); setStatus('메시지를 저장했습니다.'); }
-    catch (caught) { setError(caught instanceof UserApiError ? caught.message : '메시지를 보내지 못했습니다.'); }
+    catch (caught) { setError(userFacingError(caught, '메시지를 보내지 못했습니다.')); }
   };
   const acceptRequest = async (request: FriendRequest, action: 'accept' | 'reject') => {
     try { await respondToFriendRequest(request.id, action); await load(); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : '친구 요청을 처리하지 못했습니다.'); }
+    catch (caught) { setError(userFacingError(caught, '친구 요청을 처리하지 못했습니다.')); }
   };
   const addFriend = async (profile: PublicProfile) => {
     try { await createFriendRequest(profile.userId); setStatus(`${profile.displayName}님에게 친구 요청을 보냈습니다.`); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : '친구 요청을 보내지 못했습니다.'); }
+    catch (caught) { setError(userFacingError(caught, '친구 요청을 보내지 못했습니다.')); }
   };
   const block = async (profile: PublicProfile) => {
     try { await blockUser(profile.userId); setSelected(null); setStatus(`${profile.displayName}님을 차단했습니다.`); await load(); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : '사용자를 차단하지 못했습니다.'); }
+    catch (caught) { setError(userFacingError(caught, '사용자를 차단하지 못했습니다.')); }
   };
   const report = async (profile: PublicProfile) => {
     try { await reportUser(profile.userId, reportReason.trim() || '사용자 신고'); setReportReason(''); setStatus('신고가 저장되었습니다.'); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : '신고를 저장하지 못했습니다.'); }
+    catch (caught) { setError(userFacingError(caught, '신고를 저장하지 못했습니다.')); }
   };
   const unblock = async (blockRecord: SocialBlock) => {
     try { await unblockUser(blockRecord.blockedUserId); setStatus('차단을 해제했습니다.'); await load(); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : '차단을 해제하지 못했습니다.'); }
+    catch (caught) { setError(userFacingError(caught, '차단을 해제하지 못했습니다.')); }
   };
 
   return <AppShell>
