@@ -66,6 +66,33 @@ test("Vercel deployment rejects unsafe repository identities before provider mut
   assert.equal(fetchCalls, 0);
 });
 
+test("Vercel deployment rejects unsafe provider URLs before returning a receipt", async () => {
+  for (const responseUrl of [
+    "preview.vercel.app?access_token=secret-value",
+    "https://preview.vercel.app/#oauth_token=secret-value",
+    "javascript:alert(1)",
+    "//attacker.example/preview",
+  ]) {
+    const adapter = createVercelPrototypeDeployAdapter({
+      token: "vercel-token",
+      projectId: "prj_test",
+      fetch: async () => Response.json({ id: "dpl_unsafe", url: responseUrl }),
+    });
+    await assert.rejects(
+      () => adapter.deploy({
+        key: KEY,
+        campaignId: "camp-1",
+        productionId: "prod-1",
+        branch: "idea/camp-1/prod-1",
+        commitSha: COMMIT,
+        repositoryUrl: "https://github.com/acme/prototype.git",
+      }),
+      /URL|credential|deployment/i,
+      responseUrl,
+    );
+  }
+});
+
 test("Vercel reconciliation and verification reject unsafe repository identities before provider reads", async () => {
   let fetchCalls = 0;
   const adapter = createVercelPrototypeDeployAdapter({

@@ -4,6 +4,7 @@ import type {
   PrototypeDeploymentReceipt,
 } from "./deploy-adapter.js";
 import { parseGitHubRepository } from "../services/github.js";
+import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
 
 type FetchLike = typeof fetch;
 type EnvLike = Record<string, string | undefined>;
@@ -50,9 +51,19 @@ function deploymentId(value: VercelDeployment): string {
 }
 
 function deploymentUrl(value: VercelDeployment): string {
-  const url = value.url?.trim();
+  const rawUrl = value.url;
+  const url = rawUrl?.trim();
   if (!url) throw new Error("Vercel deployment response is missing a URL");
-  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  if (rawUrl !== url || /[\u0000-\u001f\u007f]/.test(rawUrl) || url.startsWith("//")) {
+    throw new Error("Vercel deployment response contains an invalid URL");
+  }
+  const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  try {
+    assertCheckHttpUrl(normalized);
+  } catch {
+    throw new Error("Vercel deployment response contains an invalid URL");
+  }
+  return normalized;
 }
 function deployedAt(value: VercelDeployment, now: () => string): string {
   if (typeof value.createdAt === "number" && Number.isFinite(value.createdAt)) {

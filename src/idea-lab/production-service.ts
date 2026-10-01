@@ -1,5 +1,6 @@
 import type { HarnessRuntimeRunEnvelope } from "../harness/contracts.js";
 import { assertRunCompletionEvidence } from "../harness/completion-gates.js";
+import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
 import type { PrototypeCandidate } from "../project-model/contracts.js";
 import { loadPrototypeCandidateUnlocked, savePrototypeCandidateUnlocked } from "../project-model/prototype-store.js";
 import { withDurablePrototypeLock } from "../project-model/prototype-lock.js";
@@ -38,13 +39,23 @@ export async function deployPrototypeProduction(
     if (existing.commitSha !== request.commitSha) {
       throw new Error("Idea Lab deployment reconcile commit mismatch");
     }
+    assertPrototypeDeploymentUrl(existing.url);
     return existing;
   }
   const deployed = await adapter.deploy(request);
   if (deployed.commitSha !== request.commitSha) {
     throw new Error("Idea Lab deployment commit mismatch");
   }
+  assertPrototypeDeploymentUrl(deployed.url);
   return deployed;
+}
+
+export function assertPrototypeDeploymentUrl(value: string): void {
+  try {
+    assertCheckHttpUrl(value);
+  } catch {
+    throw new Error("Idea Lab deployment URL is invalid");
+  }
 }
 
 export async function verifyPrototypeProductionDeployment(
@@ -59,6 +70,7 @@ export async function verifyPrototypeProductionDeployment(
   const verified = await adapter.verify({ ...request, deployment });
   if (verified.commitSha !== request.commitSha) throw new Error("Idea Lab verified deployment commit mismatch");
   if (!verified.url.trim() || !verified.verifiedAt) throw new Error("Idea Lab verified deployment is incomplete");
+  assertPrototypeDeploymentUrl(verified.url);
   return verified;
 }
 export type MaterializePrototypeCandidateInput = {
@@ -84,6 +96,7 @@ function assertMaterializationInput(input: MaterializePrototypeCandidateInput): 
   if (!production.commitSha?.trim()) throw new Error("Idea Lab production commit SHA is required");
   if (deployment.commitSha !== production.commitSha) throw new Error("Idea Lab candidate deployment commit mismatch");
   if (!deployment.verifiedAt || !deployment.url.trim()) throw new Error("Idea Lab candidate requires verified preview deployment");
+  assertPrototypeDeploymentUrl(deployment.url);
 }
 
 function candidateFor(input: MaterializePrototypeCandidateInput): PrototypeCandidate {
