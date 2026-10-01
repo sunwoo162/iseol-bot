@@ -90,15 +90,15 @@ test("recovery prompts are marked and credential-like evidence is redacted", () 
   const input = baseInput();
   input.desktopEvidence = [{
     kind: "command",
-    summary: "Authorization: Bearer bearer-secret DISCORD_TOKEN=token-secret cookie=session-secret API_KEY=env-secret",
-    reference: "desktop-job:secret-check",
+    summary: "Authorization: Bearer bearer-secret DISCORD_TOKEN=token-secret cookie=session-secret API_KEY=env-secret https://preview.example/?access_token=url-secret https%3A%2F%2Fpreview.example%2F%3Faccess_token%3Dencoded-secret",
+    reference: "https://preview.example/?access_token=reference-secret",
   }];
   const compiled = compileWebPrompt({ ...input, kind: "recovery" });
   assert.match(compiled.body, /recovery/i);
-  for (const secret of ["bearer-secret", "token-secret", "session-secret", "env-secret", "SUPER_SECRET_POLICY_BODY"]) {
+  for (const secret of ["bearer-secret", "token-secret", "session-secret", "env-secret", "url-secret", "encoded-secret", "reference-secret", "SUPER_SECRET_POLICY_BODY"]) {
     assert.equal(compiled.body.includes(secret), false);
   }
-  assert.match(compiled.body, /\[REDACTED\]/);
+  assert.match(compiled.body, /\[redacted\]/i);
 });
 
 test("prompt compiler rejects mismatched session and run policy context", () => {
