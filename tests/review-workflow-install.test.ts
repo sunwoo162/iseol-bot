@@ -29,3 +29,18 @@ test("workflow installer chooses github-hosted for public and self-hosted for pr
   assert.match(written[0]!.content, /runs-on: ubuntu-latest/);
   assert.match(written[1]!.content, /runs-on: \[self-hosted, linux, x64, iseol-review\]/);
 });
+
+test("workflow installer redacts credential-shaped installation failures", async () => {
+  const github = {
+    async getRepositoryVisibility() { return "private"; },
+    async ensureRepositoryFile() { throw new Error("authorization=workflow-secret"); },
+  } as any;
+
+  const results = await ensureProjectReviewWorkflows(github, project, "abc123");
+
+  assert.equal(results.length, 2);
+  assert.equal(results.every((result) => result.created === false), true);
+  assert.equal(results[0]!.error, "authorization=[redacted]");
+  assert.equal(results[1]!.error, "authorization=[redacted]");
+  assert.doesNotMatch(JSON.stringify(results), /workflow-secret/);
+});

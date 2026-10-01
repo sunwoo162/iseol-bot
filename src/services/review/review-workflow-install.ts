@@ -5,6 +5,7 @@ import {
   ISEOL_REVIEW_WORKFLOW_PATH,
   renderIseolReviewWorkflow,
 } from "./review-workflow.js";
+import { formatUserFacingError } from "../../security/user-error.js";
 
 export type ReviewWorkflowInstallResult = {
   repository: string;
@@ -39,7 +40,7 @@ export async function ensureProjectReviewWorkflows(
       results.push({
         repository: name,
         created: false,
-        error: error instanceof Error ? error.message : "알 수 없는 오류",
+        error: formatUserFacingError(error, "알 수 없는 오류"),
       });
     }
   }
