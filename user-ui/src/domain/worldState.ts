@@ -21,6 +21,30 @@ export function calendarDateForTimeZone(timezone?: string, at: Date | string = n
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+function worldDateFormatter(timezone: string | undefined, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const requestedTimezone = timezone?.trim() || browserTimezone;
+  try {
+    return new Intl.DateTimeFormat('en-US', { ...options, timeZone: requestedTimezone });
+  } catch {
+    return new Intl.DateTimeFormat('en-US', { ...options, timeZone: browserTimezone });
+  }
+}
+
+function formatWorldTimestamp(timezone: string | undefined, value: string, options: Intl.DateTimeFormatOptions): string {
+  const instant = new Date(value);
+  if (!Number.isFinite(instant.getTime())) return '날짜 확인 불가';
+  return worldDateFormatter(timezone, options).format(instant);
+}
+
+export function formatWorldDate(timezone: string | undefined, value: string): string {
+  return formatWorldTimestamp(timezone, value, { dateStyle: 'medium' });
+}
+
+export function formatWorldDateTime(timezone: string | undefined, value: string): string {
+  return formatWorldTimestamp(timezone, value, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 export type WorldMissionState = "recorded" | "next-action";
 
 export type WorldMission = {
