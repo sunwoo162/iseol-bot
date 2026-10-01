@@ -27,7 +27,7 @@ function decodedRepresentations(value: string): string[] | undefined {
 function containsCredentialLikeContent(value: string): boolean {
   const queryOrFragment = /[?#]([\s\S]*)/.exec(value)?.[1];
   if (queryOrFragment === undefined) return BEARER_CREDENTIAL.test(value);
-  for (const parameter of queryOrFragment.split(/[&#/]/)) {
+  for (const parameter of queryOrFragment.split(/[&#?]/)) {
     const rawKey = parameter.trim().split(/[=:]/, 1)[0];
     if (rawKey && isSensitiveHttpCredentialKey(rawKey)) return true;
   }
@@ -53,7 +53,12 @@ export function sanitizeProjectEvidenceReference(value: string): string | undefi
   const representations = decodedRepresentations(candidate);
   if (!representations) return undefined;
   try {
-    for (const representation of representations) assertSafeReferenceRepresentation(representation);
+    for (const representation of representations) {
+      if (representation !== representation.trim() || /[\u0000-\u001f\u007f]/.test(representation) || representation.startsWith("//")) {
+        throw new Error("unsafe decoded project evidence reference");
+      }
+      assertSafeReferenceRepresentation(representation);
+    }
   } catch {
     return undefined;
   }
