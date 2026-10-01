@@ -18,7 +18,8 @@ function loopback(value: string): string {
   }
   let parsed: URL;
   try { parsed = new URL(raw); } catch { throw new Error("Local AI Runtime URL is invalid"); }
-  if (!(["http:", "https:"].includes(parsed.protocol) && ["127.0.0.1", "localhost", "::1"].includes(parsed.hostname))) {
+  const host = parsed.hostname.toLowerCase();
+  if (!(["http:", "https:"].includes(parsed.protocol) && ["127.0.0.1", "localhost", "::1", "[::1]"].includes(host))) {
     throw new Error("Local AI Runtime URL must use a loopback endpoint");
   }
   if (parsed.username || parsed.password) throw new Error("Local AI Runtime URL must not contain credentials");
@@ -118,7 +119,8 @@ export function createOllamaAiChatRuntimeDispatcher(options: OllamaAiChatRuntime
 
 export function resolveOllamaAiChatRuntimeConfig(env: Record<string, string | undefined> = process.env): { enabled: boolean; baseUrl: string; model: string; timeoutMs: number } {
   const enabled = env.ISEOL_LOCAL_AI_RUNTIME_ENABLED?.trim().toLowerCase() === "true";
-  const baseUrl = env.ISEOL_LOCAL_AI_RUNTIME_URL?.trim() || "http://127.0.0.1:11434";
+  const configuredBaseUrl = env.ISEOL_LOCAL_AI_RUNTIME_URL;
+  const baseUrl = configuredBaseUrl === undefined || !configuredBaseUrl.trim() ? "http://127.0.0.1:11434" : configuredBaseUrl;
   const model = env.ISEOL_LOCAL_AI_RUNTIME_MODEL?.trim() || "";
   const timeoutText = env.ISEOL_LOCAL_AI_RUNTIME_TIMEOUT_MS?.trim() || "120000";
   const timeoutMs = Number(timeoutText);

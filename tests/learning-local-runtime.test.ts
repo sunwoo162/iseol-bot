@@ -43,6 +43,9 @@ test("learning local Runtime config is disabled by default and loopback-only whe
   assert.deepEqual(resolveOllamaLearningRuntimeConfig({}), { enabled: false, baseUrl: "http://127.0.0.1:11434", model: "", timeoutMs: 120_000 });
   assert.throws(() => resolveOllamaLearningRuntimeConfig({ ISEOL_LEARNING_RUNTIME_ENABLED: "true" }), /MODEL is required/);
   assert.deepEqual(resolveOllamaLearningRuntimeConfig({ ISEOL_LEARNING_RUNTIME_ENABLED: "true", ISEOL_LEARNING_RUNTIME_URL: "http://localhost:11434", ISEOL_LEARNING_RUNTIME_MODEL: "qwen-local", ISEOL_LEARNING_RUNTIME_TIMEOUT_MS: "5000" }), { enabled: true, baseUrl: "http://localhost:11434", model: "qwen-local", timeoutMs: 5000 });
+  assert.doesNotThrow(() => createOllamaLearningContentDispatcher({ baseUrl: "http://[::1]:11434", model: "qwen-local" }));
+  const whitespaceUrl = " http://127.0.0.1:11434 ";
+  assert.throws(() => resolveOllamaLearningRuntimeConfig({ ISEOL_LEARNING_RUNTIME_ENABLED: "true", ISEOL_LEARNING_RUNTIME_URL: whitespaceUrl, ISEOL_LEARNING_RUNTIME_MODEL: "qwen-local" }), /Local learning Runtime URL/);
   for (const baseUrl of [
     "http://127.0.0.1:11434\\@attacker.example",
     "http://127.0.0.1:11434/%5C@attacker.example",
