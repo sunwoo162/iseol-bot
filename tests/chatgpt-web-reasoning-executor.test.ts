@@ -112,6 +112,24 @@ test("blocked-user and Desktop waiting-agent propagate without stage completion"
   assert.deepEqual(await waitingExecutor.execute(waiting.run), { type: "waiting-agent", reason: "Desktop offline" });
 });
 
+test("Desktop failure results and durable intent reasons redact credentials", async () => {
+  const { root, run } = await fixture();
+  const policySha256 = run.preflight.policy!.effectiveSha256;
+  const fake = createFakeChatGptWebBrowserAdapter([
+    { version: 1, runId: "run-web", stage: "IMPLEMENT", generation: 1, summary: "Inspect repository", decisions: [], intents: [{ version: 1, intentId: "intent-failure", runId: "run-web", stage: "IMPLEMENT", workspaceRoot: run.request.workspaceRoot, policySha256, kind: "GIT_INSPECT", cwd: "." }], outcome: "continue" },
+  ]);
+  const result = await createWebReasoningExecutor({
+    workerRoot: root,
+    adapter: fake.adapter,
+    now: () => "2026-09-08T01:02:00.000Z",
+    runDesktopIntent: async () => { throw new Error("token=desktop-secret"); },
+  }).execute(run);
+
+  assert.equal(result.type, "retryable-failure");
+  assert.doesNotMatch(result.reason, /desktop-secret/);
+  assert.equal((await loadDesktopIntent(root, "run-web", "intent-failure"))?.reason, undefined);
+});
+
 test("turn and rejection budgets are bounded", async () => {
   const turns = await fixture();
   const continueResult = { version: 1 as const, runId: "run-web", stage: "IMPLEMENT" as const, generation: 1, summary: "Still working", decisions: [], intents: [], outcome: "continue" as const };
