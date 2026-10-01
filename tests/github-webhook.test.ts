@@ -17,7 +17,7 @@ test("only opened reopened and synchronize pull request actions trigger review",
   assert.equal(shouldReviewPullRequestAction("closed"), false);
 });
 
-import { buildAutomationWebhookUrl, parseGitHubRepository } from "../src/services/github.js";
+import { buildAutomationWebhookUrl, isDiscordProjectWebhookUrl, parseGitHubRepository } from "../src/services/github.js";
 
 test("automation webhook url targets the signed github events endpoint", () => {
   assert.equal(buildAutomationWebhookUrl("https://iseol.example.com/"), "https://iseol.example.com/github/events");
@@ -37,6 +37,28 @@ test("automation webhook url rejects unsafe public base URL authorities", () => 
     "not a url",
   ]) {
     assert.throws(() => buildAutomationWebhookUrl(value), /PUBLIC_BASE_URL/);
+  }
+});
+
+test("discord project webhook identities require a canonical HTTPS webhook path", () => {
+  assert.equal(isDiscordProjectWebhookUrl("https://discord.com/api/webhooks/123456789012345678/token/github"), true);
+  assert.equal(isDiscordProjectWebhookUrl("https://www.discordapp.com/api/webhooks/123/token/github"), true);
+
+  for (const value of [
+    "http://discord.com/api/webhooks/123/token/github",
+    "https://user:password@discord.com/api/webhooks/123/token/github",
+    "https://discord.com:8443/api/webhooks/123/token/github",
+    "https://discord.com/api/webhooks/123/token/github?scope=private",
+    "https://discord.com/api/webhooks/123/token/github#private",
+    "https://discord.com/api/webhooks/not-a-snowflake/token/github",
+    "https://discord.com/prefix/api/webhooks/123/token/github",
+    "https://discord.com/api/webhooks/123/token/extra/github",
+    "https://discord.com/api/webhooks/123/to%2Fken/github",
+    "https://discord.com\\@attacker.example.com/api/webhooks/123/token/github",
+    "https://discord.com/api/webhooks/123/to%5Cken/github",
+    "https://discord.com.evil.example/api/webhooks/123/token/github",
+  ]) {
+    assert.equal(isDiscordProjectWebhookUrl(value), false, value);
   }
 });
 
