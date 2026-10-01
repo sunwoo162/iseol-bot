@@ -27,3 +27,22 @@ test("project evidence requires matching project and Run identity", () => {
   });
   assert.deepEqual(selected.map((item) => item.id), ["owned"]);
 });
+
+test("project evidence omits unsafe URL references but preserves safe and opaque references", () => {
+  const selected = selectProjectEvidence({
+    projectId: "project-a",
+    runId: "run-a",
+    evidence: [
+      { ...evidence("safe-url", "project-a", "run-a"), reference: "https://preview.example.test/result?ready=1" },
+      { ...evidence("credential-url", "project-a", "run-a"), reference: "https://preview.example.test/result?access_token=secret-value" },
+      { ...evidence("unsafe-scheme", "project-a", "run-a"), reference: "javascript:alert(1)" },
+      { ...evidence("opaque", "project-a", "run-a"), reference: "desktop-job:patch" },
+    ],
+  });
+  assert.deepEqual(selected, [
+    { ...evidence("safe-url", "project-a", "run-a"), reference: "https://preview.example.test/result?ready=1" },
+    { ...evidence("credential-url", "project-a", "run-a") },
+    { ...evidence("unsafe-scheme", "project-a", "run-a") },
+    { ...evidence("opaque", "project-a", "run-a"), reference: "desktop-job:patch" },
+  ]);
+});
