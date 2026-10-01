@@ -1,22 +1,29 @@
 import type { HarnessEvidenceRecord } from "../harness/contracts.js";
 import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
 
+const OPAQUE_REFERENCE_SCHEMES = new Set(["build", "calendar", "desktop-job", "discord", "github", "pull-request"]);
+
 function sanitizeProjectEvidence(item: HarnessEvidenceRecord): HarnessEvidenceRecord {
   const reference = item.reference;
   if (reference === undefined) return item;
-  if (/^https?:/i.test(reference)) {
+  const candidate = reference.trim();
+  const scheme = /^[A-Za-z][A-Za-z\d+.-]*:/.exec(candidate)?.[0]?.slice(0, -1).toLowerCase();
+  const hasControlCharacter = /[\u0000-\u001f\u007f]/.test(reference);
+  const removeReference = () => {
+    const { reference: _unsafeReference, ...sanitized } = item;
+    return sanitized;
+  };
+  if (candidate.startsWith("//")) return removeReference();
+  if (/^https?:\/\//i.test(candidate)) {
+    if (candidate !== reference || hasControlCharacter) return removeReference();
     try {
       assertCheckHttpUrl(reference);
       return item;
     } catch {
-      const { reference: _unsafeReference, ...sanitized } = item;
-      return sanitized;
+      return removeReference();
     }
   }
-  if (/^(?:javascript|data|vbscript):/i.test(reference) || /^[A-Za-z][A-Za-z\d+.-]*:\/\//.test(reference)) {
-    const { reference: _unsafeReference, ...sanitized } = item;
-    return sanitized;
-  }
+  if (scheme && !OPAQUE_REFERENCE_SCHEMES.has(scheme)) return removeReference();
   return item;
 }
 
