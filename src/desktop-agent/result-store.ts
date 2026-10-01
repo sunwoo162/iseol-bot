@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/pro
 import { dirname, resolve } from "node:path";
 import type { DesktopJobResult } from "./contracts.js";
 import { withDurableDesktopJobLock } from "./job-lock.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 const DEFAULT_RETENTION = 256;
 
@@ -24,12 +25,12 @@ function isResult(value: unknown): value is DesktopJobResult {
     && Array.isArray(result.operations);
 }
 
-function durableResult(result: DesktopJobResult): DesktopJobResult {
+export function toDurableDesktopResult(result: DesktopJobResult): DesktopJobResult {
   return {
     ...result,
     operations: result.operations.map(({ stdout: _stdout, stderr: _stderr, summary, ...operation }) => ({
       ...operation,
-      summary: summary.replace(/\b(token|cookie|secret|password|authorization)\s*[:=]\s*\S+/gi, "$1=[redacted]"),
+      summary: sanitizeCredentialText(summary),
     })),
   };
 }
@@ -44,7 +45,7 @@ export async function loadCompletedDesktopResultsUnlocked(root: string): Promise
   for (const name of names.filter((item) => item.endsWith(".json"))) {
     try {
       const value: unknown = JSON.parse(await readFile(resolve(root, name), "utf8"));
-      if (isResult(value)) results.set(value.jobId, value);
+      if (isResult(value)) results.set(value.jobId, toDurableDesktopResult(value));
     } catch {
       // A corrupt journal entry is ignored; it must never become executable input.
     }
@@ -55,7 +56,7 @@ export async function loadCompletedDesktopResultsUnlocked(root: string): Promise
 async function loadCompletedDesktopResultUnlocked(root: string, jobId: string): Promise<DesktopJobResult | null> {
   try {
     const value: unknown = JSON.parse(await readFile(resultPath(root, jobId), "utf8"));
-    return isResult(value) && value.jobId === jobId ? value : null;
+    return isResult(value) && value.jobId === jobId ? toDurableDesktopResult(value) : null;
   } catch {
     return null;
   }
@@ -86,7 +87,7 @@ async function persistCompletedDesktopResultUnlocked(
   const path = resultPath(root, result.jobId);
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
-  await writeFile(temp, JSON.stringify(durableResult(result)), "utf8");
+  await writeFile(temp, JSON.stringify(toDurableDesktopResult(result)), "utf8");
   await rename(temp, path);
 
   const entries = await loadCompletedDesktopResultsUnlocked(root);

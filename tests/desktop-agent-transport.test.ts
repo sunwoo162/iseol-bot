@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DesktopAgentHello, DesktopJobResult, DesktopTaskPack } from "../src/desktop-agent/contracts.js";
@@ -242,7 +242,10 @@ test("completed result is replayed after disconnect before delivery", async () =
         executions += 1;
         taskSeen();
         await releaseTask;
-        return result(pack.jobId);
+        return {
+          ...result(pack.jobId),
+          operations: [{ operationId: "op-1", ok: true, summary: "preview https://preview.example/?access_token=replay-secret", stdout: "REPLAY_STDOUT_SENTINEL" }],
+        };
       },
       persistResult: async (value) => {
         await persistCompletedDesktopResult(resultRoot, value);
@@ -264,7 +267,10 @@ test("completed result is replayed after disconnect before delivery", async () =
       onTask: async (pack) => result(pack.jobId),
     } as any);
     try {
-      assert.equal((await transport.awaitResult("job-replay", 1_000)).jobId, "job-replay");
+      const replayed = await transport.awaitResult("job-replay", 1_000);
+      assert.equal(replayed.jobId, "job-replay");
+      assert.equal(replayed.operations[0]?.summary, "preview [redacted-url]");
+      assert.equal("stdout" in (replayed.operations[0] ?? {}), false);
       assert.equal(executions, 1);
       assert.equal(restartedResults.size, 1);
     } finally {
@@ -276,18 +282,92 @@ test("completed result is replayed after disconnect before delivery", async () =
   }
 });
 
+test("live Desktop results keep command output while durable copies omit it", async () => {
+  const registryRoot = await root();
+  const resultRoot = await root();
+  const transport = createDesktopAgentTransport({ registryRoot, expectedToken: "secret-token" });
+  const server = await startDesktopAgentWebSocketServer({ host: "127.0.0.1", port: 0, transport });
+  const completedResults = new Map<string, DesktopJobResult>();
+  let taskSeen!: () => void;
+  const seen = new Promise<void>((resolve) => { taskSeen = resolve; });
+  let release!: () => void;
+  const releaseTask = new Promise<void>((resolve) => { release = resolve; });
+  let client!: Awaited<ReturnType<typeof connectDesktopAgentWebSocketClient>>;
+  try {
+    client = await connectDesktopAgentWebSocketClient({
+      url: server.url,
+      hello,
+      heartbeatIntervalMs: 25,
+      completedResults,
+      onTask: async (pack) => {
+        taskSeen();
+        await releaseTask;
+        return {
+          ...result(pack.jobId),
+          operations: [{ operationId: "op-1", ok: true, summary: "live output", stdout: "LIVE_STDOUT_SENTINEL", stderr: "LIVE_STDERR_SENTINEL" }],
+        };
+      },
+      persistResult: (value) => persistCompletedDesktopResult(resultRoot, value),
+    } as any);
+    transport.sendTask("agent-001", task("job-live-output"));
+    await seen;
+    release();
+    const live = await transport.awaitResult("job-live-output", 1_000);
+    assert.equal(live.operations[0]?.stdout, "LIVE_STDOUT_SENTINEL");
+    assert.equal(live.operations[0]?.stderr, "LIVE_STDERR_SENTINEL");
+    const durable = (await loadCompletedDesktopResults(resultRoot)).get("job-live-output");
+    assert.equal("stdout" in (durable?.operations[0] ?? {}), false);
+    assert.equal("stderr" in (durable?.operations[0] ?? {}), false);
+    await client.close();
+    client = await connectDesktopAgentWebSocketClient({
+      url: server.url,
+      hello,
+      heartbeatIntervalMs: 25,
+      completedResults,
+      onTask: async (pack) => result(pack.jobId),
+    } as any);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(transport.isAgentConnected("agent-001"), true);
+  } finally {
+    if (client) await client.close();
+    await server.close();
+  }
+});
+
+test("legacy Desktop result files are sanitized before replay", async () => {
+  const resultRoot = await root();
+  const legacy = {
+    ...result("job-legacy"),
+    operations: [{
+      operationId: "op-1",
+      ok: true,
+      summary: "preview https://preview.example/?access_token=legacy-secret",
+      stdout: "LEGACY_STDOUT_SENTINEL",
+      stderr: "LEGACY_STDERR_SENTINEL",
+    }],
+  };
+  await writeFile(join(resultRoot, "job-legacy.json"), JSON.stringify(legacy), "utf8");
+
+  const loaded = await loadCompletedDesktopResults(resultRoot);
+  const recovered = loaded.get("job-legacy");
+  assert.equal(recovered?.operations[0]?.summary, "preview [redacted-url]");
+  assert.equal("stdout" in (recovered?.operations[0] ?? {}), false);
+  assert.equal("stderr" in (recovered?.operations[0] ?? {}), false);
+});
+
 test("durable Agent results are bounded and omit command output", async () => {
   const resultRoot = await root();
   for (const jobId of ["job-a", "job-b", "job-c"]) {
     await persistCompletedDesktopResult(resultRoot, {
       ...result(jobId),
       completedAt: `2026-09-08T02:00:0${jobId === "job-a" ? "1" : jobId === "job-b" ? "2" : "3"}.000Z`,
-      operations: [{ operationId: "op-1", ok: true, summary: "done", stdout: "ISEOL_SECRET_SENTINEL" }],
+      operations: [{ operationId: "op-1", ok: true, summary: "preview https://preview.example/?access_token=desktop-secret", stdout: "ISEOL_SECRET_SENTINEL" }],
     }, 2);
   }
   const loaded = await loadCompletedDesktopResults(resultRoot);
   assert.deepEqual([...loaded.keys()], ["job-b", "job-c"]);
   assert.doesNotMatch(JSON.stringify([...loaded.values()]), /ISEOL_SECRET_SENTINEL/);
+  assert.equal(loaded.get("job-b")?.operations[0]?.summary, "preview [redacted-url]");
 });
 
 test("durable Agent result persistence waits for the Job lock", async () => {

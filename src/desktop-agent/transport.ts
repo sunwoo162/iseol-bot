@@ -6,6 +6,7 @@ import {
   desktopTaskPackMutates,
 } from "./contracts.js";
 import { heartbeatDesktopAgent, registerDesktopAgent } from "./agent-registry.js";
+import { toDurableDesktopResult } from "./result-store.js";
 
 export type DesktopServerMessage =
   | { version: 1; type: "task"; pack: DesktopTaskPack }
@@ -106,7 +107,7 @@ export function createDesktopAgentTransport(options: DesktopAgentTransportOption
     }
     const existing = completed.get(message.result.jobId);
     if (existing) {
-      if (JSON.stringify(existing) !== JSON.stringify(message.result)) {
+      if (JSON.stringify(toDurableDesktopResult(existing)) !== JSON.stringify(toDurableDesktopResult(message.result))) {
         throw new Error(`Conflicting Desktop Job result: ${message.result.jobId}`);
       }
       return;
