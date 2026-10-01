@@ -110,6 +110,38 @@ test("AI team discussion without a local dispatcher stays durably waiting and me
   await assert.rejects(() => discussions.listDiscussions(outsider, project.id), /team member|access/i);
 });
 
+test("AI team discussion waiting blockers redact credential-shaped Runtime text", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-discussion-blocker-safety-"));
+  const owner = principal("discussion-blocker-owner");
+  const teams = createTeamService(join(root, "platform"), { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Discussion blocker safety team", description: "sanitize Runtime blockers", kind: "project", visibility: "private", capacity: 3 });
+  await teams.addAiMember(owner, team.id, { agentId: "reviewer", assignmentRole: "review", capabilities: ["discussion.propose"], approvalScope: "suggestion-only" }, at);
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
+  const project = await projects.createProject(owner, { name: "Discussion blocker safety project", objective: "redact Runtime failures", purpose: "portfolio", teamMode: "mixed", teamId: team.id });
+  const secretText = "provider token=discussion-secret api_key=discussion-api-secret https://preview.example/?access_token=discussion-url-secret";
+  let dispatchCount = 0;
+  const discussions = createAiTeamDiscussionService({
+    root: join(root, "ai-team"),
+    teamService: teams,
+    userProjectService: projects,
+    now: () => at,
+    dispatcher: async () => {
+      dispatchCount += 1;
+      if (dispatchCount === 1) return { status: "waiting" as const, blocker: secretText };
+      throw new Error(secretText);
+    },
+  });
+
+  for (const requestId of ["returned-blocker", "thrown-blocker"]) {
+    const waiting = await discussions.requestDiscussion(owner, project.id, { agentId: "reviewer", requestId, question: "무엇을 먼저 확인해야 하나요?" });
+    assert.equal(waiting.status, "waiting-runtime");
+    assert.equal(waiting.blocker?.includes("discussion-secret"), false);
+    assert.equal(waiting.blocker?.includes("discussion-api-secret"), false);
+    assert.equal(waiting.blocker?.includes("discussion-url-secret"), false);
+    assert.match(waiting.blocker ?? "", /\[redacted\]|\[redacted-url\]/i);
+  }
+});
+
 test("AI team proposal and discussion dispatches share one per-user Runtime gate", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-shared-runtime-gate-"));
   const owner = principal("ai-team-shared-gate-owner");

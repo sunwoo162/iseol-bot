@@ -8,9 +8,11 @@ import { withDurableAiTeamProposalDecisionLock } from "./proposal-decision-lock.
 import { listAiTeamProposals, listAiTeamProposalsUnlocked, loadAiTeamProposal, loadAiTeamProposalUnlocked, saveAiTeamProposal, saveAiTeamProposalUnlocked } from "./store.js";
 import { createUserRuntimeDispatchGate } from "../runtime/user-runtime-dispatch-gate.js";
 import { withDurableTeamMembershipLock } from "../teams/membership-lock.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 function ensurePrincipal(principal: Principal): void { assertIdentityId(principal.userId); }
 function required(value: string, label: string, max: number): string { const result = value.trim(); if (!result || result.length > max) throw new Error(label + " is required"); return result; }
+function safeRuntimeBlocker(value: string): string { return sanitizeCredentialText(value, 240); }
 function boundedCriteria(values: string[]): string[] { if (values.length > 8) throw new Error("AI team proposal has too many acceptance criteria"); return values.map((value) => required(value, "Acceptance criterion", 300)); }
 function validateDraft(draft: AiTeamProposalDraft): AiTeamProposalDraft { return { title: required(draft.title, "AI proposal title", 160), objective: required(draft.objective, "AI proposal objective", 4_000), acceptanceCriteria: boundedCriteria(draft.acceptanceCriteria), rationale: required(draft.rationale, "AI proposal rationale", 1_000) }; }
 async function projectAccess(options: AiTeamProposalServiceOptions, principal: Principal, projectId: string, manager = false, membershipLockHeld = false): Promise<{ projectId: string; teamId: string; members: TeamMembership[] }> {
@@ -49,9 +51,9 @@ export function createAiTeamProposalService(options: AiTeamProposalServiceOption
         if (!options.dispatcher) { const waiting = waitingProposal({ projectId, teamId: context.teamId, agent, requestId, at, blocker: "AI Team Runtime is not configured" }); await saveAiTeamProposalUnlocked(options.root, waiting); return waiting; }
         try {
           const result = await dispatchForUser(principal.userId, () => options.dispatcher!({ principal, projectId, teamId: context.teamId, agentId, assignmentRole: agent.assignmentRole, capabilities: [...agent.capabilities] as TeamCapability[] }));
-          if (result.status === "waiting") { const waiting = waitingProposal({ projectId, teamId: context.teamId, agent, requestId, at, blocker: required(result.blocker, "AI proposal blocker", 240) }); await saveAiTeamProposalUnlocked(options.root, waiting); return waiting; }
+          if (result.status === "waiting") { const waiting = waitingProposal({ projectId, teamId: context.teamId, agent, requestId, at, blocker: safeRuntimeBlocker(required(result.blocker, "AI proposal blocker", 240)) }); await saveAiTeamProposalUnlocked(options.root, waiting); return waiting; }
           const draft = validateDraft(result.draft); const proposal: AiTeamProposal = { version: 1, id: "ai-proposal-" + randomUUID(), projectId, teamId: context.teamId, agentId, assignmentRole: agent.assignmentRole, capabilities: [...agent.capabilities], approvalScope: agent.approvalScope, requestId, ...draft, status: "proposed", source: "local-runtime", createdAt: at, updatedAt: at }; await saveAiTeamProposalUnlocked(options.root, proposal); return proposal;
-        } catch (error) { const blocker = error instanceof Error ? error.message.slice(0, 240) : "AI Team Runtime proposal failed"; const waiting = waitingProposal({ projectId, teamId: context.teamId, agent, requestId, at, blocker }); await saveAiTeamProposalUnlocked(options.root, waiting); return waiting; }
+        } catch (error) { const blocker = error instanceof Error ? safeRuntimeBlocker(error.message) : "AI Team Runtime proposal failed"; const waiting = waitingProposal({ projectId, teamId: context.teamId, agent, requestId, at, blocker }); await saveAiTeamProposalUnlocked(options.root, waiting); return waiting; }
         }, { waitForMs: 2_000 });
       }, { waitForMs: 2_000 });
     },

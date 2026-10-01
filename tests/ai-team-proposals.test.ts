@@ -115,6 +115,38 @@ test("AI team proposal without a local dispatcher is durable waiting and does no
   assert.equal((await projects.getProject(owner, project.id))?.workRequests.length, 0);
 });
 
+test("AI team proposal waiting blockers redact credential-shaped Runtime text", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-proposal-blocker-safety-"));
+  const owner = principal("proposal-blocker-owner");
+  const teams = createTeamService(join(root, "platform"), { now: () => at });
+  const team = await teams.createTeam(owner, { name: "Blocker safety team", description: "sanitize Runtime blockers", kind: "project", visibility: "private", capacity: 3 });
+  await teams.addAiMember(owner, team.id, { agentId: "qa", assignmentRole: "qa", capabilities: ["task.propose"], approvalScope: "suggestion-only" }, at);
+  const projects = createUserProjectService({ platformRoot: join(root, "platform"), projectModelRoot: join(root, "projects"), projectHarnessRoot: join(root, "runs"), iseolRoot: root, canAccessTeam: (subject, teamId) => teams.canAccess(subject, teamId), canAccessTeamWithinMembershipLock: (subject, teamId) => teams.canAccessWithinMembershipLock(subject, teamId), now: () => at });
+  const project = await projects.createProject(owner, { name: "Blocker safety project", objective: "redact Runtime failures", purpose: "portfolio", teamMode: "mixed", teamId: team.id });
+  const secretText = "provider token=proposal-secret api_key=proposal-api-secret https://preview.example/?access_token=proposal-url-secret";
+  let dispatchCount = 0;
+  const proposals = createAiTeamProposalService({
+    root: join(root, "ai-team"),
+    teamService: teams,
+    userProjectService: projects,
+    now: () => at,
+    dispatcher: async () => {
+      dispatchCount += 1;
+      if (dispatchCount === 1) return { status: "waiting" as const, blocker: secretText };
+      throw new Error(secretText);
+    },
+  });
+
+  for (const requestId of ["returned-blocker", "thrown-blocker"]) {
+    const waiting = await proposals.requestProposal(owner, project.id, { agentId: "qa", requestId });
+    assert.equal(waiting.status, "waiting-runtime");
+    assert.equal(waiting.blocker?.includes("proposal-secret"), false);
+    assert.equal(waiting.blocker?.includes("proposal-api-secret"), false);
+    assert.equal(waiting.blocker?.includes("proposal-url-secret"), false);
+    assert.match(waiting.blocker ?? "", /\[redacted\]|\[redacted-url\]/i);
+  }
+});
+
 test("concurrent AI team proposal requests across service instances remain one proposal", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-ai-team-proposal-concurrent-"));
   const owner = principal("proposal-concurrent-owner");
