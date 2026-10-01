@@ -58,10 +58,11 @@ export async function connectDesktopAgentWebSocketClient(
       const pack = frame.pack as DesktopTaskPack;
       try {
         const cached = completedResults.get(pack.jobId);
-        const result = toDurableDesktopResult(cached ?? await options.onTask(pack));
+        const result = cached ?? await options.onTask(pack);
+        const durableResult = toDurableDesktopResult(result);
         if (!cached) {
-          await options.persistResult?.(result);
-          completedResults.set(result.jobId, result);
+          await options.persistResult?.(durableResult);
+          completedResults.set(durableResult.jobId, durableResult);
         }
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({ version: 1, type: "result", result }));

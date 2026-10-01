@@ -282,6 +282,46 @@ test("completed result is replayed after disconnect before delivery", async () =
   }
 });
 
+test("live Desktop results keep command output while durable copies omit it", async () => {
+  const registryRoot = await root();
+  const resultRoot = await root();
+  const transport = createDesktopAgentTransport({ registryRoot, expectedToken: "secret-token" });
+  const server = await startDesktopAgentWebSocketServer({ host: "127.0.0.1", port: 0, transport });
+  let taskSeen!: () => void;
+  const seen = new Promise<void>((resolve) => { taskSeen = resolve; });
+  let release!: () => void;
+  const releaseTask = new Promise<void>((resolve) => { release = resolve; });
+  let client!: Awaited<ReturnType<typeof connectDesktopAgentWebSocketClient>>;
+  try {
+    client = await connectDesktopAgentWebSocketClient({
+      url: server.url,
+      hello,
+      heartbeatIntervalMs: 25,
+      onTask: async (pack) => {
+        taskSeen();
+        await releaseTask;
+        return {
+          ...result(pack.jobId),
+          operations: [{ operationId: "op-1", ok: true, summary: "live output", stdout: "LIVE_STDOUT_SENTINEL", stderr: "LIVE_STDERR_SENTINEL" }],
+        };
+      },
+      persistResult: (value) => persistCompletedDesktopResult(resultRoot, value),
+    } as any);
+    transport.sendTask("agent-001", task("job-live-output"));
+    await seen;
+    release();
+    const live = await transport.awaitResult("job-live-output", 1_000);
+    assert.equal(live.operations[0]?.stdout, "LIVE_STDOUT_SENTINEL");
+    assert.equal(live.operations[0]?.stderr, "LIVE_STDERR_SENTINEL");
+    const durable = (await loadCompletedDesktopResults(resultRoot)).get("job-live-output");
+    assert.equal("stdout" in (durable?.operations[0] ?? {}), false);
+    assert.equal("stderr" in (durable?.operations[0] ?? {}), false);
+  } finally {
+    if (client) await client.close();
+    await server.close();
+  }
+});
+
 test("legacy Desktop result files are sanitized before replay", async () => {
   const resultRoot = await root();
   const legacy = {
