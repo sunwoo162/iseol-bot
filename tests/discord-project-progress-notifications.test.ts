@@ -26,6 +26,10 @@ test("progress notifications are bounded and redact credential-like text", () =>
   const malformedOnly = formatProgressNotification({ id: "evt-malformed-only", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "access_token%ZZ=malformed-only-progress-token" });
   assert.ok(malformedOnly);
   assert.equal(malformedOnly.content.includes("malformed-only-progress-token"), false);
+
+  const percentage = formatProgressNotification({ id: "evt-percentage", type: "run.updated", occurredAt: "2026-09-20T00:00:00.000Z", projectId: "project-1", summary: "Progress 50% complete" });
+  assert.ok(percentage);
+  assert.equal(percentage.content, "Project project-1: Progress 50% complete");
 });
 
 test("progress notification delivery is durable and idempotent", async () => {

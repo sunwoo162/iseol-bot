@@ -5,6 +5,7 @@ const BEARER_CREDENTIAL = /\bBearer\s+[^\s,;}]+/gi;
 const HTTP_URL = /https?:\/\/[^\s,;}]+/gi;
 const URL_CREDENTIAL_ASSIGNMENT = /([?&#])([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*([^\s&#,;}]+)/g;
 const CREDENTIAL_ASSIGNMENT = /(^|[^A-Za-z0-9_-])(["']?)([A-Za-z][A-Za-z0-9_-]*)\2\s*([:=])\s*("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^\s,;}\)\]]+)/g;
+const ENCODED_CREDENTIAL_CONTEXT = /(?:bearer|token|secret|password|authorization|credential|(?:api|access|client|refresh|session|oauth)[_-](?:key|token|secret)|jwt|https?|wss?)/i;
 
 function decodeForCredentialInspection(value: string): string | undefined {
   let current = value;
@@ -38,7 +39,7 @@ function sanitizeRawCredentialText(value: string, maxLength: number): string {
 
 export function sanitizeCredentialText(value: string, maxLength = 240): string {
   const sanitized = sanitizeRawCredentialText(value, maxLength);
-  if (!value.includes("%")) return sanitized;
+  if (!value.includes("%") || (!/%[0-9a-f]{2}/i.test(value) && !ENCODED_CREDENTIAL_CONTEXT.test(value))) return sanitized;
   const decoded = decodeForCredentialInspection(value);
   if (decoded === undefined) return "[redacted]".slice(0, maxLength);
   const decodedSanitized = sanitizeRawCredentialText(decoded, Math.max(maxLength, decoded.length));
