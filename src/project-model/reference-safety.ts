@@ -6,7 +6,7 @@ const OPAQUE_REFERENCE_SCHEMES = new Set([
 ]);
 
 const BEARER_CREDENTIAL = /\bBearer\s+[^\s,;}]+/i;
-const NESTED_URI_SCHEME = /(?:^|[^A-Za-z0-9+.-])(?:https?|javascript|file|data|blob|ftp|ws|wss|mailto|vbscript):/i;
+const NESTED_URI_SCHEME = /(?:https?|javascript|file|data|blob|ftp|ws|wss|mailto|vbscript):/i;
 
 function decodedRepresentations(value: string): string[] | undefined {
   const representations = [value];
