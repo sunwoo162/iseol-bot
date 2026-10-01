@@ -37,6 +37,7 @@ import {
 import { startWebhookServer } from "./services/webhook-server.js";
 import { startIseolRuntimeServices } from "./runtime/iseol-runtime-services.js";
 import { createBoundProjectProgressChannelResolver, createDiscordProgressAdapter } from "./discord-project/progress-discord-adapter.js";
+import { formatAdministratorResetFailure } from "./security/user-error.js";
 
 const client = new Client({
   intents: [
@@ -205,8 +206,7 @@ client.on(Events.MessageCreate, async (message) => {
       });
     } catch (error) {
       console.error(`관리자 서버 초기화 실패 (${message.guild.id})`, error);
-      const detail = error instanceof Error ? error.message : "알 수 없는 오류";
-      await message.author.send(`❌ 서버 초기화에 실패했습니다.\n\`${detail}\``).catch(() => undefined);
+      await message.author.send(formatAdministratorResetFailure(error)).catch(() => undefined);
     }
     return;
   }
