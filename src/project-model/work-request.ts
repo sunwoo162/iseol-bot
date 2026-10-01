@@ -293,7 +293,20 @@ async function reconcileProjectWorkRequestUnlocked(input: {
     if (request.status !== "failed" || !request.blocker) return request;
     const blocker = sanitizeCredentialText(request.blocker, 240);
     if (blocker === request.blocker) return request;
-    return await updateProjectWorkRequest(input.root, input.projectId, input.workId, { blocker }, input.at) ?? { ...request, blocker };
+    return await withDurableProjectWorkRequestLock(input.root, input.projectId, `update:${input.workId}`, async () => {
+      const current = await loadProjectWorkRequest(input.root, input.projectId, input.workId);
+      if (!current) return { ...request, blocker };
+      const unchanged = projectWorkRequestRevision(current) === projectWorkRequestRevision(request)
+        && current.status === request.status
+        && current.runId === request.runId
+        && current.requestedRunId === request.requestedRunId
+        && current.executionRequestId === request.executionRequestId
+        && current.blocker === request.blocker;
+      if (!unchanged) return current;
+      const next = { ...current, blocker, updatedAt: input.at };
+      await saveProjectWorkRequest(input.root, next);
+      return next;
+    }, { waitForMs: 2_000 });
   };
   // A failed request may be deliberately reopened by the owner retry path before
   // the same durable Run reaches DONE. Preserve other terminal request states

@@ -349,6 +349,41 @@ test("already failed Work Requests sanitize legacy blockers during reconciliatio
   assert.equal((await loadProjectWorkRequest(root, "project-1", "legacy-reconcile-failure"))?.blocker?.includes("legacy-reconcile-secret"), false);
 });
 
+test("reconciliation does not overwrite a concurrent retry with a stale blocker", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-work-reconcile-retry-race-"));
+  await createProjectWorkRequest({ root, projectId: "project-1", title: "Retry race", objective: "Preserve retry state", idempotencyKey: "reconcile-retry-race", id: "reconcile-retry-race", at });
+  await updateProjectWorkRequest(root, "project-1", "reconcile-retry-race", {
+    status: "failed",
+    requestedRunId: "run-reconcile-retry-race",
+    runId: "run-reconcile-retry-race",
+    blocker: "token=stale-reconcile-secret",
+  }, at);
+  let findRunStarted!: () => void;
+  const findRunStartedPromise = new Promise<void>((resolve) => { findRunStarted = resolve; });
+  let releaseFindRun!: () => void;
+  const releaseFindRunPromise = new Promise<void>((resolve) => { releaseFindRun = resolve; });
+  const reconciliation = reconcileProjectWorkRequest({
+    root,
+    projectId: "project-1",
+    workId: "reconcile-retry-race",
+    at: "2026-09-20T12:01:00.000Z",
+    findRun: async () => {
+      findRunStarted();
+      await releaseFindRunPromise;
+      return { runId: "run-reconcile-retry-race", state: { stage: "IMPLEMENT", status: "FAILED_FINAL", reason: "token=stale-run-secret" }, updatedAt: at };
+    },
+  });
+  await findRunStartedPromise;
+  await updateProjectWorkRequest(root, "project-1", "reconcile-retry-race", { status: "running", blocker: undefined }, "2026-09-20T12:00:30.000Z");
+  releaseFindRun();
+  const result = await reconciliation;
+  const persisted = await loadProjectWorkRequest(root, "project-1", "reconcile-retry-race");
+  assert.equal(result?.request.status, "running");
+  assert.equal(result?.request.blocker, undefined);
+  assert.equal(persisted?.status, "running");
+  assert.equal(persisted?.blocker, undefined);
+});
+
 test("an explicit retry lets the authoritative terminal Run reproject a failed request", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-work-retry-projection-"));
   await createProjectWorkRequest({ root, projectId: "project-1", title: "Retry", objective: "Retry", idempotencyKey: "retry", id: "retry", at });
