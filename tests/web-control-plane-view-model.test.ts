@@ -284,6 +284,8 @@ test("Project Workspace view exposes Genesis tree history and active Run summary
   assert.ok(view);
   assert.equal(view.project.name, "Study Race");
   assert.equal(view.genesis.prototypeId, "prototype-001");
+  assert.equal(view.genesis.repository.url, "https://github.com/example/repo");
+  assert.equal(view.genesis.deployment.url, "https://study.example.com");
   assert.equal(view.tree.find((node) => node.id === "profile")?.runIds[0], "run-active");
   assert.equal(view.history[0]?.id, "history-001");
   assert.equal(view.runs[0]?.runId, "run-active");
@@ -301,6 +303,29 @@ test("Project Workspace view exposes Genesis tree history and active Run summary
     recordedAt: "2026-09-07T01:20:00.000Z",
     summary: "Applied profile update",
   }]);
+});
+
+test("Project Workspace view omits unsafe Genesis URLs", async () => {
+  const { modelRoot, harnessRoot } = await fixture();
+  const source = workspace();
+  await saveProjectWorkspace(modelRoot, {
+    ...source,
+    genesis: {
+      ...source.genesis,
+      repository: {
+        ...source.genesis.repository,
+        url: "https://user:password@example.com/repo?token=secret",
+      },
+      deployment: {
+        ...source.genesis.deployment,
+        url: "javascript:alert(1)",
+      },
+    },
+  });
+
+  const view = await buildProjectWorkspaceView(modelRoot, harnessRoot, "project-prototype-001");
+  assert.deepEqual(view?.genesis.repository, { branch: "main", commitSha: "abc123" });
+  assert.deepEqual(view?.genesis.deployment, { provider: "vercel", deploymentId: "dpl_1" });
 });
 
 test("Web view model does not expose policy source contents or environment values", async () => {
