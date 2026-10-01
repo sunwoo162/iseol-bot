@@ -84,6 +84,23 @@ test("candidate materialization requires completed Idea Lab evidence and exact d
   assert.deepEqual(candidate.ideaLabOrigin, { campaignId: "camp-1", proposalId: "proposal-1", productionId: "prod-1" });
   assert.deepEqual(await loadPrototypeCandidate(modelRoot, "prod-1"), candidate);
 });
+
+test("candidate materialization rejects unsafe verified deployment URLs", async () => {
+  const modelRoot = await mkdtemp(join(tmpdir(), "iseol-idea-materialize-url-"));
+  const verified = { provider: "fake-preview", deploymentId: "dep-prod-1", url: "https://preview.invalid/prod-1", commitSha: COMMIT, deployedAt: NOW, verifiedAt: NOW };
+  for (const url of [
+    "https://preview.invalid/prod-1?access_token=secret-value",
+    "https://preview.invalid/prod-1#oauth_token=secret-value",
+    "javascript:alert(1)",
+    "//attacker.example/preview",
+  ]) {
+    await assert.rejects(
+      () => materializePrototypeCandidate({ modelRoot, production: production(), proposal: proposal(), run: completedRun(), deployment: { ...verified, url }, at: NOW }),
+      /URL|credential|preview/i,
+      url,
+    );
+  }
+});
 test("candidate materialization is idempotent and rejects conflicting immutable identity", async () => {
   const modelRoot = await mkdtemp(join(tmpdir(), "iseol-idea-materialize-idempotent-"));
   const verified = { provider: "fake-preview", deploymentId: "dep-prod-1", url: "https://preview.invalid/prod-1", commitSha: COMMIT, deployedAt: NOW, verifiedAt: NOW };
