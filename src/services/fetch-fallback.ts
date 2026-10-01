@@ -3,6 +3,8 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const nativeFetch = globalThis.fetch.bind(globalThis);
+const ALLCON_HOSTS = new Set(["all-con.co.kr", "www.all-con.co.kr"]);
+const CURL_STATUS_MARKER = "__ISEOL_CURL_STATUS__";
 
 function requestUrl(input: Parameters<typeof globalThis.fetch>[0]): string | null {
   if (typeof input === "string") return input;
@@ -10,15 +12,48 @@ function requestUrl(input: Parameters<typeof globalThis.fetch>[0]): string | nul
   return input.url;
 }
 
-function isAllconUrl(url: string | null): boolean {
-  if (!url) return false;
+export function isAllconUrl(url: string | null): boolean {
+  if (!url || url.includes("\\") || /%5c/i.test(url)) return false;
 
   try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return hostname === "all-con.co.kr" || hostname.endsWith(".all-con.co.kr");
+    const parsed = new URL(url);
+    return parsed.protocol === "https:"
+      && ALLCON_HOSTS.has(parsed.hostname.toLowerCase())
+      && !parsed.username
+      && !parsed.password
+      && !parsed.port;
   } catch {
     return false;
   }
+}
+
+export function buildAllconCurlArgs(
+  url: string,
+  init?: Parameters<typeof globalThis.fetch>[1],
+): string[] {
+  if (!isAllconUrl(url)) throw new Error("Allcon fallback URL is not allowed");
+
+  const headers = new Headers(init?.headers);
+  const args = [
+    "--fail",
+    "--silent",
+    "--show-error",
+    "--compressed",
+    "--insecure",
+    "--max-time",
+    "15",
+    "--max-redirs",
+    "0",
+    "--write-out",
+    `\n${CURL_STATUS_MARKER}%{http_code}`,
+  ];
+
+  for (const [name, value] of headers.entries()) {
+    args.push("--header", `${name}: ${value}`);
+  }
+
+  args.push(url);
+  return args;
 }
 
 function isCertificateChainError(error: unknown): boolean {
@@ -45,32 +80,22 @@ async function fetchAllconWithCurl(
   url: string,
   init?: Parameters<typeof globalThis.fetch>[1],
 ): Promise<Response> {
-  const headers = new Headers(init?.headers);
-  const args = [
-    "--fail",
-    "--silent",
-    "--show-error",
-    "--location",
-    "--compressed",
-    "--insecure",
-    "--max-time",
-    "15",
-  ];
-
-  for (const [name, value] of headers.entries()) {
-    args.push("--header", `${name}: ${value}`);
-  }
-
-  args.push(url);
-
-  const result = await execFileAsync("curl", args, {
+  const result = await execFileAsync("curl", buildAllconCurlArgs(url, init), {
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
   });
-  const body = result.stdout;
+  const output = String(result.stdout);
+  const marker = `\n${CURL_STATUS_MARKER}`;
+  const markerIndex = output.lastIndexOf(marker);
+  if (markerIndex < 0) throw new Error("Allcon fallback response status is missing");
 
-  return new Response(body, {
-    status: 200,
+  const status = Number(output.slice(markerIndex + marker.length).trim());
+  if (!Number.isInteger(status) || status < 100 || status > 599) {
+    throw new Error("Allcon fallback response status is invalid");
+  }
+
+  return new Response(output.slice(0, markerIndex), {
+    status,
     headers: { "content-type": "text/html; charset=utf-8" },
   });
 }
