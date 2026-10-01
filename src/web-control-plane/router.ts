@@ -27,6 +27,7 @@ import {
 import type { OperatorReconciliationReason } from "../harness/operator-reconciliation.js";
 import type { OperatorApproval } from "../harness/operator-approval-store.js";
 import type { WebProductEventBus } from "./event-bus.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 
 export type WebControlPlaneRequest = {
   method: string;
@@ -146,8 +147,8 @@ export async function routeWebControlPlaneRequest(
       deps.eventBus?.publish({ type: "work-request.created", scope: { projectId }, payload: { projectId, workRequestId: result.request.id, status: result.request.status } });
       return response(result.created ? 201 : 200, result.request);
     } catch (error) {
-      if (error instanceof Error && error.message.includes("idempotency conflict")) return response(409, { error: error.message });
-      if (error instanceof Error && /dependency/.test(error.message)) return response(409, { error: error.message });
+      if (error instanceof Error && error.message.includes("idempotency conflict")) return response(409, { error: sanitizeCredentialText(error.message, 240) });
+      if (error instanceof Error && /dependency/.test(error.message)) return response(409, { error: sanitizeCredentialText(error.message, 240) });
       throw error;
     }
   }
@@ -288,7 +289,7 @@ export async function routeWebControlPlaneRequest(
       if (result.request) deps.eventBus?.publish({ type: "work-request.updated", scope: { projectId, runId: result.runId }, payload: { projectId, workRequestId: result.request.id, status: result.request.status, runId: result.runId, blocker: result.blocker } });
       return response(result.status === "started" ? 202 : result.status === "waiting" ? 409 : 200, result);
     } catch (error) {
-      if (error instanceof Error && /workspace not found|Harness Run not found|Run identity|project folder/.test(error.message)) return response(409, { error: error.message });
+      if (error instanceof Error && /workspace not found|Harness Run not found|Run identity|project folder/.test(error.message)) return response(409, { error: sanitizeCredentialText(error.message, 240) });
       throw error;
     }
   }
@@ -341,7 +342,7 @@ export async function routeWebControlPlaneRequest(
       deps.eventBus?.publish({ type: "campaign.created", scope: { campaignId: campaign.id }, payload: { campaignId: campaign.id, status: campaign.status } });
       return response(201, campaign);
     } catch (error) {
-      if (error instanceof WebIdeaLabActionError) return response(error.status, { error: error.message });
+      if (error instanceof WebIdeaLabActionError) return response(error.status, { error: sanitizeCredentialText(error.message, 240) });
       throw error;
     }
   }
@@ -493,7 +494,7 @@ export async function routeWebControlPlaneRequest(
       });
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Project workspace not found:")) return response(404, { error: "not found" });
-      if (error instanceof Error && /purpose|root node|terminal|identity|request does not match/.test(error.message)) return response(409, { error: error.message });
+      if (error instanceof Error && /purpose|root node|terminal|identity|request does not match/.test(error.message)) return response(409, { error: sanitizeCredentialText(error.message, 240) });
       throw error;
     }
   }
@@ -634,7 +635,7 @@ export async function routeWebControlPlaneRequest(
       deps.eventBus?.publish({ type: "campaign.updated", scope: { campaignId }, payload: { campaignId, status: cancelled.status } });
       return response(200, cancelled);
     } catch (error) {
-      if (error instanceof WebIdeaLabActionError) return response(error.status, { error: error.message });
+      if (error instanceof WebIdeaLabActionError) return response(error.status, { error: sanitizeCredentialText(error.message, 240) });
       throw error;
     }
   }
@@ -665,7 +666,7 @@ export async function routeWebControlPlaneRequest(
       return response(200, archived);
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Prototype not found:")) return response(404, { error: "not found" });
-      if (error instanceof Error && error.message.includes("cannot be archived")) return response(409, { error: error.message });
+      if (error instanceof Error && error.message.includes("cannot be archived")) return response(409, { error: sanitizeCredentialText(error.message, 240) });
       throw error;
     }
   }
@@ -705,7 +706,7 @@ export async function routeWebControlPlaneRequest(
       return response(200, updated);
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Prototype not found:")) return response(404, { error: "not found" });
-      if (error instanceof Error && error.message.includes("immutable")) return response(409, { error: error.message });
+      if (error instanceof Error && error.message.includes("immutable")) return response(409, { error: sanitizeCredentialText(error.message, 240) });
       throw error;
     }
   }

@@ -4,6 +4,7 @@ import { sanitizeProjectEvidenceReference } from "../project-model/reference-saf
 const BEARER_CREDENTIAL = /\bBearer\s+[^\s,;}]+/gi;
 const HTTP_URL = /https?:\/\/[^\s,;}]+/gi;
 const URL_CREDENTIAL_ASSIGNMENT = /([?&#])([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*([^\s&#,;}]+)/g;
+const SENSITIVE_CREDENTIAL_ASSIGNMENT = /(^|[^A-Za-z0-9_-])(["']?)(token|cookie|secret|password|api[_ -]?key)\2\s*([:=])\s*("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^\s,;}\)\]]+)/gi;
 const CREDENTIAL_ASSIGNMENT = /(^|[^A-Za-z0-9_-])(["']?)([A-Za-z][A-Za-z0-9_-]*)\2\s*([:=])\s*("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^\s,;}\)\]]+)/g;
 const MALFORMED_ASSIGNMENT_CONTEXT = /(?:^|[\s,{?&#])[^,\s?&#:=]{1,120}%[^,\s?&#:=]{0,120}\s*[:=]\s*[^\s,;}]+|(?:https?|wss?)%[^,\s]*:\/\//i;
 
@@ -35,6 +36,10 @@ function sanitizeRawCredentialText(value: string, maxLength: number): string {
     .replace(URL_CREDENTIAL_ASSIGNMENT, (match, prefix: string, key: string) => (
       isSensitiveCredentialKey(key) ? `${prefix}${key}=[redacted]` : match
     ))
+    .replace(SENSITIVE_CREDENTIAL_ASSIGNMENT, (match, prefix: string, keyQuote: string, key: string, separator: string, value: string) => {
+      const quote = value.startsWith('"') || value.startsWith("'") ? value[0] : "";
+      return `${prefix}${keyQuote}${key}${keyQuote}${separator}${quote}[redacted]${quote}`;
+    })
     .replace(CREDENTIAL_ASSIGNMENT, (match, prefix: string, keyQuote: string, key: string, separator: string, value: string) => {
       if (!isSensitiveCredentialKey(key)) return match;
       const quote = value.startsWith('"') || value.startsWith("'") ? value[0] : "";

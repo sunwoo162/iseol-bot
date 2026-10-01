@@ -34,6 +34,21 @@ async function fixture(token = "") {
   return { modelRoot, harnessRoot, token };
 }
 
+test("Control Plane validation errors redact credential-shaped field names", async () => {
+  const deps = await fixture("secret-token");
+  const result = await routeWebControlPlaneRequest({
+    method: "POST",
+    path: "/api/idea-lab/campaigns",
+    headers: { authorization: "Bearer secret-token" },
+    body: { "token=control-secret": true },
+  }, deps);
+
+  assert.equal(result.status, 400);
+  const message = (result.body as { error: string }).error;
+  assert.equal(message.includes("control-secret"), false);
+  assert.match(message, /\[redacted\]/i);
+});
+
 test("routes Idea Lab and missing project reads", async () => {
   const deps = await fixture();
   const idea = await routeWebControlPlaneRequest(
