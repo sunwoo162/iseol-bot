@@ -34,6 +34,61 @@ async function fixture(token = "") {
   return { modelRoot, harnessRoot, token };
 }
 
+test("Control Plane validation errors redact credential-shaped field names", async () => {
+  const deps = await fixture("secret-token");
+  const result = await routeWebControlPlaneRequest({
+    method: "POST",
+    path: "/api/idea-lab/campaigns",
+    headers: { authorization: "Bearer secret-token" },
+    body: { "token=control-secret": true },
+  }, deps);
+
+  assert.equal(result.status, 400);
+  const message = (result.body as { error: string }).error;
+  assert.equal(message.includes("control-secret"), false);
+  assert.match(message, /\[redacted\]/i);
+
+  const nested = await routeWebControlPlaneRequest({
+    method: "POST",
+    path: "/api/idea-lab/campaigns",
+    headers: { authorization: "Bearer secret-token" },
+    body: { "outer={access_token=control-secret}": true },
+  }, deps);
+  assert.equal(nested.status, 400);
+  const nestedMessage = (nested.body as { error: string }).error;
+  assert.equal(nestedMessage.includes("control-secret"), false);
+  assert.match(nestedMessage, /\[redacted\]/i);
+
+  const nestedVariants = await routeWebControlPlaneRequest({
+    method: "POST",
+    path: "/api/idea-lab/campaigns",
+    headers: { authorization: "Bearer secret-token" },
+    body: { "outer={client_secret=control-secret,jwt=jwt-secret,private_key=private-secret,session_id=session-secret,xapikey=x-api-secret,password_hash=hash-secret,sig=sig-secret}": true },
+  }, deps);
+  assert.equal(nestedVariants.status, 400);
+  const nestedVariantsMessage = (nestedVariants.body as { error: string }).error;
+  assert.equal(nestedVariantsMessage.includes("control-secret"), false);
+  assert.equal(nestedVariantsMessage.includes("jwt-secret"), false);
+  assert.equal(nestedVariantsMessage.includes("private-secret"), false);
+  assert.equal(nestedVariantsMessage.includes("session-secret"), false);
+  assert.equal(nestedVariantsMessage.includes("x-api-secret"), false);
+  assert.equal(nestedVariantsMessage.includes("hash-secret"), false);
+  assert.equal(nestedVariantsMessage.includes("sig-secret"), false);
+
+  for (const [field, secret] of [["session_id", "solo-session-secret"], ["password_hash", "solo-hash-secret"], ["auth", "solo-auth-secret"], ["session", "solo-session-key"], ["signature", "solo-signature-secret"]] as const) {
+    const solo = await routeWebControlPlaneRequest({
+      method: "POST",
+      path: "/api/idea-lab/campaigns",
+      headers: { authorization: "Bearer secret-token" },
+      body: { [`outer={${field}=${secret}}`]: true },
+    }, deps);
+    assert.equal(solo.status, 400);
+    const soloMessage = (solo.body as { error: string }).error;
+    assert.equal(soloMessage.includes(secret), false);
+    assert.match(soloMessage, /\[redacted\]/i);
+  }
+});
+
 test("routes Idea Lab and missing project reads", async () => {
   const deps = await fixture();
   const idea = await routeWebControlPlaneRequest(
