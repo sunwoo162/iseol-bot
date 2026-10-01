@@ -124,6 +124,24 @@ test("completed Desktop results must include every Task Pack operation", async (
   );
 });
 
+test("completed Desktop results cannot contain failed operations", async () => {
+  const url = "http://127.0.0.1:4173/health?ready=1";
+  const f = await fixture({ id: "http", type: "CHECK_HTTP", url, timeoutMs: 2_000 });
+  await acquireDesktopJobLease(f.root, f.job.jobId, "session", "2026-09-20T01:00:01.000Z", 60_000);
+  await assert.rejects(
+    completeDesktopJob(f.root, f.job.jobId, "session", {
+      version: 1,
+      jobId: f.job.jobId,
+      runId: f.job.runId,
+      agentId: f.job.pack.agentId,
+      status: "completed",
+      completedAt: "2026-09-20T01:00:02.000Z",
+      operations: [{ operationId: "http", ok: false, summary: "HTTP 503", reference: url }],
+    }),
+    /cannot contain failed operations/i,
+  );
+});
+
 test("verified result from another Run is rejected without changing the pending job", async () => {
   const f = await fixture({ id: "inspect", type: "GIT_INSPECT", cwd: "." });
   const resultRoot = join(f.root, "wrong-results");

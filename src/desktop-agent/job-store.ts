@@ -425,8 +425,13 @@ function assertDesktopResultReferences(pack: DesktopTaskPack, result: DesktopJob
       throw new Error(`Desktop CHECK_HTTP result reference mismatch: ${operationResult.operationId}`);
     }
   }
-  if (result.status === "completed" && seen.size !== operations.size) {
-    throw new Error("Desktop completed result must include every Task Pack operation");
+  if (result.status === "completed") {
+    if (seen.size !== operations.size) {
+      throw new Error("Desktop completed result must include every Task Pack operation");
+    }
+    if (result.operations.some((operation) => !operation.ok)) {
+      throw new Error("Desktop completed result cannot contain failed operations");
+    }
   }
 }
 
