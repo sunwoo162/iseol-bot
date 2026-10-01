@@ -57,7 +57,14 @@ function deploymentUrl(value: VercelDeployment): string {
   if (rawUrl !== url || /[\u0000-\u001f\u007f]/.test(rawUrl) || url.startsWith("//")) {
     throw new Error("Vercel deployment response contains an invalid URL");
   }
-  const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  const completeHttpUrl = /^https?:\/\//i.test(url);
+  if (!completeHttpUrl && /^[A-Za-z][A-Za-z\d+.-]*:/.test(url)) {
+    throw new Error("Vercel deployment response contains an invalid URL");
+  }
+  if (/%(?![0-9a-f]{2})/i.test(url)) {
+    throw new Error("Vercel deployment response contains an invalid URL");
+  }
+  const normalized = completeHttpUrl ? url : `https://${url}`;
   try {
     assertCheckHttpUrl(normalized);
   } catch {

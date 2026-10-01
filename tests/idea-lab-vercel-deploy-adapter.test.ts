@@ -72,6 +72,9 @@ test("Vercel deployment rejects unsafe provider URLs before returning a receipt"
     "https://preview.vercel.app/#oauth_token=secret-value",
     "javascript:alert(1)",
     "//attacker.example/preview",
+    "https:/evil",
+    "file:/C:/secret.txt",
+    "https://preview.vercel.app/%ZZ",
   ]) {
     const adapter = createVercelPrototypeDeployAdapter({
       token: "vercel-token",
