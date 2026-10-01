@@ -13,9 +13,9 @@ function sanitizeProjectEvidence(item: HarnessEvidenceRecord): HarnessEvidenceRe
     const { reference: _unsafeReference, ...sanitized } = item;
     return sanitized;
   };
+  if (candidate !== reference || hasControlCharacter) return removeReference();
   if (candidate.startsWith("//")) return removeReference();
   if (/^https?:\/\//i.test(candidate)) {
-    if (candidate !== reference || hasControlCharacter) return removeReference();
     try {
       assertCheckHttpUrl(reference);
       return item;
