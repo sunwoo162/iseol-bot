@@ -28,13 +28,18 @@ export async function buildProjectWorkspaceListView(modelRoot: string): Promise<
 export function toPrototypeCard(
   candidate: Awaited<ReturnType<typeof listPrototypeCandidates>>[number],
 ): WebPrototypeCard {
-  const deploymentUrl = safeDeploymentUrl(candidate.deployment.url);
+  const repositoryUrl = safeHttpUrl(candidate.repository.url);
+  const deploymentUrl = safeHttpUrl(candidate.deployment.url);
   return {
     id: candidate.id,
     title: candidate.title,
     concept: candidate.concept,
     status: candidate.status,
-    repository: { ...candidate.repository },
+    repository: {
+      ...(repositoryUrl ? { url: repositoryUrl } : {}),
+      branch: candidate.repository.branch,
+      commitSha: candidate.repository.commitSha,
+    },
     deployment: {
       ...(deploymentUrl ? { url: deploymentUrl } : {}),
       ...(candidate.deployment.provider === undefined
@@ -63,7 +68,7 @@ function safeRunSummary(value: string | undefined): string | undefined {
     .slice(0, 240);
 }
 
-function safeDeploymentUrl(value: string | undefined): string | undefined {
+function safeHttpUrl(value: string | undefined): string | undefined {
   if (!value || /%(?![0-9a-f]{2})/i.test(value)) return undefined;
   try {
     assertCheckHttpUrl(value);
@@ -77,7 +82,7 @@ function toProductionView(
   production: Awaited<ReturnType<typeof listPrototypeProductions>>[number],
   run: WebRunSummary | null,
 ): WebIdeaLabProductionSummary {
-  const deploymentUrl = safeDeploymentUrl(production.deployment?.url);
+  const deploymentUrl = safeHttpUrl(production.deployment?.url);
   return {
     id: production.id,
     campaignId: production.campaignId,
