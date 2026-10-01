@@ -16,7 +16,21 @@ export type RepositoryVisibility = "public" | "private";
 const GITHUB_AUTOMATION_EVENTS = ["pull_request", "milestone"] as const;
 
 export function buildAutomationWebhookUrl(publicBaseUrl: string): string {
-  const url = new URL(publicBaseUrl);
+  const raw = publicBaseUrl.trim();
+  if (!raw || raw.includes("\\") || /%5c/i.test(raw)) {
+    throw new Error("PUBLIC_BASE_URL은 안전한 HTTPS URL이어야 합니다.");
+  }
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("PUBLIC_BASE_URL은 안전한 HTTPS URL이어야 합니다.");
+  }
+  if (url.protocol !== "https:" || url.username || url.password || url.port || !url.hostname) {
+    throw new Error("PUBLIC_BASE_URL은 안전한 HTTPS URL이어야 합니다.");
+  }
+
   url.pathname = `${url.pathname.replace(/\/$/, "")}/github/events`;
   url.search = "";
   url.hash = "";

@@ -21,6 +21,23 @@ import { buildAutomationWebhookUrl, parseGitHubRepository } from "../src/service
 
 test("automation webhook url targets the signed github events endpoint", () => {
   assert.equal(buildAutomationWebhookUrl("https://iseol.example.com/"), "https://iseol.example.com/github/events");
+  assert.equal(
+    buildAutomationWebhookUrl("https://iseol.example.com/discord/?tenant=alpha#ignored"),
+    "https://iseol.example.com/discord/github/events",
+  );
+});
+
+test("automation webhook url rejects unsafe public base URL authorities", () => {
+  for (const value of [
+    "http://iseol.example.com",
+    "https://user:password@iseol.example.com",
+    "https://iseol.example.com:8443",
+    "https://iseol.example.com\\@attacker.example.com",
+    "https://iseol.example.com/%5C@attacker.example.com",
+    "not a url",
+  ]) {
+    assert.throws(() => buildAutomationWebhookUrl(value), /PUBLIC_BASE_URL/);
+  }
 });
 
 test("github repository identities reject malformed and path-like input", () => {
