@@ -141,13 +141,12 @@ test("missing provider or protected production blocker moves Campaign to blocked
   const provider = new FakeIdeaProposalProvider([[draft("A", 1)]]);
   const blocked = await superviseIdeaLabCampaign({
     root, campaignId: "camp-1", proposalProvider: provider,
-    createProduction: async () => { throw new IdeaLabCampaignBlockedError("Desktop Agent unavailable"); },
+    createProduction: async () => { throw new IdeaLabCampaignBlockedError("Desktop Agent unavailable access_token=secret"); },
     advanceProduction: async (production) => production,
     now: () => NOW, maxSteps: 8,
   });
   assert.equal(blocked.status, "blocked");
-  assert.match(blocked.blockerSummary ?? "", /Desktop Agent unavailable/);
-  assert.doesNotMatch(blocked.blockerSummary ?? "", /token|cookie|secret=/i);
+  assert.equal(blocked.blockerSummary, "Desktop Agent unavailable access_token=[redacted]");
 });
 
 test("proposal UNKNOWN blocks the campaign without allowing another proposal request", async () => {

@@ -3,11 +3,11 @@ import { evaluationDirectory, listEvaluationJsonFiles } from "../evaluation/stor
 import { loadHarnessRun } from "../harness/run-store.js";
 import { listIdeaLabCampaigns, loadIdeaLabCampaign } from "../idea-lab/campaign-store.js";
 import { listPrototypeProductions } from "../idea-lab/production-store.js";
-import { assertCheckHttpUrl, isSensitiveHttpCredentialKey } from "../desktop-agent/contracts.js";
+import { assertCheckHttpUrl } from "../desktop-agent/contracts.js";
 import { loadProjectHistory } from "../project-model/history-store.js";
 import { listPrototypeCandidates, loadPrototypeCandidate } from "../project-model/prototype-store.js";
-import { sanitizeProjectEvidenceReference } from "../project-model/reference-safety.js";
 import { loadProjectWorkspace, listProjectWorkspaces } from "../project-model/workspace-store.js";
+import { sanitizeCredentialText } from "../security/text-safety.js";
 import type { ProjectGenesis } from "../project-model/contracts.js";
 import type {
   EvaluationView,
@@ -57,33 +57,12 @@ export function toPrototypeCard(
   };
 }
 
-const SUMMARY_BEARER_CREDENTIAL = /\bBearer\s+[^\s,;}]+/gi;
-const SUMMARY_HTTP_URL = /https?:\/\/[^\s,;}]+/gi;
-const SUMMARY_URL_CREDENTIAL_ASSIGNMENT = /([?&#])([A-Za-z][A-Za-z0-9_-]*)\s*[:=]\s*([^\s&#,;}]+)/g;
-const SUMMARY_CREDENTIAL_ASSIGNMENT = /(^|[^A-Za-z0-9_-])(["']?)([A-Za-z][A-Za-z0-9_-]*)\2\s*([:=])\s*("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|[^\s,;}\)\]]+)/g;
-
-function safeSummary(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  return value
-    .replace(SUMMARY_BEARER_CREDENTIAL, "Bearer [redacted]")
-    .replace(SUMMARY_HTTP_URL, (url) => sanitizeProjectEvidenceReference(url) ?? "[redacted-url]")
-    .replace(SUMMARY_URL_CREDENTIAL_ASSIGNMENT, (match, prefix: string, key: string) => (
-      isSensitiveHttpCredentialKey(key) ? `${prefix}${key}=[redacted]` : match
-    ))
-    .replace(SUMMARY_CREDENTIAL_ASSIGNMENT, (match, prefix: string, keyQuote: string, key: string, separator: string, value: string) => {
-      if (!isSensitiveHttpCredentialKey(key)) return match;
-      const quote = value.startsWith('"') || value.startsWith("'") ? value[0] : "";
-      return `${prefix}${keyQuote}${key}${keyQuote}${separator}${quote}[redacted]${quote}`;
-    })
-    .slice(0, 240);
-}
-
 function safeIdeaLabSummary(value: string | undefined): string | undefined {
-  return safeSummary(value);
+  return value ? sanitizeCredentialText(value) : undefined;
 }
 
 function safeRunSummary(value: string | undefined): string | undefined {
-  return safeSummary(value);
+  return value ? sanitizeCredentialText(value) : undefined;
 }
 
 function safeHttpUrl(value: string | undefined): string | undefined {
