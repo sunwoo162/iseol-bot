@@ -43,9 +43,10 @@ function bounded(records: HarnessEvidenceRecord[], kinds: HarnessEvidenceRecord[
 }
 
 function httpPreviewUrl(reference: string | undefined): string | null {
-  if (!reference?.trim()) return null;
+  const raw = reference?.trim();
+  if (!raw || raw !== reference || /[\\\u0000-\u001f\u007f]/.test(raw) || /%5c/i.test(raw)) return null;
   try {
-    const url = new URL(reference);
+    const url = new URL(raw);
     if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password || !url.hostname) return null;
     return url.toString();
   } catch {

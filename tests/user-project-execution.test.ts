@@ -627,6 +627,25 @@ test("Project Workspace exposes only a recorded verified HTTP preview URL", () =
   });
 });
 
+test("Project Workspace rejects preview URLs whose raw authority or path needs URL normalization", () => {
+  for (const reference of [
+    "http://127.0.0.1:4173\\@attacker.example/",
+    "http://127.0.0.1:4173/%5C@attacker.example/",
+    "http://127.0.0.1:4173/preview\n.html",
+    "http://127.0.0.1:4173/preview\t.html",
+  ]) {
+    const observation = projectRunObservation({
+      runId: "run-preview-invalid",
+      status: "completed",
+      stage: "DONE",
+      evidence: [
+        { version: 1, id: "invalid-preview", kind: "production-verification", stage: "PRODUCTION_VERIFY", recordedAt: at, summary: "invalid preview", reference, projectId: "project-1", runId: "run-preview-invalid" },
+      ],
+    });
+    assert.deepEqual(observation.preview, { status: "not-available", blocker: "Runtime가 검증된 미리보기 주소를 기록하지 않았습니다." }, reference);
+  }
+});
+
 test("project execution requires persisted build approval before enqueueing a Runtime run", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-user-project-approval-"));
   const settings = createSettingsService(join(root, "platform"), { now: () => at });
