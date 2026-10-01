@@ -54,6 +54,8 @@ test("CHECK_HTTP intents reject unsafe URL syntax", () => {
     "http://@preview.example.test/result",
     "http://preview.example.test\\result",
     "http://preview.example.test/%5Cresult",
+    "http://preview.example.test/result?token=secret-value",
+    "http://preview.example.test/result?api_key=secret-value",
     `http://preview.example.test/result${String.fromCharCode(10)}`,
   ]) {
     assert.throws(

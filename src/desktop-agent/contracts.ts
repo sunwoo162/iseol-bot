@@ -136,6 +136,11 @@ const MUTATION_TYPES = new Set<DesktopOperation["type"]>([
   "GIT_WORKTREE_CREATE",
   "GIT_COMMIT",
 ]);
+const SENSITIVE_HTTP_QUERY_KEYS = new Set([
+  "access_token", "accesstoken", "api_key", "apikey", "auth", "authorization", "bearer",
+  "cookie", "credential", "password", "passwd", "private_key", "privatekey", "refresh_token",
+  "refreshtoken", "secret", "session", "session_id", "sessionid", "sig", "signature", "token",
+]);
 
 function requireText(value: unknown, field: string): asserts value is string {
   if (typeof value !== "string" || !value.trim()) {
@@ -193,6 +198,12 @@ export function assertCheckHttpUrl(value: unknown): asserts value is string {
   }
   if (!parsed.hostname) {
     throw new Error("Desktop CHECK_HTTP URL must include a hostname");
+  }
+  for (const key of parsed.searchParams.keys()) {
+    const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (SENSITIVE_HTTP_QUERY_KEYS.has(normalizedKey) || SENSITIVE_HTTP_QUERY_KEYS.has(key.toLowerCase())) {
+      throw new Error("Desktop CHECK_HTTP URL must not include credential-shaped query parameters");
+    }
   }
   const authority = /^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i.exec(value)?.[1] ?? "";
   if (authority.includes("@") || parsed.username || parsed.password) {
