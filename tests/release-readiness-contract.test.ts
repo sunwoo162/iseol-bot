@@ -6,7 +6,9 @@ import { existsSync } from "node:fs";
 test("release readiness command and CI workflow exist", async () => {
   assert.equal(existsSync("scripts/check-release-readiness.mjs"), true);
   assert.equal(existsSync(".github/workflows/ci.yml"), true);
+  assert.equal(existsSync(".github/workflows/release.yml"), true);
   const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+  const releaseWorkflow = await readFile(".github/workflows/release.yml", "utf8");
   assert.match(workflow, /runs-on:\s*windows-latest/);
   assert.match(workflow, /npm ci/);
   assert.match(workflow, /npm --prefix user-ui ci/);
@@ -20,6 +22,8 @@ test("release readiness command and CI workflow exist", async () => {
   assert.match(workflow, /GITHUB_TOKEN:\s*ci-github-token/);
   assert.match(workflow, /FIGMA_TOKEN:\s*ci-figma-token/);
   assert.match(workflow, /NOTION_TOKEN:\s*ci-notion-token/);
+  assert.match(releaseWorkflow, /gh release view/);
+  assert.match(releaseWorkflow, /gh release create/);
 });
 
 test("release readiness script checks required artifacts and forbidden tracked secrets", async () => {
