@@ -1,7 +1,8 @@
 {
     "name":  "discord-project-automation-bot",
     "version":  "1.0.0",
-    "private":  true,
+    "private":  false,
+    "license":  "AGPL-3.0-only",
     "type":  "module",
     "scripts":  {
                     "test:idea-lab-production-desktop-compiler":  "node --import tsx --test tests/idea-lab-production-desktop-compiler.test.ts tests/desktop-agent-contracts.test.ts tests/desktop-agent-executor.test.ts",
