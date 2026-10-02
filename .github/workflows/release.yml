@@ -20,6 +20,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm --prefix user-ui ci
       - run: npm run check:release
       - run: npm run build
       - run: npm run user-ui:build
