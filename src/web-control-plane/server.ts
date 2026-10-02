@@ -468,6 +468,10 @@ async function handleRequest(
     res.on("close", cleanup);
     return;
   }
+  if (url.pathname === "/health") {
+    sendJson(res, 200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }, { status: "ok" });
+    return;
+  }
   if (url.pathname.startsWith("/api/public/portfolio/")) {
     const response = await routePublicPortfolioRequest({ method: req.method ?? "GET", path: url.pathname, headers: headerRecord(req.headers) }, {
       ...(options.portfolioService ? { portfolioService: options.portfolioService } : {}),
