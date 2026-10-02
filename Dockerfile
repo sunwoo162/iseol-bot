@@ -19,6 +19,7 @@ COPY user-ui/package.json user-ui/package-lock.json ./user-ui/
 RUN npm --prefix user-ui ci --include=dev --ignore-scripts
 COPY user-ui/src ./user-ui/src
 COPY user-ui/index.html user-ui/vite.config.ts user-ui/tsconfig.json ./user-ui/
+COPY user-ui/.figma/make/site.json ./user-ui/.figma/make/site.json
 RUN npm run build && npm run user-ui:build
 
 RUN useradd --create-home --uid 10001 npc \

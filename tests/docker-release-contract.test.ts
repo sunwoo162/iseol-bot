@@ -34,5 +34,6 @@ test("release distribution files declare a non-root image and persistent data vo
   assert.match(dockerfile, /HEALTHCHECK/);
   assert.match(dockerfile, /npm ci --include=dev --ignore-scripts/);
   assert.match(dockerfile, /npm --prefix user-ui ci --include=dev --ignore-scripts/);
+  assert.match(dockerfile, /COPY user-ui\/\.figma\/make\/site\.json/);
   assert.match(compose, /\/app\/data/);
 });
