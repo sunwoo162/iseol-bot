@@ -32,5 +32,7 @@ test("release distribution files declare a non-root image and persistent data vo
   const compose = await readFile("docker-compose.example.yml", "utf8").catch(() => "");
   assert.match(dockerfile, /USER npc/);
   assert.match(dockerfile, /HEALTHCHECK/);
+  assert.match(dockerfile, /npm ci --include=dev --ignore-scripts/);
+  assert.match(dockerfile, /npm --prefix user-ui ci --include=dev --ignore-scripts/);
   assert.match(compose, /\/app\/data/);
 });

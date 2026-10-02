@@ -8,7 +8,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts && npm cache clean --force
+RUN npm ci --include=dev --ignore-scripts && npm cache clean --force
 
 COPY tsconfig.json .env.example iseol-runtime.example.json ./
 COPY iseol-runtime.example.json ./iseol-runtime.json
@@ -16,7 +16,7 @@ COPY src ./src
 COPY scripts ./scripts
 COPY web ./web
 COPY user-ui/package.json user-ui/package-lock.json ./user-ui/
-RUN npm --prefix user-ui ci --ignore-scripts
+RUN npm --prefix user-ui ci --include=dev --ignore-scripts
 COPY user-ui/src ./user-ui/src
 COPY user-ui/index.html user-ui/vite.config.ts user-ui/tsconfig.json ./user-ui/
 RUN npm run build && npm run user-ui:build
