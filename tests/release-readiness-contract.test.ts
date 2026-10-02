@@ -14,6 +14,11 @@ test("release readiness command and CI workflow exist", async () => {
   assert.match(workflow, /npm run user-ui:build/);
   assert.match(workflow, /check-release-readiness/);
   assert.match(workflow, /lfs:\s*true/);
+  assert.match(workflow, /DISCORD_TOKEN:\s*ci-discord-token/);
+  assert.match(workflow, /DISCORD_CLIENT_ID:\s*ci-discord-client/);
+  assert.match(workflow, /GITHUB_TOKEN:\s*ci-github-token/);
+  assert.match(workflow, /FIGMA_TOKEN:\s*ci-figma-token/);
+  assert.match(workflow, /NOTION_TOKEN:\s*ci-notion-token/);
 });
 
 test("release readiness script checks required artifacts and forbidden tracked secrets", async () => {

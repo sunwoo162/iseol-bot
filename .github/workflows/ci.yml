@@ -12,6 +12,13 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Test-only placeholders. They are never used for external service calls.
+      DISCORD_TOKEN: ci-discord-token
+      DISCORD_CLIENT_ID: ci-discord-client
+      GITHUB_TOKEN: ci-github-token
+      FIGMA_TOKEN: ci-figma-token
+      NOTION_TOKEN: ci-notion-token
     steps:
       - uses: actions/checkout@v4
         with:
