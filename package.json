@@ -14,6 +14,7 @@
                     "build":  "tsc -p tsconfig.json",
                     "start":  "node --use-system-ca dist/index.js",
                     "test":  "node scripts/run-test-suite.mjs",
+                    "check:release":  "node scripts/check-release-readiness.mjs",
                     "test:notion":  "node --import tsx --test tests/notion.test.ts",
                     "test:music":  "node --import tsx --test tests/music.test.ts",
                     "test:figma":  "node --import tsx --test tests/figma.test.ts",
