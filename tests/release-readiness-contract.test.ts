@@ -12,6 +12,7 @@ test("release readiness command and CI workflow exist", async () => {
   assert.match(workflow, /npm run build/);
   assert.match(workflow, /npm run user-ui:build/);
   assert.match(workflow, /check-release-readiness/);
+  assert.match(workflow, /lfs:\s*true/);
 });
 
 test("release readiness script checks required artifacts and forbidden tracked secrets", async () => {
