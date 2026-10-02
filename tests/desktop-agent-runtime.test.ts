@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, mkdtemp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -52,7 +52,7 @@ function policyPack(workspace: string, harnessPath: string, operations: DesktopT
 test("workspace guard allows descendants and rejects parent escape", async () => {
   const { allowed, workspace } = await fixture();
   const inside = await assertWorkspaceAccess([allowed], workspace, join(workspace, "docs"));
-  assert.equal(inside, resolve(workspace, "docs"));
+  assert.equal(inside, await realpath(resolve(workspace, "docs")));
   await assert.rejects(
     assertWorkspaceAccess([allowed], workspace, join(workspace, "..", "outside.txt")),
     /outside Desktop workspace/i,
