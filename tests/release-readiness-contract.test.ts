@@ -7,6 +7,7 @@ test("release readiness command and CI workflow exist", async () => {
   assert.equal(existsSync("scripts/check-release-readiness.mjs"), true);
   assert.equal(existsSync(".github/workflows/ci.yml"), true);
   const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+  assert.match(workflow, /runs-on:\s*windows-latest/);
   assert.match(workflow, /npm ci/);
   assert.match(workflow, /npm --prefix user-ui ci/);
   assert.match(workflow, /npm test/);
