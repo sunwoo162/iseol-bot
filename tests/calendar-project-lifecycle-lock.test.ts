@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { withProjectCalendarLifecycleLock } from "../src/services/calendar/calendar-discord.js";
 import { deleteProject, withProjectDeleteLock, type StoredProject } from "../src/services/projects.js";
 
@@ -28,6 +28,7 @@ test("Calendar interaction skips a stale project after waiting for project delet
   const held = new Promise<void>((resolve) => { release = resolve; });
 
   try {
+    await mkdir("data", { recursive: true });
     await writeFile(file, JSON.stringify([project], null, 2), "utf8");
     const deletion = withProjectDeleteLock(project.guildId, project.id, async () => {
       await held;
