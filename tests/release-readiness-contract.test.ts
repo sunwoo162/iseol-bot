@@ -7,6 +7,7 @@ test("release readiness command and CI workflow exist", async () => {
   assert.equal(existsSync("scripts/check-release-readiness.mjs"), true);
   assert.equal(existsSync(".github/workflows/ci.yml"), true);
   assert.equal(existsSync(".github/workflows/release.yml"), true);
+  assert.equal(existsSync("scripts/docker-release-smoke.mjs"), true);
   const workflow = await readFile(".github/workflows/ci.yml", "utf8");
   const releaseWorkflow = await readFile(".github/workflows/release.yml", "utf8");
   assert.match(workflow, /runs-on:\s*windows-latest/);
@@ -24,6 +25,17 @@ test("release readiness command and CI workflow exist", async () => {
   assert.match(workflow, /NOTION_TOKEN:\s*ci-notion-token/);
   assert.match(releaseWorkflow, /gh release view/);
   assert.match(releaseWorkflow, /gh release create/);
+  assert.match(releaseWorkflow, /smoke:docker-release/);
+});
+
+test("release workflow verifies the compose health boundary before publishing", async () => {
+  const releaseWorkflow = await readFile(".github/workflows/release.yml", "utf8");
+  const smoke = await readFile("scripts/docker-release-smoke.mjs", "utf8");
+  assert.match(releaseWorkflow, /npm run smoke:docker-release/);
+  assert.match(smoke, /docker compose/);
+  assert.match(smoke, /\["inspect"/);
+  assert.match(smoke, /healthy/);
+  assert.match(smoke, /"down", "--volumes"/);
 });
 
 test("release readiness script checks required artifacts and forbidden tracked secrets", async () => {
