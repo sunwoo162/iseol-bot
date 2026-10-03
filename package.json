@@ -42,6 +42,7 @@
                     "idea-lab:live:smoke":  "tsx scripts/idea-lab-live-smoke.ts",
                     "iseol:runtime":  "tsx scripts/iseol-runtime-host.ts",
                     "smoke:production-bootstrap":  "node scripts/production-bootstrap-smoke.mjs",
+                    "test:deployment-ssh":  "node --import tsx --test tests/ssh-deploy-contract.test.ts",
                     "setup:self-hosted":  "node scripts/init-self-hosted.mjs",
                     "smoke:docker-release":  "node scripts/docker-release-smoke.mjs",
                     "desktop:agent":  "tsx src/desktop-agent/main.ts",
