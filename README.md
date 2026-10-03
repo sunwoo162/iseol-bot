@@ -31,6 +31,14 @@ npm start
 웹 앱은 `/app/`에서 제공됩니다. 운영 환경에서는 reverse proxy와 HTTPS를
 사용하고, `data/`와 설정 파일을 저장소 밖에 보관하세요.
 
+상태 확인은 `GET /healthz`(프로세스 liveness)와 `GET /readyz`(웹 서비스
+readiness)를 사용합니다. Docker healthcheck는 `/healthz`만 확인하므로
+선택적 외부 연동이 비활성화된 상태에서도 웹 서비스가 정상인지 확인할 수
+있습니다. 런타임이 stale lock으로 시작을 거부하면 `status` 명령의 fingerprint를
+확인한 뒤 문서화된 operator recovery 명령을 명시적으로 실행해야 합니다.
+자세한 복구 절차는 [`docs/ISEOL_RUNTIME_RECOVERY.md`](docs/ISEOL_RUNTIME_RECOVERY.md)를
+참고하세요.
+
 ### Docker
 
 ```bash

@@ -229,6 +229,22 @@ test("runtime host refuses implicit stale lock takeover and requires explicit re
   assert.equal(JSON.parse(await readFile(path, "utf8")).pid, 999999);
 });
 
+test("stale lock startup diagnostics identify the exact lock and recovery fingerprint", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-host-stale-diagnostic-"));
+  const path = join(root, "runtime.lock");
+  const raw = JSON.stringify({ version: 1, pid: 999999, startedAt: "2026-01-01T00:00:00.000Z" });
+  await writeFile(path, raw);
+  await assert.rejects(
+    acquireRuntimeLock(path),
+    (error: unknown) => {
+      assert.match(String(error), /stale Runtime lock requires explicit operator recovery/);
+      assert.match(String(error), new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+      assert.match(String(error), /fingerprint:/i);
+      return true;
+    },
+  );
+});
+
 test("runtime lock inspection distinguishes verified owner, stale identity, and legacy owner uncertainty", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-host-inspect-"));
   const path = join(root, "runtime.lock");

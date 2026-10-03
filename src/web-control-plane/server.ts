@@ -468,6 +468,14 @@ async function handleRequest(
     res.on("close", cleanup);
     return;
   }
+  if (url.pathname === "/healthz") {
+    sendJson(res, 200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }, { status: "ok", live: true, ready: true });
+    return;
+  }
+  if (url.pathname === "/readyz") {
+    sendJson(res, 200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }, { status: "ok", ready: true });
+    return;
+  }
   if (url.pathname === "/health") {
     sendJson(res, 200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }, { status: "ok" });
     return;

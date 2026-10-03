@@ -526,8 +526,10 @@ export async function acquireRuntimeLock(path: string, metadata: { dataRoot?: st
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     let ownerPid: number | null = null;
+    let rawLock = "";
     try {
-      const lock = JSON.parse(await readFile(path, "utf8")) as { pid?: unknown };
+      rawLock = await readFile(path, "utf8");
+      const lock = JSON.parse(rawLock) as { pid?: unknown };
       ownerPid = Number.isInteger(lock.pid) && (lock.pid as number) > 0 ? lock.pid as number : null;
     } catch {
       throw new Error("runtime lock is unreadable; refusing to remove it");
@@ -535,7 +537,7 @@ export async function acquireRuntimeLock(path: string, metadata: { dataRoot?: st
     if (ownerPid !== null) {
       try { process.kill(ownerPid, 0); } catch (probeError) {
         if ((probeError as NodeJS.ErrnoException).code === "ESRCH") {
-          throw new Error("stale Runtime lock requires explicit operator recovery");
+          throw new Error(`stale Runtime lock requires explicit operator recovery (path: ${path}; fingerprint: ${lockFingerprint(rawLock)})`);
         }
         throw new Error("Runtime lock owner could not be verified; refusing takeover");
       }
