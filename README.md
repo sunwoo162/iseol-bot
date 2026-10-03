@@ -55,6 +55,26 @@ docker compose -f docker-compose.example.yml up --build
 컨테이너는 `/app/data`를 영속 볼륨으로 사용하며, 기본 포트는 `3000`입니다.
 외부 연동은 기본적으로 비활성입니다.
 
+### SSH 배포
+
+Docker 없이 Linux 서버에 배포하려면 저장소의 `Deploy over SSH` GitHub Actions
+워크플로를 수동 실행하세요. 이 워크플로는 GitHub Actions에서 빌드·테스트한 뒤
+릴리스 아카이브를 SSH로 서버에 업로드하고, 서버에서 PM2로 `iseol-web` 런타임을
+재시작한 다음 `/healthz`를 확인합니다. Docker는 별도 패키징 선택지이며 SSH
+배포의 필수 조건이 아닙니다.
+
+워크플로의 `production` Environment에 다음 Secrets를 등록해야 합니다.
+
+- `DEPLOY_HOST`, `DEPLOY_PORT`, `DEPLOY_USER`, `DEPLOY_PATH`
+- `DEPLOY_SSH_PRIVATE_KEY`: 배포 전용 SSH 개인 키
+- `DEPLOY_KNOWN_HOSTS`: `ssh-keyscan` 결과를 검토한 뒤 저장한 고정 host key
+
+대상 서버에는 Node.js 22 이상, npm, PM2, curl, tar가 필요합니다. PM2가 없으면
+원격 배포 스크립트가 `pm2`를 찾지 못해 중단하므로 먼저 `npm install --global
+pm2`로 설치하세요. 운영 데이터와 `.env`는 `${DEPLOY_PATH}` 아래에 릴리스와
+분리되어 유지되며, 이전 릴리스는 롤백을 위해 보존됩니다. 실제 공개 서비스는
+이 런타임 앞에 HTTPS reverse proxy를 두세요.
+
 ## 환경변수와 연동
 
 `.env.example`을 복사한 뒤 필요한 값만 설정하세요.
