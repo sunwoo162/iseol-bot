@@ -21,18 +21,19 @@ Notion, Google, Vercel, AI 연동은 사용자가 직접 환경변수를 설정�
 ```bash
 git clone https://github.com/sunwoo162/iseol-bot.git
 cd iseol-bot
-# macOS/Linux: cp .env.example .env
-# PowerShell: Copy-Item .env.example .env
 npm ci
-cp iseol-runtime.example.json iseol-runtime.json
-# PowerShell: Copy-Item iseol-runtime.example.json iseol-runtime.json
-# Edit iseol-runtime.json so its data roots point to writable local folders.
+npm run setup:self-hosted
+# 기본 data/ 대신 다른 위치를 쓰려면:
+# npm run setup:self-hosted -- --data-root ./local-data
 npm run build
 npm run user-ui:build
 npm run iseol:runtime -- start
 ```
 
-위 명령은 Discord 자격증명 없이 웹 제품을 실행합니다. Discord 봇을 별도로
+`setup:self-hosted`는 `.env.example`을 기반으로 `.env`와 `iseol-runtime.json`을
+만들고, 선택한 data root 아래에 필요한 저장소 디렉터리를 생성합니다. 이미 설정
+파일이 있으면 덮어쓰지 않으므로 재설정할 때만 `--force`를 사용하세요. 위 명령은
+Discord 자격증명 없이 웹 제품을 실행합니다. Discord 봇을 별도로
 실행할 때만 `npm start`를 사용하고, 그 경우 Discord·provider 환경변수를
 추가로 설정하세요. 웹 앱은 `/app/`에서 제공됩니다. 운영 환경에서는 reverse
 proxy와 HTTPS를 사용하고, `data/`와 설정 파일을 저장소 밖에 보관하세요.
