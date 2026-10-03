@@ -21,15 +21,21 @@ Notion, Google, Vercel, AI 연동은 사용자가 직접 환경변수를 설정�
 ```bash
 git clone https://github.com/sunwoo162/iseol-bot.git
 cd iseol-bot
-copy .env.example .env
+# macOS/Linux: cp .env.example .env
+# PowerShell: Copy-Item .env.example .env
 npm ci
+cp iseol-runtime.example.json iseol-runtime.json
+# PowerShell: Copy-Item iseol-runtime.example.json iseol-runtime.json
+# Edit iseol-runtime.json so its data roots point to writable local folders.
 npm run build
 npm run user-ui:build
-npm start
+npm run iseol:runtime -- start
 ```
 
-웹 앱은 `/app/`에서 제공됩니다. 운영 환경에서는 reverse proxy와 HTTPS를
-사용하고, `data/`와 설정 파일을 저장소 밖에 보관하세요.
+위 명령은 Discord 자격증명 없이 웹 제품을 실행합니다. Discord 봇을 별도로
+실행할 때만 `npm start`를 사용하고, 그 경우 Discord·provider 환경변수를
+추가로 설정하세요. 웹 앱은 `/app/`에서 제공됩니다. 운영 환경에서는 reverse
+proxy와 HTTPS를 사용하고, `data/`와 설정 파일을 저장소 밖에 보관하세요.
 
 상태 확인은 `GET /healthz`(프로세스 liveness)와 `GET /readyz`(웹 서비스
 readiness)를 사용합니다. Docker healthcheck는 `/healthz`만 확인하므로

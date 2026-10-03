@@ -23,4 +23,7 @@ test("package metadata is publishable and README describes the current product",
   assert.match(readme, /Docker/i);
   assert.match(readme, /환경변수|environment/i);
   assert.match(readme, /Broadcast Room|방송실/);
+  assert.match(readme, /npm run iseol:runtime -- start/);
+  assert.match(readme, /iseol-runtime\.json/);
+  assert.doesNotMatch(readme, /npm start\s*\n/);
 });
