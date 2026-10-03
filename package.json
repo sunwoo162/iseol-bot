@@ -59,7 +59,7 @@
                          "libsodium-wrappers":  "^0.8.4",
                          "play-dl":  "npm:@iamtraction/play-dl@^2.0.1",
                          "playwright-core":  "1.63.0",
-                         "sharp":  "^0.35.3",
+                         "sharp":  "^0.35.5",
                          "ws":  "^8.21.3",
                          "zod":  "^4.5.4"
                      },

@@ -13,6 +13,7 @@ test("release readiness command and CI workflow exist", async () => {
   assert.match(workflow, /runs-on:\s*windows-latest/);
   assert.match(workflow, /npm ci/);
   assert.match(workflow, /npm --prefix user-ui ci/);
+  assert.match(workflow, /npm audit --audit-level=high/);
   assert.match(workflow, /npm test/);
   assert.match(workflow, /npm run build/);
   assert.match(workflow, /npm run user-ui:build/);
@@ -27,6 +28,7 @@ test("release readiness command and CI workflow exist", async () => {
   assert.match(releaseWorkflow, /gh release create/);
   assert.match(releaseWorkflow, /smoke:docker-release/);
   assert.match(releaseWorkflow, /DISCORD_TOKEN:\s*release-discord-token/);
+  assert.match(releaseWorkflow, /npm audit --audit-level=high/);
   assert.match(releaseWorkflow, /npm test/);
   assert.match(releaseWorkflow, /npm run test:iseol-user-product/);
 });
