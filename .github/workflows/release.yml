@@ -25,6 +25,8 @@ jobs:
       - run: npm run build
       - run: npm run user-ui:build
       - run: docker build --tag npc:${GITHUB_REF_NAME} .
+      - name: Verify compose health before publishing
+        run: npm run smoke:docker-release
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
