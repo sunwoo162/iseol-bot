@@ -56,3 +56,16 @@ test("relogin clears the unauthenticated store state before the protected shell 
   assert.match(auth, /import \{ setProfile \} from '\.\.\/store\/userStore'/);
   assert.match(auth, /setProfile\(\{ status: 'loading'/);
 });
+
+test("login form enforces the same eight-character password minimum as the server", async () => {
+  const auth = await readFile(join(process.cwd(), "user-ui", "src", "pages", "Auth.tsx"), "utf8");
+  assert.match(auth, /else if \(password\.length < 8\)/);
+  assert.match(auth, /비밀번호는 8자 이상이어야 합니다/);
+  assert.match(auth, /id="login-pw"[\s\S]*minLength=\{8\}/);
+});
+
+test("signup surfaces server-side validation instead of reporting only a runtime outage", async () => {
+  const auth = await readFile(join(process.cwd(), "user-ui", "src", "pages", "Auth.tsx"), "utf8");
+  assert.match(auth, /error\.status === 400/);
+  assert.match(auth, /비밀번호는 8자 이상이어야 합니다/);
+});
