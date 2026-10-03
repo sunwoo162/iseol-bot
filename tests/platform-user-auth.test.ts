@@ -48,6 +48,17 @@ test("user auth routes create and resolve a platform session", async () => {
   assert.equal(login.status, 200);
 });
 
+test("signup returns a client error for a password outside the server policy", async () => {
+  const root = await mkdtemp(join(tmpdir(), "iseol-platform-auth-validation-"));
+  const service = createPlatformUserService(root, { now: () => "2026-09-25T12:00:00.000Z" });
+  const result = await routeUserRequest({
+    method: "POST", path: "/api/user/signup", headers: {},
+    body: { email: "short-password@example.com", displayName: "Short Password", timezone: "Asia/Seoul", password: "short" },
+  }, service);
+  assert.equal(result.status, 400);
+  assert.deepEqual(result.body, { error: "password must be between 8 and 256 characters" });
+});
+
 test("top-level user routes reject raw backslash normalization before session mutation", async () => {
   const root = await mkdtemp(join(tmpdir(), "iseol-platform-auth-raw-path-"));
   const service = createPlatformUserService(root, { now: () => "2026-09-25T12:00:00.000Z" });

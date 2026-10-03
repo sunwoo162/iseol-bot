@@ -63,7 +63,7 @@ export function LoginPage() {
     if (!email.trim()) e.email = '이메일을 입력해주세요.';
     else if (!EMAIL_RE.test(email)) e.email = '올바른 이메일 형식이 아닙니다.';
     if (!password) e.password = '비밀번호를 입력해주세요.';
-    else if (password.length < 4) e.password = '비밀번호가 너무 짧습니다.';
+    else if (password.length < 8) e.password = '비밀번호는 8자 이상이어야 합니다.';
     return e;
   };
 
@@ -120,6 +120,7 @@ export function LoginPage() {
               onChange={e => { setPassword(e.target.value); setErrors(p => ({ ...p, password: undefined })); }}
               placeholder="••••••••"
               autoComplete="current-password"
+              minLength={8}
               className="w-full px-4 py-3 pr-12 rounded-xl border-2 outline-none text-sm transition-all"
               style={{ border: `2px solid ${errors.password ? '#f43f5e' : '#bae8ff'}`, color: '#0f1b35' }}
               onFocus={e => e.currentTarget.style.borderColor = errors.password ? '#f43f5e' : '#3b82f6'}
@@ -204,7 +205,7 @@ export function SignupPage() {
       await signUp({ email: form.email.trim(), displayName: form.name.trim(), password: form.password });
       navigate('/onboarding');
     } catch (error) {
-      setErrors({ general: error instanceof UserApiError && error.status === 409 ? '이미 가입된 이메일입니다.' : '계정을 만들 수 없습니다. 로컬 Runtime 연결을 확인해주세요.' });
+          setErrors({ general: error instanceof UserApiError && error.status === 409 ? '이미 가입된 이메일입니다.' : error instanceof UserApiError && error.status === 400 ? '비밀번호는 8자 이상이어야 합니다.' : '계정을 만들 수 없습니다. 로컬 Runtime 연결을 확인해주세요.' });
     } finally {
       setCreating(false);
     }

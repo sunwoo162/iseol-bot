@@ -65,7 +65,17 @@ export async function routeUserRequest(
       return response(400, { error: "email, displayName, timezone, and password are required" });
     }
     if (await service.findUserByEmail(body.email)) return response(409, { error: "user already exists" });
-    const user = await service.createUser({ email: body.email, displayName: body.displayName, timezone: body.timezone, password: body.password });
+    let user;
+    try {
+      user = await service.createUser({ email: body.email, displayName: body.displayName, timezone: body.timezone, password: body.password });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "user validation failed";
+      if (/password must be between/i.test(message)) return response(400, { error: "password must be between 8 and 256 characters" });
+      if (/valid user email/i.test(message)) return response(400, { error: "valid email is required" });
+      if (/display name is required/i.test(message)) return response(400, { error: "display name is required" });
+      if (/timezone is required/i.test(message)) return response(400, { error: "timezone is required" });
+      throw error;
+    }
     const session = await service.createSession({ userId: user.id, roles: ["user"], expiresAt: sessionExpiry() });
     return response(201, { user, session: { id: session.id, token: session.token, expiresAt: session.expiresAt } });
   }
