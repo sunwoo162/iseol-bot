@@ -26,6 +26,9 @@ test("release readiness command and CI workflow exist", async () => {
   assert.match(releaseWorkflow, /gh release view/);
   assert.match(releaseWorkflow, /gh release create/);
   assert.match(releaseWorkflow, /smoke:docker-release/);
+  assert.match(releaseWorkflow, /DISCORD_TOKEN:\s*release-discord-token/);
+  assert.match(releaseWorkflow, /npm test/);
+  assert.match(releaseWorkflow, /npm run test:iseol-user-product/);
 });
 
 test("release workflow verifies the compose health boundary before publishing", async () => {

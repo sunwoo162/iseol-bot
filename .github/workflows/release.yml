@@ -11,6 +11,13 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Test-only placeholders. They are never used for external service calls.
+      DISCORD_TOKEN: release-discord-token
+      DISCORD_CLIENT_ID: release-discord-client
+      GITHUB_TOKEN: release-github-token
+      FIGMA_TOKEN: release-figma-token
+      NOTION_TOKEN: release-notion-token
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,6 +31,8 @@ jobs:
       - run: npm run check:release
       - run: npm run build
       - run: npm run user-ui:build
+      - run: npm test
+      - run: npm run test:iseol-user-product
       - run: docker build --tag npc:${GITHUB_REF_NAME} .
       - name: Verify compose health before publishing
         run: npm run smoke:docker-release
