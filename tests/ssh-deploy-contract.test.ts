@@ -6,8 +6,10 @@ const workflow = readFileSync(".github/workflows/deploy-ssh.yml", "utf8");
 const remoteScript = readFileSync("scripts/ssh-remote-deploy.sh", "utf8");
 const ecosystem = readFileSync("ecosystem.config.cjs", "utf8");
 
-test("SSH deployment workflow is manually gated and uses pinned host keys", () => {
+test("SSH deployment runs automatically only after opt-in, and manual dispatch remains available", () => {
+  assert.match(workflow, /push:\s*\n\s+branches: \[main\]/);
   assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /vars\.AUTO_DEPLOY == 'true'/);
   assert.match(workflow, /environment: production/);
   assert.match(workflow, /DEPLOY_SSH_PRIVATE_KEY/);
   assert.match(workflow, /DEPLOY_KNOWN_HOSTS/);
@@ -19,6 +21,9 @@ test("SSH deployment preserves releases and runs a remote health check", () => {
   assert.match(remoteScript, /releases\/\$\{release_id\}/);
   assert.match(remoteScript, /npm ci --omit=optional/);
   assert.match(remoteScript, /pm2 startOrReload/);
+  assert.match(remoteScript, /--only iseol-bot/);
+  assert.match(remoteScript, /previous_release/);
+  assert.match(remoteScript, /rollback/);
   assert.match(remoteScript, /\/healthz/);
   assert.match(remoteScript, /current_link/);
   assert.match(remoteScript, /ln -s \"\$\{deploy_root\}\/\.env\"/);
