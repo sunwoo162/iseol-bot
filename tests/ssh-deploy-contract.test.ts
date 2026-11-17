@@ -32,6 +32,8 @@ test("SSH deployment preserves releases and runs a remote health check", () => {
 test("PM2 defines the web runtime separately from the Discord bot", () => {
   assert.match(ecosystem, /name: "iseol-bot"/);
   assert.match(ecosystem, /name: "iseol-web"/);
+  assert.match(ecosystem, /ISEOL_CAREERON_OUTBOX_FILE/);
+  assert.match(ecosystem, /path\.dirname\(runtimeConfig\)/);
   assert.match(ecosystem, /scripts\/iseol-runtime-host\.ts start/);
   assert.equal(existsSync("scripts/ssh-remote-deploy.sh"), true);
 });

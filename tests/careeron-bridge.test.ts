@@ -4,7 +4,7 @@ import { createHmac } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CareerOnContestBridge, type CareerOnBridgeOptions } from "../src/services/careeron-bridge.js";
+import { CareerOnContestBridge, resolveCareerOnOutboxFile, type CareerOnBridgeOptions } from "../src/services/careeron-bridge.js";
 
 const contest = {
   title: "청소년 AI 아이디어 공모전",
@@ -22,6 +22,13 @@ const contest = {
 };
 const secret = "careeron-bridge-test-secret-which-is-at-least-32-characters";
 const fixedNow = Date.parse("2026-11-17T01:00:00Z");
+
+test("CareerOn outbox resolves to a shared data path instead of a release-local folder", () => {
+  const releaseDirectory = join(tmpdir(), "iseol", "releases", "release-1");
+  const sharedPath = join(tmpdir(), "iseol", "data", "careeron-opportunity-outbox.json");
+  assert.equal(resolveCareerOnOutboxFile(releaseDirectory, sharedPath), sharedPath);
+  assert.equal(resolveCareerOnOutboxFile(releaseDirectory), join(releaseDirectory, "data", "careeron-opportunity-outbox.json"));
+});
 
 async function withOutbox(run: (options: CareerOnBridgeOptions, file: string) => Promise<void>) {
   const directory = await mkdtemp(join(tmpdir(), "iseol-careeron-"));
@@ -78,5 +85,42 @@ test("Iseol retains failed CareerOn deliveries and retries them on a later poll"
     const second = await bridge.syncOnce();
     assert.deepEqual(second, { discovered: 1, delivered: 1, pending: 0 });
     assert.equal(calls, 2);
+  });
+});
+
+test("Iseol flushes an already durable batch even when the next contest discovery fails", async () => {
+  await withOutbox(async options => {
+    let discoveryFails = false;
+    let sends = 0;
+    const bridge = new CareerOnContestBridge({
+      ...options,
+      listContests: async () => {
+        if (discoveryFails) throw new Error("source unavailable");
+        return [contest];
+      },
+      fetchImpl: async () => {
+        sends++;
+        return sends === 1
+          ? new Response("temporarily unavailable", { status: 503 })
+          : new Response(JSON.stringify({ ok: true, accepted: 1 }), { status: 200 });
+      },
+      log: () => undefined,
+    });
+
+    assert.deepEqual(await bridge.syncOnce(), { discovered: 1, delivered: 0, pending: 1 });
+    discoveryFails = true;
+    assert.deepEqual(await bridge.syncOnce(), { discovered: 0, delivered: 1, pending: 0 });
+    assert.equal(sends, 2);
+  });
+});
+
+test("Iseol refuses to overwrite a malformed outbox and preserves it for operator recovery", async () => {
+  await withOutbox(async (options, file) => {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(file, JSON.stringify([{ sourceId: "missing-contest-payload" }]), "utf8");
+    const bridge = new CareerOnContestBridge({ ...options, listContests: async () => [], fetchImpl: async () => new Response("unexpected"), log: () => undefined });
+
+    await assert.rejects(bridge.syncOnce(), /invalid entries/);
+    assert.equal(await readFile(file, "utf8"), JSON.stringify([{ sourceId: "missing-contest-payload" }]));
   });
 });

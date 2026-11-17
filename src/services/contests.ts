@@ -517,6 +517,43 @@ async function loadSource(source: SourceDefinition): Promise<Contest[]> {
   return details.filter((contest): contest is Contest => contest !== null);
 }
 
+function cloneContest(contest: Contest): Contest {
+  return {
+    ...contest,
+    sources: [...contest.sources],
+    attachments: contest.attachments.map((attachment) => ({ ...attachment })),
+  };
+}
+
+/** Coalesce simultaneous consumers and briefly reuse one immutable discovery snapshot. */
+export function createContestSnapshotCache(
+  load: () => Promise<Contest[]>,
+  ttlMs = 5 * 60 * 1000,
+  now: () => number = Date.now,
+): () => Promise<Contest[]> {
+  let snapshot: Contest[] | undefined;
+  let fetchedAt = 0;
+  let pending: Promise<Contest[]> | undefined;
+
+  return async () => {
+    const age = now() - fetchedAt;
+    if (snapshot && age >= 0 && age < ttlMs) return snapshot.map(cloneContest);
+    if (pending) return pending.then((contests) => contests.map(cloneContest));
+
+    const request = Promise.resolve().then(load).then((contests) => {
+      snapshot = contests.map(cloneContest);
+      fetchedAt = now();
+      return snapshot;
+    });
+    pending = request;
+    try {
+      return (await request).map(cloneContest);
+    } finally {
+      if (pending === request) pending = undefined;
+    }
+  };
+}
+
 function richerValue(current?: string, incoming?: string): string | undefined {
   if (!current) return incoming;
   if (!incoming) return current;
@@ -546,7 +583,7 @@ function mergeContest(current: Contest, incoming: Contest): Contest {
   };
 }
 
-export async function listActiveItContests(): Promise<Contest[]> {
+async function loadActiveItContests(): Promise<Contest[]> {
   const settled = await Promise.allSettled(SOURCES.map((source) => loadSource(source)));
   const merged = new Map<string, Contest>();
 
@@ -566,4 +603,10 @@ export async function listActiveItContests(): Promise<Contest[]> {
   });
 
   return [...merged.values()].sort((a, b) => a.title.localeCompare(b.title, "ko"));
+}
+
+const getActiveItContestSnapshot = createContestSnapshotCache(loadActiveItContests);
+
+export async function listActiveItContests(): Promise<Contest[]> {
+  return getActiveItContestSnapshot();
 }

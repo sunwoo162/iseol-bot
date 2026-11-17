@@ -2,6 +2,8 @@ const path = require("node:path");
 
 const cwd = process.env.ISEOL_RELEASE_DIR || __dirname;
 const runtimeConfig = process.env.ISEOL_RUNTIME_CONFIG || path.join(cwd, "iseol-runtime.json");
+const careerOnOutboxFile = process.env.ISEOL_CAREERON_OUTBOX_FILE
+  || path.join(path.dirname(runtimeConfig), "data", "careeron-opportunity-outbox.json");
 
 module.exports = {
   apps: [
@@ -16,6 +18,7 @@ module.exports = {
       exp_backoff_restart_delay: 100,
       env: {
         NODE_ENV: "production",
+        ISEOL_CAREERON_OUTBOX_FILE: careerOnOutboxFile,
       },
     },
     {

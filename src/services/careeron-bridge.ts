@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { Contest } from "./contests.js";
 import { listActiveItContests } from "./contests.js";
 import { withDurableFileStateLock } from "./file-state-lock.js";
@@ -8,7 +8,13 @@ import { withDurableFileStateLock } from "./file-state-lock.js";
 const POLL_INTERVAL_MS = 60 * 60 * 1000;
 const BATCH_SIZE = 25;
 const MAX_PENDING = 2000;
-const OUTBOX_FILE = resolve(process.cwd(), "data", "careeron-opportunity-outbox.json");
+const OUTBOX_NAME = "careeron-opportunity-outbox.json";
+
+export function resolveCareerOnOutboxFile(cwd = process.cwd(), configuredPath = process.env.ISEOL_CAREERON_OUTBOX_FILE): string {
+  return resolve(configuredPath?.trim() || join(cwd, "data", OUTBOX_NAME));
+}
+
+const OUTBOX_FILE = resolveCareerOnOutboxFile();
 
 export type CareerOnPendingContest = {
   sourceId: string;
@@ -52,13 +58,27 @@ async function readOutbox(file: string): Promise<CareerOnPendingContest[]> {
   try {
     const value = JSON.parse(await readFile(file, "utf8")) as unknown;
     if (!Array.isArray(value)) throw new Error("CareerOn outbox is not an array");
-    return value.filter((item): item is CareerOnPendingContest => Boolean(item)
-      && typeof item === "object"
-      && typeof (item as CareerOnPendingContest).sourceId === "string"
-      && typeof (item as CareerOnPendingContest).firstSeenAt === "string"
-      && Number.isInteger((item as CareerOnPendingContest).attempts)
-      && typeof (item as CareerOnPendingContest).contest?.url === "string"
-      && typeof (item as CareerOnPendingContest).contest?.title === "string");
+    const sourceIds = new Set<string>();
+    for (const item of value) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new Error("CareerOn outbox contains invalid entries; refusing to drop pending contests");
+      }
+      const pending = item as CareerOnPendingContest;
+      const sourceId = typeof pending.sourceId === "string" ? pending.sourceId.toLowerCase() : "";
+      if (!/^[a-f0-9]{64}$/.test(sourceId)
+        || typeof pending.firstSeenAt !== "string"
+        || !Number.isFinite(Date.parse(pending.firstSeenAt))
+        || !Number.isInteger(pending.attempts)
+        || pending.attempts < 0
+        || !pending.contest
+        || typeof pending.contest.url !== "string"
+        || typeof pending.contest.title !== "string"
+        || sourceIds.has(sourceId)) {
+        throw new Error("CareerOn outbox contains invalid entries; refusing to drop pending contests");
+      }
+      sourceIds.add(sourceId);
+    }
+    return value as CareerOnPendingContest[];
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
@@ -99,11 +119,12 @@ export class CareerOnContestBridge {
       for (const contest of contests) {
         if (!contest.title?.trim() || !contest.url?.trim()) continue;
         const url = canonicalUrl(contest.url);
-        const sourceId = createHash("sha256").update(url).digest("hex");
+        const canonicalContest = { ...contest, url };
+        const sourceId = careerOnContestSourceId(canonicalContest);
         const current = byId.get(sourceId);
         byId.set(sourceId, {
           sourceId,
-          contest: { ...contest, url },
+          contest: canonicalContest,
           firstSeenAt: current?.firstSeenAt ?? at,
           attempts: current?.attempts ?? 0,
         });
@@ -163,11 +184,17 @@ export class CareerOnContestBridge {
   async syncOnce(): Promise<{ discovered: number; delivered: number; pending: number }> {
     if (this.running) return { discovered: 0, delivered: 0, pending: (await readOutbox(this.outboxFile)).length };
     this.running = true;
+    let discovered = 0;
     try {
-      const contests = await this.listContests();
-      const pending = await this.enqueue(contests);
+      try {
+        const contests = await this.listContests();
+        discovered = contests.length;
+        await this.enqueue(contests);
+      } catch (error) {
+        this.log(`CareerOn contest discovery/enqueue failed; flushing existing outbox (${error instanceof Error ? error.name : "unknown error"})`);
+      }
       const result = await this.flush();
-      return { discovered: contests.length, delivered: result.delivered, pending: Math.max(0, pending - result.delivered) };
+      return { discovered, delivered: result.delivered, pending: result.pending };
     } finally {
       this.running = false;
     }
