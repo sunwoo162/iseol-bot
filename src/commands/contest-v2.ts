@@ -181,7 +181,7 @@ export async function handleContestCommandV2(interaction: ChatInputCommandIntera
     await interaction.editReply(
       `${created ? "✅" : "ℹ️"} **${label}** 대상 공모전 전용 채널을 ${created ? "만들었습니다" : "이미 사용 중입니다"}.\n` +
       `<#${state.channelId}>에 조건에 맞는 현재 진행 중 IT 공모전을 가져왔습니다. 새로 게시한 공모전: **${added}개**\n` +
-      "이후 **1시간마다** 같은 참가대상 조건으로 새 공모전을 확인합니다. 기존 공모전 채널의 필터 설정은 변경하지 않습니다.",
+      "새 공고는 매일 **오전 9시(한국 시간)**에 수집합니다. 채널 동기화와 마감 알림은 **1시간마다** 확인합니다. 기존 공모전 채널의 필터 설정은 변경하지 않습니다.",
     );
   } catch (error) {
     const message = formatUserFacingError(error);

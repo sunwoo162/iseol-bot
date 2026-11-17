@@ -895,5 +895,5 @@ export async function syncAllContestFeeds(client: Client): Promise<void> {
 export function startContestFeedPolling(client: Client): void {
   void syncAllContestFeeds(client);
   setInterval(() => void syncAllContestFeeds(client), CONTEST_POLL_INTERVAL_MS);
-  console.log("IT 공모전 자동 수집 시작: 1시간 간격");
+  console.log("IT 공모전 채널 동기화 시작: 1시간 간격 (출처 수집은 매일 09:00 KST)");
 }

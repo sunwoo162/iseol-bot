@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createContestSnapshotCache, normalizeContestCandidateUrl, type Contest } from "../src/services/contests.js";
+import { millisecondsUntilNextKstNine } from "../src/services/contest-discovery-scheduler.js";
 
 const sourceUrl = "https://www.all-con.co.kr";
 const contest: Contest = {
@@ -43,6 +44,24 @@ test("failed contest discovery is not cached", async () => {
   await assert.rejects(getSnapshot(), /temporary scrape failure/);
   assert.deepEqual(await getSnapshot(), [contest]);
   assert.equal(calls, 2);
+});
+
+test("a failed forced refresh preserves the previous good contest snapshot for feed consumers", async () => {
+  let fail = false;
+  const getSnapshot = createContestSnapshotCache(async () => {
+    if (fail) throw new Error("source outage");
+    return [contest];
+  });
+  assert.deepEqual(await getSnapshot(), [contest]);
+  fail = true;
+  await assert.rejects(getSnapshot.refresh(), /source outage/);
+  assert.deepEqual(await getSnapshot(), [contest]);
+});
+
+test("scheduled contest refresh computes the next 09:00 Korea time across UTC dates", () => {
+  assert.equal(millisecondsUntilNextKstNine(Date.parse("2026-11-16T23:00:00.000Z")), 60 * 60 * 1000);
+  assert.equal(millisecondsUntilNextKstNine(Date.parse("2026-11-17T00:00:00.000Z")), 24 * 60 * 60 * 1000);
+  assert.equal(millisecondsUntilNextKstNine(Date.parse("2026-11-17T01:00:00.000Z")), 23 * 60 * 60 * 1000);
 });
 
 test("contest candidate URLs preserve the configured source origin", () => {

@@ -205,7 +205,7 @@ export async function createContestAudienceFeed(
     await channel.send({
       embeds: [new EmbedBuilder()
         .setTitle(`🏆 ${label} 대상 IT 공모전`)
-        .setDescription(`이설이가 진행 중인 **웹/모바일/IT 공모전** 중 참가대상이 **${label}** 조건에 맞는 공모전만 이 채널에 올립니다.\n현재 공모전을 바로 가져오고 이후 **1시간마다** 새 공모전을 확인합니다. 과반수 투표가 모이면 기존 공모전 기능과 동일하게 준비 공간을 생성할 수 있습니다.`)],
+        .setDescription(`이설이가 진행 중인 **웹/모바일/IT 공모전** 중 참가대상이 **${label}** 조건에 맞는 공모전만 이 채널에 올립니다.\n새 공고는 매일 **오전 9시(한국 시간)**에 수집하고, 채널 동기화와 마감 알림은 **1시간마다** 확인합니다. 과반수 투표가 모이면 기존 공모전 기능과 동일하게 준비 공간을 생성할 수 있습니다.`)],
     });
 
     return { state, created: true };
@@ -422,5 +422,5 @@ export async function syncAllContestAudienceFeeds(client: Client): Promise<void>
 export function startContestAudienceFeedPolling(client: Client): void {
   void syncAllContestAudienceFeeds(client);
   setInterval(() => void syncAllContestAudienceFeeds(client), POLL_INTERVAL_MS);
-  console.log("참가대상별 IT 공모전 자동 수집 시작: 1시간 간격");
+  console.log("참가대상별 공모전 채널 동기화 시작: 1시간 간격 (출처 수집은 매일 09:00 KST)");
 }

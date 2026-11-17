@@ -18,6 +18,7 @@ import { commandHelpEmbed } from "./services/command-help.js";
 import { handleCalendarButton, handleCalendarModal } from "./services/calendar/calendar-discord.js";
 import { startContestAudienceFeedPolling } from "./services/contest-audience-feed.js";
 import { startContestFeedPolling } from "./services/contest-feed.js";
+import { startDailyContestDiscoveryPolling } from "./services/contest-discovery-scheduler.js";
 import { ensureContestPrepAnnouncementChannels } from "./services/contest-prep-announcement.js";
 import { startDailyScrumReminderScheduler } from "./services/daily-scrum.js";
 import { resetGuildState } from "./services/guild-reset.js";
@@ -121,9 +122,10 @@ client.once(Events.ClientReady, async (readyClient) => {
       if (!shuttingDown) iseolRuntimeServices = services;
     })
     .catch((error) => console.error("Iseol runtime composition failed", error));
+  const syncCareerOnSnapshot = startCareerOnContestBridge(config.careerOnIngestUrl, config.careerOnWebhookSecret);
+  startDailyContestDiscoveryPolling(syncCareerOnSnapshot ?? undefined);
   startContestFeedPolling(client);
   startContestAudienceFeedPolling(client);
-  startCareerOnContestBridge(config.careerOnIngestUrl, config.careerOnWebhookSecret);
   startJobFeedPolling(client);
   startGitHubCommitFeedPolling(client);
   startVoiceStudyHeartbeat();

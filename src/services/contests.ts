@@ -528,30 +528,48 @@ function cloneContest(contest: Contest): Contest {
 /** Coalesce simultaneous consumers and briefly reuse one immutable discovery snapshot. */
 export function createContestSnapshotCache(
   load: () => Promise<Contest[]>,
-  ttlMs = 5 * 60 * 1000,
+  ttlMs = 24 * 60 * 60 * 1000,
   now: () => number = Date.now,
-): () => Promise<Contest[]> {
+): (() => Promise<Contest[]>) & { refresh: () => Promise<Contest[]> } {
   let snapshot: Contest[] | undefined;
   let fetchedAt = 0;
   let pending: Promise<Contest[]> | undefined;
 
-  return async () => {
+  const loadSnapshot = async () => {
+    if (!pending) {
+      const request = Promise.resolve().then(load).then((contests) => {
+        snapshot = contests.map(cloneContest);
+        fetchedAt = now();
+        return snapshot;
+      });
+      pending = request;
+      void request.then(
+        () => { if (pending === request) pending = undefined; },
+        () => { if (pending === request) pending = undefined; },
+      );
+    }
+    return (await pending).map(cloneContest);
+  };
+
+  const getSnapshot = async () => {
+    if (pending) {
+      try { return (await pending).map(cloneContest); }
+      catch (error) {
+        if (snapshot) return snapshot.map(cloneContest);
+        throw error;
+      }
+    }
     const age = now() - fetchedAt;
     if (snapshot && age >= 0 && age < ttlMs) return snapshot.map(cloneContest);
-    if (pending) return pending.then((contests) => contests.map(cloneContest));
-
-    const request = Promise.resolve().then(load).then((contests) => {
-      snapshot = contests.map(cloneContest);
-      fetchedAt = now();
-      return snapshot;
-    });
-    pending = request;
-    try {
-      return (await request).map(cloneContest);
-    } finally {
-      if (pending === request) pending = undefined;
+    try { return await loadSnapshot(); }
+    catch (error) {
+      if (snapshot) return snapshot.map(cloneContest);
+      throw error;
     }
   };
+
+  getSnapshot.refresh = loadSnapshot;
+  return getSnapshot;
 }
 
 function richerValue(current?: string, incoming?: string): string | undefined {
@@ -586,6 +604,7 @@ function mergeContest(current: Contest, incoming: Contest): Contest {
 async function loadActiveItContests(): Promise<Contest[]> {
   const settled = await Promise.allSettled(SOURCES.map((source) => loadSource(source)));
   const merged = new Map<string, Contest>();
+  let successfulSources = 0;
 
   settled.forEach((result, index) => {
     const source = SOURCES[index];
@@ -594,6 +613,7 @@ async function loadActiveItContests(): Promise<Contest[]> {
       return;
     }
 
+    successfulSources++;
     for (const contest of result.value) {
       const key = normalizeTitle(contest.title);
       if (!key) continue;
@@ -602,6 +622,8 @@ async function loadActiveItContests(): Promise<Contest[]> {
     }
   });
 
+  if (successfulSources === 0) throw new Error("모든 공모전 출처 수집에 실패했습니다.");
+
   return [...merged.values()].sort((a, b) => a.title.localeCompare(b.title, "ko"));
 }
 
@@ -609,4 +631,8 @@ const getActiveItContestSnapshot = createContestSnapshotCache(loadActiveItContes
 
 export async function listActiveItContests(): Promise<Contest[]> {
   return getActiveItContestSnapshot();
+}
+
+export async function refreshActiveItContests(): Promise<Contest[]> {
+  return getActiveItContestSnapshot.refresh();
 }

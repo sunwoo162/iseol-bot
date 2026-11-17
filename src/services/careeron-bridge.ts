@@ -5,7 +5,7 @@ import type { Contest } from "./contests.js";
 import { listActiveItContests } from "./contests.js";
 import { withDurableFileStateLock } from "./file-state-lock.js";
 
-const POLL_INTERVAL_MS = 60 * 60 * 1000;
+const OUTBOX_RETRY_INTERVAL_MS = 15 * 60 * 1000;
 const BATCH_SIZE = 25;
 const MAX_PENDING = 2000;
 const OUTBOX_NAME = "careeron-opportunity-outbox.json";
@@ -99,6 +99,7 @@ export class CareerOnContestBridge {
   private readonly listContests: () => Promise<Contest[]>;
   private readonly log: (message: string) => void;
   private running = false;
+  private flushing: Promise<{ delivered: number; pending: number }> | null = null;
 
   constructor(private readonly options: CareerOnBridgeOptions) {
     this.endpoint = validateEndpoint(options.endpoint);
@@ -181,20 +182,35 @@ export class CareerOnContestBridge {
     return { delivered, pending: (await readOutbox(this.outboxFile)).length };
   }
 
+  async flushPending(): Promise<{ delivered: number; pending: number }> {
+    if (this.flushing) return this.flushing;
+    const current = this.flush();
+    this.flushing = current;
+    try {
+      return await current;
+    } finally {
+      if (this.flushing === current) this.flushing = null;
+    }
+  }
+
+  async syncSnapshot(contests: Contest[]): Promise<{ discovered: number; delivered: number; pending: number }> {
+    try {
+      await this.enqueue(contests);
+    } catch (error) {
+      this.log(`CareerOn contest enqueue failed; flushing existing outbox (${error instanceof Error ? error.name : "unknown error"})`);
+    }
+    const result = await this.flushPending();
+    return { discovered: contests.length, delivered: result.delivered, pending: result.pending };
+  }
+
   async syncOnce(): Promise<{ discovered: number; delivered: number; pending: number }> {
     if (this.running) return { discovered: 0, delivered: 0, pending: (await readOutbox(this.outboxFile)).length };
     this.running = true;
-    let discovered = 0;
     try {
-      try {
-        const contests = await this.listContests();
-        discovered = contests.length;
-        await this.enqueue(contests);
-      } catch (error) {
-        this.log(`CareerOn contest discovery/enqueue failed; flushing existing outbox (${error instanceof Error ? error.name : "unknown error"})`);
-      }
-      const result = await this.flush();
-      return { discovered, delivered: result.delivered, pending: result.pending };
+      let contests: Contest[] = [];
+      try { contests = await this.listContests(); }
+      catch (error) { this.log(`CareerOn contest discovery failed; flushing existing outbox (${error instanceof Error ? error.name : "unknown error"})`); }
+      return await this.syncSnapshot(contests);
     } finally {
       this.running = false;
     }
@@ -204,7 +220,7 @@ export class CareerOnContestBridge {
 export function startCareerOnContestBridge(
   rawEndpoint = process.env.CAREERON_INGEST_URL,
   rawSecret = process.env.CAREERON_WEBHOOK_SECRET,
-): NodeJS.Timeout | null {
+): ((contests: Contest[]) => Promise<void>) | null {
   const endpoint = rawEndpoint?.trim();
   const secret = rawSecret?.trim();
   if (!endpoint || !secret) {
@@ -217,11 +233,12 @@ export function startCareerOnContestBridge(
     console.error("CareerOn contest bridge configuration invalid", error instanceof Error ? error.message : "unknown error");
     return null;
   }
-  const run = () => { void bridge.syncOnce().then(result => {
-    if (result.discovered || result.delivered || result.pending) console.log(`CareerOn contest sync: discovered=${result.discovered} delivered=${result.delivered} pending=${result.pending}`);
-  }).catch(error => console.error("CareerOn contest sync failed", error instanceof Error ? error.message : "unknown error")); };
-  run();
-  const timer = setInterval(run, POLL_INTERVAL_MS);
+  const retry = () => { void bridge.flushPending().catch(error => console.error("CareerOn outbox retry failed", error instanceof Error ? error.message : "unknown error")); };
+  retry();
+  const timer = setInterval(retry, OUTBOX_RETRY_INTERVAL_MS);
   timer.unref?.();
-  return timer;
+  return async (contests) => {
+    const result = await bridge.syncSnapshot(contests);
+    if (result.discovered || result.delivered || result.pending) console.log(`CareerOn contest sync: discovered=${result.discovered} delivered=${result.delivered} pending=${result.pending}`);
+  };
 }

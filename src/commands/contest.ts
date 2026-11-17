@@ -270,7 +270,7 @@ export async function handleContestCommand(interaction: ChatInputCommandInteract
     const state = await createContestFeed(interaction.guild);
     const added = await syncContestFeed(interaction.client, state);
 
-    await interaction.editReply(`✅ 공모전 자동 수집 공간을 만들었습니다.\n<#${state.channelId}>에 현재 진행 중인 IT 공모전 **${added}개**를 게시했고, 이후 **1시간마다** 새 공모전을 확인합니다.\n기본 참가대상 필터는 **전체**입니다.`);
+    await interaction.editReply(`✅ 공모전 자동 수집 공간을 만들었습니다.\n<#${state.channelId}>에 현재 진행 중인 IT 공모전 **${added}개**를 게시했습니다. 새 공고는 매일 **오전 9시(한국 시간)**에 수집하고, 채널 동기화와 마감 알림은 **1시간마다** 확인합니다.\n기본 참가대상 필터는 **전체**입니다.`);
   } catch (error) {
     const message = formatUserFacingError(error);
     await interaction.editReply(`❌ 공모전 자동 수집 설정에 실패했습니다.\n\`${message}\``);
