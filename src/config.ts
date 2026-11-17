@@ -28,6 +28,8 @@ export const config = {
   googleRefreshToken: optional("GOOGLE_REFRESH_TOKEN"),
   googleRedirectUri: optional("GOOGLE_REDIRECT_URI"),
   geminiApiKey: optional("GEMINI_API_KEY"),
+  careerOnIngestUrl: optional("CAREERON_INGEST_URL"),
+  careerOnWebhookSecret: optional("CAREERON_WEBHOOK_SECRET"),
   githubWebhookSecret: optional("GITHUB_WEBHOOK_SECRET"),
   iseolWebHost: optional("ISEOL_WEB_HOST"),
   iseolWebPort: optional("ISEOL_WEB_PORT"),

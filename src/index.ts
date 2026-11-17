@@ -24,6 +24,7 @@ import { resetGuildState } from "./services/guild-reset.js";
 import { startGitHubCommitFeedPolling } from "./services/github-commit-feed.js";
 import { GitHubWebhookService } from "./services/github.js";
 import { startJobFeedPolling } from "./services/job-feed.js";
+import { startCareerOnContestBridge } from "./services/careeron-bridge.js";
 import { ensureProjectDiscussionChannels } from "./services/project-discussion.js";
 import { routeInteraction, type InteractionRouterDependencies } from "./interactions/interaction-router.js";
 import { handleProjectJoinButton, handleProjectJoinModal } from "./interactions/project-join.js";
@@ -122,6 +123,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     .catch((error) => console.error("Iseol runtime composition failed", error));
   startContestFeedPolling(client);
   startContestAudienceFeedPolling(client);
+  startCareerOnContestBridge(config.careerOnIngestUrl, config.careerOnWebhookSecret);
   startJobFeedPolling(client);
   startGitHubCommitFeedPolling(client);
   startVoiceStudyHeartbeat();
