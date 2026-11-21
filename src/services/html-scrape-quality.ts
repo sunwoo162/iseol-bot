@@ -46,7 +46,7 @@ export async function decodeScrapedHtml(response: Response,{context='public-page
   const meta=ascii.match(/<meta\b[^>]*charset\s*=\s*["']?\s*([\w-]+)/i)?.[1]??
     ascii.match(/<meta\b[^>]*content\s*=\s*["'][^"']*charset\s*=\s*([\w-]+)/i)?.[1];
   const candidates=[...(bytes[0]===0xef&&bytes[1]===0xbb&&bytes[2]===0xbf?['utf-8']:[]),
-    normalizeEncoding(declared),normalizeEncoding(meta),'utf-8','euc-kr'].filter(Boolean);
+    normalizeEncoding(declared),normalizeEncoding(meta),'utf-8','euc-kr'].filter((value): value is string => Boolean(value));
   const errors: string[]=[];
   for(const encoding of new Set(candidates)){
     try{
