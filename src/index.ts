@@ -126,7 +126,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   startDailyContestDiscoveryPolling(syncCareerOnSnapshot ?? undefined);
   startContestFeedPolling(client);
   startContestAudienceFeedPolling(client);
-  startJobFeedPolling(client);
+  startJobFeedPolling(client, syncCareerOnSnapshot?.syncJobs);
   startGitHubCommitFeedPolling(client);
   startVoiceStudyHeartbeat();
 
