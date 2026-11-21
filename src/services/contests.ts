@@ -259,8 +259,8 @@ async function collectSourceCandidates(source: SourceDefinition): Promise<Candid
     } catch (error) {
       // Invalid HTML/charset or a blocked page is not a legitimate end-of-list.
       // Abandon this source; consumers keep the last verified snapshot.
-      if (page === 1 || (error instanceof Error && error.message.includes('HTML_QUALITY:'))) throw error;
-      break;
+      if (page > 1 && error instanceof Error && /HTML_QUALITY:HTTP\\b.*HTTP 404/.test(error.message)) break;
+      throw error;
     }
 
     const candidates = extractCandidates(html, source);
@@ -622,7 +622,11 @@ async function loadActiveItContests(): Promise<Contest[]> {
   settled.forEach((result, index) => {
     const source = SOURCES[index];
     if (result.status === "rejected") {
-      console.warn(`공모전 출처 조회 실패 (${source?.source ?? "알 수 없음"})`, result.reason);
+      const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      console.warn('ISEOL_SCRAPE_HEALTH '+JSON.stringify({
+        status:'failed',source:source?.source??'unknown',at:new Date().toISOString(),
+        reason:message.slice(0,450),
+      }));
       return;
     }
 
@@ -635,7 +639,12 @@ async function loadActiveItContests(): Promise<Contest[]> {
     }
   });
 
-  if (successfulSources === 0) throw new Error("모든 공모전 출처 수집에 실패했습니다.");
+  if (successfulSources === 0 || merged.size === 0) {
+    console.error('ISEOL_SCRAPE_HEALTH '+JSON.stringify({
+      status:'failed',source:'ALL',at:new Date().toISOString(),reason:'No verified contests',
+    }));
+    throw new Error('공모전 수집 품질 검사 실패: 유효한 공모전 0건 (기존 스냅샷 보존)');
+  }
 
   return [...merged.values()].sort((a, b) => a.title.localeCompare(b.title, "ko"));
 }
