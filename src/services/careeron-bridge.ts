@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { Contest } from "./contests.js";
+import type { JobPosting } from "./job-discovery.js";
 import { listActiveItContests } from "./contests.js";
 import { withDurableFileStateLock } from "./file-state-lock.js";
 
@@ -18,7 +19,7 @@ const OUTBOX_FILE = resolveCareerOnOutboxFile();
 
 export type CareerOnPendingContest = {
   sourceId: string;
-  contest: Contest;
+  contest: Contest | JobPosting;
   firstSeenAt: string;
   attempts: number;
 };
@@ -112,7 +113,7 @@ export class CareerOnContestBridge {
 
   private get outboxFile(): string { return this.options.outboxFile ?? OUTBOX_FILE; }
 
-  async enqueue(contests: Contest[]): Promise<number> {
+  async enqueue(contests: (Contest | JobPosting)[]): Promise<number> {
     const at = new Date(this.now()).toISOString();
     return withDurableFileStateLock(this.outboxFile, async () => {
       const pending = await readOutbox(this.outboxFile);
@@ -148,7 +149,7 @@ export class CareerOnContestBridge {
         version: 1,
         syncId: `iseol-${timestamp}-${offset}`,
         checkedAt: Number(timestamp),
-        contests: batch.map(item => ({ ...item.contest, kind: "공모전", sourceId: item.sourceId })),
+        contests: batch.map(item => ({ ...item.contest, kind: "kind" in item.contest ? item.contest.kind : "공모전", sourceId: item.sourceId })),
       });
       const signature = createHmac("sha256", this.options.secret).update(`${timestamp}.${body}`).digest("hex");
       try {
@@ -203,6 +204,13 @@ export class CareerOnContestBridge {
     return { discovered: contests.length, delivered: result.delivered, pending: result.pending };
   }
 
+  async syncJobs(jobs: JobPosting[]): Promise<{ discovered: number; delivered: number; pending: number }> {
+    // One signed, durable outbox for both opportunity types.
+    await this.enqueue(jobs);
+    const result = await this.flushPending();
+    return { discovered: jobs.length, ...result };
+  }
+
   async syncOnce(): Promise<{ discovered: number; delivered: number; pending: number }> {
     if (this.running) return { discovered: 0, delivered: 0, pending: (await readOutbox(this.outboxFile)).length };
     this.running = true;
@@ -217,10 +225,12 @@ export class CareerOnContestBridge {
   }
 }
 
+export type CareerOnOpportunitySink = ((contests: Contest[]) => Promise<void>) & { syncJobs: (jobs: JobPosting[]) => Promise<void> };
+
 export function startCareerOnContestBridge(
   rawEndpoint = process.env.CAREERON_INGEST_URL,
   rawSecret = process.env.CAREERON_WEBHOOK_SECRET,
-): ((contests: Contest[]) => Promise<void>) | null {
+): CareerOnOpportunitySink | null {
   const endpoint = rawEndpoint?.trim();
   const secret = rawSecret?.trim();
   if (!endpoint || !secret) {
@@ -237,8 +247,13 @@ export function startCareerOnContestBridge(
   retry();
   const timer = setInterval(retry, OUTBOX_RETRY_INTERVAL_MS);
   timer.unref?.();
-  return async (contests) => {
+  const sink = (async (contests: Contest[]) => {
     const result = await bridge.syncSnapshot(contests);
     if (result.discovered || result.delivered || result.pending) console.log(`CareerOn contest sync: discovered=${result.discovered} delivered=${result.delivered} pending=${result.pending}`);
+  }) as CareerOnOpportunitySink;
+  sink.syncJobs = async (jobs: JobPosting[]) => {
+    const result = await bridge.syncJobs(jobs);
+    if (result.discovered || result.delivered || result.pending) console.log(`CareerOn job sync: discovered=${result.discovered} delivered=${result.delivered} pending=${result.pending}`);
   };
+  return sink;
 }
