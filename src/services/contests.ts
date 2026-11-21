@@ -1,3 +1,5 @@
+import { decodeScrapedHtml } from './html-scrape-quality.js';
+
 const REQUEST_TIMEOUT_MS = 15_000;
 const DETAIL_CONCURRENCY = 6;
 
@@ -243,8 +245,8 @@ async function fetchHtml(url: string): Promise<string> {
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.text();
+  const decoded = await decodeScrapedHtml(response, { context: url });
+  return decoded.html;
 }
 
 async function collectSourceCandidates(source: SourceDefinition): Promise<Candidate[]> {
@@ -255,12 +257,17 @@ async function collectSourceCandidates(source: SourceDefinition): Promise<Candid
     try {
       html = await fetchHtml(source.buildListUrl(page));
     } catch (error) {
-      if (page === 1) throw error;
+      // Invalid HTML/charset or a blocked page is not a legitimate end-of-list.
+      // Abandon this source; consumers keep the last verified snapshot.
+      if (page === 1 || (error instanceof Error && error.message.includes('HTML_QUALITY:'))) throw error;
       break;
     }
 
     const candidates = extractCandidates(html, source);
-    if (candidates.length === 0) break;
+    if (candidates.length === 0) {
+      if (page === 1) throw new Error('[HTML_STRUCTURE] '+source.source+': 첫 목록에서 공모전 링크를 찾지 못했습니다. 사이트 구조/차단 여부를 확인하세요.');
+      break;
+    }
 
     const before = all.size;
     for (const candidate of candidates) all.set(candidate.url, candidate);
@@ -505,14 +512,20 @@ async function loadSource(source: SourceDefinition): Promise<Contest[]> {
   const candidates = await collectSourceCandidates(source);
   const unique = [...new Map(candidates.map((candidate) => [candidate.url, candidate])).values()];
 
+  let failedDetails = 0;
   const details = await mapWithConcurrency(unique, DETAIL_CONCURRENCY, async (candidate) => {
     try {
       return parseDetail(candidate, await fetchHtml(candidate.url));
     } catch (error) {
+      failedDetails += 1;
       console.warn(`공모전 상세 조회 실패 (${candidate.source} - ${candidate.title})`, error);
       return null;
     }
   });
+  if (unique.length > 0 && failedDetails === unique.length) {
+    throw new Error('[HTML_DETAIL_FAILURE] '+source.source+': 모든 상세 페이지 수집 실패 ('+failedDetails+'/'+unique.length+')');
+  }
+  if (failedDetails > 0) console.warn('[HTML_DETAIL_PARTIAL] '+source.source+': 실패 '+failedDetails+'/'+unique.length);
 
   return details.filter((contest): contest is Contest => contest !== null);
 }
