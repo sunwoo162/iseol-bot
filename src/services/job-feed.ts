@@ -100,7 +100,7 @@ export function startJobFeedPolling(
     let retry=false;
     try{
       const results=await collect(sources);
-      const success=results.filter((r):r is Extract<JobSourceResult,{ok:true}>>=>r.ok);
+      const success=results.filter((r):r is Extract<JobSourceResult,{ok:true}>=>r.ok);
       const failed=results.filter(r=>!r.ok);
       if(failed.length)retry=true;
       if(!success.length)throw new Error("모든 채용 소스 수집 실패");
